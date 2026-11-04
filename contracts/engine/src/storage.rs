@@ -17,7 +17,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::json_types::U128;
 use near_sdk::{env, near, require, AccountId, NearToken, Promise};
 
-use crate::types::ClassId;
+use crate::types::{ClassId, Venue};
 use crate::{assert_one_yocto, Contract, ContractExt, RoseEvent};
 
 /// Longest NEAR account id, in bytes.
@@ -37,6 +37,11 @@ pub const HOLDING_ROW_BYTES: u64 =
 /// Bytes of one cash row: key (map prefix, account id, `Venue::Base` with its 42-character
 /// token, the longest venue) and the `u128` balance.
 pub const CASH_ROW_BYTES: u64 = RECORD_OVERHEAD + (1 + 4 + MAX_ACCOUNT_LEN + 1 + 4 + 42) + 16;
+/// Bytes a Base cash venue outside the accepted list adds on top of its cash row: its entry in
+/// the account's list of such venues, charged as a whole one-entry record (key: map prefix and
+/// account id; value: the list with one 42-character token), so the record itself is paid
+/// whichever entry creates it.
+pub const OTHER_VENUE_ENTRY_BYTES: u64 = RECORD_OVERHEAD + (1 + 4 + MAX_ACCOUNT_LEN) + 4 + (4 + 42);
 /// Bytes of one lien share row: key (map prefix, lien id, account id) and the 32-byte
 /// `LienShare`. Paid from the funder's bid deposit.
 pub const LIEN_SHARE_ROW_BYTES: u64 = RECORD_OVERHEAD + (1 + 8 + 4 + MAX_ACCOUNT_LEN) + 32;
@@ -87,10 +92,7 @@ impl Contract {
         let registration_only = registration_only.unwrap_or(false);
         let min = self.min_storage_deposit();
         let refund = match self.storage_accounts.get(&account).cloned() {
-            Some(existing) if registration_only => {
-                self.storage_accounts.insert(account.clone(), existing);
-                attached
-            }
+            Some(_) if registration_only || attached == 0 => attached,
             Some(mut existing) => {
                 existing.deposit = existing
                     .deposit
@@ -173,14 +175,31 @@ impl Contract {
             !self.has_obligations(&account),
             "Storage cannot be withdrawn while the account has live bids, locked units, liens or custody actions in flight"
         );
-        require!(
-            record.used_bytes <= STORAGE_ACCOUNT_BYTES,
-            if force.unwrap_or(false) {
-                "Cannot force-unregister an account holding units, claimable tokens or cash"
-            } else {
-                "Account still holds units, claimable tokens or cash"
-            }
-        );
+        if record.used_bytes > STORAGE_ACCOUNT_BYTES {
+            let mut held: Vec<String> = record
+                .classes
+                .iter()
+                .map(|class_id| format!("class {class_id} (units or claimable tokens)"))
+                .collect();
+            held.extend(
+                self.get_cash(account.clone())
+                    .into_iter()
+                    .filter(|cash| cash.amount.0 > 0)
+                    .map(|cash| match cash.venue {
+                        Venue::Near => "NEAR cash".to_string(),
+                        Venue::Base { token } => format!("Base cash in {token}"),
+                    }),
+            );
+            env::panic_str(&format!(
+                "{}: {}; withdraw or transfer it first",
+                if force.unwrap_or(false) {
+                    "Cannot force-unregister an account holding units, claimable tokens or cash"
+                } else {
+                    "Account still holds units, claimable tokens or cash"
+                },
+                held.join(", ")
+            ));
+        }
         self.storage_accounts.remove(&account);
         if record.deposit > 0 {
             Promise::new(account.clone())

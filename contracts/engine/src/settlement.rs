@@ -150,6 +150,7 @@ impl Contract {
             );
         }
         self.bids.remove(&(round_id.0, bid_id));
+        self.release_storage(&bid.bidder, bid.reserved_row_bytes);
         let venue = &round.venue;
         let treasury = self.config.fee_recipient.clone();
         let f_now = self.fraction_now(&round.class_id);

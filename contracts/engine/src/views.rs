@@ -531,13 +531,16 @@ impl Contract {
         }
     }
 
-    /// Free cash of `account` in every venue.
+    /// Free cash of `account` in every venue: `Near`, every accepted Base token (0 when none),
+    /// then every other Base token it holds a balance in (credited by a Base cash registration,
+    /// withdrawable, but hosting no round).
     pub fn get_cash(&self, account: AccountId) -> Vec<CashView> {
         let mut venues = vec![Venue::Near];
         venues.extend(
             self.config
                 .base_cash_tokens
                 .iter()
+                .chain(self.other_cash_venues_of(&account).iter())
                 .map(|token| Venue::Base {
                     token: token.clone(),
                 }),

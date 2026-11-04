@@ -4,7 +4,9 @@
 //! `withdraw_near_cash`. Base venues are funded by RoseVault `depositCash` proofs and emptied by
 //! RoseVault authorizations (foreign wiring), through `credit_cash` and `debit_cash`. Each
 //! `(account, venue)` row with a balance is charged to the account's NEP-145 storage
-//! ([`CASH_ROW_BYTES`]) and released when the balance returns to zero.
+//! ([`CASH_ROW_BYTES`], plus [`OTHER_VENUE_ENTRY_BYTES`] for a Base token outside the accepted
+//! list, which the account's list of such venues records) and released when the balance returns
+//! to zero.
 
 use near_sdk::json_types::U128;
 use near_sdk::{
@@ -12,7 +14,7 @@ use near_sdk::{
     PromiseOrValue,
 };
 
-use crate::storage::CASH_ROW_BYTES;
+use crate::storage::{CASH_ROW_BYTES, OTHER_VENUE_ENTRY_BYTES};
 use crate::types::Venue;
 use crate::{Contract, ContractExt, RoseEvent};
 
@@ -121,14 +123,37 @@ impl Contract {
             .unwrap_or(0)
     }
 
-    /// Bytes a new cash row of `venue` would add to `account`: [`CASH_ROW_BYTES`] when it has
-    /// no balance there yet, `0` otherwise.
+    /// Bytes a new cash row of `venue` would add to `account`: the row when it has no balance
+    /// there yet (see [`Self::cash_row_bytes`]), `0` otherwise.
     pub(crate) fn cash_row_bytes_needed(&self, account: &AccountId, venue: &Venue) -> u64 {
         if self.cash.contains_key(&(account.clone(), venue.clone())) {
             0
         } else {
+            self.cash_row_bytes(venue)
+        }
+    }
+
+    /// Bytes of a cash row of `venue`: [`CASH_ROW_BYTES`], plus [`OTHER_VENUE_ENTRY_BYTES`] for
+    /// a Base token outside the accepted list (its entry in the account's list of such venues).
+    pub(crate) fn cash_row_bytes(&self, venue: &Venue) -> u64 {
+        if self.is_other_venue(venue) {
+            CASH_ROW_BYTES + OTHER_VENUE_ENTRY_BYTES
+        } else {
             CASH_ROW_BYTES
         }
+    }
+
+    /// True for a Base cash token outside `config.base_cash_tokens`.
+    fn is_other_venue(&self, venue: &Venue) -> bool {
+        matches!(venue, Venue::Base { token } if !self.config.base_cash_tokens.contains(token))
+    }
+
+    /// Base cash tokens outside the accepted list `account` holds a balance in.
+    pub(crate) fn other_cash_venues_of(&self, account: &AccountId) -> Vec<String> {
+        self.other_cash_venues
+            .get(account)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Adds `amount` to `account`'s free cash in `venue`. Internal API for Base cash deposits,
@@ -148,7 +173,15 @@ impl Contract {
             .unwrap_or_else(|| env::panic_str("Cash overflow"));
         self.cash.insert(key, balance);
         if existing.is_none() {
-            self.charge_storage(account, CASH_ROW_BYTES);
+            self.charge_storage(account, self.cash_row_bytes(venue));
+            if let Venue::Base { token } = venue {
+                if self.is_other_venue(venue) {
+                    self.other_cash_venues
+                        .entry(account.clone())
+                        .or_default()
+                        .push(token.clone());
+                }
+            }
         }
     }
 
@@ -165,7 +198,15 @@ impl Contract {
             .unwrap_or_else(|| env::panic_str("Insufficient cash"));
         if balance == 0 {
             self.cash.remove(&key);
-            self.release_storage(account, CASH_ROW_BYTES);
+            self.release_storage(account, self.cash_row_bytes(venue));
+            if let Venue::Base { token } = venue {
+                if let Some(tokens) = self.other_cash_venues.get_mut(account) {
+                    tokens.retain(|listed| listed != token);
+                    if tokens.is_empty() {
+                        self.other_cash_venues.remove(account);
+                    }
+                }
+            }
         } else {
             self.cash.insert(key, balance);
         }

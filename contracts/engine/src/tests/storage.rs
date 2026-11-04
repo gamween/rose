@@ -457,3 +457,122 @@ fn a_near_cash_deposit_needs_room_for_its_row() {
         .detach();
     assert_eq!(cash(&contract, &alice), 2 * USDC);
 }
+
+#[test]
+fn an_exit_bid_reserves_the_buyers_holding_row_until_it_settles() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let other = stepped_class(&mut contract, 9);
+    let (seller, buyer) = (accounts(1), accounts(2));
+    mint(&mut contract, &class, &seller, 2_000_000, ts(1_000));
+    mint(&mut contract, &other, &accounts(3), 1_000, ts(1_000));
+    fund(&mut contract, &seller, USDC, ts(1_000));
+    fund(&mut contract, &buyer, 2_500_000, ts(1_000));
+    let round = create_exit(
+        &mut contract,
+        &accounts(0),
+        &class,
+        2_000_000,
+        ts(2_500),
+        ts(6_000),
+    );
+    let (ask, ask_sealed) = place_ask(
+        &mut contract,
+        round,
+        &seller,
+        2_000_000,
+        1_000_000,
+        2_000_000,
+        ts(3_000),
+    );
+    let (bid, bid_sealed) = place_bid(
+        &mut contract,
+        round,
+        &buyer,
+        2_000_000,
+        1_200_000,
+        1_500_000,
+        ts(3_500),
+    );
+    let used = |contract: &Contract| contract.storage_accounts.get(&buyer).unwrap().used_bytes;
+    assert_eq!(
+        used(&contract),
+        STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES,
+        "the bid reserves the row its units will land on (its cash went into the escrow)"
+    );
+    // Units of another class now need room of their own: the reserved bytes are taken.
+    env(&accounts(3), one_yocto(), ts(3_600));
+    panics_with("Insufficient storage deposit", || {
+        contract.mt_transfer(buyer.clone(), other.clone(), U128(10), None, None)
+    });
+    let received = close_and_release(&mut contract, round, ts(6_000));
+    open(&mut contract, round, ask, &ask_sealed, received + NS);
+    open(&mut contract, round, bid, &bid_sealed, received + NS);
+    clear(&mut contract, round, received + REVEAL_WINDOW);
+    settle(&mut contract, round, bid, ts(7_000));
+    assert_eq!(contract.mt_balance_of(buyer.clone(), class).0, 2_000_000);
+    assert_eq!(
+        used(&contract),
+        STORAGE_ACCOUNT_BYTES + CASH_ROW_BYTES + HOLDING_ROW_BYTES,
+        "the reservation became the row, once"
+    );
+    assert_eq!(
+        contract.storage_shortfall(&buyer, 0),
+        0,
+        "the buyer's deposit pays every byte it uses"
+    );
+}
+
+#[test]
+fn base_cash_outside_the_accepted_list_is_listed_charged_and_named_at_unregistration() {
+    let mut contract = init();
+    let account = accounts(1);
+    register(&mut contract, &account, ts(1_000));
+    let other = Venue::Base {
+        token: format!("0x{}", "c".repeat(40)),
+    };
+    let accepted = Venue::Base {
+        token: "0x036cbd53842c5426634e7929541ec2318f3dcf7e".into(),
+    };
+    env_at(&engine(), ts(1_000));
+    let before = contract.storage_accounts.get(&account).unwrap().used_bytes;
+    contract.credit_cash(&account, &other, 5);
+    assert_eq!(
+        contract.storage_accounts.get(&account).unwrap().used_bytes - before,
+        CASH_ROW_BYTES + crate::OTHER_VENUE_ENTRY_BYTES
+    );
+    let longest: AccountId = "b".repeat(64).parse().unwrap();
+    contract.register_with_budget(&longest, 0);
+    flush(&mut contract);
+    contract.other_cash_venues.flush();
+    let start = near_sdk::env::storage_usage();
+    contract.credit_cash(&longest, &other, 1);
+    flush(&mut contract);
+    contract.other_cash_venues.flush();
+    let measured = near_sdk::env::storage_usage() - start;
+    assert_eq!(
+        measured,
+        CASH_ROW_BYTES + crate::OTHER_VENUE_ENTRY_BYTES,
+        "the charge is the measured worst case: the row and its list record"
+    );
+    let cash = contract.get_cash(account.clone());
+    assert_eq!(
+        cash.iter().map(|c| c.venue.clone()).collect::<Vec<_>>(),
+        vec![Venue::Near, accepted, other.clone()],
+        "every venue with a balance is shown"
+    );
+    assert_eq!(cash[2].amount, U128(5));
+    env(&account, one_yocto(), ts(1_001));
+    panics_with(&format!("Base cash in 0x{}", "c".repeat(40)), || {
+        contract.storage_unregister(None)
+    });
+    env_at(&engine(), ts(1_002));
+    contract.debit_cash(&account, &other, 5);
+    assert_eq!(
+        contract.storage_accounts.get(&account).unwrap().used_bytes,
+        before
+    );
+    assert_eq!(contract.get_cash(account.clone()).len(), 2);
+    env(&account, one_yocto(), ts(1_003));
+    assert!(contract.storage_unregister(None));
+}

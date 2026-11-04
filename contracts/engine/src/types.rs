@@ -284,6 +284,10 @@ pub struct Bid {
     pub bond: u128,
     /// NEAR attached as storage deposit, yoctoNEAR.
     pub storage_deposit: u128,
+    /// Bytes of the bidder's storage reserved for the holding row an Exit buy may create
+    /// (`HOLDING_ROW_BYTES` when the bidder held no row of the class at bid time, else 0);
+    /// released at settlement, before the bought units land.
+    pub reserved_row_bytes: u64,
     /// Opened values.
     pub opened: Option<Opened>,
     /// Void reason set at opening.

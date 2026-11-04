@@ -382,7 +382,7 @@ impl Contract {
 
     /// Bytes a new row of `class_id` would add to `account`: `HOLDING_ROW_BYTES` when it holds
     /// nothing of the class yet, `0` otherwise.
-    fn row_bytes_needed(&self, account: &AccountId, class_id: &ClassId) -> u64 {
+    pub(crate) fn row_bytes_needed(&self, account: &AccountId, class_id: &ClassId) -> u64 {
         if self
             .holdings
             .contains_key(&(Holder::Account(account.clone()), class_id.clone()))

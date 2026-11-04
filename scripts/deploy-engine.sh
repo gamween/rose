@@ -4,9 +4,11 @@
 # with the `new` init call, calls `bootstrap` (the MPC-derived vault addresses), waits for it and
 # prints the derived addresses. With --keyless, every access key of the engine is deleted and
 # `view_access_key_list` is checked to be empty (the final deployment: no upgrade is possible
-# afterwards).
+# afterwards). The balance pays the code, the full event history (1,024 entries of at most 448
+# bytes, which no caller pays for: `new` refuses to initialize without it) and the 0.5 NEAR MPC
+# reserve: about 15.2 NEAR with a 1 MB wasm, hence the 17 NEAR default.
 #
-# Usage: scripts/deploy-engine.sh <engine account> [--role staging|final] [--balance "12 NEAR"]
+# Usage: scripts/deploy-engine.sh <engine account> [--role staging|final] [--balance "17 NEAR"]
 #                                 [--rose-vault <0x address>] [--keyless] [--skip-create]
 # The RoseVault address defaults to the one recorded for <engine account> in deployments/testnet.json
 # by scripts/deploy-base.sh (the vault must be deployed first: its signer is derived from the
@@ -16,7 +18,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_tools near curl jq shasum
 
-engine="" role="staging" balance="12 NEAR" rose_vault="" keyless=0 skip_create=0
+engine="" role="staging" balance="17 NEAR" rose_vault="" keyless=0 skip_create=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --role) role="$2"; shift 2 ;;

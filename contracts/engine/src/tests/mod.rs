@@ -7,6 +7,7 @@ mod accrual;
 mod advance;
 mod custody;
 mod custody_solana;
+mod events;
 mod exit;
 mod guards;
 mod layout;
@@ -217,7 +218,12 @@ fn fresh_env() {
 
 pub fn init() -> Contract {
     fresh_env();
-    Contract::new(InitArgs {
+    Contract::new(test_init_args())
+}
+
+/// The initialization arguments of the tests.
+pub fn test_init_args() -> InitArgs {
+    InitArgs {
         mpc_account: "v1.signer-prod.testnet".parse().unwrap(),
         sign_secp256k1_domain: 0,
         sign_ed25519_domain: 1,
@@ -233,7 +239,7 @@ pub fn init() -> Contract {
         streamflow_program: "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ".to_string(),
         default_key_timeout: None,
         default_reveal_window: None,
-    })
+    }
 }
 
 /// Engine-derived foreign addresses of the tests that do not exercise `bootstrap` (the custody

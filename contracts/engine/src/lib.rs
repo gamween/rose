@@ -47,7 +47,7 @@ pub use custody::{
 pub use events::{RoseEvent, StoredEvent, EVENT_CAPACITY, EVENT_STANDARD, EVENT_VERSION};
 pub use storage::{
     StorageBalance, StorageBalanceBounds, CASH_ROW_BYTES, HOLDING_ROW_BYTES, LIEN_SHARE_ROW_BYTES,
-    STORAGE_ACCOUNT_BYTES,
+    OTHER_VENUE_ENTRY_BYTES, STORAGE_ACCOUNT_BYTES,
 };
 pub use types::*;
 pub use units::{MtReceiver, Token};
@@ -62,6 +62,9 @@ pub const BID_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(20);
 /// Storage deposit required to create a round. It stays with the round record, which remains on
 /// chain as public history whether the round settles or is cancelled.
 pub const ROUND_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(50);
+/// Bytes `new` allows for the state it writes (the configuration and the empty collections),
+/// above what the account stores before init.
+pub const INIT_STATE_BYTES: u64 = 2_000;
 /// Largest number of bids a round accepts, so `clear` fits one transaction.
 pub const MAX_BIDS_PER_ROUND: u32 = 64;
 /// Largest number of receivers of one `distribute_units` call.
@@ -108,6 +111,7 @@ enum StorageKey {
     PriceHistory,
     PriceHistoryClass { class_id: ClassId },
     StorageAccounts,
+    OtherCashVenues,
 }
 
 /// The engine.
@@ -134,6 +138,10 @@ pub struct Contract {
     events_total: u64,
     price_history: LookupMap<ClassId, Vector<PricePoint>>,
     storage_accounts: LookupMap<AccountId, storage::StorageAccount>,
+    /// Per account, the Base cash tokens outside `config.base_cash_tokens` it holds a balance
+    /// in (any token is credited, only accepted ones are listed by default), so the cash view
+    /// shows every balance; each entry is paid with its cash row ([`OTHER_VENUE_ENTRY_BYTES`]).
+    other_cash_venues: LookupMap<AccountId, Vec<String>>,
     rounds_settled: u64,
     volume_settled: u128,
     custody: CustodyState,
@@ -176,6 +184,15 @@ impl Contract {
             !args.streamflow_program.is_empty(),
             "Streamflow program id is required"
         );
+        let required = storage::bytes_cost(
+            env::storage_usage() + INIT_STATE_BYTES + events::EVENT_HISTORY_RESERVE_BYTES,
+        ) + custody::MPC_BALANCE_RESERVE.as_yoctonear();
+        require!(
+            env::account_balance().as_yoctonear() >= required,
+            format!(
+                "Fund the engine with at least {required} yoctoNEAR before init: its code and state, the full event history (nobody pays for its entries) and the MPC reserve"
+            )
+        );
         Self {
             config: Config {
                 mpc_account: args.mpc_account,
@@ -212,6 +229,7 @@ impl Contract {
             events_total: 0,
             price_history: LookupMap::new(StorageKey::PriceHistory),
             storage_accounts: LookupMap::new(StorageKey::StorageAccounts),
+            other_cash_venues: LookupMap::new(StorageKey::OtherCashVenues),
             rounds_settled: 0,
             volume_settled: 0,
             custody: CustodyState::new(),

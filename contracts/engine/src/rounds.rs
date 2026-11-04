@@ -203,7 +203,8 @@ impl Contract {
     /// 192-byte IBE ciphertext of `(quantity, limit_price, salt)` encrypted to the round
     /// identity and bound to `(round_id, caller, side = Buy)`. `escrow` cash base units are taken
     /// from the caller's cash in the round venue, plus the bond `max(1 USDC, 1% of escrow)`. An
-    /// Exit buyer must be registered with room for a holding row of the class.
+    /// Exit buyer must be registered with room for a holding row of the class, which the bid
+    /// reserves until it settles.
     /// Attaches `BID_STORAGE_DEPOSIT`, refunded when the bid settles. One bid per account per
     /// round. Returns the bid id.
     #[payable]
@@ -216,10 +217,14 @@ impl Contract {
             round.kind != RoundKind::Tender,
             "A Tender has one buyer, the issuer"
         );
+        let mut reserved_row_bytes = 0;
         if round.kind == RoundKind::Exit {
-            // An Exit buyer receives units: its storage must already hold the row they will
-            // need, so the engine never pays it (storage cannot be withdrawn while the bid lives).
+            // An Exit buyer receives units: its storage must hold the row they will need, and
+            // the bid reserves it so nothing else (another class received meanwhile) uses the
+            // same bytes, so the engine never pays it.
             self.check_row_capacity(&bidder, &round.class_id);
+            reserved_row_bytes = self.row_bytes_needed(&bidder, &round.class_id);
+            self.charge_storage(&bidder, reserved_row_bytes);
         }
         let bond = (escrow.0 / 100).max(ONE_USDC);
         let total = escrow
@@ -235,6 +240,7 @@ impl Contract {
             escrow.0,
             None,
             bond,
+            reserved_row_bytes,
         )
     }
 
@@ -285,7 +291,7 @@ impl Contract {
             }
         };
         self.debit_cash(&seller, &round.venue, bond);
-        let bid_id = self.store_order(round_id.0, seller, Side::Sell, ciphertext, 0, lock, bond);
+        let bid_id = self.store_order(round_id.0, seller, Side::Sell, ciphertext, 0, lock, bond, 0);
         if round.kind == RoundKind::Advance {
             let terms = self
                 .round_mut(round_id.0)
@@ -437,6 +443,7 @@ impl Contract {
         escrow: u128,
         lock: Option<Lock>,
         bond: u128,
+        reserved_row_bytes: u64,
     ) -> BidId {
         let round = self.round_mut(round_id);
         let bid_id = round.bid_count;
@@ -452,6 +459,7 @@ impl Contract {
                 lock,
                 bond,
                 storage_deposit: env::attached_deposit().as_yoctonear(),
+                reserved_row_bytes,
                 opened: None,
                 void: None,
                 placed_at: env::block_timestamp(),
