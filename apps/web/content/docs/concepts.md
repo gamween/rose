@@ -9,24 +9,26 @@ section: Introduction
 
 A class is a set of positions that are economically identical: same chain, same protocol, same token, same normalized unlock schedule, non-cancelable. Usually a class is one cohort of one sale (same start, cliff, end). Positions in a class are fungible. That fungibility is what allows N sellers against M buyers at one price.
 
-The class id is the hex SHA-256 of the borsh-encoded normalized schedule, chain and token, so the same economic position always maps to the same class.
+The class id is the lowercase hex SHA-256 of the Borsh encoding of the chain, the token address or mint, its decimals and the normalized schedule, so the same economic position always maps to the same class.
 
 ## Position
 
 A position is one locked allocation on a foreign chain, held by rose's vault on that chain. Supported in v1:
 
-- Sablier Lockup v4 streams on Base Sepolia. ERC-721, Lockup Linear model only. The stream must have been created `transferable = true`, must be non-cancelable or renounced, and must not be depleted. Dynamic, Tranched and Price-Gated streams are refused.
-- Streamflow streams on Solana devnet, where `transfer_recipient` is allowed for the recipient.
+- Sablier Lockup v4 streams on Base Sepolia. ERC-721, Lockup Linear model only, any `granularity`. The stream must have been created `transferable = true`, must be non-cancelable or renounced, must not be canceled or depleted, and must still hold at least one whole token after the deposit-time withdrawal. Dynamic, Tranched and Price-Gated streams are refused.
+- Streamflow streams on Solana devnet, where `transfer_recipient` is allowed for the recipient and no sender power is left (not cancelable or transferable by the sender, not pausable, no rate updates, no top-ups), on a classic SPL Token mint without a freeze authority. Token-2022 mints are refused.
 
 Cancelable positions are rejected on both chains: a position that the sender can cancel is not a reliable claim.
 
 ## Unit
 
-A unit is one allocation unit of a class: a claim on one token of the class schedule. A holder who deposits a position with allocation `D` receives `D` units. Units are NEP-245 multi-tokens on NEAR; the token id is the class id. They are transferable and composable, while the underlying stream never moves.
+A unit is one allocation unit of a class: a claim on one base unit of the class token under the class schedule. A holder who deposits a position with allocation `D` (in base units) receives `D` units. Units are NEP-245 multi-tokens on NEAR; the token id is the class id. They are transferable and composable, while the underlying stream never moves.
+
+Holding units requires a NEP-145 storage registration on the engine (`storage_deposit`; the minimum, about 0.00216 NEAR, covers the account record and one holding row, and each further class held costs one more row). A voluntary receipt (a transfer, a distribution, the mint of a deposit you requested) is refused unless the receiver is registered with room for the row, while everything the engine owes an account always lands.
 
 ## Unlock function
 
-Each class has a deterministic unlock function `f(t)` in `[0, 1]`: the fraction of the allocation unlocked at time `t`. It is piecewise linear, built from the attested schedule (start, cliff, cliff unlock amount, start unlock amount, end), stored as fixed point with 1e18 precision and rounded down.
+Each class has a deterministic unlock function `f(t)` in `[0, 1]`: the fraction of the allocation unlocked at time `t`, stored as fixed point with 1e18 precision. It is an exact port of the protocol's own math over the attested schedule: for Sablier, the start unlock, the cliff unlock, then a linear segment floored to whole multiples of `granularity` and lowered by a margin of `ceil(1e18 / 10^decimals)` (one base unit per whole token, which is why a position must hold at least one whole token); for Streamflow, the cliff amount plus whole periods of `amount_per_period`, capped at the deposit. `f` is a lower bound of what every stream of the class has actually unlocked.
 
 - A unit's accrued entitlement between two times is `f(t2) - f(t1)` tokens.
 - Locked tokens per unit at time `t` are `1 - f(t)`.
@@ -35,7 +37,7 @@ Prices in rounds are quoted per locked token, so `1 - f(ts)` at the round's sett
 
 ## Accrual accounting
 
-Every account holds `(balance, checkpoint, claimable)` per class. On every balance change (mint, `mt_transfer`, `mt_transfer_call` refund, lock into a round, settlement, burn) the contract first accrues `balance * (f(now) - checkpoint)` into `claimable`, then sets `checkpoint = f(now)`.
+Every account holds `(balance, checkpoint, claimable, carry)` per class. On every balance change (mint, `mt_transfer`, `mt_transfer_call` refund, lock into a round, settlement, burn) the contract first accrues `balance * (f(now) - checkpoint)` into `claimable`, then sets `checkpoint = f(now)`. The fraction of each accrual below one base unit is carried into the next one, so a holding's lifetime accrual is the floor of its exact accrual, never a sum of floors.
 
 - Units locked in a round keep accruing to the seller until `ts = closes_at`.
 - Sold units accrue to the buyer from `ts`.

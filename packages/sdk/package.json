@@ -7,22 +7,39 @@
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./clearing": {
+      "types": "./src/clearing.ts",
+      "import": "./dist/clearing.js",
+      "default": "./dist/clearing.js"
+    },
+    "./math": {
+      "types": "./src/math.ts",
+      "import": "./dist/math.js",
+      "default": "./dist/math.js"
+    },
+    "./unlock": {
+      "types": "./src/unlock.ts",
+      "import": "./dist/unlock.js",
+      "default": "./dist/unlock.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
-    "abis": "node scripts/extract-abis.mjs"
+    "abis": "node scripts/extract-abis.mjs",
+    "prepare": "pnpm run build"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -8,9 +8,10 @@
 import type { ConfigView, RoundKind, RoundStatus } from "@rose/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/cn";
+import { ROUTES } from "@/lib/routes";
 import { CreateExitModal } from "./CreateExitModal";
 import { symbolOf } from "./engine";
 import { classShortLabel, formatDate, KIND_LABEL, scheduleEndSecs, STATUS_LABEL } from "./model";
@@ -38,7 +39,8 @@ function Chip({ active, onClick, children, count }: { active: boolean; onClick: 
   );
 }
 
-export function RoundsPage({ configured }: { configured: boolean }) {
+/** `demo`: the configured engine has a guided demo of its seeded rounds. */
+export function RoundsPage({ configured, demo }: { configured: boolean; demo: boolean }) {
   const [filter, setFilter] = useState<RoundsFilterState>(EMPTY_FILTER);
   const [createOpen, setCreateOpen] = useState(false);
   const [config, setConfig] = useState<ConfigView | null>(null);
@@ -78,9 +80,16 @@ export function RoundsPage({ configured }: { configured: boolean }) {
             Sealed, uniform-price auctions over locked token classes. Every transition is a public method: whoever cares about the outcome advances the round. <LearnMore topic="sealedRounds" />
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!data} data-create-exit>
-          Create Exit round
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {demo ? (
+            <ButtonLink href={ROUTES.demo} size="sm" variant="secondary" data-watch-demo>
+              Watch a full round
+            </ButtonLink>
+          ) : null}
+          <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!data} data-create-exit>
+            Create Exit round
+          </Button>
+        </div>
       </header>
 
       {!configured ? (

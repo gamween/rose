@@ -5,9 +5,9 @@ order: 14
 section: Reference
 ---
 
-**Accrual accounting.** The per-class ledger `(balance, checkpoint, claimable)` each account holds. On every balance change the contract first accrues `balance * (f(now) - checkpoint)` into `claimable` and sets `checkpoint = f(now)`. Rounding always favors the pool.
+**Accrual accounting.** The per-class ledger `(balance, checkpoint, claimable, carry)` each account holds. On every balance change the contract first accrues `balance * (f(now) - checkpoint)` into `claimable` and sets `checkpoint = f(now)`, carrying the fraction below one base unit into the next accrual. Rounding always favors the pool.
 
-**AccountState.** The ForeignTx extractor that proves the contents of a Solana account. rose uses it on a Streamflow stream's metadata account to prove recipient, schedule and cancelability.
+**AccountState.** The ForeignTx extractor that proves the contents of a Solana account as the MPC nodes read it. rose uses it on a Streamflow stream's metadata account (recipient, schedule, flags, withdrawn amount), on its mint, on payout nonce accounts and on recipients' token accounts.
 
 **Advance.** A round in which one holder sells a senior claim on the first `K` tokens that will unlock from `X` of their units (`K <= X * (1 - f(ts))`) to funders who bid sealed, per claimed token. Winners receive lien shares.
 
@@ -31,7 +31,7 @@ section: Reference
 
 **Claimable.** Tokens (or cash) an account can pull now: accrued unlocked tokens per class, seller proceeds, refunds.
 
-**Class.** A set of economically identical positions: same chain, protocol, token, normalized unlock schedule, non-cancelable. Fungible. Identified by the hash of schedule, chain and token.
+**Class.** A set of economically identical positions: same chain, protocol, token, normalized unlock schedule, non-cancelable. Fungible. Identified by the hash of chain, token, decimals and normalized schedule.
 
 **Clearing price (`P*`).** The single price, per locked token at `ts`, at which every fill of a round is settled.
 
@@ -41,17 +41,17 @@ section: Reference
 
 **Deposit address.** On Solana, the MPC-derived address `dep/<near_account>/<class>` a holder transfers a stream to, so the deposit is attributed to that NEAR account and class.
 
-**Durable nonce.** A Solana mechanism that makes a transaction valid until its nonce is used instead of expiring with a blockhash. Each rose payout has its own nonce account (authority = vault).
+**Durable nonce.** A Solana mechanism that makes a transaction valid until its nonce is advanced instead of expiring with a blockhash. A rose payout or redeem uses the claimant's nonce account (authority = vault), created from their wallet with a seed that starts with `nonce_seed_prefix_of` their NEAR account, and reused across claims. A durable-nonce transaction that fails on chain still advances its nonce, which is why Solana payouts are confirmed separately.
 
 **Encumbered units.** Units pledged in an Advance. Non-transferable, cannot enter other rounds, cannot be redeemed, until the lien is delivered.
 
 **Engine (rose-engine).** The NEAR contract holding classes, positions, units, liens, rounds, the cash ledger and the foreign custody logic. Keyless after init, no upgrade method.
 
-**Escrow.** The public cash a buyer locks when placing a bid. The sealed `limit * quantity` must not exceed it.
+**Escrow.** The public cash a buyer locks when placing a bid. The sealed `limit * quantity` plus its fee must not exceed it.
 
 **Exit.** A round with sealed asks from holders and sealed bids from buyers, cleared at the price that maximizes traded volume.
 
-**expected_payload_hash.** The hash the engine computes itself and sends with every ForeignTx request, so a mismatch between the claimed and the actual foreign state fails fast.
+**expected_payload_hash.** An optional field of a ForeignTx request that the engine deliberately omits: with it, a mismatch is silent and times out after 200 blocks (about 2 minutes). Without it the nodes sign the values they actually read, and the engine recomputes the payload hash in the callback and rejects a mismatch.
 
 **Fee.** 30 bps of settled notional, charged to the buying side on top of the price, rounded up to the tick. Recipient fixed at init.
 
@@ -61,7 +61,7 @@ section: Reference
 
 **gas/sol.** The MPC-derived Solana address that pays the fees of every engine-built transaction, so anyone can broadcast them.
 
-**Key timeout.** How long after `closes_at` the key may take to arrive before anyone can `cancel_no_key` (default 1 h).
+**Key timeout.** How long after `closes_at` the key may take to arrive before anyone can `cancel_no_key`, once no key request is in flight (default 1 h).
 
 **Keyless.** A NEAR account with no access keys (`view_access_key_list` returns `[]`). Its code can only be driven through its public methods.
 
@@ -93,7 +93,7 @@ section: Reference
 
 **opens_at.** The block timestamp from which bids are accepted.
 
-**Payout.** A pull-based transfer of cash or tokens to a beneficiary on a foreign chain, authorized by an MPC signature stored on NEAR.
+**Payout.** A pull-based transfer of cash or tokens to a beneficiary on a foreign chain, authorized by an MPC signature stored on NEAR. On Solana it is two-phase: the signed transaction stays `Signed` until `confirm_sol_payout` proves it landed, or proves twice, 150 blocks apart, that it did not execute (then the claim is refunded).
 
 **Position.** One locked allocation on a foreign chain held by rose's vault: a Sablier Lockup Linear stream on Base or a Streamflow stream on Solana.
 
@@ -137,9 +137,9 @@ section: Reference
 
 **Uniform price.** Every fill of a round settles at the same `P*`, regardless of the individual limits and minimums.
 
-**Unit.** One allocation unit of a class: a claim on one token of the class schedule. `D` units per position of allocation `D`.
+**Unit.** One allocation unit of a class: a claim on one base unit of the class token under the class schedule. `D` units per position of allocation `D` (in base units).
 
-**Unlock function `f(t)`.** The fraction of the allocation unlocked at `t`, piecewise linear from the attested schedule, 1e18 fixed point, rounded down.
+**Unlock function `f(t)`.** The fraction of the allocation unlocked at `t`, an exact port of the protocol's own unlock math over the attested schedule, 1e18 fixed point, a lower bound of what every stream of the class has unlocked.
 
 **vault/base, vault/sol.** The MPC derivation paths of the engine's Base signer and Solana vault address.
 

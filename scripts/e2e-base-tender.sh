@@ -168,6 +168,12 @@ fund_near_cash() {
   local deposit='0 NEAR'
   [[ "$registered" == "null" ]] && deposit='0.00125 NEAR'
   near_call "$account" "$NEAR_CASH_TOKEN" mint "$(jq -cn --arg a "$amount" '{amount:$a}')" '30 Tgas' "$deposit" >/dev/null
+  # The engine refuses a NEAR cash deposit without room for its cash row (172 bytes): register
+  # with the minimum, or top up one row for an account already registered.
+  local engine_storage='0.00172 NEAR'
+  [[ "$(near_view "$engine" storage_balance_of "$(jq -cn --arg a "$account" '{account_id:$a}')")" == "null" ]] \
+    && engine_storage="$(near_view "$engine" storage_balance_bounds '{}' | jq -r '.min') yoctoNEAR"
+  near_call "$account" "$engine" storage_deposit '{"account_id":null,"registration_only":false}' '30 Tgas' "$engine_storage" >/dev/null
   near_call "$account" "$NEAR_CASH_TOKEN" ft_transfer_call "$(jq -cn --arg e "$engine" --arg a "$amount" '{receiver_id:$e,amount:$a,msg:""}')" '60 Tgas' '1 yoctoNEAR'
 }
 
@@ -192,7 +198,7 @@ step_tender() {
   closes=$(((now + 150) * 1000000000))
   local params hash status round
   params="$(jq -cn --arg c "$class" --arg r "$(deployments_get "$engine" ".base.deployer" | jq -r .)" --arg closes "$closes" \
-    '{params:{class_id:$c,venue:"Near",budget:"10000000",max_price:"10000",reference_price:"20000",retire_to:$r,window:{closes_at:$closes,reveal_window:"120000000000"}}}')"
+    '{params:{class_id:$c,venue:"Near",budget:"10000000",max_price:"10000",reference_price:"20000",retire_to:$r,window:{closes_at:$closes,reveal_window:"300000000000"}}}')"
   hash="$(near_call "$issuer" "$engine" create_tender "$params" '30 Tgas' '0.05 NEAR')"
   status="$(record_near tender "$hash")"
   round="$(jq -r '.status.SuccessValue' <<<"$status" | base64 -d | tr -d '"')"

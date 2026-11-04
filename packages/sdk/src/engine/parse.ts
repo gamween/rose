@@ -101,6 +101,11 @@ export function parseLimits(view: LimitsView): Limits {
     feeBps: parseCounter(view.fee_bps, "limits.fee_bps"),
     maxBidsPerRound: parseCounter(view.max_bids_per_round, "limits.max_bids_per_round"),
     maxDistributionReceivers: parseCounter(view.max_distribution_receivers, "limits.max_distribution_receivers"),
+    minKeyTimeout: parseU(view.min_key_timeout, "limits.min_key_timeout"),
+    maxKeyTimeout: parseU(view.max_key_timeout, "limits.max_key_timeout"),
+    minRevealWindow: parseU(view.min_reveal_window, "limits.min_reveal_window"),
+    maxRevealWindow: parseU(view.max_reveal_window, "limits.max_reveal_window"),
+    maxRoundHorizon: parseU(view.max_round_horizon, "limits.max_round_horizon"),
   };
 }
 
@@ -243,6 +248,7 @@ export function parseRound(view: RoundView): Round {
     budget: parseOptionalU(view.budget, "round.budget"),
     issuerEscrow: parseOptionalU(view.issuer_escrow, "round.issuer_escrow"),
     referencePrice: parseOptionalU(view.reference_price, "round.reference_price"),
+    maxBuyQuantity: parseOptionalU(view.max_buy_quantity, "round.max_buy_quantity"),
     retireTo: view.retire_to ?? null,
     advanceUnits: parseOptionalU(view.advance_units, "round.advance_units"),
     advanceClaim: parseOptionalU(view.advance_claim, "round.advance_claim"),

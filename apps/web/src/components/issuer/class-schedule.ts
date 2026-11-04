@@ -37,6 +37,12 @@ function u64Number(value: bigint, field: string): number {
   return Number(value);
 }
 
+/** A `u64` token amount as the `U64` JSON string the engine takes (Solana amounts exceed 2^53). */
+function u64String(value: bigint, field: string): string {
+  if (value < 0n || value > 0xffff_ffff_ffff_ffffn) throw new RangeError(`${field} (${value.toString()}) is not a u64.`);
+  return value.toString();
+}
+
 /** `compute_base_class_id` arguments from the raw stream parameters. */
 export function sablierScheduleArgs(input: LinearInput): SablierScheduleArgs {
   return {
@@ -50,16 +56,16 @@ export function sablierScheduleArgs(input: LinearInput): SablierScheduleArgs {
   };
 }
 
-/** `compute_sol_class_id` arguments from the raw stream parameters (every field is a `u64` number). */
+/** `compute_sol_class_id` arguments from the raw stream parameters: times as `u64` numbers, token amounts as `U64` strings. */
 export function streamflowScheduleArgs(input: SteppedInput): StreamflowScheduleArgs {
   return {
     start_time: u64Number(input.startTime, "start_time"),
     end_time: u64Number(input.endTime, "end_time"),
-    net_amount_deposited: u64Number(input.netAmountDeposited, "net_amount_deposited"),
+    net_amount_deposited: u64String(input.netAmountDeposited, "net_amount_deposited"),
     period: u64Number(input.period, "period"),
-    amount_per_period: u64Number(input.amountPerPeriod, "amount_per_period"),
+    amount_per_period: u64String(input.amountPerPeriod, "amount_per_period"),
     cliff: u64Number(input.cliff, "cliff"),
-    cliff_amount: u64Number(input.cliffAmount, "cliff_amount"),
+    cliff_amount: u64String(input.cliffAmount, "cliff_amount"),
   };
 }
 

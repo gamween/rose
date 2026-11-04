@@ -16,28 +16,29 @@ This guide is for anyone who holds a transferable locked position (a VC, an ange
 
 Go to `/app/deposit` and choose Base.
 
-1. The wizard lists your Sablier v4 streams and flags each as eligible or not. Ineligible reasons are explained: not Lockup Linear, cancelable, not transferable, depleted, or a token or schedule that does not match an existing class and cannot create one.
+1. The wizard lists your Sablier v4 streams and flags each as eligible or not. Ineligible reasons are explained: not Lockup Linear, cancelable, not transferable, canceled, depleted, less than one whole token left to lock, or a token or schedule that does not match an existing class and cannot create one.
 2. Approve RoseVault for the stream NFT. You see the approval transaction and its explorer link.
 3. Deposit. RoseVault first withdraws any already vested balance to your EVM address, then takes the NFT and emits `StreamDeposited`. You see the deposit transaction and your withdrawn balance, if any.
-4. The wizard registers the deposit on NEAR: it calls the engine, which asks the MPC network to verify the Base transaction. You see the proof progress (MPC verification) and then "units minted": `D` units of the class, where `D` is the stream's deposited amount, with a checkpoint at the deposit time.
+4. The wizard waits until Base's safe head has passed your deposit (about 3 minutes), then registers the deposit on NEAR: it calls the engine, which asks the MPC network to verify the Base transaction. You see the proof progress (MPC verification) and then "units minted": `D` units of the class, where `D` is the stream's deposited amount, with a checkpoint at the deposit time.
 5. Your portfolio (`/app`) now shows the class, your units, the locked and claimable amounts, and the unlock timeline.
 
 ## Deposit on Solana
 
 Go to `/app/deposit` and choose Solana.
 
-1. The wizard lists your Streamflow streams and flags eligibility (the recipient can transfer the stream, non-cancelable by the sender, schedule matching a class).
+1. The wizard lists your Streamflow streams and flags eligibility (the recipient can transfer the stream; not cancelable or transferable by the sender, not pausable, no rate updates, no top-ups, no automatic withdrawal, no Streamflow or partner fee; at least one whole token left to lock; a classic SPL Token mint without a freeze authority).
 2. The app derives your deposit address for the class (`dep/<near_account>/<class>`). Call `transfer_recipient` to it from your Solana wallet. You see the transaction.
-3. The engine signs a second `transfer_recipient` from the deposit address to the vault; the app broadcasts it (fees paid by the engine's `gas/sol`). You see the transaction.
-4. The wizard proves the stream's metadata account to the engine (ForeignTx `AccountState`). You see the proof progress and then "units minted".
-5. Your portfolio shows the class and your units.
+3. The wizard attributes the stream to your NEAR account (`attribute_sol_deposit`): the engine proves with ForeignTx `AccountState` that the stream sits at your deposit address. An ineligible stream is recorded as refused and can be returned to your Solana address.
+4. The engine builds and signs the move from the deposit address to the vault (`move_sol_deposit`); the app broadcasts it (fees paid by the engine's `gas/sol`). You see the transaction.
+5. The wizard proves the stream at the vault to the engine (`register_sol_deposit`, ForeignTx `AccountState`). You see the proof progress and then "units minted".
+6. Your portfolio shows the class and your units.
 
 ## Sell in a Tender
 
 1. Open `/app/rounds`, filter by type Tender and your class, and open the round. You see the issuer's public budget, max price, window, cash venue and the sealed book (number of asks and their locked units).
 2. Click "Place ask". Enter the units to lock and, sealed, your minimum price per locked token and the quantity you actually sell (at most the locked units). The form shows the bond (`max(1 USDC, 1% of your locked units at the max price)`) and the venue.
 3. Sign. Your units are locked in the round and keep accruing to you until `closes_at`. Your ask is encrypted in the browser; the round page lists it under "my bids" with its ciphertext hash.
-4. After close, anyone can click "Close round", then "Finalize". If you are first, you pay about 0.012 NEAR per opened bid.
+4. After close, anyone can click "Close round", then "Finalize". If you are first, you pay about 0.0132 NEAR of gas per opened bid.
 5. The round settles. You see `P*` and your fill. If your minimum was at or below `P*` you sold at `P*` (never at your minimum). Unsold units return with their accrual.
 6. Click "Claim" to pull your proceeds in the round's venue, your bond and any unsold units.
 
@@ -62,17 +63,17 @@ There is no oracle and no liquidation. The claim is repaid by the schedule.
 Your portfolio (`/app`) shows the claimable tokens per class and chain.
 
 - Base: click "Claim". The app calls Sablier `withdrawMax(streamId, RoseVault)` if needed, then asks the engine for a `Transfer` authorization signed by the MPC, then submits `executeTransfer` to RoseVault from your EVM wallet (you pay the Base gas). You see three explorer links.
-- Solana: click "Claim". You create the payout's durable nonce account, the engine builds and signs the withdrawal, and the app broadcasts it. You see the NEAR and Solana links.
+- Solana: click "Claim". The first time, you create your payout nonce account from your Solana wallet (a durable nonce account derived with a seed tied to your NEAR account, authority = the engine's vault; it is reused for later claims). The engine proves it and your token account, builds and signs the withdrawal, the app broadcasts it, then confirms on NEAR that it landed (`confirm_sol_payout`). You see the NEAR and Solana links.
 - Cash: click "Claim" next to your cash balance in the venue where it lives (NEAR tUSDC or Base USDC).
 
-An authorization that was signed but not submitted stays in your portfolio until you submit it; it never expires and cannot be used twice.
+An authorization that was signed but not submitted stays in your portfolio until you submit it; it never expires and cannot be used twice. A signed Solana payout likewise stays until it is broadcast and confirmed; it is refunded only if the engine proves, twice and 150 blocks apart, that it did not execute.
 
 ## Redeem in kind
 
 If you hold at least `D_p` units of a class, where `D_p` is the allocation of a position in that class, you can take the position itself back out.
 
-1. In your portfolio, choose to redeem the position (`redeem(position_id)`). The engine burns `D_p` units from your account.
+1. In your portfolio, choose to redeem the position (`redeem(position_id, to)`). The engine burns `D_p` units from your free units.
 2. On Base, the engine authorizes an ERC-721 `Release`; any withdrawable balance is first withdrawn to the vault so accrued tokens stay with unit holders. Submit `executeRelease` from your EVM wallet. You see the stream NFT in your wallet.
-3. On Solana, the engine builds `withdraw` then `transfer_recipient`; the app broadcasts it. You see the stream with your address as recipient.
+3. On Solana, the stream must carry no unconfirmed payout, and you also pay, from your claimable tokens of the class, what the stream still owes the unit holders. The engine builds `AdvanceNonceAccount` then `transfer_recipient` from the vault to your address, the app broadcasts it, then confirms it on NEAR (`confirm_sol_redeem`). You see the stream with your address as recipient.
 
 Units locked in a round and encumbered units cannot be redeemed.

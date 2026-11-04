@@ -92,6 +92,14 @@ export interface LimitsView {
   fee_bps: number;
   max_bids_per_round: number;
   max_distribution_receivers: number;
+  /** Bounds of a round's `key_timeout`, nanoseconds. */
+  min_key_timeout: U64;
+  max_key_timeout: U64;
+  /** Bounds of a round's `reveal_window`, nanoseconds. */
+  min_reveal_window: U64;
+  max_reveal_window: U64;
+  /** Longest time from a round's creation to its `closes_at`, nanoseconds. */
+  max_round_horizon: U64;
 }
 
 export interface ClassView {
@@ -186,7 +194,10 @@ export interface RoundView {
   budget?: U128 | null;
   issuer_escrow?: U128 | null;
   reference_price?: U128 | null;
-  retire_to?: AccountId | null;
+  /** Largest quantity a buy order may name (a larger one is void at opening): the class supply when the round was created (Exit), the claim (Advance); null for a Tender. */
+  max_buy_quantity?: U128 | null;
+  /** Foreign address (Base `0x…` or Solana base58) a Tender's retired lot pays to. */
+  retire_to?: string | null;
   advance_units?: U128 | null;
   advance_claim?: U128 | null;
   advance_min_fill?: U128 | null;
@@ -217,7 +228,7 @@ export interface HoldingView {
   checkpoint: U128;
 }
 
-export interface RetiredLotView { round_id: U64; class_id: ClassId; retire_to: AccountId; units: U128; claimable: U128 }
+export interface RetiredLotView { round_id: U64; class_id: ClassId; retire_to: string; units: U128; claimable: U128 }
 
 export interface CashView { venue: Venue; amount: U128 }
 
@@ -372,6 +383,12 @@ export interface Limits {
   feeBps: number;
   maxBidsPerRound: number;
   maxDistributionReceivers: number;
+  /** Bounds of a round's key timeout and reveal window, and the longest time from creation to `closesAt`, nanoseconds. */
+  minKeyTimeout: bigint;
+  maxKeyTimeout: bigint;
+  minRevealWindow: bigint;
+  maxRevealWindow: bigint;
+  maxRoundHorizon: bigint;
 }
 
 export interface Holding {
@@ -407,7 +424,10 @@ export interface Round {
   budget: bigint | null;
   issuerEscrow: bigint | null;
   referencePrice: bigint | null;
-  retireTo: AccountId | null;
+  /** Largest quantity a buy order may name (see `RoundView.max_buy_quantity`); `parseRound` always sets it. */
+  maxBuyQuantity?: bigint | null;
+  /** Foreign address a Tender's retired lot pays to. */
+  retireTo: string | null;
   advanceUnits: bigint | null;
   advanceClaim: bigint | null;
   advanceMinFill: bigint | null;
@@ -522,7 +542,7 @@ export interface LienShare { lienId: bigint; classId: ClassId; funder: AccountId
 
 export interface Portfolio { holdings: Holding[]; bids: Bid[]; liensHeld: Lien[]; lienShares: LienShare[]; cash: Cash[] }
 
-export interface RetiredLot { roundId: bigint; classId: ClassId; retireTo: AccountId; units: bigint; claimable: bigint }
+export interface RetiredLot { roundId: bigint; classId: ClassId; retireTo: string; units: bigint; claimable: bigint }
 
 export interface PricePoint { roundId: number; kind: RoundKind; price: bigint; volume: bigint; remainingLockSecs: bigint; settledAt: bigint }
 
@@ -542,13 +562,20 @@ export interface EventsPage { events: StoredEvent[]; total: bigint; oldest: bigi
 export type ClaimSourceArgs = { Holding: { class_id: ClassId } } | { Retired: { round_id: U64 } } | { LienShare: { lien_id: U64 } };
 
 /**
- * The accounts a Solana payout or redeem is built on, proven in one ForeignTx request before
- * signing: the durable nonce account (`data`, the 80 raw bytes as hex, authority = vault) and the
- * recipient's existing associated token account for the mint (`recipient_tokens_data`, its 165
- * bytes as hex). Both are read at `finalized` right before the call.
+ * The accounts a Solana payout or redeem is built on (`claim_sol_tokens`, `redeem`), proven in
+ * one ForeignTx request before signing: the durable nonce account (`data`, its 80 raw bytes as
+ * hex, authority = vault) and the recipient's existing associated token account for the mint
+ * (`recipient_tokens_data`, its 165 bytes as hex), both read at `finalized` right before the
+ * call. The nonce account must be `createWithSeed(base, seed, SystemProgram)` with `seed`
+ * starting with the caller's `nonce_seed_prefix_of` (`payoutNonceSeed`): it serves only that
+ * NEAR account.
  */
 export interface SolNonceProof {
   account: string;
+  /** Base58 key the nonce account was created from with `seed` (it signed the creation). */
+  base: string;
+  /** The caller's 24-character prefix, then at most 8 characters. */
+  seed: string;
   anchor_tx: string;
   data: string;
   recipient_tokens_data: string;
@@ -565,7 +592,8 @@ export type ReplayStateView = { Pending: { since_block: number } } | "Consumed";
 
 export type PayoutKindView =
   | { BaseTransfer: { token: string; to: string; amount: U128 } }
-  | { BaseRelease: { lockup: string; stream_id: number; to: string } }
+  /** `vested_to_recipient`: `false` for a redeem (vested tokens to the vault), `true` for the return of a refused stream (vested tokens to `to`); pass it to `executeRelease`. */
+  | { BaseRelease: { lockup: string; stream_id: number; to: string; vested_to_recipient: boolean } }
   | { SolTransfer: { mint: string; to_owner: string; amount: U128 } }
   | { SolRelease: { metadata: string; to_owner: string } }
   | { SolMove: { metadata: string; from: string; to_owner: string } }
@@ -596,7 +624,7 @@ export interface SolTransactionView {
   gas_signature?: string | null;
   /** The message only advances the nonce: the action is being cancelled after its authority signature failed. */
   cancel: boolean;
-  /** Block of the first proof that the transaction did not execute (a second one 150 blocks later settles it). */
+  /** Block at which the first proof that the transaction did not execute was answered (a second one requested at least 150 blocks later settles it). */
   not_executed_seen_at?: U64 | null;
   /** Wire transaction (`[2] || sig(gas) || sig(authority) || message`), once both signatures exist. */
   transaction?: string | null;
@@ -617,7 +645,7 @@ export interface PayoutView {
   updated_at: U64;
   /** Block of the latest proof or signature request (`retry_base_signature` and `retry_sol_payout` wait 600 blocks past it). */
   requested_block: U64;
-  /** Signature requests issued; after a retry a payout is never refunded. */
+  /** Signature requests issued. A signature request never refunds a payout: only a failed proof (nothing signed) or a confirmed non-execution does. */
   sign_requests: number;
 }
 
@@ -657,20 +685,21 @@ export interface SolStreamInfoView {
   partner_tokens: string;
   start_time: number;
   end_time: number;
-  net_amount_deposited: number;
+  /** Token amounts are `u64` base units as JSON strings (`U64`): a Solana allocation easily exceeds 2^53. */
+  net_amount_deposited: U64;
   period: number;
-  amount_per_period: number;
+  amount_per_period: U64;
   cliff: number;
-  cliff_amount: number;
+  cliff_amount: U64;
   /** Withdrawals proven on chain. */
-  engine_withdrawn: number;
+  engine_withdrawn: U64;
   /** `amount_withdrawn` attested at registration. */
-  registered_withdrawn: number;
+  registered_withdrawn: U64;
   /** Accrual checkpoint the position's units were minted from. */
   checkpoint: U128;
   /** The one unconfirmed payout drawing on the stream, if any. */
   drawing?: U64 | null;
-  pending_withdraw: number;
+  pending_withdraw: U64;
 }
 
 /** A Solana stream of a class with what a payout can draw from it now and the claimable a redeem of it takes now (`get_sol_streams`). */
@@ -691,14 +720,15 @@ export interface SablierScheduleArgs {
   cliff_unlock: U128;
 }
 
+/** Schedule of `compute_sol_class_id`: token amounts as `U64` strings (base units). */
 export interface StreamflowScheduleArgs {
   start_time: number;
   end_time: number;
-  net_amount_deposited: number;
+  net_amount_deposited: U64;
   period: number;
-  amount_per_period: number;
+  amount_per_period: U64;
   cliff: number;
-  cliff_amount: number;
+  cliff_amount: U64;
 }
 
 export interface SolDepositArgs {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { EngineParseError, parseClass, parseEventsPage, parsePortfolio, parseRound, parseStats } from "../../src/engine/parse.js";
-import { CLASS_ID, classView, eventsPageView, portfolioView, roundView, statsView } from "./fixtures.js";
+import { EngineParseError, parseClass, parseEventsPage, parseLimits, parsePortfolio, parseRound, parseStats } from "../../src/engine/parse.js";
+import { CLASS_ID, classView, eventsPageView, limitsView, portfolioView, roundView, statsView } from "./fixtures.js";
 
 describe("engine view parsing", () => {
   it("parses stats with a bigint volume", () => {
@@ -28,6 +28,21 @@ describe("engine view parsing", () => {
       minDeposit: 1000000000000000000n,
     });
     expect(parsed.fractionNow).toBe(123456789012345678n);
+  });
+
+  it("parses the limits with the round window bounds", () => {
+    const limits = parseLimits(limitsView);
+    expect(limits.minKeyTimeout).toBe(60_000_000_000n);
+    expect(limits.maxKeyTimeout).toBe(604_800_000_000_000n);
+    expect(limits.minRevealWindow).toBe(300_000_000_000n);
+    expect(limits.maxRevealWindow).toBe(604_800_000_000_000n);
+    expect(limits.maxRoundHorizon).toBe(2_592_000_000_000_000n);
+    expect(() => parseLimits({ ...limitsView, min_key_timeout: "-1" })).toThrow(EngineParseError);
+  });
+
+  it("parses the largest buy quantity of an Exit round", () => {
+    expect(parseRound(roundView).maxBuyQuantity).toBeNull();
+    expect(parseRound({ ...roundView, kind: "Exit", max_buy_quantity: "2000000" }).maxBuyQuantity).toBe(2_000_000n);
   });
 
   it("parses a settled tender round with its result and fills", () => {

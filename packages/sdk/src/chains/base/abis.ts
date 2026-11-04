@@ -307,6 +307,11 @@ export const roseVaultAbi = [
             "internalType": "address"
           },
           {
+            "name": "vestedToRecipient",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
             "name": "id",
             "type": "uint256",
             "internalType": "uint256"
@@ -405,6 +410,11 @@ export const roseVaultAbi = [
             "name": "to",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "vestedToRecipient",
+            "type": "bool",
+            "internalType": "bool"
           },
           {
             "name": "id",
@@ -595,7 +605,13 @@ export const roseVaultAbi = [
         "internalType": "address"
       },
       {
-        "name": "withdrawnToVault",
+        "name": "vestedTo",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "vestedWithdrawn",
         "type": "uint128",
         "indexed": false,
         "internalType": "uint128"

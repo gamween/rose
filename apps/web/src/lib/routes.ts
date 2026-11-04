@@ -3,6 +3,7 @@ export const ROUTES = {
   app: "/app",
   portfolio: "/app",
   rounds: "/app/rounds",
+  demo: "/app/demo",
   issuer: "/app/issuer",
   prices: "/app/prices",
   docs: "/docs",

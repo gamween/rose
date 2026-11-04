@@ -73,16 +73,16 @@ export function sablierScheduleArgs(stream: SablierStream): SablierScheduleArgs 
   };
 }
 
-/** `compute_sol_class_id` arguments of a Streamflow stream (every field is a `u64`, JSON number). */
+/** `compute_sol_class_id` arguments of a Streamflow stream: times as JSON numbers, token amounts as `U64` strings. */
 export function streamflowScheduleArgs(metadata: StreamflowMetadata): StreamflowScheduleArgs {
   return {
     start_time: Number(metadata.startTime),
     end_time: Number(metadata.endTime),
-    net_amount_deposited: Number(metadata.netAmountDeposited),
+    net_amount_deposited: metadata.netAmountDeposited.toString(),
     period: Number(metadata.period),
-    amount_per_period: Number(metadata.amountPerPeriod),
+    amount_per_period: metadata.amountPerPeriod.toString(),
     cliff: Number(metadata.cliff),
-    cliff_amount: Number(metadata.cliffAmount),
+    cliff_amount: metadata.cliffAmount.toString(),
   };
 }
 

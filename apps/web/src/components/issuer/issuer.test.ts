@@ -20,11 +20,13 @@ describe("class schedules", () => {
     expect(schedule.start).toBe(T0 + 7n * DAY);
     expect(schedule.kind === "Stepped" && schedule.period).toBe(3600n);
   });
-  it("builds the class id view arguments with u64 numbers and u128 strings", () => {
+  it("builds the class id view arguments: u64 times as numbers, token amounts as strings", () => {
     const args = sablierScheduleArgs({ start: T0, cliff: 0n, end: T0 + DAY, granularity: 1n, deposited: 5n * 10n ** 18n, startUnlock: 0n, cliffUnlock: 0n });
     expect(args).toEqual({ start: Number(T0), cliff: 0, end: Number(T0 + DAY), granularity: 1, deposited: "5000000000000000000", start_unlock: "0", cliff_unlock: "0" });
-    expect(streamflowScheduleArgs({ startTime: T0, cliff: 0n, endTime: T0 + DAY, period: 60n, netAmountDeposited: 10n, cliffAmount: 0n, amountPerPeriod: 1n }).net_amount_deposited).toBe(10);
-    expect(() => streamflowScheduleArgs({ startTime: T0, cliff: 0n, endTime: T0 + DAY, period: 60n, netAmountDeposited: 2n ** 60n, cliffAmount: 0n, amountPerPeriod: 1n })).toThrow(/does not fit/);
+    expect(streamflowScheduleArgs({ startTime: T0, cliff: 0n, endTime: T0 + DAY, period: 60n, netAmountDeposited: 10n, cliffAmount: 0n, amountPerPeriod: 1n }).net_amount_deposited).toBe("10");
+    expect(streamflowScheduleArgs({ startTime: T0, cliff: 0n, endTime: T0 + DAY, period: 60n, netAmountDeposited: 2n ** 60n, cliffAmount: 0n, amountPerPeriod: 1n }).net_amount_deposited).toBe("1152921504606846976");
+    expect(() => streamflowScheduleArgs({ startTime: T0, cliff: 0n, endTime: T0 + DAY, period: 60n, netAmountDeposited: 2n ** 64n, cliffAmount: 0n, amountPerPeriod: 1n })).toThrow(/is not a u64/);
+    expect(() => streamflowScheduleArgs({ startTime: 2n ** 60n, cliff: 0n, endTime: T0 + DAY, period: 60n, netAmountDeposited: 10n, cliffAmount: 0n, amountPerPeriod: 1n })).toThrow(/does not fit/);
   });
   it("converts datetime-local text as UTC", () => {
     expect(dateTimeToSeconds("2026-11-04T12:30")).toBe(BigInt(Date.UTC(2026, 10, 4, 12, 30) / 1000));

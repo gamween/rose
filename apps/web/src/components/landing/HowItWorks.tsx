@@ -20,7 +20,8 @@ const ROUND_TYPES: { name: string; preset: VoxelPreset; line: string }[] = [
   },
 ];
 
-export function HowItWorks() {
+/** `demo`: the configured engine has a guided demo, linked from the strip. */
+export function HowItWorks({ demo }: { demo: boolean }) {
   return (
     <section aria-labelledby="how-rose-works" className="border-t border-ink-750 bg-ink-950">
       <div className="mx-auto max-w-[1440px] px-4 py-16 md:px-6 md:py-24">
@@ -34,12 +35,23 @@ export function HowItWorks() {
               NEAR, and positions never leave Base or Solana.
             </p>
           </div>
-          <Link
-            href={ROUTES.docs}
-            className="font-display text-[12px] uppercase tracking-wide text-ember-300 underline-offset-4 hover:underline"
-          >
-            Read the docs →
-          </Link>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {demo ? (
+              <Link
+                href={ROUTES.demo}
+                data-watch-demo
+                className="font-display text-[12px] uppercase tracking-wide text-ember-300 underline-offset-4 hover:underline"
+              >
+                Watch a full round →
+              </Link>
+            ) : null}
+            <Link
+              href={ROUTES.docs}
+              className="font-display text-[12px] uppercase tracking-wide text-ember-300 underline-offset-4 hover:underline"
+            >
+              Read the docs →
+            </Link>
+          </div>
         </div>
         <ol className="mt-10 grid gap-px overflow-hidden rounded-lg border border-ink-750 bg-ink-750 md:grid-cols-3">
           {ROUND_TYPES.map((round, index) => (

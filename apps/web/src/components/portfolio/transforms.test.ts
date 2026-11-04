@@ -117,7 +117,7 @@ describe("orders, liens and history", () => {
 });
 
 describe("planSolDraws", () => {
-  const entry = (position_id: string, withdrawable: string, net = 1_000, withdrawn = 0) => ({ position_id, withdrawable, stream: { net_amount_deposited: net, engine_withdrawn: withdrawn } });
+  const entry = (position_id: string, withdrawable: string, net = 1_000, withdrawn = 0) => ({ position_id, withdrawable, stream: { net_amount_deposited: String(net), engine_withdrawn: String(withdrawn) } });
   const streams = [entry("1", "40"), entry("2", "100"), entry("3", "0")];
   it("draws on the largest withdrawable streams first, exactly the claimed amount", () => {
     expect(planSolDraws(streams, 120n, 1)).toEqual([

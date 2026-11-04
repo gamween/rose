@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { TopNav } from "@/components/chrome/TopNav";
 import { Footer } from "@/components/chrome/Footer";
@@ -7,15 +8,22 @@ import { WalletPills } from "@/components/wallet/WalletPills";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { ConnectModal } from "@/components/wallet/ConnectModal";
 import type { ChainId } from "@/lib/explorer";
+import { ROUTES } from "@/lib/routes";
 import { ActivityFeedDrawer } from "./ActivityFeed";
 import { CommandPalette, usePaletteShortcut, type PaletteCommand } from "./CommandPalette";
 import { GetTestFundsDrawer } from "./GetTestFunds";
 import { GuidedTour, readTourDismissed } from "./GuidedTour";
 import { TestnetBanner } from "./TestnetBanner";
 
-/** Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour. */
-export function AppShell({ children }: { children: ReactNode }) {
+/**
+ * Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour.
+ * `demo`: the configured engine has a guided demo ("Watch a full round"); the first-visit tour
+ * stays closed on the demo itself, which explains itself and is used for screen recordings.
+ */
+export function AppShell({ children, demo }: { children: ReactNode; demo: boolean }) {
   const wallets = useWallets();
+  const router = useRouter();
+  const onDemo = (usePathname() ?? "") === ROUTES.demo;
   const [fundsOpen, setFundsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -23,11 +31,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [connect, setConnect] = useState<ChainId | null>(null);
 
   useEffect(() => {
+    if (onDemo) return;
     const timer = window.setTimeout(() => {
       if (!readTourDismissed()) setTourOpen(true);
     }, 400);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [onDemo]);
 
   usePaletteShortcut(useCallback(() => setPaletteOpen((open) => !open), []));
 
@@ -38,8 +47,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       { id: "act-activity", label: "Open the activity feed", group: "Actions", keywords: "events history", run: () => setActivityOpen(true) },
       { id: "act-tour", label: "Replay the guided tour", group: "Help", keywords: "onboarding help", run: () => setTourOpen(true) },
       { id: "act-refresh", label: "Refresh balances", group: "Actions", run: () => void wallets.refreshBalances() },
+      ...(demo ? [{ id: "help-demo", label: "Watch a full round (guided demo)", group: "Help" as const, keywords: "demo walkthrough seeded tour video", run: () => router.push(ROUTES.demo) }] : []),
     ],
-    [wallets],
+    [demo, router, wallets],
   );
 
   return (
@@ -74,7 +84,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         }
       />
-      <TestnetBanner onGetFunds={() => setFundsOpen(true)} />
+      <TestnetBanner onGetFunds={() => setFundsOpen(true)} demo={demo} />
       <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 md:px-6">{children}</main>
       <Footer />
       <GetTestFundsDrawer

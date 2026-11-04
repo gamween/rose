@@ -157,7 +157,7 @@ export function eventTimeMs(event: StoredEvent): number {
 }
 
 /** What `planSolDraws` reads of a `get_sol_streams` entry. */
-export type DrawableStream = { position_id: string; withdrawable: string; stream: { net_amount_deposited: number; engine_withdrawn: number } };
+export type DrawableStream = { position_id: string; withdrawable: string; stream: { net_amount_deposited: string; engine_withdrawn: string } };
 
 /**
  * The streams a Solana claim of `amount` draws on: largest withdrawable first, as `get_sol_streams`

@@ -13,6 +13,8 @@ import {
   executeRelease,
   executeTransfer,
   nonceRent,
+  payoutNonceAddress,
+  payoutNonceSeed,
   readNonceAccount,
   type EngineViews,
   type PayoutView,
@@ -21,7 +23,7 @@ import {
 } from "@rose/sdk";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { baseEncode } from "near-api-js";
-import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
+import { PublicKey, Transaction, type Connection } from "@solana/web3.js";
 import type { Address, Hex } from "viem";
 import { RoseActionError } from "./errors";
 import type { SolanaSigner } from "@/components/wallet/WalletProvider";
@@ -99,35 +101,54 @@ export async function waitForPayout(views: EngineViews, payoutId: bigint, option
 export type CreatedNonce = { proof: SolNonceProof; nonceAccount: PublicKey; signature: string; nonceValue: string; slot: number };
 
 /**
- * Creates the payout's durable nonce account from the claimant's Solana wallet (authority =
- * the engine's vault) and, in the same transaction, the recipient's associated token account for
- * the mint when it does not exist yet (idempotent). After finality it reads back the exact bytes
- * the engine proves: the nonce account and the recipient's token account.
+ * The payout's durable nonce account of `nearAccount` (spec 7.3): created from the claimant's
+ * Solana wallet with a seed bound to the NEAR account (`createWithSeed(wallet, payoutNonceSeed)`,
+ * authority = the engine's vault; the wallet is the base and the only signer), or reused when it
+ * already exists, together with the recipient's associated token account for the mint
+ * (idempotent). After finality it reads back the exact bytes the engine proves: the nonce account
+ * and the recipient's token account, anchored on a finalized transaction not newer than the reads.
  */
 export async function createPayoutNonce(
   signer: SolanaSigner,
   connection: Connection,
   vaultSol: string,
+  nearAccount: string,
   recipient: { owner: PublicKey; mint: PublicKey },
   onProgress?: (text: string) => void,
 ): Promise<CreatedNonce> {
-  const nonceKeypair = Keypair.generate();
-  const lamports = await nonceRent(connection);
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-  const transaction = createNonceAccountTransaction({ payer: signer.publicKey, nonceAccount: nonceKeypair.publicKey, authority: new PublicKey(vaultSol), lamports, blockhash, lastValidBlockHeight });
+  const authority = new PublicKey(vaultSol);
+  const seed = await payoutNonceSeed(nearAccount);
+  const nonceAccount = await payoutNonceAddress(signer.publicKey, seed);
   const recipientTokens = getAssociatedTokenAddressSync(recipient.mint, recipient.owner, true);
-  transaction.add(createAssociatedTokenAccountIdempotentInstruction(signer.publicKey, recipientTokens, recipient.owner, recipient.mint));
-  transaction.partialSign(nonceKeypair);
-  const signed = await signer.signTransaction(transaction);
-  onProgress?.("Sending the nonce account creation…");
-  const signature = await connection.sendRawTransaction(signed.serialize());
-  onProgress?.("Waiting for finality (about 15 s)…");
-  await confirmSignature(connection, signature, { strategy: "blockhash", blockhash, lastValidBlockHeight, commitment: "finalized" });
-  const [state, tokens] = await Promise.all([readNonceAccount(connection, nonceKeypair.publicKey, "finalized"), connection.getAccountInfo(recipientTokens, "finalized")]);
+  const [existingNonce, existingTokens] = await Promise.all([connection.getAccountInfo(nonceAccount, "finalized"), connection.getAccountInfo(recipientTokens, "finalized")]);
+  if (existingNonce) {
+    const state = await readNonceAccount(connection, nonceAccount, "finalized");
+    if (!state.authority.equals(authority)) throw new RoseActionError("contract", "Nonce account in use", `The nonce account ${nonceAccount.toBase58()} of this wallet has another authority than the engine's vault.`);
+  }
+  let signature: string | null = null;
+  if (!existingNonce || !existingTokens) {
+    const lamports = await nonceRent(connection);
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    const transaction = existingNonce
+      ? new Transaction({ blockhash, lastValidBlockHeight, feePayer: signer.publicKey })
+      : createNonceAccountTransaction({ payer: signer.publicKey, nonceAccount, seed, authority, lamports, blockhash, lastValidBlockHeight });
+    transaction.add(createAssociatedTokenAccountIdempotentInstruction(signer.publicKey, recipientTokens, recipient.owner, recipient.mint));
+    const signed = await signer.signTransaction(transaction);
+    onProgress?.(existingNonce ? "Creating the recipient's token account…" : "Sending the nonce account creation…");
+    signature = await connection.sendRawTransaction(signed.serialize());
+    onProgress?.("Waiting for finality (about 15 s)…");
+    await confirmSignature(connection, signature, { strategy: "blockhash", blockhash, lastValidBlockHeight, commitment: "finalized" });
+  } else {
+    onProgress?.("Reusing this wallet's nonce account…");
+    const [latest] = await connection.getSignaturesForAddress(nonceAccount, { limit: 1 }, "finalized");
+    if (!latest || latest.err !== null) throw new RoseActionError("contract", "No anchor", `No finalized successful transaction touches the nonce account ${nonceAccount.toBase58()} yet; retry.`, true);
+    signature = latest.signature;
+  }
+  const [state, tokens] = await Promise.all([readNonceAccount(connection, nonceAccount, "finalized"), connection.getAccountInfo(recipientTokens, "finalized")]);
   if (!tokens) throw new RoseActionError("contract", "No token account", `The recipient's token account ${recipientTokens.toBase58()} is not readable at finality yet; retry.`, true);
   return {
-    proof: { account: nonceKeypair.publicKey.toBase58(), anchor_tx: signature, data: bytesToHex(state.raw), recipient_tokens_data: bytesToHex(Uint8Array.from(tokens.data)) },
-    nonceAccount: nonceKeypair.publicKey,
+    proof: { account: nonceAccount.toBase58(), base: signer.publicKey.toBase58(), seed, anchor_tx: signature, data: bytesToHex(state.raw), recipient_tokens_data: bytesToHex(Uint8Array.from(tokens.data)) },
+    nonceAccount,
     signature,
     nonceValue: state.nonce,
     slot: state.slot,

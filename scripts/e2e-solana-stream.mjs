@@ -23,11 +23,12 @@ import { fileURLToPath } from "node:url";
 import BN from "bn.js";
 import bs58 from "bs58";
 import {
-  Connection, Keypair, LAMPORTS_PER_SOL, NONCE_ACCOUNT_LENGTH, NonceAccount, PublicKey,
+  Connection, Keypair, LAMPORTS_PER_SOL, NonceAccount, PublicKey,
   SystemProgram, Transaction, VersionedTransaction, sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount, mintTo } from "@solana/spl-token";
 import { ICluster, SolanaStreamClient } from "@streamflow/stream";
+import { createNonceAccountTransaction, nonceRent, payoutNonceAddress, payoutNonceSeed } from "@rose/sdk";
 
 const RPC = "https://api.devnet.solana.com";
 const NEAR_RPC = process.env.NEAR_RPC_URL ?? "https://test.rpc.fastnear.com";
@@ -140,7 +141,11 @@ const gasPayer = new PublicKey(derived.gas_sol);
 const client = new SolanaStreamClient(RPC, ICluster.Devnet, "confirmed");
 
 const schedule = () => state.steps.setup.schedule;
-const classArgs = () => ({ mint: state.steps.setup.mint, decimals: 6, schedule: schedule() });
+// Token amounts of `compute_sol_class_id` are U64 JSON strings; timestamps and the period stay numbers.
+const classArgs = () => {
+  const s = schedule();
+  return { mint: state.steps.setup.mint, decimals: 6, schedule: { ...s, net_amount_deposited: String(s.net_amount_deposited), amount_per_period: String(s.amount_per_period), cliff_amount: String(s.cliff_amount) } };
+};
 
 async function stepSetup() {
   log("ops balance", (await conn.getBalance(ops.publicKey)) / LAMPORTS_PER_SOL, "SOL");
@@ -246,7 +251,7 @@ async function payoutProof(owner, anchor) {
   const recipientTokens = getAssociatedTokenAddressSync(new PublicKey(state.steps.setup.mint), owner);
   const tokens = await accountHex(recipientTokens.toBase58());
   return {
-    proof: { account: state.steps.claim.nonce_account, anchor_tx: anchor, data: Buffer.from(nonceInfo.data).toString("hex"), recipient_tokens_data: tokens.data },
+    proof: { account: state.steps.claim.nonce_account, base: state.steps.claim.nonce_base, seed: state.steps.claim.nonce_seed, anchor_tx: anchor, data: Buffer.from(nonceInfo.data).toString("hex"), recipient_tokens_data: tokens.data },
     value: NonceAccount.fromAccountData(nonceInfo.data).nonce,
   };
 }
@@ -257,15 +262,16 @@ async function stepClaim() {
   const streams = await nearView(engine, "get_sol_streams", { class_id: state.steps.transfer.class_id });
   const stream = streams.find((s) => s.position_id === state.steps.register.position_id);
   const amount = BigInt(stream.withdrawable) < BigInt(claimable) ? stream.withdrawable : claimable;
-  const nonceKp = Keypair.generate();
-  const rent = await conn.getMinimumBalanceForRentExemption(NONCE_ACCOUNT_LENGTH);
-  const create = new Transaction().add(
-    SystemProgram.createAccount({ fromPubkey: ops.publicKey, newAccountPubkey: nonceKp.publicKey, lamports: rent, space: NONCE_ACCOUNT_LENGTH, programId: SystemProgram.programId }),
-    SystemProgram.nonceInitialize({ noncePubkey: nonceKp.publicKey, authorizedPubkey: vault }),
-  );
-  const createSig = await sendAndConfirmTransaction(conn, create, [ops, nonceKp]);
+  // The engine accepts only a nonce account created with a seed naming the claimant (spec 7.3):
+  // createWithSeed(ops, prefix(nearHolder) + suffix, System), so nobody else can spend its values.
+  const seed = await payoutNonceSeed(nearHolder, Date.now().toString(36).slice(-8));
+  const nonceAccount = await payoutNonceAddress(ops.publicKey, seed);
+  const rent = await nonceRent(conn);
+  const latest = await conn.getLatestBlockhash("confirmed");
+  const create = createNonceAccountTransaction({ payer: ops.publicKey, nonceAccount, seed, authority: vault, lamports: rent, ...latest });
+  const createSig = await sendAndConfirmTransaction(conn, create, [ops]);
   await waitFinalized(createSig);
-  state.steps.claim = { nonce_account: nonceKp.publicKey.toBase58(), nonce_create_tx: createSig, nonce_create_link: explorer(createSig), amount, to_owner: ops.publicKey.toBase58() };
+  state.steps.claim = { nonce_account: nonceAccount.toBase58(), nonce_base: ops.publicKey.toBase58(), nonce_seed: seed, nonce_create_tx: createSig, nonce_create_link: explorer(createSig), amount, to_owner: ops.publicKey.toBase58() };
   const { proof, value } = await payoutProof(ops.publicKey, createSig);
   state.steps.claim.nonce_value = value;
   save();

@@ -11,14 +11,14 @@ section: Mechanism
 - Prices move in ticks of 0.000001 USDC (1e-6, the cash token has 6 decimals). Quantities are token base units.
 - Cash for `q` units at price `P` is `q * (1 - f(ts)) * P`. Buyers are charged this amount rounded up to the tick; sellers are paid it rounded down. The difference, at most one tick per fill, stays in the pool. Rounding never favors a trader.
 - The fee is 30 bps of the settled notional (the sum of the buyers' charges), rounded up to the tick, charged to the buying side on top of the price. See [Fees](/docs/fees).
-- Everything is computed on-chain from the opened bids, in pages. Ties are resolved deterministically, so the result is reproducible from the public book. The "Verify" panel on each round page does exactly that in the browser.
+- Everything is computed on-chain from the opened bids, in one bounded `clear` transaction (a round accepts at most `MAX_BIDS_PER_ROUND = 64` orders). Ties are resolved deterministically, so the result is reproducible from the public book. The "Verify" panel on each round page does exactly that in the browser.
 - In the examples below, quantities are whole units, prices are USDC per locked token, and `f(ts) = 0` (one unit carries one locked token) unless stated otherwise. Order ids are the ids assigned at submission; lower ids were submitted first.
 
 ## Fill order and rationing (all round types)
 
 Once the clearing price `P*` is known, every eligible order is sorted by price priority, then by ascending order id: asks by ascending minimum price, bids by descending limit price. Whole price levels are filled while the cumulative quantity fits in the traded volume. The first level that does not fit is the marginal level: it is rationed pro rata with the largest-remainder method. Each order at the marginal level gets `floor(remaining * qty / level_qty)`, then the units left over go one each to the orders with the largest remainders, ties to the lower order id. Levels beyond the marginal level get nothing. Fills sum to the volume exactly and never exceed an order's quantity.
 
-Strictly better prices therefore fill fully. Only the marginal level is rationed, and only on the long side.
+Strictly better prices therefore fill fully, level by level: every level before the marginal one fills fully, and the marginal level may itself be above `P*` for bids (or below it for asks), because `P*` usually lies inside a tie interval where no order sits. Only the marginal level is rationed, and only on the long side.
 
 ## Tender
 
@@ -211,4 +211,4 @@ The locked fraction also changes a Tender. Rerun example 1 with `f(ts) = 0.25`: 
 
 ## Settlement
 
-After `clear`, each bid is settled by its own call, usually by the participant when they claim. Units and cash move inside the NEAR ledger. Payouts to Base or Solana are pull-based; see [Cross-chain custody](/docs/cross-chain-custody).
+After `clear`, each bid is settled by its own `settle_bid` call (idempotent, callable by anyone, usually the participant when they claim); this per-bid settlement is the only pagination. Units and cash move inside the NEAR ledger. Payouts to Base or Solana are pull-based; see [Cross-chain custody](/docs/cross-chain-custody).

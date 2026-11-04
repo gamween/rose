@@ -1,13 +1,34 @@
 {
-  "name": "rose-scripts",
+  "name": "@rose/scripts",
   "private": true,
-  "description": "Node dependencies of the Solana end-to-end script (scripts/e2e-solana-stream.mjs). Install with `pnpm install --ignore-workspace` in this directory.",
+  "description": "Deployment, demo seed and real-testnet end-to-end scripts. The TypeScript scripts run under Node 22.18 or later (native type stripping): `node scripts/seed.ts`.",
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "seed": "node seed.ts",
+    "e2e:live": "node e2e-live.ts"
+  },
   "dependencies": {
-    "@solana/spl-token": "0.4.9",
-    "@solana/web3.js": "1.98.4",
+    "@rose/ibe-wasm": "workspace:*",
+    "@rose/sdk": "workspace:*",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.99.0",
     "@streamflow/stream": "13.4.0",
     "bn.js": "5.2.3",
-    "bs58": "6.0.0"
+    "bs58": "6.0.0",
+    "near-api-js": "7.4.0",
+    "viem": "2.57.16"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/bn.js": "5.2.0",
+    "@types/node": "22.20.5",
+    "eslint": "10.14.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }

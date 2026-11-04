@@ -3,7 +3,7 @@
  * checks their keys against the schema definitions when the ABI file is present.
  */
 
-import type { ClassView, EventsPageView, PortfolioView, RoundView, StatsView } from "../../src/engine/types.js";
+import type { ClassView, EventsPageView, LimitsView, PortfolioView, RoundView, StatsView } from "../../src/engine/types.js";
 
 export const CLASS_ID = "4e7a9d2c1b8f3e6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e";
 
@@ -33,6 +33,20 @@ export const classView: ClassView = {
   fraction_now: "123456789012345678",
 };
 
+export const limitsView: LimitsView = {
+  bid_storage_deposit: "20000000000000000000000",
+  round_storage_deposit: "50000000000000000000000",
+  bond_floor: "1000000",
+  fee_bps: 30,
+  max_bids_per_round: 64,
+  max_distribution_receivers: 50,
+  min_key_timeout: "60000000000",
+  max_key_timeout: "604800000000000",
+  min_reveal_window: "300000000000",
+  max_reveal_window: "604800000000000",
+  max_round_horizon: "2592000000000000",
+};
+
 export const roundView: RoundView = {
   round_id: "7",
   kind: "Tender",
@@ -55,7 +69,8 @@ export const roundView: RoundView = {
   budget: "950000000",
   issuer_escrow: "953000000",
   reference_price: "15000000",
-  retire_to: "treasury.cindral.testnet",
+  max_buy_quantity: null,
+  retire_to: "0x000000000000000000000000000000000000dead",
   advance_units: null,
   advance_claim: null,
   advance_min_fill: null,

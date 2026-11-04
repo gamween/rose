@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { RoundsPage } from "@/components/rounds/RoundsPage";
+import { demoAvailable } from "@/lib/demo/registry";
 import { deployed } from "@/lib/deployment";
 
 export const metadata: Metadata = {
@@ -8,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function RoundsRoute() {
-  return <RoundsPage configured={deployed("engineAccount") !== null} />;
+  return <RoundsPage configured={deployed("engineAccount") !== null} demo={demoAvailable()} />;
 }

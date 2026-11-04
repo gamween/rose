@@ -7,11 +7,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { EngineCalls } from "../../src/engine/calls.js";
 import { EngineRawViews } from "../../src/engine/views.js";
 import { NearRpc } from "../../src/engine/rpc.js";
-import { classView, eventsPageView, portfolioView, roundView, statsView } from "./fixtures.js";
+import { classView, eventsPageView, limitsView, portfolioView, roundView, statsView } from "./fixtures.js";
 
 interface AbiParam { name: string }
 interface AbiFunction { name: string; kind: "view" | "call"; params?: { args: AbiParam[] }; modifiers?: string[] }
@@ -32,9 +32,14 @@ function recordedViews(): { calls: { method: string; args: string[] }[]; views: 
 }
 
 describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
-  const abi = JSON.parse(readFileSync(ABI_PATH, "utf8")) as Abi;
-  const functions = new Map(abi.body.functions.map((f) => [f.name, f]));
-  const definitions = abi.body.root_schema.definitions;
+  // Read in beforeAll, not at collection: a skipped suite's body still runs when it is collected.
+  let functions = new Map<string, AbiFunction>();
+  let definitions: Record<string, AbiSchema> = {};
+  beforeAll(() => {
+    const abi = JSON.parse(readFileSync(ABI_PATH, "utf8")) as Abi;
+    functions = new Map(abi.body.functions.map((f) => [f.name, f]));
+    definitions = abi.body.root_schema.definitions;
+  });
 
   it("every view binding names an existing view method with the ABI's parameter names", async () => {
     const { calls, views } = recordedViews();
@@ -80,9 +85,10 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
     await views.getSolStreams("c");
     await views.registrationDepositFor("a.testnet", "c");
     await views.computeBaseClassId("0x1", 18, { start: 1, cliff: 2, end: 3, granularity: 1, deposited: "1", start_unlock: "0", cliff_unlock: "0" });
-    await views.computeSolClassId("m", 6, { start_time: 1, end_time: 2, net_amount_deposited: 1, period: 1, amount_per_period: 1, cliff: 1, cliff_amount: 0 });
+    await views.computeSolClassId("m", 6, { start_time: 1, end_time: 2, net_amount_deposited: "1", period: 1, amount_per_period: "1", cliff: 1, cliff_amount: "0" });
+    await views.nonceSeedPrefixOf("a.testnet");
     await views.depositPathOf("a.testnet", "c");
-    expect(calls.length).toBe(44);
+    expect(calls.length).toBe(45);
     for (const call of calls) {
       const fn = functions.get(call.method);
       expect(fn, call.method).toBeDefined();
@@ -96,7 +102,7 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
     const window = { closesAt: 1n };
     const location = { tx_hash: "0x1", block_hash: "0x2", block_number: 1, transaction_index: 0, log_index: 0 };
     const built = [
-      calls.createTender({ classId: "c", venue: "Near", budget: 1n, maxPrice: 1n, retireTo: "t.testnet", window }),
+      calls.createTender({ classId: "c", venue: "Near", budget: 1n, maxPrice: 1n, retireTo: "0x000000000000000000000000000000000000dead", window }),
       calls.createExit({ classId: "c", venue: "Near", maxPrice: 1n, window }),
       calls.createAdvance({ classId: "c", venue: "Near", units: 1n, claim: 1n, minFill: 1n, maxPrice: 1n, window }),
       calls.cancelRound(1n),
@@ -125,7 +131,7 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
       calls.registerSolDeposit("m", "t", "00", 1n),
       calls.claimBaseTokens({ Holding: { class_id: "c" } }, 1n, "0x1"),
       calls.withdrawBaseCash("0x1", 1n, "0x2"),
-      calls.claimSolTokens({ Retired: { round_id: "1" } }, [{ position_id: "0", amount: "1" }], "o", { account: "n", anchor_tx: "t", data: "00", recipient_tokens_data: "00" }),
+      calls.claimSolTokens({ Retired: { round_id: "1" } }, [{ position_id: "0", amount: "1" }], "o", { account: "n", base: "b", seed: "s", anchor_tx: "t", data: "00", recipient_tokens_data: "00" }),
       calls.confirmSolPayout(1n, "t", "00", ["00"]),
       calls.confirmSolRedeem(1n, "t", "00", "00"),
       calls.retrySolPayout(1n),
@@ -146,12 +152,24 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
     }
   });
 
+  it("types Solana token amounts as JSON strings and nonce proofs with their seed", () => {
+    const type = (name: string, field: string) => (definitions[name]?.properties?.[field] as { type?: string } | undefined)?.type;
+    for (const field of ["cliff_amount", "amount_per_period", "net_amount_deposited", "engine_withdrawn", "registered_withdrawn", "pending_withdraw"]) {
+      expect(type("SolStreamInfo", field), field).toBe("string");
+    }
+    for (const field of ["cliff_amount", "amount_per_period", "net_amount_deposited"]) {
+      expect(type("StreamflowScheduleArgs", field), field).toBe("string");
+    }
+    expect(Object.keys(definitions["SolNonceProof"]?.properties ?? {}).sort()).toEqual(["account", "anchor_tx", "base", "data", "recipient_tokens_data", "seed"]);
+  });
+
   it("fixtures carry exactly the keys of the ABI type definitions", () => {
     const keysOf = (name: string) => Object.keys(definitions[name]?.properties ?? {}).sort();
     const check = (name: string, value: object) => {
       expect(Object.keys(value).sort(), name).toEqual(keysOf(name));
     };
     check("Stats", statsView);
+    check("Limits", limitsView);
     check("ClassView", classView);
     check("RoundView", roundView);
     check("RoundResult", roundView.result ?? {});

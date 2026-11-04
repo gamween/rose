@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
+import { cn } from "@/lib/cn";
 import { missingDeployments } from "@/lib/deployment";
+import { ROUTES } from "@/lib/routes";
 
-/** Testnet banner under the top bar with the "Get test funds" entry point. */
-export function TestnetBanner({ onGetFunds }: { onGetFunds: () => void }) {
+/** Testnet banner under the top bar with the "Get test funds" and "Watch a full round" entry points. */
+export function TestnetBanner({ onGetFunds, demo }: { onGetFunds: () => void; demo: boolean }) {
   const missing = missingDeployments();
   return (
     <div className="border-b border-ember-700/40 bg-ember-700/10" data-testnet-banner>
@@ -13,11 +16,16 @@ export function TestnetBanner({ onGetFunds }: { onGetFunds: () => void }) {
           Testnet only: NEAR testnet, Base Sepolia, Solana devnet. Nothing here has value.
         </span>
         {missing.length > 0 ? <span className="text-ink-400">{missing.length === 8 ? "Contracts not deployed yet." : `${String(missing.length)} contracts not deployed yet.`}</span> : null}
+        {demo ? (
+          <Link href={ROUTES.demo} data-watch-demo className="ml-auto font-display text-[11px] uppercase tracking-wide text-ember-200 underline-offset-2 hover:underline">
+            Watch a full round
+          </Link>
+        ) : null}
         <button
           type="button"
           onClick={onGetFunds}
           data-get-funds
-          className="ml-auto rounded-sm border border-ember-600 bg-ember-700/30 px-2 py-0.5 font-display text-[11px] uppercase tracking-wide text-ember-200 transition-colors hover:bg-ember-700/50"
+          className={cn("rounded-sm border border-ember-600 bg-ember-700/30 px-2 py-0.5 font-display text-[11px] uppercase tracking-wide text-ember-200 transition-colors hover:bg-ember-700/50", !demo && "ml-auto")}
         >
           Get test funds
         </button>

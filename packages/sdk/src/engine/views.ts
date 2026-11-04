@@ -234,6 +234,10 @@ export class EngineRawViews {
   computeSolClassId(mint: string, decimals: number, schedule: StreamflowScheduleArgs, o?: ViewCallOptions): Promise<ClassId> {
     return this.call("compute_sol_class_id", { mint, decimals, schedule }, o);
   }
+  /** The 24 hex characters every seed of `accountId`'s payout nonce accounts starts with (`payoutNonceSeed` computes the same locally). */
+  nonceSeedPrefixOf(accountId: AccountId, o?: ViewCallOptions): Promise<string> {
+    return this.call("nonce_seed_prefix_of", { account_id: accountId }, o);
+  }
   /** `dep/<account>/<class_id>`, the MPC derivation path of the holder's Solana deposit address. */
   depositPathOf(account: AccountId, classId: ClassId, o?: ViewCallOptions): Promise<string> {
     return this.call("deposit_path_of", { account, class_id: classId }, o);

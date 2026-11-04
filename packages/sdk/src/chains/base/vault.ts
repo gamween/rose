@@ -89,7 +89,13 @@ export function approveToken(wallet: SignerClient, token: Address, spender: Addr
 }
 
 export interface TransferAuthorization { token: Address; to: Address; amount: bigint; id: bigint }
-export interface ReleaseAuthorization { lockup: Address; streamId: bigint; to: Address; id: bigint }
+/**
+ * A RoseVault `Release(lockup, streamId, to, vestedToRecipient, id)`. `vestedToRecipient` is the
+ * engine payout kind's `vested_to_recipient`: `true` for the return of a refused stream (its
+ * vested tokens go to `to`), `false` for an in-kind redeem (they go to the vault); when omitted it
+ * is `false`, and a return submitted without it fails the signature check without using the id.
+ */
+export interface ReleaseAuthorization { lockup: Address; streamId: bigint; to: Address; vestedToRecipient?: boolean; id: bigint }
 export interface Eip712Signature { v: number; r: Hex; s: Hex }
 
 /** Submits an engine-signed `Transfer` authorization (anyone can; the caller pays gas). */
@@ -102,13 +108,14 @@ export function executeTransfer(wallet: SignerClient, params: { vault: Address; 
   });
 }
 
-/** Submits an engine-signed `Release` authorization (in-kind redeem). */
+/** Submits an engine-signed `Release` authorization (in-kind redeem, or the return of a refused stream). */
 export function executeRelease(wallet: SignerClient, params: { vault: Address; authorization: ReleaseAuthorization } & Eip712Signature): Promise<Hex> {
+  const { lockup, streamId, to, vestedToRecipient, id } = params.authorization;
   return wallet.writeContract({
     address: params.vault,
     abi: roseVaultAbi,
     functionName: "executeRelease",
-    args: [params.authorization, params.v, params.r, params.s],
+    args: [{ lockup, streamId, to, vestedToRecipient: vestedToRecipient ?? false, id }, params.v, params.r, params.s],
   });
 }
 

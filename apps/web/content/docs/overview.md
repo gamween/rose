@@ -35,7 +35,7 @@ Locked and vesting allocations are bought and sold today, but badly.
 
 The primary user is the issuer. Holders are the supply side. Buyers are the demand side of secondary rounds.
 
-Most real team vestings are not transferable, so the primary onboarding path is the issuer path: the issuer creates the cohort's streams directly to RoseVault (or moves its own transferable streams in) and distributes units to holders with a batch NEP-245 transfer. Holder self-deposit of an existing transferable position is the second path.
+Most real team vestings are not transferable, so the primary onboarding path is the issuer path: the issuer calls RoseVault `createStreams`, which pulls the tokens and creates the cohort's streams directly in custody in one transaction, each naming the NEAR account that receives its units, and can distribute units to holders with `distribute_units`, a bounded batch that emits NEP-245 events. Holder self-deposit of an existing transferable position is the second path.
 
 ## What rose is not
 

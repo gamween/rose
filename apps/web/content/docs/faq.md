@@ -54,15 +54,15 @@ A set of positions that are economically identical: same chain, protocol, token 
 
 ### What is a unit?
 
-One allocation unit of a class: a claim on one token of the class schedule. Depositing a position with allocation `D` mints `D` units. Units are NEP-245 tokens with the class id as token id.
+One allocation unit of a class: a claim on one base unit of the class token under the class schedule. Depositing a position with allocation `D` (in base units) mints `D` units. Units are NEP-245 tokens with the class id as token id; holding them requires a NEP-145 storage registration on the engine.
 
 ### What is the unlock function?
 
-`f(t)` in `[0, 1]`: the fraction of the allocation unlocked at time `t`, piecewise linear from the attested schedule, 1e18 fixed point, rounded down. Locked tokens per unit are `1 - f(t)`. A unit's entitlement between two times is `f(t2) - f(t1)` tokens.
+`f(t)` in `[0, 1]`: the fraction of the allocation unlocked at time `t`, an exact port of the protocol's own unlock math over the attested schedule, 1e18 fixed point, and a lower bound of what every stream of the class has unlocked. Locked tokens per unit are `1 - f(t)`. A unit's entitlement between two times is `f(t2) - f(t1)` tokens.
 
 ### How do unlocked tokens reach me?
 
-Every account holds `(balance, checkpoint, claimable)` per class. Every balance change first accrues `balance * (f(now) - checkpoint)` into `claimable`. You pull your claimable tokens from the vault on the foreign chain with an engine-signed authorization. See [Cross-chain custody](/docs/cross-chain-custody).
+Every account holds `(balance, checkpoint, claimable, carry)` per class. Every balance change first accrues `balance * (f(now) - checkpoint)` into `claimable`. You pull your claimable tokens from the vault on the foreign chain with an engine-signed authorization. See [Cross-chain custody](/docs/cross-chain-custody).
 
 ### Who gets the accrual of units that are locked in a round?
 
@@ -70,11 +70,11 @@ The seller, until `ts = closes_at`. Sold units accrue to the buyer from `ts`. Un
 
 ### What positions are supported?
 
-Sablier Lockup v4 streams on Base Sepolia (Lockup Linear only, created `transferable = true`, non-cancelable or renounced, not depleted) and Streamflow streams on Solana devnet (`transfer_recipient` allowed for the recipient). Cancelable positions are refused.
+Sablier Lockup v4 streams on Base Sepolia (Lockup Linear only, created `transferable = true`, non-cancelable or renounced, not canceled or depleted, at least one whole token left to lock) and fee-free Streamflow streams on Solana devnet (`transfer_recipient` allowed for the recipient, no sender power left, a classic SPL Token mint without a freeze authority). Cancelable positions, Token-2022 mints and mints with a freeze authority are refused.
 
 ### My team vesting is not transferable. Can I use rose?
 
-Not by self-deposit. The intended path is the issuer path: the issuer creates the cohort's streams to RoseVault (or moves its own transferable streams in) and distributes units to holders with a batch NEP-245 transfer.
+Not by self-deposit. The intended path is the issuer path: the issuer calls RoseVault `createStreams`, which creates the cohort's streams directly in custody, each naming the NEAR account that receives its units, and can distribute units with `distribute_units`, a bounded batch that emits NEP-245 events.
 
 ### What is an Advance?
 
@@ -96,7 +96,7 @@ No. Bids are encrypted to a per-round identity. Its key is derived by the NEAR M
 
 ### Who opens the bids after close?
 
-Anyone. Once the key is public, every participant's browser can decrypt the book locally; the app opens all remaining bids in sequence for whoever clicks "Finalize". Each opening is one transaction of about 0.012 NEAR in gas, fully verified by the contract.
+Anyone. Once the key is public, every participant's browser can decrypt the book locally; the app opens all remaining bids in sequence for whoever clicks "Finalize". Each opening is one transaction of about 0.0132 NEAR in gas, fully verified by the contract.
 
 ### What if I submit garbage as a bid?
 
@@ -104,7 +104,7 @@ Nobody can open it, including you, because the contract verifies the ciphertext 
 
 ### What if the MPC network never returns the key?
 
-After `closes_at + key_timeout` (default 1 h), anyone can call `cancel_no_key`. The round is `Cancelled` and every escrow, bond and locked unit is refundable. No bid is opened.
+After `closes_at + key_timeout` (default 1 h), once no key request is in flight, anyone can call `cancel_no_key`. The round is `Cancelled` and every escrow, bond and locked unit is refundable. No bid is opened on chain, but the key may still become public through a late MPC response, so the sealed orders of a cancelled round can become readable after the fact. No funds move after `Cancelled`: the consequence is privacy only.
 
 ### What is the bond?
 
@@ -132,7 +132,7 @@ No. Every lifecycle transition is a public method callable by anyone; the app sh
 
 ### Why are payouts "pull-based"?
 
-Because pushing a payout to a foreign chain would need a relayer. Instead the engine debits your balance, stores an MPC-signed authorization (or a signed Solana transaction) on NEAR, and you submit it yourself. It never expires, cannot be used twice, and anyone can submit it for you.
+Because pushing a payout to a foreign chain would need a relayer. Instead the engine debits your balance, stores an MPC-signed authorization (or a signed Solana transaction) on NEAR, and you submit it yourself. It never expires, cannot be used twice, and anyone can submit it for you. A Solana payout is then confirmed on NEAR (`confirm_sol_payout`) with a proof that it landed; it is refunded only on two proofs, 150 blocks apart, that it did not execute.
 
 ## Chains
 
@@ -160,7 +160,7 @@ Yes, in two ways. Sell your units in a round and claim the cash in the round's v
 
 ### Who do I trust?
 
-The NEAR MPC network (a threshold of nodes could break custody and sealing; foreign state is trusted to their RPC quorum), the keyless engine code, and the immutable RoseVault. Nobody else can move funds, see bids early or stop a round. See [Trust and security](/docs/trust-and-security).
+The NEAR MPC network (a threshold of nodes could break custody and sealing; foreign state is trusted to their RPC quorum), the keyless engine code, and the immutable RoseVault. For the tokens themselves, their issuers: on Base, an ERC-20 with pause or blacklist powers can freeze RoseVault's balance (on Solana, mints with a freeze authority are refused). Nobody else can move funds, see bids early or stop a round. See [Trust and security](/docs/trust-and-security).
 
 ### Is it audited?
 

@@ -17,6 +17,8 @@ All addresses are testnet. Nothing is deployed on any mainnet. Live checks (keyl
 
 Circle's USDC on NEAR testnet exists but is minted only through a captcha-gated faucet, so the NEAR cash venue is rose tUSDC.
 
+Staging engines are not keyless: they keep a full-access key held by the team. Only the final engine is deployed keyless; the [status page](/status) shows the live access key check of the engine the app uses.
+
 ### Engine methods
 
 Every lifecycle transition is a public method; there is no keeper.
@@ -25,18 +27,24 @@ Every lifecycle transition is a public method; there is no keeper.
 |---|---|---|---|
 | `bootstrap` | anyone, once | | Reads `derived_public_key` from the MPC contract and fills the derived foreign addresses (`vault/base`, `vault/sol`, `gas/sol`). |
 | `create_tender`, `create_exit`, `create_advance` | issuer, anyone, holder | parameters valid; Tender escrow (budget + 30 bps) and Advance units available | Round `Scheduled` or `Open` |
-| `place_bid`, `place_ask` | anyone | `opens_at <= now < closes_at` | Stores the ciphertext, escrows cash or locks units, takes the bond |
+| `place_bid`, `place_ask` | anyone | `opens_at <= now < closes_at`, at most `MAX_BIDS_PER_ROUND = 64` orders, one per side per account; 0.02 NEAR of storage attached | Stores the ciphertext, escrows cash or locks units, takes the bond |
 | `cancel_round` | creator | before the first bid | `Cancelled`, everything refundable |
-| `close` | anyone | `now >= closes_at` | Requests the round key from CKD (retries unbounded) |
+| `close` | anyone | `closes_at <= now < closes_at + key_timeout` | Requests the round key from CKD (retries unbounded, about 60 Tgas); a round without any sealed order is cancelled instead |
 | `on_round_key` (callback), `submit_key` | MPC, anyone | key verifies with one pairing check | `Revealing` from `key_received_at` |
-| `cancel_no_key` | anyone | no key by `closes_at + key_timeout` | `Cancelled`, everything refundable |
+| `cancel_no_key` | anyone | no key by `closes_at + key_timeout`, and no key request in flight (250 blocks after the last `close`) | `Cancelled`, everything refundable |
 | `open_bid` | anyone | `Revealing`, inside the window | Full verification of `(plaintext, sigma)`; the bid is opened, or void if it exceeds its collateral |
 | `clear` | anyone | window over | Unopened bids void and slashed; clearing price and fills computed and stored; `Settled`, or `Cancelled` when nothing crosses |
 | `settle_bid` | anyone | `Settled` or `Cancelled` | Applies one bid's result to the ledger (units, cash, refund, bond); idempotent |
-| `register_base_deposit` | anyone | ForeignTx `Log` proof with `expected_payload_hash` | Mints units for a `StreamDeposited` log, or credits cash for a `CashDeposited` log |
-| `move_sol_deposit` | anyone | | Engine signs `transfer_recipient` from the deposit address to the vault |
-| `register_sol_deposit` | anyone | ForeignTx `AccountState` proof | Mints units for a Streamflow stream held by the vault |
-| `redeem` | unit holder | holds `D_p` free units | Burns the units and authorizes the release of the position |
+| `register_base_deposit` | anyone | ForeignTx `Log` proof at `Safe`, sent without `expected_payload_hash`; the callback recomputes the payload hash | Mints units for a `StreamDeposited` log |
+| `register_base_cash` | anyone | ForeignTx `Log` proof, as above; 0.015 NEAR of record storage | Credits cash in the Base venue for a `CashDeposited` log |
+| `attribute_sol_deposit` | the depositing NEAR account | ForeignTx `AccountState` proof that the stream sits at the caller's deposit address; 0.015 NEAR of record storage | Records the stream as attributed to the caller, or as refused and returnable |
+| `move_sol_deposit` | anyone | stream attributed, not registered; 0.025 NEAR | Engine signs the vault's token account creation and `transfer_recipient` from the deposit address to the vault, with the caller's recent blockhash |
+| `register_sol_deposit` | anyone | ForeignTx `AccountState` proof at `Finalized` | Mints units for a Streamflow stream held by the vault |
+| `claim_base_tokens`, `withdraw_base_cash` | claimant | claimable balance; 0.025 NEAR | Debits, then stores an MPC-signed RoseVault `Transfer` authorization |
+| `claim_sol_tokens` | claimant | claimable balance, proven nonce and token accounts; 0.025 NEAR, 200 Tgas | Debits, then stores a signed durable-nonce payout transaction (`Signed`) |
+| `confirm_sol_payout`, `confirm_sol_redeem` | anyone | ForeignTx proof that the nonce advanced and of the stream state | `Landed` (or `Released`); refunded only after two proofs, 150 blocks apart, that the transaction did not execute |
+| `retry_base_signature`, `retry_sol_payout` | anyone | request failed, or unanswered for 600 blocks | Signs again (never refunds a signature request); abandons a payout still waiting for its proof |
+| `redeem` | unit holder | holds `D_p` free units | Burns the units and authorizes the release of the position; on Solana it stays `Signed` until `confirm_sol_redeem` |
 
 Units follow NEP-245 (`mt_transfer`, `mt_transfer_call` and the batch variants; token id = class id). The contract keeps a bounded, paginated event history in state so the app needs no indexer.
 
@@ -64,16 +72,17 @@ Units follow NEP-245 (`mt_transfer`, `mt_transfer_call` and the batch variants; 
 
 ### Events verified by the engine
 
-`StreamDeposited(address sender, string nearAccount, address lockup, uint256 streamId, address token, uint128 deposited, uint128 withdrawn, uint40 start, uint40 cliff, uint40 end, uint40 granularity, uint128 startUnlock, uint128 cliffUnlock, bool cancelable, bool transferable, uint40 timestamp)` with `sender` and `streamId` indexed. The engine rebuilds the log byte by byte from the values the caller provides and verifies it through ForeignTx with the block-level log index.
+`StreamDeposited(address sender, string nearAccount, address lockup, uint256 streamId, address token, uint8 decimals, uint128 deposited, uint128 withdrawn, uint40 start, uint40 cliff, uint40 end, uint40 granularity, uint128 startUnlock, uint128 cliffUnlock, bool cancelable, bool transferable, uint40 timestamp)` with `sender` and `streamId` indexed. The engine rebuilds the log byte by byte from the values the caller provides, verifies it through ForeignTx with the block-level log index, and compares the payload hash it recomputes with the one the MPC signed. `CashDeposited(address sender, address token, uint64 roundId, string nearAccount, uint128 amount, uint40 timestamp)`, with `sender`, `token` and `roundId` indexed, is verified the same way by `register_base_cash`.
 
 ## Solana devnet
 
 | Account | Address | Notes |
 |---|---|---|
-| Streamflow program | `HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ` | Streams must allow `transfer_recipient` for the recipient and must not be cancelable by the sender. |
-| Vault | `{{SOLANA_VAULT}}` | MPC-derived Ed25519 address of the engine (path `vault/sol`). Recipient of deposited streams, holder of withdrawn SPL tokens, authority of payout nonce accounts. |
+| Streamflow program | `HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ` | Streams must allow `transfer_recipient` for the recipient and must not be cancelable by the sender; classic SPL Token mints without a freeze authority only. |
+| Vault | `{{SOLANA_VAULT}}` | MPC-derived Ed25519 address of the engine (path `vault/sol`). Recipient of deposited streams, owner of the token account each payout passes through, authority of payout nonce accounts. |
 | Gas payer | `{{SOLANA_GAS_PAYER}}` | MPC-derived Ed25519 address (path `gas/sol`), funded with devnet SOL. Fee payer of every engine-built transaction. Balance on the status page. |
 | Deposit addresses | derived per holder and class | Path `dep/<near_account>/<class>`, derived through the MPC contract's `derived_public_key`. |
+| Payout nonce accounts | derived per claimant wallet | `createWithSeed(wallet, seed)`, the seed starting with `nonce_seed_prefix_of(near_account)`; 80 bytes, authority = vault, reused across claims. |
 
 The engine proves a Streamflow stream with one ForeignTx `AccountState` read of the stream metadata account (1,104 bytes; recipient at offset 113, mint at offset 177).
 

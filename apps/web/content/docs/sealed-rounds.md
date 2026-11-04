@@ -16,12 +16,12 @@ Every transition is a public method. There is no keeper, no relayer and no privi
 | State | What happens | Who moves it forward |
 |---|---|---|
 | `Scheduled` | The round exists; bidding has not started. | Time: it becomes `Open` at `opens_at`. |
-| `Open` | Bids and asks are accepted until `closes_at` (block timestamp). The creator can cancel only before the first bid, and never after `closes_at`. | Anyone calls `close` once `now >= closes_at`. |
-| `KeyRequested` | The contract has asked the NEAR MPC network for the round's decryption key. Retries are unbounded because the key is deterministic. | The MPC callback, or anyone with the key through `submit_key`. If no key has arrived by `closes_at + key_timeout` (default 1 h), anyone calls `cancel_no_key`. |
+| `Open` | Bids and asks are accepted until `closes_at` (block timestamp), at most `MAX_BIDS_PER_ROUND = 64` per round and one per side per account. The creator can cancel only before the first bid, and never after `closes_at`. | Anyone calls `close` once `now >= closes_at` (a round without any sealed order is cancelled instead). |
+| `KeyRequested` | The contract has asked the NEAR MPC network for the round's decryption key. Retries are unbounded because the key is deterministic. | The MPC callback, or anyone with the key through `submit_key`. If no key has arrived by `closes_at + key_timeout` (default 1 h), anyone calls `cancel_no_key` once no key request is in flight. |
 | `Revealing` | Starts at `key_received_at`, lasts `reveal_window` (10 min in the demo, 24 h suggested in production). Openings are accepted. | Anyone can open any bid; the app opens everything for whoever clicks "Finalize". |
-| `Clearing` | After the window, `clear` computes the clearing price and the fills. The computation is paginated. | Anyone. |
+| `Clearing` | After the window, `clear` computes the clearing price and every fill in one bounded transaction (64 orders at most); `settle_bid` then applies one bid's result at a time, which is the pagination of settlement. | Anyone. |
 | `Settled` | Units and cash have moved inside the NEAR ledger. Each participant pulls their cash, units or refunds. | Each participant claims. |
-| `Cancelled` | No crossing, cancelled by the creator before the first bid, or no key in time. Every escrow, bond and locked unit is refundable. | Each participant claims their refund. |
+| `Cancelled` | No crossing, no sealed order at close, cancelled by the creator before the first bid, or no key in time. Every escrow, bond and locked unit is refundable. | Each participant claims their refund. |
 
 ## Sealing
 
@@ -32,19 +32,19 @@ Bids are encrypted in the browser with Boneh-Franklin identity-based encryption 
 
 ## Key release after the deadline only
 
-The key request (`request_app_private_key` on `v1.signer-prod.testnet`, `AppPublicKeyPV` variant with a public scalar, at least 15 Tgas, 1 yocto) exists in exactly one function of the engine. It is callable by anyone and guarded by `require!(now >= round.closes_at)`. The MPC network derives the private key for the round identity and returns it to the contract.
+The key request (`request_app_private_key` on `v1.signer-prod.testnet`, `AppPublicKeyPV` variant with a public scalar, 1 yocto) exists in exactly one function of the engine, `close`. It is callable by anyone and guarded by `require!(now >= round.closes_at)`; retries are unbounded until `closes_at + key_timeout`. Gas (measured): the MPC's live config requires 15 Tgas attached, but the request itself burns about 11.6 Tgas on top of the 7 Tgas reserved for the yield return, so the measured minimum is 19 Tgas and the engine attaches 25. `close` attaches about 60 Tgas in total. The MPC network derives the private key for the round identity and returns it to the contract.
 
 Because the engine is keyless and has no upgrade method, there is no code path by which anyone, including the operator, can obtain the key before the deadline.
 
 `submit_key(sk)` is open to anyone and verified with `bls12381_pairing_check`, so a lost callback can never freeze a round: anyone who obtained the key from the MPC can hand it to the contract.
 
-Measured on testnet (Sealwell): CKD end to end in 4.3 to 6.1 s, about 35 Tgas including the callback.
+Measured on testnet (rose, consistent with Sealwell's 4.3 to 6.1 s): 4.2 to 4.8 s from the close transaction to the stored key, 35.0 Tgas in total including the callback.
 
 ## Opening: fully verified, no keeper, no challenge game
 
-1. Once the key is public, anyone can open any bid by submitting `(plaintext, sigma)`. The contract fully verifies the opening: it recomputes `V` from the public key with one pairing in wasm and checks `U`, `V` and `W` (Sealwell measured 119.8 Tgas, 124 Tgas per receipt), so each opening fits in one transaction under the 300 Tgas wallet cap.
+1. Once the key is public, anyone can open any bid by submitting `(plaintext, sigma)`. The contract fully verifies the opening: it recomputes `V` from the public key with one pairing in wasm and checks `U`, `V` and `W` (Sealwell measured 119.8 Tgas, 124 Tgas per receipt; rose measured 124.3 to 124.4 Tgas per transaction), so each opening fits in one transaction under the 300 Tgas wallet cap.
 2. A ciphertext with an inconsistent `V` can be opened by nobody, its author included. This matters: a bidder cannot submit a malformed bid and then decide after seeing the book whether to reveal it. There is no free option, so no challenge window is needed.
-3. The key being public, every participant's browser can decrypt every bid locally. The app opens all remaining bids in sequence for whoever clicks "Finalize". Each opening is a separate transaction; the opener pays about 0.012 NEAR of gas per bid.
+3. The key being public, every participant's browser can decrypt every bid locally. The app opens all remaining bids in sequence for whoever clicks "Finalize". Each opening is a separate transaction prepaid with 200 Tgas, about 1.5 times the 132 Tgas the staging engine burns, because prepaid gas is charged up front at the pessimistic gas price; the opener pays about 0.0132 NEAR of gas per bid.
 4. After the reveal window, bids that nobody opened (malformed) are void and their bond is slashed. An opened bid is also void and slashed if a buyer's `limit * quantity` exceeds its escrow or a seller's quantity exceeds its locked units.
 
 ## Collateral, bonds and slashing
@@ -71,7 +71,9 @@ Anything encrypted to a round identity, including ciphertexts that were never su
 
 ## cancel_no_key
 
-If the MPC network does not deliver the key within `key_timeout` after `closes_at` (default 1 h), anyone can call `cancel_no_key(round)`. The round becomes `Cancelled`; every escrow, bond and locked unit is refundable. No bid is ever opened, so nothing about the book leaks.
+If the MPC network does not deliver the key within `key_timeout` after `closes_at` (default 1 h), anyone can call `cancel_no_key(round)` once no key request is in flight (250 blocks after the last `close`, past the MPC's 200-block yield, so the engine can never store a key, nor open or clear anything, for a cancelled round). The round becomes `Cancelled`; every escrow, bond and locked unit is refundable.
+
+The key itself may still become public: MPC nodes that answer after the yield timeout publish `(big_y, big_c)` in their failed `respond_ckd` transaction, which anyone unwraps with the round's public scalar, and a response whose callback failed is public while the round waits in `KeyRequested`. The sealed orders of a cancelled round can therefore become readable after the fact. No funds move after `Cancelled`, so the consequence is privacy only; it is the same property as the non-inclusion one above.
 
 ## Gas
 

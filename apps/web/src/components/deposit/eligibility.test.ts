@@ -116,15 +116,15 @@ describe("solanaVerdict", () => {
     ]);
     expect(solanaVerdict(metadata, null, FEE_FREE).reasons).toEqual(["The mint account could not be read."]);
   });
-  it("builds the class-id arguments as plain numbers", () => {
+  it("builds the class-id arguments: times as numbers, token amounts as U64 strings", () => {
     expect(streamflowScheduleArgs(metadata)).toEqual({
       start_time: 1_700_000_000,
       end_time: 1_800_000_000,
-      net_amount_deposited: 1_000_000_000,
+      net_amount_deposited: "1000000000",
       period: 3600,
-      amount_per_period: 1_630_434,
+      amount_per_period: "1630434",
       cliff: 1_700_604_800,
-      cliff_amount: 100_000_000,
+      cliff_amount: "100000000",
     });
   });
 });

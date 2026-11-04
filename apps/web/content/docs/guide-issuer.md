@@ -17,19 +17,19 @@ This guide is for a foundation, project treasury or DAO that wants to buy back l
 
 Go to `/app/issuer` and choose "Create a class".
 
-1. Pick the chain and the source: an existing stream (Sablier v4 on Base Sepolia, Streamflow on Solana devnet) or a schedule (start, cliff, cliff unlock, start unlock, end).
+1. Pick the chain and the source: an existing stream (Sablier v4 on Base Sepolia, Streamflow on Solana devnet) or a schedule (start, cliff, end and the deposited amount, plus start unlock, cliff unlock and granularity on Base, or cliff amount and period on Solana).
 2. The console shows the normalized schedule and the resulting unlock function `f(t)`.
-3. Confirm. You see the class id (the hash of the schedule, chain and token), the unlock timeline, and zero units outstanding.
+3. You see the class id (the hash of the chain, token, decimals and normalized schedule) and the unlock timeline. Computing it costs nothing: the engine writes the class record with the first registered deposit of the class.
 
 A class whose schedule already exists maps to the existing class: the class id is deterministic.
 
 ## 2. Create the cohort's positions and distribute units
 
-Most team and investor vestings are not transferable, so the recommended path is to create the streams yourself with RoseVault as recipient, or to move your own transferable streams in.
+Most team and investor vestings are not transferable, so the recommended path is to create the streams yourself directly in custody, or to move your own transferable streams in.
 
-1. On Base: create Lockup Linear streams of the cohort token with `transferable = true` and non-cancelable, then deposit them into RoseVault through `/app/deposit`, naming your own NEAR account (see the [Holder guide](/docs/guide-holder#deposit-on-base)). Each deposit mints units to that account.
-2. On the issuer console, choose "Distribute units". Paste the list of `(near_account, units)` for the cohort. The console builds the batch NEP-245 transfer and your wallet signs it.
-3. You see one transaction with an explorer link and, in each holder's portfolio (`/app`), their units with locked and claimable amounts.
+1. On Base, choose "Cohort streams" and paste the list of `(near_account, amount)` for the cohort. RoseVault `createStreams` pulls the tokens and creates one non-cancelable, transferable Lockup Linear stream per holder with the vault as recipient, in one transaction; each `StreamDeposited` event names the NEAR account that receives the units. The console then registers each stream on the engine once Base's safe head has passed the transaction (a few minutes), and the units are minted to each holder. You can also deposit transferable streams you hold through `/app/deposit`, naming your own NEAR account (see the [Holder guide](/docs/guide-holder#deposit-on-base)).
+2. To pass units you hold to the cohort, choose "Distribute units" and paste the list of `(near_account, units)`. The console calls `distribute_units`, a bounded batch (up to 50 receivers per call) that emits NEP-245 events, and your wallet signs it.
+3. You see the transactions with explorer links and, in each holder's portfolio (`/app`), their units with locked and claimable amounts.
 
 Accrual follows the units: a holder's unlocked tokens accrue from the moment they hold the units.
 
@@ -40,13 +40,13 @@ On `/app/issuer`, choose "Launch Tender".
 1. Select the class.
 2. Set the budget in the cash token, and either a max price per locked token or a max discount to a reference price you declare. If you declare a reference price, the Prices page labels the resulting discount as "to the issuer-declared reference".
 3. Set the window (`opens_at`, `closes_at`). The round's `key_timeout` (1 h) and `reveal_window` (10 min in the demo) are shown.
-4. Set where the retired units' unlocked tokens go: an address you choose or a burn address.
+4. Set where the retired units' unlocked tokens go: an address you choose or a burn address (RoseVault and the engine's own addresses are refused).
 5. The preview shows the escrow: budget plus 30 bps.
 6. Confirm. You see the round at `/app/rounds/[id]` in state `Scheduled` or `Open`, with the public parameters, a countdown and an empty sealed book.
 
 ## 4. Fund it
 
-If the venue is NEAR tUSDC, the escrow is taken from your NEAR cash balance when you create the round. If it is Base USDC, the console walks you through `depositCash(token, amount, nearAccount, roundId)` on RoseVault with your EVM wallet, then registers the deposit on NEAR with a ForeignTx proof. You see the proof progress and then the round funded.
+If the venue is NEAR tUSDC, the escrow is taken from your NEAR cash balance when you create the round. If it is Base USDC, the console walks you through `depositCash(token, amount, nearAccount, roundId)` on RoseVault with your EVM wallet, then registers the deposit on NEAR with `register_base_cash` and a ForeignTx proof. You see the proof progress and then the round funded.
 
 ## 5. Run via DAO
 
@@ -73,6 +73,6 @@ On the results page of the Tender, export the tender report as a CSV or a printa
 
 ## If something goes wrong
 
-- No key within 1 h of close: the round page offers `cancel_no_key` to anyone; the round is `Cancelled` and your escrow is refundable.
+- No key within 1 h of close: once no key request is in flight, the round page offers `cancel_no_key` to anyone; the round is `Cancelled` and your escrow is refundable.
 - No ask at or below the max price: the round is `Cancelled` after clearing, escrow refundable.
 - MPC timeout or an expired transaction: the action shows a retry button; retries are safe because every step is idempotent.

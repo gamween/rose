@@ -10,7 +10,7 @@ describe("engine change-call builders", () => {
       venue: { Base: { token: "0xabc" } },
       budget: 950_000_000n,
       maxPrice: 12_000_000n,
-      retireTo: "treasury.testnet",
+      retireTo: "0x000000000000000000000000000000000000dead",
       window: { closesAt: 1_793_763_600_000_000_000n, revealWindow: 600_000_000_000n },
     });
     expect(call).toEqual({
@@ -23,7 +23,7 @@ describe("engine change-call builders", () => {
           budget: "950000000",
           max_price: "12000000",
           reference_price: null,
-          retire_to: "treasury.testnet",
+          retire_to: "0x000000000000000000000000000000000000dead",
           window: { opens_at: null, closes_at: "1793763600000000000", key_timeout: null, reveal_window: "600000000000" },
         },
       },

@@ -58,6 +58,15 @@ export const GAS = {
   submitSignature: 30n * TGAS,
 } as const;
 
+/**
+ * NEP-145 storage of one cash row (`CASH_ROW_BYTES`, 172 bytes at 1e19 yoctoNEAR per byte):
+ * `ft_on_transfer` refuses a NEAR cash deposit (the token refunds it) unless the sender is
+ * registered with room for its row in the venue. `storage_balance_bounds().min` covers the
+ * record, one holding row and one cash row; an account that already holds other rows tops up
+ * this much before its first deposit in a venue.
+ */
+export const CASH_ROW_STORAGE_DEPOSIT = 172n * 10_000_000_000_000_000_000n;
+
 /** Storage deposit kept with every payout record (`PAYOUT_STORAGE_DEPOSIT`, 0.025 NEAR). */
 export const PAYOUT_STORAGE_DEPOSIT = (ONE_NEAR * 25n) / 1000n;
 
@@ -96,7 +105,8 @@ export interface TenderArgs {
   budget: bigint;
   maxPrice: bigint;
   referencePrice?: bigint;
-  retireTo: AccountId;
+  /** Foreign address the retired lot pays to: lowercase `0x` address (Base class) or base58 key (Solana class); never RoseVault or an engine key. */
+  retireTo: string;
   window: RoundWindowArgs;
 }
 
@@ -309,8 +319,9 @@ export class EngineCalls {
 
   /**
    * Spec 7.3: durable-nonce Solana payout drawing on the named streams of the class (the claim
-   * is their sum); the nonce account and the recipient's token account are proven before
-   * signing. The payout stays `Signed` until `confirmSolPayout`.
+   * is their sum); the nonce account (created with the caller's seed, `payoutNonceSeed`) and the
+   * recipient's token account are proven before signing. The payout stays `Signed` until
+   * `confirmSolPayout`.
    */
   claimSolTokens(source: ClaimSourceArgs, draws: SolDrawArgs[], toOwner: string, nonce: SolNonceProof): FunctionCall {
     return this.call("claim_sol_tokens", { source, draws, to_owner: toOwner, nonce }, GAS.solPayout, PAYOUT_STORAGE_DEPOSIT);

@@ -138,6 +138,37 @@ body {
   }
 }
 
+/* Guided demo: each step fades in, and the control bar shows how long autoplay stays on it. */
+@keyframes demo-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes demo-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.demo-step {
+  animation: demo-step-in 260ms ease-out;
+}
+
+.demo-progress {
+  animation-name: demo-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
 /* Landing "Launch app" button: hidden until the sleeping dragon is hovered, always visible on
    keyboard focus, on touch screens, with reduced motion and without WebGL. */
 .launch-app {

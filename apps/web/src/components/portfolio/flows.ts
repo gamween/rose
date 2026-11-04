@@ -128,7 +128,7 @@ function broadcastSolStep(deps: FlowDeps, holder: PayoutHolder, label: string): 
 function nonceStep(deps: FlowDeps, holder: { proof: SolNonceProof | null }, recipient: { owner: string; mint: string }): StepDefinition {
   return {
     id: "nonce",
-    label: "Create the payout's durable nonce account (authority = vault) and the recipient's token account",
+    label: "Create or reuse the payout's durable nonce account (authority = vault) and the recipient's token account",
     run: async (context) => {
       if (holder.proof !== null) return { message: `Nonce account ${holder.proof.account.slice(0, 6)}… ready` };
       if (!deps.vaultSol) throw new RoseActionError("not_deployed", "Solana vault unknown", "The engine has not derived its Solana vault address yet (bootstrap).");
@@ -140,9 +140,9 @@ function nonceStep(deps: FlowDeps, holder: { proof: SolNonceProof | null }, reci
       } catch {
         throw new RoseActionError("contract", "Invalid destination", "The Solana destination is not a base58 address.");
       }
-      const created = await createPayoutNonce(signer, solanaConnection(), deps.vaultSol, { owner, mint: new PublicKey(recipient.mint) }, context.setDetail);
+      const created = await createPayoutNonce(signer, solanaConnection(), deps.vaultSol, deps.account, { owner, mint: new PublicKey(recipient.mint) }, context.setDetail);
       holder.proof = created.proof;
-      return { message: `Nonce account ${created.proof.account.slice(0, 6)}… created`, links: txLinks("solana", created.signature) };
+      return { message: `Nonce account ${created.proof.account.slice(0, 6)}… ready`, links: txLinks("solana", created.signature) };
     },
   };
 }

@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
-import { Keypair, Message, PublicKey, SendTransactionError, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey, SendTransactionError, SystemProgram } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { broadcastSignedTransaction, classifySolanaError, confirmSignature, SolanaTransactionError } from "../../src/chains/solana/broadcast.js";
 import { must } from "./must.js";
 import { stubConnection } from "./rpc.js";
-import { accountStateArgs, createNonceAccountTransaction, NONCE_ACCOUNT_LEN, nonceAccountStateArgs, nonceRent, readNonceAccount } from "../../src/chains/solana/nonce.js";
+import { accountStateArgs, createNonceAccountTransaction, NONCE_ACCOUNT_LEN, nonceAccountStateArgs, nonceRent, nonceSeedPrefix, payoutNonceAddress, payoutNonceSeed, readNonceAccount } from "../../src/chains/solana/nonce.js";
 
 interface MessagesFixture {
   keys: Record<string, string>;
@@ -27,22 +27,31 @@ function nonceBytes(authority: PublicKey, nonce: PublicKey, lamportsPerSignature
 }
 
 describe("nonce accounts", () => {
-  it("compiles createNonceAccount to the engine's web3.js vector", () => {
-    const payer = new PublicKey(must(messages.keys["gas"]));
+  it("derives payout nonce seeds and addresses as the engine and the System program do", async () => {
+    // Same vector as the engine's `nonce_seed_prefix_of` test.
+    expect(await nonceSeedPrefix("alice.testnet")).toBe("9a7068ee6434852cdaff3acb");
+    expect(await payoutNonceSeed("alice.testnet", "a")).toBe("9a7068ee6434852cdaff3acba");
+    expect(await payoutNonceSeed("alice.testnet")).toHaveLength(24);
+    await expect(payoutNonceSeed("alice.testnet", "123456789")).rejects.toThrow("at most 8");
+    await expect(payoutNonceSeed("alice.testnet", "é")).rejects.toThrow("ASCII");
+    // A nonce account created with this base and seed on devnet (docs/verification.md).
+    const base = new PublicKey("6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n");
+    const seed = "0123456789abcdef01234567probe001";
+    const nonceAccount = await payoutNonceAddress(base, seed);
+    expect(nonceAccount.toBase58()).toBe("52gAaTfvLXp2WZMuK6KBkF3fj5K4mjqnJrSUDPwsMhaH");
     const transaction = createNonceAccountTransaction({
-      payer,
-      nonceAccount: new PublicKey(must(messages.keys["nonce"])),
+      payer: base,
+      nonceAccount,
+      seed,
       authority: new PublicKey(must(messages.keys["vault"])),
-      lamports: 1_447_680,
+      lamports: 1_056_640,
       blockhash: new PublicKey(Buffer.alloc(32, 0x42)).toBase58(),
       lastValidBlockHeight: 1,
     });
-    const expected = Message.from(Buffer.from(must(messages.messages["create_nonce_account"]), "hex"));
-    const compiled = transaction.compileMessage();
-    expect(compiled.accountKeys.map((key) => key.toBase58())).toEqual(expected.accountKeys.map((key) => key.toBase58()));
-    expect(compiled.instructions).toEqual(expected.instructions);
-    expect(compiled.header).toEqual(expected.header);
-    expect(compiled.serialize().toString("hex")).toBe(messages.messages["create_nonce_account"]);
+    expect(transaction.compileMessage().header.numRequiredSignatures).toBe(1);
+    // System `CreateAccountWithSeed` (3) then `InitializeNonceAccount` (6).
+    expect(transaction.instructions.map((instruction) => instruction.data.readUInt32LE(0))).toEqual([3, 6]);
+    expect(transaction.instructions[0]?.keys.map((key) => key.pubkey.toBase58())).toContain(nonceAccount.toBase58());
   });
 
   it("reads the rent, decodes a nonce account and encodes the AccountState proof", async () => {

@@ -9,9 +9,9 @@ section: Mechanism
 
 30 bps (0.30%) of settled notional, charged to the buying side on top of the price.
 
-- In a Tender the buyer is the issuer. The issuer's escrow at creation is the budget plus 30 bps. At settlement the fee is 30 bps of the amount actually charged for the units bought; the unspent budget is refunded.
-- In an Exit the buyers pay. Each buyer's fee is 30 bps of the cash charged for their fill.
-- In an Advance the funders pay. Each funder's fee is 30 bps of the cash charged for their fill.
+- In a Tender the buyer is the issuer. The issuer's escrow at creation is the budget plus 30 bps. At settlement the fee is 30 bps of the amount actually charged for the units bought; the unspent budget and the unused part of the fee are both refunded.
+- In an Exit the buyers pay. Each buyer escrows `limit * quantity` plus its fee; the fee is 30 bps of the cash charged for their fill, and everything above their charge plus fee is refunded.
+- In an Advance the funders pay, on the same terms: 30 bps of the cash charged for their fill.
 
 Sellers receive the clearing price with nothing deducted.
 
@@ -28,7 +28,8 @@ The fee recipient is fixed when the engine is initialized and cannot be changed 
 ## What is not a fee
 
 - Bonds: `max(1 USDC, 1% of the bid's escrow or of its locked units valued at the round's max price)`, posted with each bid and refunded on a valid opening. Only a bid that is never opened, or that exceeds its collateral, loses its bond.
-- Gas: NEAR gas for your own transactions; about 0.012 NEAR per bid for whoever opens the book after close; Base Sepolia gas for submitting a RoseVault authorization; Solana fees are paid by the engine's `gas/sol` address.
+- Gas: NEAR gas for your own transactions; about 0.0132 NEAR per bid for whoever opens the book after close (each opening is prepaid with 200 Tgas and burns about 132 Tgas); Base Sepolia gas for submitting a RoseVault authorization; Solana fees are paid by the engine's `gas/sol` address. A Solana claimant pays the rent of their durable nonce account once (80 bytes, 1,056,640 lamports when measured); it is reused for later claims.
+- Storage deposits on NEAR: a NEP-145 registration to hold units (minimum about 0.00216 NEAR, one more row per class held), 0.02 NEAR per sealed order (refunded at settlement net of the bytes kept for its outcome), 0.05 NEAR per round (kept with the round record), 0.025 NEAR per signed custody action and 0.015 NEAR per deposit attribution or registration.
 - Sablier's withdrawal fee, when Sablier's comptroller sets one, is forwarded at withdrawal time (it was 0 on Base Sepolia when measured).
 
 ## Worked numbers
