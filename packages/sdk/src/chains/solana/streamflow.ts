@@ -210,6 +210,14 @@ export interface StreamflowEligibility { eligible: boolean; reasons: StreamflowE
 export const DEPOSIT_END_MARGIN_SECS = 3_600n;
 
 /**
+ * Seconds before its `end_time` from which a vault stream takes no draw and no redeem (the
+ * engine's `SOL_DRAW_CUTOFF_SECS`, spec 7.3): a draw is accepted while `now + 300 < end_time`.
+ * After the end, Streamflow's auto-claim moves the remainder into the vault and
+ * `sync_sol_stream` books it in the class's swept balance.
+ */
+export const SOL_DRAW_CUTOFF_SECS = 300n;
+
+/**
  * Spec 7.2 rules on the metadata alone, as the engine's `check_deposit` and attribution apply
  * them: nothing the sender could still change, no automatic withdrawal, no pause or rate-change
  * history, no Streamflow or partner fee (raw bits, so `-0.0` counts), and, given `nowSecs`, an
