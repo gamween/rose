@@ -14,3 +14,4 @@ broadcast/
 .vercel/
 playwright-report/
 test-results/
+.claude/worktrees/
