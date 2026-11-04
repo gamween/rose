@@ -75,7 +75,6 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              aria-label="Search, command palette"
               title="Command palette (⌘K)"
               data-palette
               className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 lg:flex"
