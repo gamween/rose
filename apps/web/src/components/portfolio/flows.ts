@@ -5,7 +5,9 @@
  */
 
 import {
+  calculateMinFeeWei,
   decodeEventLogs,
+  isAuthorizationUsed,
   outcomeLogs,
   readStream,
   tokenBalance,
@@ -20,17 +22,29 @@ import {
   type SolDrawArgs,
   type SolNonceProof,
 } from "@rose/sdk";
-import { PublicKey } from "@solana/web3.js";
-import type { Address } from "viem";
+import { PublicKey, type Connection } from "@solana/web3.js";
+import type { Address, PublicClient } from "viem";
 import type { SolanaSigner } from "@/components/wallet/WalletProvider";
 import { formatAmount } from "@/lib/amounts";
 import { deployedAddress } from "@/lib/deployment";
 import { RoseActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
-import { broadcastSolPayout, createPayoutNonce, readSolConfirmation, solPayoutSignature, submitBasePayout, waitForPayout } from "@/lib/payouts";
-import type { StepDefinition } from "@/lib/use-action";
-import { basePublicClient } from "@/lib/wallet/evm-demo";
-import { solanaConnection } from "@/lib/wallet/solana-demo";
+import {
+  broadcastBlockhashAction,
+  broadcastDurableNonceTransaction,
+  confirmationAnchor,
+  createPayoutNonce,
+  payoutIdFromOutcome,
+  isBlockhashAction,
+  PayoutRefusedError,
+  readSolConfirmation,
+  secondProofBlock,
+  sleep,
+  submitBasePayout,
+  waitForFinalizedNonce,
+  waitForPayout,
+} from "@/lib/payouts";
+import type { StepContext, StepDefinition } from "@/lib/use-action";
 import { claimSourceArgs, planSolDraws, type ClaimSource } from "./transforms";
 
 export type FlowDeps = {
@@ -41,29 +55,42 @@ export type FlowDeps = {
   getEvmWalletClient: () => Promise<SignerClient>;
   getSolanaSigner: () => SolanaSigner;
   vaultSol: string | null;
+  base: PublicClient;
+  solana: Connection;
+  /** Height of the latest final NEAR block (the clock of the engine's 150-block confirmation delay). */
+  finalBlockHeight: (signal?: AbortSignal) => Promise<bigint>;
 };
 
-/** The payout id announced by the `payout_requested` event of a NEAR outcome. */
-export function payoutIdFromOutcome(outcome: FinalExecutionOutcome): bigint | null {
-  for (const decoded of decodeEventLogs(outcomeLogs(outcome))) {
-    if (decoded.standard !== "rose" || decoded.event.event !== "payout_requested") continue;
-    const data = decoded.event.data as { payout_id?: string };
-    if (typeof data.payout_id === "string") return BigInt(data.payout_id);
-  }
-  return null;
-}
+/**
+ * The payout of a flow. `refunded` is set when the engine failed it before signing (the debit
+ * came back): the next run of the signature step requests a new payout through `redo`, after
+ * `reset` cleared what the old request was built from.
+ */
+type PayoutHolder = { payoutId: bigint | null; refunded?: boolean; reset?: () => void };
 
-/** The payout of a flow and, once broadcast on Solana, the signature that anchors its confirmation. */
-type PayoutHolder = { payoutId: bigint | null; signature?: string };
-
-function mpcWait(deps: FlowDeps, holder: PayoutHolder, label = "MPC signature (about 5 s)"): StepDefinition {
+function mpcWait(deps: FlowDeps, holder: PayoutHolder, label = "MPC signature (about 5 s)", redo: StepDefinition[] = []): StepDefinition {
   return {
     id: "sign",
     label,
     run: async (context) => {
+      if (holder.payoutId === null && holder.refunded && redo.length > 0) {
+        context.setDetail("The previous request was refunded; requesting a new payout…");
+        for (const step of redo) await step.run(context);
+        holder.refunded = false;
+      }
       const payoutId = holder.payoutId;
       if (payoutId === null) throw new RoseActionError("contract", "No payout", "Request the payout first.");
-      const payout = await waitForPayout(deps.views, payoutId, { signal: context.signal, onPoll: (elapsed) => context.setDetail(`Waiting for the MPC callback… ${String(Math.round(elapsed / 1000))} s`) });
+      let payout: PayoutView;
+      try {
+        payout = await waitForPayout(deps.views, payoutId, { signal: context.signal, onPoll: (elapsed) => context.setDetail(`Waiting for the MPC callback… ${String(Math.round(elapsed / 1000))} s`) });
+      } catch (error) {
+        if (error instanceof PayoutRefusedError && redo.length > 0) {
+          holder.payoutId = null;
+          holder.refunded = true;
+          holder.reset?.();
+        }
+        throw error;
+      }
       if (payout.status === "AwaitingGasSignature") {
         throw new RoseActionError("mpc_timeout", "Fee payer signature missing", "The vault signature exists but the gas payer's does not. Use \"Re-sign gas\" on the pending payout; nothing was lost.", false);
       }
@@ -76,13 +103,14 @@ function requestStep(deps: FlowDeps, id: string, label: string, build: () => Fun
   return {
     id,
     label,
-    run: async () => {
+    run: async (context) => {
       if (holder.payoutId !== null) return { message: `Payout #${holder.payoutId.toString()} already requested` };
       const outcome = await deps.sendNearCall(build());
+      context.addLinks(txLinks("near", outcome.transaction.hash));
       const payoutId = payoutIdFromOutcome(outcome);
       if (payoutId === null) throw new RoseActionError("contract", "No payout recorded", "The engine did not announce a payout id in the transaction logs.");
       holder.payoutId = payoutId;
-      return { message: `Payout #${payoutId.toString()} requested`, links: txLinks("near", outcome.transaction.hash) };
+      return { message: `Payout #${payoutId.toString()} requested` };
     },
   };
 }
@@ -95,6 +123,7 @@ function submitBaseStep(deps: FlowDeps, holder: PayoutHolder, label: string): St
       const vault = deployedAddress("roseVault");
       if (!vault) throw new RoseActionError("not_deployed", "RoseVault not deployed", "The RoseVault address is not configured on this deployment.");
       if (holder.payoutId === null) throw new RoseActionError("contract", "No payout", "Request the authorization first.");
+      if (await isAuthorizationUsed(deps.base, vault, holder.payoutId)) return { message: `Authorization #${holder.payoutId.toString()} already executed on Base` };
       const payout = await deps.views.getPayout(holder.payoutId);
       if (!payout) throw new RoseActionError("contract", "Unknown payout", `Payout #${holder.payoutId.toString()} does not exist.`);
       const wallet = await deps.getEvmWalletClient();
@@ -102,25 +131,35 @@ function submitBaseStep(deps: FlowDeps, holder: PayoutHolder, label: string): St
       const hash = await submitBasePayout(wallet, vault, payout);
       context.addLinks(txLinks("base", hash));
       context.setDetail("Waiting for the Base receipt…");
-      const receipt = await basePublicClient().waitForTransactionReceipt({ hash });
+      const receipt = await deps.base.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new RoseActionError("contract", "RoseVault reverted", "The authorization was refused on Base. It stays stored on NEAR; check the explorer link.", true);
       return { message: "Executed on Base" };
     },
   };
 }
 
+/** Broadcasts a stored Solana action: durable-nonce ones until the nonce advance is final, blockhash ones until finalized. */
 function broadcastSolStep(deps: FlowDeps, holder: PayoutHolder, label: string): StepDefinition {
   return {
     id: "broadcast",
     label,
     run: async (context) => {
       if (holder.payoutId === null) throw new RoseActionError("contract", "No payout", "Request the payout first.");
-      const payout = await deps.views.getPayout(holder.payoutId);
+      const payout = await deps.views.getPayout(holder.payoutId, { signal: context.signal });
       if (!payout?.solana?.transaction) throw new RoseActionError("contract", "Not signed", "The stored transaction is incomplete.");
+      if (payout.status === "Landed") return { message: `Payout #${payout.id} already confirmed` };
+      if (isBlockhashAction(payout)) {
+        const signature = await broadcastBlockhashAction(deps.solana, payout, { signal: context.signal, onProgress: context.setDetail });
+        return { message: "Executed on Solana devnet", links: txLinks("solana", signature) };
+      }
       context.setDetail("Broadcasting the engine-signed transaction (fee paid by gas/sol)…");
-      const signature = await broadcastSolPayout(solanaConnection(), payout);
-      holder.signature = signature;
-      return { message: "Landed on Solana devnet", links: txLinks("solana", signature) };
+      const result = await broadcastDurableNonceTransaction(deps.solana, payout, { signal: context.signal, onProgress: context.setDetail });
+      context.addLinks(txLinks("solana", result.signature));
+      return {
+        message: result.failedOnChain
+          ? "Landed and finalized, but failed on chain: the confirmation proves it did not execute and refunds it"
+          : "Landed and finalized on Solana devnet; the nonce advanced",
+      };
     },
   };
 }
@@ -140,60 +179,112 @@ function nonceStep(deps: FlowDeps, holder: { proof: SolNonceProof | null }, reci
       } catch {
         throw new RoseActionError("contract", "Invalid destination", "The Solana destination is not a base58 address.");
       }
-      const created = await createPayoutNonce(signer, solanaConnection(), deps.vaultSol, deps.account, { owner, mint: new PublicKey(recipient.mint) }, context.setDetail);
+      const created = await createPayoutNonce(signer, deps.solana, deps.vaultSol, deps.account, { owner, mint: new PublicKey(recipient.mint) }, context.setDetail);
       holder.proof = created.proof;
       return { message: `Nonce account ${created.proof.account.slice(0, 6)}… ready`, links: txLinks("solana", created.signature) };
     },
   };
 }
 
+const CONFIRM_POLL_MS = 3_000;
+/** The confirmation's MPC callback has run when `sendNearCall` returns; this covers view lag only. */
+const CONFIRM_SETTLE_MS = 30_000;
+/** About 0.6 s per NEAR testnet block (spec 7.1: 200 blocks take about 2 min). */
+const NEAR_BLOCK_MS = 600;
+
+function refundedVerdict(payout: PayoutView): RoseActionError {
+  const reason = typeof payout.status === "object" ? payout.status.Failed.reason : "the transaction did not execute";
+  return new RoseActionError(
+    "contract",
+    "Did not execute on Solana",
+    "SolRelease" in payout.kind
+      ? `${reason}. The engine proved it twice: your units and the claimable tokens you paid are back, and the position is held again.`
+      : `${reason}. The engine proved it twice and refunded the claim to your claimable balance; claim again.`,
+  );
+}
+
+/** Waits for the NEAR block from which the engine accepts the second "did not execute" proof, with a countdown. */
+async function waitForBlock(deps: FlowDeps, target: bigint, context: StepContext, firstSeen: bigint): Promise<void> {
+  for (;;) {
+    const height = await deps.finalBlockHeight(context.signal);
+    if (height >= target) return;
+    const left = target - height;
+    context.setDetail(
+      `The first proof read the transaction as not executed (block ${firstSeen.toString()}). A lagging read must not refund a payout that landed, so the engine settles only on a second proof requested at least 150 blocks later: ${left.toString()} block${left === 1n ? "" : "s"} left (about ${String(Math.ceil((Number(left) * NEAR_BLOCK_MS) / 1000))} s).`,
+    );
+    await sleep(CONFIRM_POLL_MS, context.signal);
+  }
+}
+
 /**
- * Settles a broadcast Solana payout or redeem on the engine: the finalized nonce account and the
- * drawn streams' metadata go to `confirm_sol_payout` / `confirm_sol_redeem`, which proves them
- * with one ForeignTx request and marks the payout `Landed` (or refunds it when it failed).
+ * Settles a broadcast Solana payout or redeem on the engine (`confirm_sol_payout`,
+ * `confirm_sol_redeem`): it first waits until the nonce advance is final (the engine panics
+ * otherwise), anchors the proof on a successful finalized transaction, and drives the second
+ * proof a "did not execute" verdict needs, 150 blocks after the first one's answer.
  */
 function confirmSolStep(deps: FlowDeps, holder: PayoutHolder): StepDefinition {
   return {
     id: "confirm",
     label: "Confirm on NEAR that the transaction landed (MPC proof, about 7 s)",
     run: async (context) => {
-      if (holder.payoutId === null) throw new RoseActionError("contract", "No payout", "Request the payout first.");
-      const payout = await deps.views.getPayout(holder.payoutId);
-      // After a reload the anchor is the payout's own transaction, read from its stored bytes.
-      holder.signature ??= payout ? (solPayoutSignature(payout) ?? undefined) : undefined;
-      if (!holder.signature) throw new RoseActionError("contract", "Nothing broadcast", "Broadcast the transaction first.");
-      const nonceAccount = payout?.solana?.nonce_account;
-      if (!payout || !nonceAccount) throw new RoseActionError("contract", "Unknown payout", `Payout #${holder.payoutId.toString()} has no durable nonce to confirm.`);
-      if (payout.status === "Landed") return { message: `Payout #${payout.id} already confirmed` };
-      let call: FunctionCall;
-      if ("SolRelease" in payout.kind) {
-        if (!payout.position_id) throw new RoseActionError("contract", "No position", "The release names no position.");
-        context.setDetail("Reading the nonce account and the stream at finality…");
-        const read = await readSolConfirmation(solanaConnection(), nonceAccount, [payout.kind.SolRelease.metadata]);
-        call = deps.calls.confirmSolRedeem(BigInt(payout.position_id), holder.signature, read.nonceData, read.streamData[0]!);
-      } else {
-        const positions = await Promise.all((payout.solana?.draws ?? []).map((draw) => deps.views.getPosition(BigInt(draw.position_id))));
-        const streams = positions.map((position) => {
-          if (position?.source.kind !== "SolanaStream") throw new RoseActionError("contract", "Unknown stream", "A drawn position is not a Solana stream.");
-          return position.source.metadata;
-        });
-        context.setDetail("Reading the nonce account and the drawn streams at finality…");
-        const read = await readSolConfirmation(solanaConnection(), nonceAccount, streams);
-        call = deps.calls.confirmSolPayout(BigInt(payout.id), holder.signature, read.nonceData, read.streamData);
-      }
-      const outcome = await deps.sendNearCall(call);
-      context.addLinks(txLinks("near", outcome.transaction.hash));
-      const started = Date.now();
+      const payoutId = holder.payoutId;
+      if (payoutId === null) throw new RoseActionError("contract", "No payout", "Request the payout first.");
       for (;;) {
-        const current = await deps.views.getPayout(holder.payoutId, { signal: context.signal });
-        if (current?.status === "Landed") return { message: `Payout #${current.id} confirmed as landed` };
-        if (current && typeof current.status === "object") throw new RoseActionError("contract", "Payout failed on Solana", `${current.status.Failed.reason}. The claim was refunded.`);
-        if (Date.now() - started > 150_000) throw new RoseActionError("mpc_timeout", "Confirmation timed out", "The MPC proof did not come back within 2.5 minutes; retry the confirmation.", true);
-        context.setDetail(`MPC proof of the landed transaction… ${String(Math.round((Date.now() - started) / 1000))} s`);
-        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        const payout = await deps.views.getPayout(payoutId, { signal: context.signal });
+        if (!payout) throw new RoseActionError("contract", "Unknown payout", `Payout #${payoutId.toString()} does not exist.`);
+        if (payout.status === "Landed") return { message: `Payout #${payout.id} confirmed as landed` };
+        if (typeof payout.status === "object") throw refundedVerdict(payout);
+        const nonceAccount = payout.solana?.nonce_account;
+        const nonceValue = payout.solana?.nonce_value;
+        if (!nonceAccount || !nonceValue) throw new RoseActionError("contract", "Unknown payout", `Payout #${payout.id} has no durable nonce to confirm.`);
+        await waitForFinalizedNonce(deps.solana, nonceAccount, nonceValue, { signal: context.signal, onProgress: context.setDetail });
+        const second = secondProofBlock(payout);
+        if (second !== null) await waitForBlock(deps, second, context, BigInt(payout.solana!.not_executed_seen_at!));
+        context.setDetail("Reading the nonce account and the streams at finality…");
+        const anchor = await confirmationAnchor(deps.solana, payout);
+        let call: FunctionCall;
+        if ("SolRelease" in payout.kind) {
+          if (!payout.position_id) throw new RoseActionError("contract", "No position", "The release names no position.");
+          const read = await readSolConfirmation(deps.solana, nonceAccount, [payout.kind.SolRelease.metadata]);
+          call = deps.calls.confirmSolRedeem(BigInt(payout.position_id), anchor, read.nonceData, read.streamData[0]!);
+        } else {
+          const positions = await Promise.all((payout.solana?.draws ?? []).map((draw) => deps.views.getPosition(BigInt(draw.position_id))));
+          const streams = positions.map((position) => {
+            if (position?.source.kind !== "SolanaStream") throw new RoseActionError("contract", "Unknown stream", "A drawn position is not a Solana stream.");
+            return position.source.metadata;
+          });
+          const read = await readSolConfirmation(deps.solana, nonceAccount, streams);
+          call = deps.calls.confirmSolPayout(BigInt(payout.id), anchor, read.nonceData, read.streamData);
+        }
+        context.setDetail(second === null ? "Sending the confirmation (MPC proof of the nonce and the streams)…" : "Sending the second proof…");
+        const outcome = await deps.sendNearCall(call);
+        context.addLinks(txLinks("near", outcome.transaction.hash));
+        const verdict = await awaitVerdict(deps, payoutId, second === null, context);
+        if (verdict.status === "Landed") return { message: `Payout #${verdict.id} confirmed as landed` };
       }
     },
   };
+}
+
+/**
+ * What the engine recorded after a confirmation: `Landed` (returned), `Failed` (thrown: the
+ * second proof found it did not execute and refunded it), or, after a first proof, the payout
+ * still `Signed` with its first "did not execute" reading recorded, so the caller sends the
+ * second proof. Anything else means the proof did not match the accounts.
+ */
+async function awaitVerdict(deps: FlowDeps, payoutId: bigint, firstProof: boolean, context: StepContext): Promise<PayoutView> {
+  const started = Date.now();
+  for (;;) {
+    const current = await deps.views.getPayout(payoutId, { signal: context.signal });
+    if (current?.status === "Landed") return current;
+    if (current && typeof current.status === "object") throw refundedVerdict(current);
+    if (current && firstProof && secondProofBlock(current) !== null) return current;
+    if (Date.now() - started > CONFIRM_SETTLE_MS) {
+      throw new RoseActionError("mpc_timeout", "Proof not accepted", "The MPC proof did not settle the payout: an account changed between the read and the proof, or the MPC failed. Retry reads the accounts again.", true);
+    }
+    context.setDetail(`Waiting for the MPC proof of the transaction… ${String(Math.round((Date.now() - started) / 1000))} s`);
+    await sleep(CONFIRM_POLL_MS, context.signal);
+  }
 }
 
 /** NEAR tUSDC cash: one pull transfer. */
@@ -217,19 +308,34 @@ export function withdrawNearCashSteps(deps: FlowDeps, amount: bigint): StepDefin
 /** Base cash: engine authorization, MPC signature, then `executeTransfer` from the claimant's wallet. */
 export function withdrawBaseCashSteps(deps: FlowDeps, token: string, amount: bigint, to: string): StepDefinition[] {
   const holder: PayoutHolder = { payoutId: null };
-  return [
-    requestStep(deps, "request", "Request a RoseVault Transfer authorization", () => deps.calls.withdrawBaseCash(token, amount, to), holder),
-    mpcWait(deps, holder),
-    submitBaseStep(deps, holder, "Submit executeTransfer to RoseVault"),
-  ];
+  const request = requestStep(deps, "request", "Request a RoseVault Transfer authorization", () => deps.calls.withdrawBaseCash(token, amount, to), holder);
+  return [request, mpcWait(deps, holder, undefined, [request]), submitBaseStep(deps, holder, "Submit executeTransfer to RoseVault")];
+}
+
+const POSITIONS_PAGE = 50;
+
+/**
+ * Every held Base position of a class, paged from `get_positions`: the streams `withdrawMax` may
+ * fill RoseVault from. They belong to whoever deposited them; the claimant (an Advance funder,
+ * a Tender issuer) needs to hold none.
+ */
+export async function classBaseStreams(views: EngineViews, classId: string, signal?: AbortSignal): Promise<Position[]> {
+  const streams: Position[] = [];
+  for (let from = 0n; ; from += BigInt(POSITIONS_PAGE)) {
+    const page = await views.getPositions(from, POSITIONS_PAGE, { signal });
+    for (const position of page) if (position.classId === classId && position.state === "Held" && position.source.kind === "BaseStream") streams.push(position);
+    if (page.length < POSITIONS_PAGE) return streams;
+  }
 }
 
 /**
  * Base tokens: withdraw from the class's Sablier streams into RoseVault when its balance does
- * not cover the claim (anyone may, the claimant pays gas), then the authorization flow.
+ * not cover the claim (`withdrawMax` to the recipient is permissionless; the claimant pays the
+ * gas and Sablier's `calculateMinFeeWei`), then the authorization flow.
  */
-export function claimBaseTokensSteps(deps: FlowDeps, source: ClaimSource, token: string, decimals: number, positions: readonly Position[], to: string): StepDefinition[] {
+export function claimBaseTokensSteps(deps: FlowDeps, source: ClaimSource, token: string, decimals: number, to: string): StepDefinition[] {
   const holder: PayoutHolder = { payoutId: null };
+  const request = requestStep(deps, "request", "Request a RoseVault Transfer authorization", () => deps.calls.claimBaseTokens(claimSourceArgs(source), source.amount, to), holder);
   return [
     {
       id: "withdraw-max",
@@ -237,23 +343,25 @@ export function claimBaseTokensSteps(deps: FlowDeps, source: ClaimSource, token:
       run: async (context) => {
         const vault = deployedAddress("roseVault");
         if (!vault) throw new RoseActionError("not_deployed", "RoseVault not deployed", "The RoseVault address is not configured on this deployment.");
-        const client = basePublicClient();
-        let balance = await tokenBalance(client, token as Address, vault);
+        let balance = await tokenBalance(deps.base, token as Address, vault);
         if (balance >= source.amount) return { message: `RoseVault already holds ${formatAmount(balance, decimals)} (nothing to withdraw)` };
-        const streams = positions.filter((position) => position.classId === source.classId && position.source.kind === "BaseStream");
-        if (streams.length === 0) throw new RoseActionError("contract", "No stream to withdraw from", "RoseVault holds less than the claim and no held position of this class is known.");
-        const wallet = await deps.getEvmWalletClient();
-        const links: { href: string; label: string }[] = [];
+        context.setDetail("Listing the class's streams held by RoseVault…");
+        const streams = await classBaseStreams(deps.views, source.classId, context.signal);
+        if (streams.length === 0) throw new RoseActionError("contract", "No stream to withdraw from", "RoseVault holds less than the claim and the engine holds no Base stream of this class.");
+        let wallet: SignerClient | null = null;
         for (const position of streams) {
           if (position.source.kind !== "BaseStream") continue;
-          const stream = await readStream(client, position.source.streamId, position.source.lockup as Address);
+          const lockup = position.source.lockup as Address;
+          const stream = await readStream(deps.base, position.source.streamId, lockup);
           if (stream.withdrawable === 0n) continue;
-          context.setDetail(`withdrawMax(#${position.source.streamId.toString()}): ${formatAmount(stream.withdrawable, decimals)} withdrawable…`);
-          const hash = await withdrawMax(wallet, position.source.streamId, vault, { lockup: position.source.lockup as Address });
-          links.push(...txLinks("base", hash));
+          const fee = await calculateMinFeeWei(deps.base, position.source.streamId, lockup);
+          wallet ??= await deps.getEvmWalletClient();
+          context.setDetail(`withdrawMax(#${position.source.streamId.toString()}): ${formatAmount(stream.withdrawable, decimals)} withdrawable${fee > 0n ? `, Sablier fee ${formatAmount(fee, 18)} ETH` : ""}…`);
+          const hash = await withdrawMax(wallet, position.source.streamId, vault, { lockup, value: fee });
           context.addLinks(txLinks("base", hash));
-          await client.waitForTransactionReceipt({ hash });
-          balance = await tokenBalance(client, token as Address, vault);
+          const receipt = await deps.base.waitForTransactionReceipt({ hash });
+          if (receipt.status !== "success") throw new RoseActionError("contract", "withdrawMax reverted", `Sablier refused withdrawMax on stream #${position.source.streamId.toString()}; check the explorer link.`, true);
+          balance = await tokenBalance(deps.base, token as Address, vault);
           if (balance >= source.amount) break;
         }
         if (balance < source.amount) {
@@ -262,8 +370,8 @@ export function claimBaseTokensSteps(deps: FlowDeps, source: ClaimSource, token:
         return { message: `RoseVault holds ${formatAmount(balance, decimals)}` };
       },
     },
-    requestStep(deps, "request", "Request a RoseVault Transfer authorization", () => deps.calls.claimBaseTokens(claimSourceArgs(source), source.amount, to), holder),
-    mpcWait(deps, holder),
+    request,
+    mpcWait(deps, holder, undefined, [request]),
     submitBaseStep(deps, holder, "Submit executeTransfer to RoseVault"),
   ];
 }
@@ -272,8 +380,14 @@ export function claimBaseTokensSteps(deps: FlowDeps, source: ClaimSource, token:
 export function claimSolTokensSteps(deps: FlowDeps, source: ClaimSource, mint: string, decimals: number, toOwner: string): StepDefinition[] {
   const nonce = { proof: null as SolNonceProof | null };
   const plan = { draws: null as SolDrawArgs[] | null };
-  const holder: PayoutHolder = { payoutId: null };
-  return [
+  const holder: PayoutHolder = {
+    payoutId: null,
+    reset: () => {
+      nonce.proof = null;
+      plan.draws = null;
+    },
+  };
+  const steps: StepDefinition[] = [
     nonceStep(deps, nonce, { owner: toOwner, mint }),
     {
       id: "draws",
@@ -293,50 +407,47 @@ export function claimSolTokensSteps(deps: FlowDeps, source: ClaimSource, mint: s
       },
       holder,
     ),
-    mpcWait(deps, holder, "Nonce proof and MPC signatures (about 15 s)"),
-    broadcastSolStep(deps, holder, "Broadcast the signed transaction"),
-    confirmSolStep(deps, holder),
   ];
+  return [...steps, mpcWait(deps, holder, "Nonce proof and MPC signatures (about 15 s)", steps), broadcastSolStep(deps, holder, "Broadcast the signed transaction and wait for finality"), confirmSolStep(deps, holder)];
 }
 
 /** In-kind redeem: burn the allocation, authorize the release, submit or broadcast it. */
 export function redeemSteps(deps: FlowDeps, position: Position, to: string, mint: string): StepDefinition[] {
-  const holder: PayoutHolder = { payoutId: null };
   if (position.source.kind === "BaseStream") {
-    return [
-      requestStep(deps, "request", "Burn the allocation and request the Release authorization", () => deps.calls.redeem(position.positionId, to), holder),
-      mpcWait(deps, holder),
-      submitBaseStep(deps, holder, "Submit executeRelease to RoseVault (the stream NFT goes to your address)"),
-    ];
+    const holder: PayoutHolder = { payoutId: null };
+    const request = requestStep(deps, "request", "Burn the allocation and request the Release authorization", () => deps.calls.redeem(position.positionId, to), holder);
+    return [request, mpcWait(deps, holder, undefined, [request]), submitBaseStep(deps, holder, "Submit executeRelease to RoseVault (the stream NFT goes to your address)")];
   }
   const nonce = { proof: null as SolNonceProof | null };
-  return [
+  const holder: PayoutHolder = { payoutId: null, reset: () => (nonce.proof = null) };
+  const steps: StepDefinition[] = [
     nonceStep(deps, nonce, { owner: to, mint }),
     requestStep(
       deps,
       "request",
-      "Burn the allocation and request the release (withdraw to the vault, then transfer_recipient)",
+      "Burn the allocation, pay the stream's owed share from your claimable tokens and request the release (transfer_recipient to you)",
       () => {
         if (!nonce.proof) throw new RoseActionError("contract", "No nonce", "Create the nonce account first.");
         return deps.calls.redeem(position.positionId, to, nonce.proof);
       },
       holder,
     ),
-    mpcWait(deps, holder, "Nonce proof and MPC signatures (about 15 s)"),
-    broadcastSolStep(deps, holder, "Broadcast the signed transaction"),
-    confirmSolStep(deps, holder),
   ];
+  return [...steps, mpcWait(deps, holder, "Nonce proof and MPC signatures (about 15 s)", steps), broadcastSolStep(deps, holder, "Broadcast the signed transaction and wait for finality"), confirmSolStep(deps, holder)];
 }
 
-/** Finishing a payout that was signed earlier: submit on Base or broadcast on Solana. */
+function settles(payout: PayoutView): boolean {
+  return "SolTransfer" in payout.kind || "SolRelease" in payout.kind;
+}
+
+/** Finishing a payout that was signed earlier: submit on Base, or broadcast on Solana and confirm. */
 export function finishPayoutSteps(deps: FlowDeps, payout: PayoutView): StepDefinition[] {
   const holder: PayoutHolder = { payoutId: BigInt(payout.id) };
   if (payout.chain === "Base") return [submitBaseStep(deps, holder, "Submit the stored authorization to RoseVault")];
-  const settles = "SolTransfer" in payout.kind || "SolRelease" in payout.kind;
-  return [broadcastSolStep(deps, holder, "Broadcast the stored transaction"), ...(settles ? [confirmSolStep(deps, holder)] : [])];
+  return [broadcastSolStep(deps, holder, "Broadcast the stored transaction and wait for finality"), ...(settles(payout) ? [confirmSolStep(deps, holder)] : [])];
 }
 
-/** Confirms a Solana transfer or release that landed earlier (its nonce advanced) but was never proven on NEAR. */
+/** Confirms a Solana transfer or release whose nonce advanced but which was never proven on NEAR. */
 export function confirmPayoutSteps(deps: FlowDeps, payout: PayoutView): StepDefinition[] {
   return [confirmSolStep(deps, { payoutId: BigInt(payout.id) })];
 }
@@ -345,7 +456,6 @@ export function confirmPayoutSteps(deps: FlowDeps, payout: PayoutView): StepDefi
 export function retrySolPayoutSteps(deps: FlowDeps, payout: PayoutView): StepDefinition[] {
   const payoutId = BigInt(payout.id);
   const holder: PayoutHolder = { payoutId };
-  const settles = "SolTransfer" in payout.kind || "SolRelease" in payout.kind;
   return [
     {
       id: "retry",
@@ -356,8 +466,8 @@ export function retrySolPayoutSteps(deps: FlowDeps, payout: PayoutView): StepDef
       },
     },
     mpcWait(deps, holder),
-    broadcastSolStep(deps, holder, "Broadcast the signed transaction"),
-    ...(settles ? [confirmSolStep(deps, holder)] : []),
+    broadcastSolStep(deps, holder, "Broadcast the signed transaction and wait for finality"),
+    ...(settles(payout) ? [confirmSolStep(deps, holder)] : []),
   ];
 }
 
@@ -375,8 +485,8 @@ export function resignGasSteps(deps: FlowDeps, payout: PayoutView): StepDefiniti
       },
     },
     mpcWait(deps, holder),
-    broadcastSolStep(deps, holder, "Broadcast the signed transaction"),
-    ...("SolTransfer" in payout.kind || "SolRelease" in payout.kind ? [confirmSolStep(deps, holder)] : []),
+    broadcastSolStep(deps, holder, "Broadcast the signed transaction and wait for finality"),
+    ...(settles(payout) ? [confirmSolStep(deps, holder)] : []),
   ];
 }
 
