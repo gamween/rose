@@ -403,7 +403,7 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     }
 
     /// @notice Emits the current state of a stream held by the vault, so the engine can refresh it with a proof.
-    function attest(uint256 streamId) external {
+    function attest(uint256 streamId) external nonReentrantView {
         if (LOCKUP.ownerOf(streamId) != address(this)) {
             revert StreamNotHeld(streamId);
         }
