@@ -14,7 +14,7 @@ const ns = (seconds: number) => `${String(seconds)}000000000`;
 const E18 = "000000000000000000";
 const SCREENS = process.env.ROSE_SCREENSHOT_DIR;
 
-function advanceRound(id: string, status: "Open" | "Scheduled", creator: string) {
+function advanceRound(id: string, status: "Open" | "Scheduled" | "Settled", creator: string) {
   return {
     round_id: id,
     kind: "Advance",
@@ -40,7 +40,7 @@ function advanceRound(id: string, status: "Open" | "Scheduled", creator: string)
   };
 }
 
-const ROUNDS = [advanceRound("10", "Open", "teodor.testnet"), advanceRound("11", "Open", "ines.testnet"), advanceRound("12", "Scheduled", "varick.testnet")];
+const ROUNDS = [advanceRound("10", "Open", "teodor.testnet"), advanceRound("11", "Open", "ines.testnet"), advanceRound("12", "Scheduled", "varick.testnet"), advanceRound("2", "Settled", "teodor.testnet")];
 
 const sent: { method: string; args: Record<string, unknown> }[] = [];
 
@@ -148,6 +148,9 @@ test.describe("advance", () => {
     await expect(first).toContainText("8.00 / claimed token");
     await expect(first.getByRole("link", { name: /Bid on this Advance/ })).toHaveAttribute("href", "/app/rounds/10");
     await expect(list.locator("[data-advance-round='12']")).toContainText("Scheduled");
+    const past = page.locator("[data-advance-past] [data-advance-round='2']");
+    await expect(past).toContainText("Settled");
+    await expect(past.getByRole("link", { name: /View round/ })).toHaveAttribute("href", "/app/rounds/2");
     await shot(page, "browse");
     expect(errors).toEqual([]);
   });
@@ -211,6 +214,23 @@ test.describe("advance", () => {
     await shortfall.locator("[data-deposit-bond]").click();
     await expect(page.getByRole("status").filter({ hasText: "1.00 tUSDC credited to your cash" })).toBeVisible({ timeout: 30_000 });
     expect(sent.map((call) => call.method)).toEqual(["storage_deposit", "ft_transfer_call"]);
+  });
+
+  test("points a Base-venue bond shortfall to the Fund tab, which credits any NEAR account", async ({ page }) => {
+    await mockChains(page, overrides({ nearCash: "0", registered: true }));
+    await page.goto("/app/advance");
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await page.getByRole("tab", { name: "Create an Advance" }).click();
+    await connectNearDemo(page);
+    const form = page.locator("[data-advance-form]");
+    await expect(form).toBeVisible({ timeout: 60_000 });
+    await form.getByRole("textbox", { name: /Claim \(K\)/ }).fill("10");
+    await form.getByRole("textbox", { name: /Public price ceiling/ }).fill("9");
+    await form.getByRole("combobox", { name: "Cash venue" }).selectOption({ index: 1 });
+    const shortfall = form.locator("[data-bond-shortfall]");
+    await expect(shortfall).toContainText("short by 1.00 USDC");
+    await expect(shortfall.getByRole("link", { name: "Issuer → Fund" })).toHaveAttribute("href", "/app/issuer#fund");
   });
 
   test("checks the round bounds inline", async ({ page }) => {
