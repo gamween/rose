@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "abis": "node scripts/extract-abis.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -34,5 +35,10 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@solana/web3.js": "1.99.0",
+    "buffer": "6.0.3",
+    "viem": "2.57.16"
   }
 }

@@ -1,6 +1,7 @@
 /**
  * `@rose/sdk`: exact TypeScript ports of the rose-engine integer math, unlock schedules and
- * uniform-price clearing. Every amount is a `bigint`; nothing here uses floating point.
+ * uniform-price clearing, plus the engine bindings and the Base Sepolia and Solana devnet chain
+ * adapters. Every amount is a `bigint`; nothing here uses floating point.
  *
  * @module
  */
@@ -61,3 +62,8 @@ export type {
   TenderClearing,
   UniformClearing,
 } from "./clearing.js";
+
+export * from "./chains/index.js";
+
+export * from "./engine/index.js";
+export { base64ToBytes, bytesToBase64, bytesToHex, bytesToUtf8, hexToBytes, utf8ToBytes } from "./encoding.js";

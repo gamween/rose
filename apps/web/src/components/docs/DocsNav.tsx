@@ -1,0 +1,41 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/cn";
+import { docHref, DOCS_INDEX_SLUG, type DocSection } from "./types";
+
+/** Left navigation of the docs, grouped by section; the active page follows the URL. */
+export function DocsNav({ sections, onNavigate, className }: { sections: DocSection[]; onNavigate?: () => void; className?: string }) {
+  const pathname = usePathname() ?? "/docs";
+  const activeSlug = pathname === "/docs" ? DOCS_INDEX_SLUG : pathname.replace(/^\/docs\//, "").replace(/\/$/, "");
+  return (
+    <nav aria-label="Docs" className={cn("flex flex-col gap-6", className)}>
+      {sections.map((section) => (
+        <div key={section.name}>
+          <p className="mb-2 px-2 font-display text-[11px] uppercase tracking-wide text-ink-500">{section.name}</p>
+          <ul className="flex flex-col gap-px">
+            {section.docs.map((doc) => {
+              const active = doc.slug === activeSlug;
+              return (
+                <li key={doc.slug}>
+                  <Link
+                    href={docHref(doc.slug)}
+                    onClick={onNavigate}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex min-h-8 items-center rounded-md px-2 py-1 text-[13px] transition-colors",
+                      active ? "bg-ink-800 text-ink-50" : "text-ink-300 hover:bg-ink-850 hover:text-ink-50",
+                    )}
+                  >
+                    {doc.title}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  );
+}

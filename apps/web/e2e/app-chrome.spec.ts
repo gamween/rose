@@ -1,0 +1,119 @@
+import { expect, test, type Page } from "@playwright/test";
+
+/**
+ * Global app chrome (spec 8.3 "Global") with the in-app demo wallets. Nothing here needs a
+ * deployed contract: the demo wallets live in the browser and the panels show their "not
+ * deployed" states when the addresses are not configured.
+ */
+
+const APP_PAGE = "/app/prices";
+
+/** Section routes whose pages are built by later milestones; Next prefetches them from the Portfolio links. */
+const ROUTES_NOT_BUILT_YET = /\/app\/(rounds|deposit|issuer|advance)(\?|$)/;
+
+async function collectErrors(page: Page): Promise<string[]> {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && !/favicon|ERR_INTERNET|net::ERR|Failed to fetch|429|Rate limit|status of 404/i.test(message.text())) errors.push(message.text());
+  });
+  page.on("response", (response) => {
+    if (response.status() === 404 && !ROUTES_NOT_BUILT_YET.test(response.url())) errors.push(`404 ${response.url()}`);
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  return errors;
+}
+
+test.describe("app chrome", () => {
+  test("shows the tour on the first visit, remembers its dismissal and opens from the palette again", async ({ page }) => {
+    await page.goto(APP_PAGE);
+    const next = page.locator("[data-tour-next]");
+    await expect(next).toBeVisible();
+    await expect(page.locator("[data-tour-step='0']")).toBeVisible();
+    await next.click();
+    await expect(page.locator("[data-tour-step='1']")).toBeVisible();
+    await page.getByRole("button", { name: "Skip tour" }).click();
+    await expect(next).toBeHidden();
+    await page.reload();
+    await expect(page.locator("[data-testnet-banner]")).toBeVisible();
+    await expect(next).toBeHidden();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyK" : "Control+KeyK");
+    const input = page.locator("[data-palette-input]");
+    await expect(input).toBeFocused();
+    await input.fill("tour");
+    await page.keyboard.press("Enter");
+    await expect(next).toBeVisible();
+  });
+
+  test("connects the three demo wallets and shows them with balances in the top bar", async ({ page }) => {
+    const errors = await collectErrors(page);
+    await page.goto(APP_PAGE);
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await page.locator("[data-connect]").click();
+    const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /Create a demo wallet/ }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText("NEAR demo wallet ready")).toBeVisible();
+    await page.locator("[data-connect]").click();
+    await page.getByRole("tab", { name: "Base" }).click();
+    await page.getByRole("button", { name: /Create a demo wallet/ }).click();
+    await expect(page.getByText("EVM demo wallet ready")).toBeVisible();
+    await page.locator("[data-connect]").click();
+    await page.getByRole("tab", { name: "Solana" }).click();
+    await page.getByRole("button", { name: /Create a demo wallet/ }).click();
+    await expect(page.getByText("Solana demo wallet ready")).toBeVisible();
+    const pills = page.locator("[data-wallets]").first();
+    if (await pills.isVisible()) {
+      await expect(pills).toContainText("rose-demo-");
+      await expect(pills).toContainText("0x");
+    }
+    await page.locator("[aria-label='Open wallets']:visible").first().click();
+    const drawer = page.getByRole("dialog", { name: "Wallets" });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByText("Demo", { exact: true })).toHaveCount(3);
+    await expect(drawer.getByRole("button", { name: "Export demo key" })).toHaveCount(3);
+    await expect(drawer.getByText("Account not created on testnet yet")).toBeVisible();
+    await page.reload();
+    await page.locator("[aria-label='Open wallets']:visible").first().click();
+    await expect(page.getByRole("dialog", { name: "Wallets" }).getByText("Demo", { exact: true })).toHaveCount(3);
+    expect(errors).toEqual([]);
+  });
+
+  test("opens the Get test funds panel with every action wired and the deployment states explained", async ({ page }) => {
+    await page.goto(APP_PAGE);
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await page.locator("[data-get-funds]").click();
+    const drawer = page.getByRole("dialog", { name: "Get test funds" });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByText("Create the demo account with 10 NEAR")).toBeVisible();
+    await expect(drawer.getByText("Mint 1,000 tUSDC on NEAR")).toBeVisible();
+    await expect(drawer.getByText(/^Send .* ETH for gas$/)).toBeVisible();
+    await expect(drawer.getByText("Mint 1,000 tUSDC on Base")).toBeVisible();
+    await expect(drawer.getByText("Mint me a demo vesting position")).toBeVisible();
+    await expect(drawer.getByText(/^Send .* SOL$/)).toBeVisible();
+    await expect(drawer.getByText("Create a demo Streamflow position")).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "Run" })).toHaveCount(7);
+    await expect(drawer.getByText(/Faucet limits: 1 request per address/)).toBeVisible();
+    await drawer.getByRole("button", { name: /Connect a NEAR testnet wallet/ }).click();
+    await expect(page.getByRole("dialog", { name: /Connect a wallet/ })).toBeVisible();
+  });
+
+  test("opens the activity feed and the command palette navigation works", async ({ page }) => {
+    await page.goto(APP_PAGE);
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    if (await page.locator("[data-activity]").isVisible()) {
+      await page.locator("[data-activity]").click();
+      const feed = page.getByRole("dialog", { name: "Activity" });
+      await expect(feed).toBeVisible();
+      await expect(feed.getByText(/Engine not deployed yet|No activity yet|cleared|created|placed/)).toBeVisible({ timeout: 20_000 });
+      await page.keyboard.press("Escape");
+    }
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyK" : "Control+KeyK");
+    await page.locator("[data-palette-input]").fill("docs");
+    await page.keyboard.press("Enter");
+    await page.waitForURL("**/docs");
+  });
+});

@@ -1,0 +1,94 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { TopNav } from "@/components/chrome/TopNav";
+import { Footer } from "@/components/chrome/Footer";
+import { WalletPills } from "@/components/wallet/WalletPills";
+import { useWallets } from "@/components/wallet/WalletProvider";
+import { ConnectModal } from "@/components/wallet/ConnectModal";
+import type { ChainId } from "@/lib/explorer";
+import { ActivityFeedDrawer } from "./ActivityFeed";
+import { CommandPalette, usePaletteShortcut, type PaletteCommand } from "./CommandPalette";
+import { GetTestFundsDrawer } from "./GetTestFunds";
+import { GuidedTour, readTourDismissed } from "./GuidedTour";
+import { TestnetBanner } from "./TestnetBanner";
+
+/** Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour. */
+export function AppShell({ children }: { children: ReactNode }) {
+  const wallets = useWallets();
+  const [fundsOpen, setFundsOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [connect, setConnect] = useState<ChainId | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!readTourDismissed()) setTourOpen(true);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  usePaletteShortcut(useCallback(() => setPaletteOpen((open) => !open), []));
+
+  const commands = useMemo<PaletteCommand[]>(
+    () => [
+      { id: "act-connect", label: wallets.anyConnected ? "Connect another wallet" : "Connect a wallet", group: "Actions", keywords: "near evm solana demo", run: () => setConnect("near") },
+      { id: "act-funds", label: "Get test funds", group: "Actions", keywords: "faucet tusdc eth sol mint", run: () => setFundsOpen(true) },
+      { id: "act-activity", label: "Open the activity feed", group: "Actions", keywords: "events history", run: () => setActivityOpen(true) },
+      { id: "act-tour", label: "Replay the guided tour", group: "Help", keywords: "onboarding help", run: () => setTourOpen(true) },
+      { id: "act-refresh", label: "Refresh balances", group: "Actions", run: () => void wallets.refreshBalances() },
+    ],
+    [wallets],
+  );
+
+  return (
+    <div className="flex min-h-dvh flex-col">
+      <TopNav
+        action={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActivityOpen(true)}
+              aria-label="Open activity feed"
+              title="Activity"
+              data-activity
+              className="hidden size-8 items-center justify-center rounded-md border border-ink-700 bg-ink-850 text-ink-200 transition-colors hover:border-ink-500 hover:text-ink-50 sm:flex"
+            >
+              <svg viewBox="0 0 8 8" width="12" height="12" shapeRendering="crispEdges" aria-hidden>
+                <path d="M0 4h2v1H0zM2 2h1v3H2zM3 1h1v6H3zM4 3h1v3H4zM5 0h1v7H5zM6 4h2v1H6z" fill="currentColor" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Open command palette"
+              title="Command palette (⌘K)"
+              data-palette
+              className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 lg:flex"
+            >
+              <span>Search</span>
+              <kbd className="font-display text-[10px] uppercase text-ink-400">⌘K</kbd>
+            </button>
+            <WalletPills />
+          </div>
+        }
+      />
+      <TestnetBanner onGetFunds={() => setFundsOpen(true)} />
+      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 md:px-6">{children}</main>
+      <Footer />
+      <GetTestFundsDrawer
+        open={fundsOpen}
+        onClose={() => setFundsOpen(false)}
+        onConnect={(chain) => {
+          setFundsOpen(false);
+          setConnect(chain);
+        }}
+      />
+      <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} />
+      <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
+    </div>
+  );
+}

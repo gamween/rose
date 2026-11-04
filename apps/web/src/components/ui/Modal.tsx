@@ -55,6 +55,7 @@ export function Modal({ open, onClose, title, description, children, footer, cla
   return (
     <dialog
       ref={ref}
+      aria-label={typeof title === "string" ? title : undefined}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -81,11 +82,12 @@ export function Drawer({ open, onClose, title, description, children, footer, cl
   return (
     <dialog
       ref={ref}
+      aria-label={typeof title === "string" ? title : undefined}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
       className={cn(
-        "ml-auto mr-0 mt-0 mb-0 h-dvh max-h-dvh w-[min(420px,100%)] max-w-none border-l border-ink-700 bg-ink-900 p-0 text-ink-100 backdrop:bg-ink-950/70",
+        "ml-auto mr-0 mt-0 mb-0 h-dvh max-h-dvh w-full max-w-[420px] border-l border-ink-700 bg-ink-900 p-0 text-ink-100 backdrop:bg-ink-950/70",
         className,
       )}
     >

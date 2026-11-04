@@ -50,7 +50,7 @@ export function TopNav({ action, overlay = false }: { action?: ReactNode; overla
           })}
         </ul>
         <div className="ml-auto flex items-center gap-3">
-          <NetworkBadge />
+          <NetworkBadge className="hidden sm:inline-flex" />
           {action}
           <button
             type="button"
