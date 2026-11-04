@@ -1,3 +1,4 @@
+import { createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync, getMint } from "@solana/spl-token";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { Account, JsonRpcProvider, KeyPairSigner, actions, baseDecode, type KeyPairString } from "near-api-js";
 import { createPublicClient, createWalletClient, http, parseEther, type Hex } from "viem";
@@ -11,6 +12,10 @@ export const DEFAULT_NEAR_HELPER_URL = "https://helper.nearprotocol.com/account"
 export const DEFAULT_BASE_ETH_WEI = parseEther("0.002");
 /** 0.05 SOL: rent for a nonce account plus many transaction fees. */
 export const DEFAULT_SOLANA_LAMPORTS = BigInt(LAMPORTS_PER_SOL) / 20n;
+/** 1,000 demo tokens: exactly what "Create a demo Streamflow position" locks. */
+export const DEFAULT_SOLANA_DEMO_TOKENS = 1_000n;
+/** SOL the hot wallet keeps for a demo-token send: the recipient's token account rent (2,039,280 lamports) plus the fee. */
+const SOLANA_DEMO_TOKEN_LAMPORTS = 2_100_000n;
 /** What the NEAR testnet helper funds a new account with (measured 2026-11-04). */
 export const NEAR_HELPER_FUNDING = "10 NEAR";
 export const DEFAULT_NEAR_RPC_URL = "https://rpc.testnet.near.org";
@@ -41,6 +46,8 @@ export interface FaucetSenders {
   sendSolana(address: string): Promise<{ signature: string; amount: string }>;
   /** `amount` is what the new account received, as a label (`10 NEAR`, `0.5 NEAR`). */
   createNearAccount(accountId: string, publicKey: string): Promise<{ txHash: string; amount: string }>;
+  /** Demo SPL tokens (the Solana demo mint) from the hot wallet's treasury; `amount` in base units. */
+  sendSolanaDemoTokens(address: string): Promise<{ signature: string; amount: string; decimals: number; mint: string }>;
 }
 
 export type FaucetConfig = {
@@ -52,6 +59,12 @@ export type FaucetConfig = {
    * account through the testnet registrar instead.
    */
   near: { configured: boolean; helperUrl: string; rpcUrl: string; funderAccountId: string | null; funderYocto: bigint };
+  /**
+   * Demo SPL tokens for "Create a demo Streamflow position" (spec 8.4): the Solana hot wallet
+   * holds a treasury of the demo mint (`NEXT_PUBLIC_SOLANA_DEMO_MINT`) and transfers
+   * `wholeTokens` to the caller's associated token account, creating it when needed.
+   */
+  "solana-demo-token": { configured: boolean; rpcUrl: string; mint: string | null; wholeTokens: bigint };
   cookieSecret: string | null;
 };
 
@@ -79,6 +92,12 @@ export function readFaucetConfig(env: NodeJS.ProcessEnv): FaucetConfig {
       rpcUrl: env.NEAR_RPC_URL?.trim() || DEFAULT_NEAR_RPC_URL,
       funderAccountId: env.NEAR_FAUCET_ACCOUNT_ID?.trim() && env.NEAR_FAUCET_PRIVATE_KEY?.trim() ? env.NEAR_FAUCET_ACCOUNT_ID.trim() : null,
       funderYocto: bigintEnv(env.NEAR_FAUCET_YOCTO, DEFAULT_NEAR_FUNDER_YOCTO),
+    },
+    "solana-demo-token": {
+      configured: Boolean(env.SOLANA_FAUCET_SECRET_KEY?.trim() && env.NEXT_PUBLIC_SOLANA_DEMO_MINT?.trim()),
+      rpcUrl: env.SOLANA_RPC_URL?.trim() || DEFAULT_SOLANA_RPC_URL,
+      mint: env.NEXT_PUBLIC_SOLANA_DEMO_MINT?.trim() || null,
+      wholeTokens: bigintEnv(env.SOLANA_FAUCET_DEMO_TOKENS, DEFAULT_SOLANA_DEMO_TOKENS),
     },
     cookieSecret: env.FAUCET_COOKIE_SECRET?.trim() || null,
   };
@@ -186,6 +205,13 @@ export function createFaucetSenders(env: NodeJS.ProcessEnv, config: FaucetConfig
       }
     },
 
+    async sendSolanaDemoTokens(address) {
+      const raw = env.SOLANA_FAUCET_SECRET_KEY;
+      const demo = config["solana-demo-token"];
+      if (!raw?.trim() || !demo.mint) throw new FaucetError("upstream", "The Solana demo token faucet is not configured.");
+      return sendDemoTokens(new Connection(demo.rpcUrl, "confirmed"), Keypair.fromSecretKey(parseSolanaSecretKey(raw)), new PublicKey(demo.mint), new PublicKey(address), demo.wholeTokens);
+    },
+
     async createNearAccount(accountId, publicKey) {
       const helper = await createWithHelper(config.near.helperUrl, accountId, publicKey);
       if (helper.ok) return { txHash: helper.txHash, amount: NEAR_HELPER_FUNDING };
@@ -270,4 +296,46 @@ async function createWithFunder(near: FaucetConfig["near"], key: KeyPairString, 
   const created = status.SuccessValue !== undefined && Buffer.from(status.SuccessValue, "base64").toString("utf8") === "true";
   if (!created) throw new FaucetError("invalid_request", "That account id already exists or is invalid; pick another one.");
   return { txHash: outcome.transaction.hash, amount: nearAmountLabel(near.funderYocto) };
+}
+
+/**
+ * Transfers `wholeTokens` of the demo mint from `payer`'s associated token account (the demo
+ * treasury, filled once from the mint authority) to `owner`'s, which the payer creates when it is
+ * missing (idempotent). Refuses an off-curve owner: only a wallet can sign the stream creation.
+ */
+export async function sendDemoTokens(connection: Connection, payer: Keypair, mint: PublicKey, owner: PublicKey, wholeTokens: bigint): Promise<{ signature: string; amount: string; decimals: number; mint: string }> {
+  if (!PublicKey.isOnCurve(owner.toBytes())) throw new FaucetError("invalid_request", "address must be a wallet address (on the ed25519 curve), not a program-derived address.");
+  const source = getAssociatedTokenAddressSync(mint, payer.publicKey);
+  const destination = getAssociatedTokenAddressSync(mint, owner);
+  let decimals: number;
+  let treasury: bigint;
+  let lamports: number;
+  try {
+    const [mintInfo, balance, sol] = await Promise.all([
+      getMint(connection, mint, "confirmed"),
+      connection.getTokenAccountBalance(source, "confirmed").then(
+        (response) => BigInt(response.value.amount),
+        () => 0n,
+      ),
+      connection.getBalance(payer.publicKey, "confirmed"),
+    ]);
+    decimals = mintInfo.decimals;
+    treasury = balance;
+    lamports = sol;
+  } catch (error) {
+    throw new FaucetError("upstream", `Solana devnet RPC failed: ${safeMessage(error)}`);
+  }
+  const amount = wholeTokens * 10n ** BigInt(decimals);
+  if (treasury < amount) throw new FaucetError("faucet_dry", "The demo token treasury of the Solana faucet is empty; ask the team to refill it.");
+  if (BigInt(lamports) < SOLANA_DEMO_TOKEN_LAMPORTS) throw new FaucetError("faucet_dry", "The Solana devnet faucet wallet is empty; ask the team to refill it.");
+  const transaction = new Transaction().add(
+    createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, destination, owner, mint),
+    createTransferCheckedInstruction(source, mint, destination, payer.publicKey, amount, decimals),
+  );
+  try {
+    const signature = await sendAndConfirmTransaction(connection, transaction, [payer], { commitment: "confirmed" });
+    return { signature, amount: amount.toString(), decimals, mint: mint.toBase58() };
+  } catch (error) {
+    throw new FaucetError("upstream", `Solana devnet token transfer failed: ${safeMessage(error)}`);
+  }
 }
