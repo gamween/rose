@@ -447,15 +447,29 @@ async function stepSync() {
     return;
   }
   const classId = state.steps.transfer.class_id;
+  const positionId = state.steps.register.position_id;
+  const listed = (await nearView(engine, "get_sol_streams", { class_id: classId })).find((entry) => entry.position_id === positionId);
+  if (!listed || BigInt(listed.stream.engine_withdrawn) >= BigInt(state.steps.wait_end.amount_withdrawn)) {
+    // Anyone may sync (the app's Sync button, for example): record the booking found in the event history.
+    const head = await nearView(engine, "get_events", { from_seq: null, limit: 1 });
+    const from = BigInt(head.total) > 200n ? BigInt(head.total) - 200n : 0n;
+    const page = await nearView(engine, "get_events", { from_seq: String(from > BigInt(head.oldest) ? from : BigInt(head.oldest)), limit: 200 });
+    const booked = page.events.find((entry) => entry.event === "sol_stream_swept" && entry.data?.position_id === positionId);
+    if (!booked) throw new Error(`position ${positionId} shows no withdrawal left to sync and no sol_stream_swept event`);
+    state.steps.sync = { booked_by: booked.predecessor, event_seq: booked.seq, block_height: booked.block_height, booked: booked.data.amount, swept_after: await nearView(engine, "get_sol_swept", { class_id: classId }), stream_pruned: !listed };
+    save();
+    log(`already synced by ${booked.predecessor} at block ${booked.block_height}: ${booked.data.amount} booked`);
+    return;
+  }
   const before = await nearView(engine, "get_sol_swept", { class_id: classId });
   const metadata = await accountHex(state.steps.setup.metadata);
-  const hash = nearCall(nearHolder, "sync_sol_stream", { position_id: state.steps.register.position_id, anchor_tx: state.steps.wait_end.auto_claim_tx, metadata_data: metadata.data }, "80 Tgas", "0 NEAR");
+  const hash = nearCall(nearHolder, "sync_sol_stream", { position_id: positionId, anchor_tx: state.steps.wait_end.auto_claim_tx, metadata_data: metadata.data }, "80 Tgas", "0 NEAR");
   const status = await record("sync", hash, nearHolder);
   const event = status.receipts_outcome.flatMap((o) => o.outcome.logs).filter((line) => line.startsWith("EVENT_JSON:")).map((line) => JSON.parse(line.slice("EVENT_JSON:".length))).find((e) => e.event === "sol_stream_swept");
   if (!event) throw new Error(`no sol_stream_swept event in ${hash}`);
   const after = await nearView(engine, "get_sol_swept", { class_id: classId });
   const streams = await nearView(engine, "get_sol_streams", { class_id: classId });
-  state.steps.sync = { ...state.steps.sync, booked: event.data.amount, swept_before: before, swept_after: after, stream_pruned: !streams.some((entry) => entry.position_id === state.steps.register.position_id) };
+  state.steps.sync = { ...state.steps.sync, booked: event.data.amount, swept_before: before, swept_after: after, stream_pruned: !streams.some((entry) => entry.position_id === positionId) };
   save();
   log(`synced: ${event.data.amount} booked, swept balance ${before.balance} -> ${after.balance}, stream pruned: ${state.steps.sync.stream_pruned}`);
 }
