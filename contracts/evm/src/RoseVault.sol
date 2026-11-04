@@ -20,6 +20,17 @@ import {NearAccountId} from "./libraries/NearAccountId.sol";
 ///
 /// Signatures are accepted only as `(v, r, s)` with `v` in {27, 28} and a low `s` (`s <= n / 2`), which is the
 /// format produced from a NEAR MPC response as `v = 27 + recovery_id`, `r = big_R.x`, `s = s`.
+///
+/// Streams must enter only through `depositStream`. A stream sent with a plain `transferFrom` (which bypasses
+/// `onERC721Received`) emits no `StreamDeposited` log, so the engine never registers it and never attributes it to
+/// anyone; such a stream can only leave through a `Release` authorization, which the engine never issues for an
+/// unregistered stream.
+///
+/// Sablier's Lockup withdrawal fee is controlled by its admin and a price oracle through the comptroller
+/// (0x0000008ABbFf7a84a2fE09f9A9b74D3BC2072399 on Base Sepolia, where the fee is currently zero). Callers of
+/// `depositStream` and `executeRelease` must attach `LOCKUP.calculateMinFeeWei(streamId)` as read at submit time
+/// plus a margin, because the fee can move between the read and the inclusion of the transaction; the vault refunds
+/// whatever it does not forward.
 contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     using SafeERC20 for IERC20;
 
@@ -133,6 +144,9 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
 
     /// @notice A stream release authorization was used. `withdrawnToVault` is the vested balance moved into the
     /// vault immediately before the NFT left it.
+    /// @dev `withdrawnToVault` is informational only: it is legitimately zero when a third party already called
+    /// `withdrawMax(streamId, vault)` (open to anyone, since the vault is the recipient), so the engine must not
+    /// account from this field; it accrues from the stream's withdrawn amount instead.
     event ReleaseExecuted(
         uint256 indexed id, uint256 indexed streamId, address indexed to, address lockup, uint128 withdrawnToVault
     );
@@ -285,6 +299,9 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
 
     /// @notice Sends ERC-20 tokens held by the vault, as authorized by `SIGNER`. Anyone can submit.
     function executeTransfer(Transfer calldata authorization, uint8 v, bytes32 r, bytes32 s) external nonReentrant {
+        if (authorization.to == address(0)) {
+            revert ZeroAddress();
+        }
         _useAuthorization(authorization.id, hashTransfer(authorization), v, r, s);
         IERC20(authorization.token).safeTransfer(authorization.to, authorization.amount);
         emit TransferExecuted(authorization.id, authorization.token, authorization.to, authorization.amount);

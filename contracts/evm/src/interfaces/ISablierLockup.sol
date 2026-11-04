@@ -75,6 +75,9 @@ interface ISablierLockup is IERC721 {
 
     function withdrawableAmountOf(uint256 streamId) external view returns (uint128 withdrawableAmount);
 
+    /// @dev The fee is set by Sablier's admin in USD and converted through a price oracle by the comptroller
+    /// (0x0000008ABbFf7a84a2fE09f9A9b74D3BC2072399 on Base Sepolia, where it is currently zero), so the value read
+    /// at submit time can differ from the value charged at inclusion; attach it plus a margin.
     function calculateMinFeeWei(uint256 streamId) external view returns (uint256 minFeeWei);
 
     function withdrawMax(uint256 streamId, address to) external payable returns (uint128 withdrawnAmount);

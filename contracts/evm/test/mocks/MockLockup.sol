@@ -125,8 +125,11 @@ contract MockLockup is ERC721 {
             LockupLinear.UnlockAmounts({start: _streams[streamId].startUnlock, cliff: _streams[streamId].cliffUnlock});
     }
 
+    /// @dev Mirrors `SablierLockupState.isCancelable` (lockup@v4.0.1, lines 233-237): the stored flag is reported
+    /// only while the stream is not SETTLED, and a stream is SETTLED once it has started, is neither depleted nor
+    /// canceled, and its streamed amount has reached the deposit.
     function isCancelable(uint256 streamId) external view returns (bool) {
-        return _streams[streamId].cancelable;
+        return _streams[streamId].cancelable && !_isSettled(streamId);
     }
 
     function isTransferable(uint256 streamId) external view returns (bool) {
@@ -193,6 +196,16 @@ contract MockLockup is ERC721 {
             s.cancelable = false;
         }
         s.token.safeTransfer(to, amount);
+    }
+
+    /// @dev The SETTLED branch of `SablierLockupState._statusOf`: not DEPLETED, not CANCELED, not PENDING, and no
+    /// longer STREAMING because the streamed amount equals the deposit.
+    function _isSettled(uint256 streamId) private view returns (bool) {
+        Stream storage s = _streams[streamId];
+        if (s.depleted || s.canceled || block.timestamp < s.start) {
+            return false;
+        }
+        return streamedAmountOf(streamId) >= s.deposited;
     }
 
     function _update(address to, uint256 streamId, address auth) internal override returns (address) {

@@ -139,6 +139,28 @@ contract RoseVaultForkTest is Test {
         vm.stopPrank();
     }
 
+    /// @dev `SablierLockupState.isCancelable` (lockup@v4.0.1, lines 233-237) reports false once a stream is SETTLED,
+    /// so a cancelable stream past its end clears the cancelable check; the vested withdrawal then depletes it and
+    /// the vault refuses the deposit, leaving the NFT with the holder.
+    function test_fork_refusesSettledCancelableStream() public {
+        uint256 streamId = _createDirect(true, true);
+        assertTrue(SABLIER.isCancelable(streamId));
+        vm.warp(t0 + 365 days + 1);
+        assertFalse(SABLIER.isCancelable(streamId));
+        assertFalse(SABLIER.isDepleted(streamId));
+        uint256 fee = SABLIER.calculateMinFeeWei(streamId);
+
+        vm.startPrank(holder);
+        SABLIER.approve(address(vault), streamId);
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.StreamDepleted.selector, streamId));
+        vault.depositStream{value: fee}(SABLIER, streamId, NEAR_ACCOUNT);
+        vm.stopPrank();
+
+        assertEq(SABLIER.ownerOf(streamId), holder);
+        assertEq(token.balanceOf(holder), 0);
+        assertFalse(SABLIER.isDepleted(streamId));
+    }
+
     function test_fork_refusesNonTransferableStream() public {
         uint256 streamId = _createDirect(false, false);
         vm.startPrank(holder);

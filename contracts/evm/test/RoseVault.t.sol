@@ -262,6 +262,16 @@ contract RoseVaultTest is Test {
         vault.executeTransfer(auth, v, r, s);
     }
 
+    function test_executeTransfer_rejectsZeroRecipient() public {
+        _fundVault(500e6);
+        RoseVault.Transfer memory auth = RoseVault.Transfer(address(usdc), address(0), 1e6, 2);
+        (uint8 v, bytes32 r, bytes32 s) = _signTransfer(SIGNER_KEY, auth);
+        vm.expectRevert(RoseVault.ZeroAddress.selector);
+        vault.executeTransfer(auth, v, r, s);
+        assertFalse(vault.isAuthorizationUsed(2));
+        assertEq(usdc.balanceOf(address(vault)), 500e6);
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                                    REPLAY BITMAP
     //////////////////////////////////////////////////////////////////////////*/
@@ -431,6 +441,34 @@ contract RoseVaultTest is Test {
     function test_depositStream_rejectsCancelable() public {
         uint256 streamId = _create(alice, true, true, NOW - 30 days, NOW + 30 days, NOW + 365 days);
         _expectDepositRevert(streamId, abi.encodeWithSelector(RoseVault.StreamCancelable.selector, streamId));
+    }
+
+    /// @dev Sablier reports a SETTLED stream as not cancelable, so a cancelable stream past its end passes the
+    /// cancelable check; the vested withdrawal then depletes it and the deposit is refused without moving the NFT.
+    function test_depositStream_settledCancelableStreamIsRefusedAsDepleted() public {
+        uint256 streamId = _create(alice, true, true, NOW - 100 days, 0, NOW - 1 days);
+        assertFalse(lockup.isCancelable(streamId));
+        assertFalse(lockup.isDepleted(streamId));
+        _expectDepositRevert(streamId, abi.encodeWithSelector(RoseVault.StreamDepleted.selector, streamId));
+        assertEq(lockup.ownerOf(streamId), alice);
+        assertEq(token.balanceOf(alice), 0);
+        assertFalse(lockup.isDepleted(streamId));
+    }
+
+    function test_mockLockup_isCancelableFollowsSablierStatus() public {
+        uint256 streamId = _create(alice, true, true, NOW - 30 days, 0, NOW + 30 days);
+        assertTrue(lockup.isCancelable(streamId));
+        vm.warp(NOW + 30 days);
+        assertFalse(lockup.isCancelable(streamId));
+        vm.prank(alice);
+        lockup.withdrawMax{value: FEE}(streamId, alice);
+        assertTrue(lockup.isDepleted(streamId));
+        assertFalse(lockup.isCancelable(streamId));
+
+        uint256 pending = _create(alice, true, true, NOW + 60 days, 0, NOW + 90 days);
+        assertTrue(lockup.isCancelable(pending));
+        lockupMock.markCanceled(pending);
+        assertFalse(lockup.isCancelable(pending));
     }
 
     function test_depositStream_rejectsNonTransferable() public {
@@ -619,6 +657,73 @@ contract RoseVaultTest is Test {
         assertEq(lockup.ownerOf(streamId), bob);
     }
 
+    function test_executeRelease_refundsExcessValue() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        vm.warp(NOW + 60 days);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 18);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+        uint256 ethBefore = alice.balance;
+
+        vm.prank(alice);
+        vault.executeRelease{value: FEE + 0.5 ether}(auth, v, r, s);
+
+        assertEq(alice.balance, ethBefore - FEE);
+        assertEq(address(lockup).balance, FEE);
+        assertEq(address(vault).balance, 0);
+        assertEq(lockup.ownerOf(streamId), bob);
+    }
+
+    function test_executeRelease_zeroWithdrawable_refundsWholeValue() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 19);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+        uint256 ethBefore = alice.balance;
+
+        vm.prank(alice);
+        vault.executeRelease{value: 0.5 ether}(auth, v, r, s);
+
+        assertEq(alice.balance, ethBefore);
+        assertEq(address(lockup).balance, 0);
+        assertEq(address(vault).balance, 0);
+    }
+
+    function test_executeRelease_revertsWhenRefundIsRejected() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        vm.warp(NOW + 60 days);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 20);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+        RejectingSubmitter submitter = new RejectingSubmitter();
+        uint256 ethBefore = address(this).balance;
+
+        vm.expectRevert(RoseVault.RefundFailed.selector);
+        submitter.submitRelease{value: FEE + 1}(vault, auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), address(vault));
+        assertFalse(vault.isAuthorizationUsed(20));
+        assertEq(address(this).balance, ethBefore);
+        assertEq(address(lockup).balance, 0);
+    }
+
+    function test_executeRelease_exactFeeNeedsNoRefund() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        vm.warp(NOW + 60 days);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 21);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+        RejectingSubmitter submitter = new RejectingSubmitter();
+        uint256 ethBefore = address(this).balance;
+
+        submitter.submitRelease{value: FEE}(vault, auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), bob);
+        assertEq(address(this).balance, ethBefore - FEE);
+        assertEq(address(lockup).balance, FEE);
+        assertEq(address(vault).balance, 0);
+    }
+
     function test_executeRelease_rejectsInsufficientFee() public {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
@@ -676,6 +781,63 @@ contract RoseVaultTest is Test {
         vault.depositCash(IERC20(address(usdc)), 50e6, NEAR_ACCOUNT, 3);
         vm.stopPrank();
         assertEq(usdc.balanceOf(address(vault)), 50e6);
+    }
+
+    /// @dev Pins the byte layout the NEAR engine rebuilds from, for an account id that fits in one tail word.
+    function test_depositCash_rawLogLayout_shortAccount() public {
+        Vm.Log memory log = _cashLog(NEAR_ACCOUNT, 50e6, 3);
+        _assertCashLogHead(log, 50e6, 3, bytes(NEAR_ACCOUNT).length, 1);
+        bytes32 tail = "alice.rose-app.testnet";
+        assertEq(_word(log.data, 4), uint256(tail));
+    }
+
+    /// @dev Same layout for account ids of 33 to 64 bytes: two tail words, the second right-padded with zeros.
+    function test_depositCash_rawLogLayout_longAccount() public {
+        string memory account = "0123456789abcdef0123456789abcdef0123.testnet";
+        Vm.Log memory log = _cashLog(account, 7e6, 4);
+        _assertCashLogHead(log, 7e6, 4, 44, 2);
+        bytes32 first = "0123456789abcdef0123456789abcdef";
+        bytes32 second = "0123.testnet";
+        assertEq(_word(log.data, 4), uint256(first));
+        assertEq(_word(log.data, 5), uint256(second));
+    }
+
+    /// @dev The 64-byte upper bound (an implicit account) fills both tail words exactly.
+    function test_depositCash_rawLogLayout_maxLengthAccount() public {
+        string memory account = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        Vm.Log memory log = _cashLog(account, 1, type(uint64).max);
+        _assertCashLogHead(log, 1, type(uint64).max, 64, 2);
+        bytes32 word = "0123456789abcdef0123456789abcdef";
+        assertEq(_word(log.data, 4), uint256(word));
+        assertEq(_word(log.data, 5), uint256(word));
+    }
+
+    function _cashLog(string memory account, uint128 amount, uint64 roundId) internal returns (Vm.Log memory) {
+        usdc.mint(alice, amount);
+        vm.startPrank(alice);
+        usdc.approve(address(vault), amount);
+        vm.recordLogs();
+        vault.depositCash(IERC20(address(usdc)), amount, account, roundId);
+        vm.stopPrank();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        return logs[logs.length - 1];
+    }
+
+    function _assertCashLogHead(Vm.Log memory log, uint128 amount, uint64 roundId, uint256 length, uint256 tailWords)
+        internal
+        view
+    {
+        assertEq(log.emitter, address(vault));
+        assertEq(log.topics.length, 4);
+        assertEq(log.topics[0], keccak256("CashDeposited(address,address,uint64,string,uint128,uint40)"));
+        assertEq(log.topics[1], bytes32(uint256(uint160(alice))));
+        assertEq(log.topics[2], bytes32(uint256(uint160(address(usdc)))));
+        assertEq(log.topics[3], bytes32(uint256(roundId)));
+        assertEq(log.data.length, 4 * 32 + tailWords * 32);
+        assertEq(_word(log.data, 0), 0x60);
+        assertEq(_word(log.data, 1), amount);
+        assertEq(_word(log.data, 2), NOW);
+        assertEq(_word(log.data, 3), length);
     }
 
     function test_depositCash_rejectsZeroAmount() public {
@@ -739,5 +901,15 @@ contract RoseVaultTest is Test {
         vm.prank(bob);
         lockup.withdrawMax{value: FEE}(streamId, address(vault));
         assertEq(token.balanceOf(address(vault)), vested);
+    }
+}
+
+/// @dev Submits a release on behalf of a contract that has no `receive`, so any refund the vault sends back fails.
+contract RejectingSubmitter {
+    function submitRelease(RoseVault vault, RoseVault.Release calldata auth, uint8 v, bytes32 r, bytes32 s)
+        external
+        payable
+    {
+        vault.executeRelease{value: msg.value}(auth, v, r, s);
     }
 }
