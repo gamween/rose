@@ -4,7 +4,9 @@
  *   node scripts/demo-manifest.ts [--env deployments/<engine>.env]
  *
  * Reads `deployments/e2e/cindral.json`, `deployments/e2e/<engine>.seed.json` and
- * `deployments/e2e/<engine>.live.json` (written by `seed.ts` and `e2e-live.ts`), builds the
+ * `deployments/e2e/<engine>.live.json` (written by `seed.ts` and `e2e-live.ts`), plus
+ * `deployments/e2e/<engine>.solana.json` when `e2e-solana-stream.mjs` ran (the Solana token
+ * payout and redeem, shown in the Exit on Solana's payout step), builds the
  * manifest with the web app's own builder (`apps/web/src/lib/demo/manifest.ts`, so the file is
  * validated by the same code that reads it), writes `apps/web/src/content/demo/<engine>.json`,
  * and regenerates `apps/web/src/content/demo/index.ts`, the registry of every engine that has a
@@ -15,7 +17,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { buildDemoManifest, type Journal } from "../apps/web/src/lib/demo/manifest.ts";
+import { buildDemoManifest, type Journal, type SolanaJournal } from "../apps/web/src/lib/demo/manifest.ts";
 import { DEFAULT_ENV_FILE, log, parseArgs, readEnvFile, ROOT } from "./lib/env.ts";
 
 const USAGE = "usage: node scripts/demo-manifest.ts [--env deployments/<engine>.env]";
@@ -57,11 +59,14 @@ function main(): void {
   const engine = readEnvFile(join(ROOT, envFile)).get("NEXT_PUBLIC_ENGINE_ACCOUNT");
   if (!engine) throw new Error(`${envFile} has no NEXT_PUBLIC_ENGINE_ACCOUNT`);
   const paths = ["deployments/e2e/cindral.json", `deployments/e2e/${engine}.seed.json`, `deployments/e2e/${engine}.live.json`] as const;
+  const solanaPath = `deployments/e2e/${engine}.solana.json`;
+  const solana = existsSync(join(ROOT, solanaPath)) ? (JSON.parse(readFileSync(join(ROOT, solanaPath), "utf8")) as SolanaJournal) : undefined;
   const manifest = buildDemoManifest({
     cast: readJournal(join(ROOT, paths[0])),
     seed: readJournal(join(ROOT, paths[1])),
     live: readJournal(join(ROOT, paths[2])),
-    paths: [...paths],
+    ...(solana ? { solana } : {}),
+    paths: solana ? [...paths, solanaPath] : [...paths],
   });
   const out = join(OUT_DIR, `${engine}.json`);
   writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
