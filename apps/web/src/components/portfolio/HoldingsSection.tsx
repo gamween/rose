@@ -8,11 +8,21 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { formatAmount, formatDay, formatFraction, secondsToMs, shortHex } from "@/lib/amounts";
+import { cn } from "@/lib/cn";
 import { scheduleBounds } from "@/lib/unlock-schedule";
 import { ROUTES } from "@/lib/routes";
 import { classLabel, type PortfolioData } from "./data";
 import { UnlockChart } from "./UnlockChart";
 import type { HoldingRow } from "./transforms";
+
+/**
+ * Below the `md` breakpoint each table row becomes a card: the header row hides and every value
+ * cell prints its column name (from `data-label`) above the value, so nothing scrolls sideways at
+ * 375 px while the desktop keeps the dense table.
+ */
+const CARD_ROW = "max-md:grid max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-2.5 max-md:px-3 max-md:py-3 max-md:hover:bg-transparent";
+const CARD_CELL = "max-md:h-auto max-md:px-0 max-md:text-left max-md:before:mb-0.5 max-md:before:block max-md:before:font-display max-md:before:text-[10px] max-md:before:uppercase max-md:before:tracking-wide max-md:before:text-ink-400 max-md:before:content-[attr(data-label)]";
+const CARD_WIDE = "max-md:col-span-2 max-md:h-auto max-md:px-0";
 
 function ChainBadge({ chain }: { chain: "Base" | "Solana" }) {
   return <Badge tone={chain === "Base" ? "info" : "ember"}>{chain === "Base" ? "Base" : "Solana"}</Badge>;
@@ -42,8 +52,8 @@ export function HoldingsSection({ rows, data, onClaim, onRedeem }: { rows: Holdi
           }
         />
       ) : (
-        <Table>
-          <THead>
+        <Table className="max-md:block">
+          <THead className="max-md:hidden">
             <TR>
               <TH>Class</TH>
               <TH numeric>Units</TH>
@@ -54,18 +64,18 @@ export function HoldingsSection({ rows, data, onClaim, onRedeem }: { rows: Holdi
               <TH className="text-right">Actions</TH>
             </TR>
           </THead>
-          <TBody>
+          <TBody className="max-md:block">
             {rows.map((row) => {
               const symbol = classLabel(row.info, data.symbols);
               const open = expanded === row.info.classId;
               const bounds = scheduleBounds(row.info.schedule);
               const positions = data.positions.filter((position) => position.classId === row.info.classId);
               return (
-                <TR key={row.info.classId} data-holding={row.info.classId}>
-                  <TD>
+                <TR key={row.info.classId} data-holding={row.info.classId} className={CARD_ROW}>
+                  <TD className={CARD_WIDE}>
                     <div className="flex flex-col gap-0.5">
                       <span className="flex items-center gap-2 text-ink-50">
-                        {symbol}
+                        <span title={`Token ${row.info.token}`}>{symbol}</span>
                         <ChainBadge chain={row.info.chain} />
                       </span>
                       <span className="tabular text-[11px] text-ink-400" title={row.info.classId}>
@@ -73,17 +83,23 @@ export function HoldingsSection({ rows, data, onClaim, onRedeem }: { rows: Holdi
                       </span>
                     </div>
                   </TD>
-                  <TD numeric>{formatAmount(row.holding.balance, row.info.decimals)}</TD>
-                  <TD numeric>
+                  <TD numeric className={CARD_CELL} data-label="Units">
+                    {formatAmount(row.holding.balance, row.info.decimals)}
+                  </TD>
+                  <TD numeric className={CARD_CELL} data-label="In rounds / liens">
                     {formatAmount(row.holding.lockedInRounds, row.info.decimals)} / {formatAmount(row.holding.encumbered, row.info.decimals)}
                   </TD>
-                  <TD numeric>{formatFraction(row.fractionNow)}</TD>
-                  <TD numeric>{formatAmount(row.lockedTokens, row.info.decimals)}</TD>
-                  <TD numeric className={row.holding.claimable > 0n ? "text-success-400" : undefined}>
+                  <TD numeric className={CARD_CELL} data-label="Unlocked">
+                    {formatFraction(row.fractionNow)}
+                  </TD>
+                  <TD numeric className={CARD_CELL} data-label="Locked tokens">
+                    {formatAmount(row.lockedTokens, row.info.decimals)}
+                  </TD>
+                  <TD numeric className={cn(CARD_CELL, row.holding.claimable > 0n && "text-success-400")} data-label="Claimable">
                     {formatAmount(row.holding.claimable, row.info.decimals)}
                   </TD>
-                  <TD>
-                    <div className="flex justify-end gap-1.5">
+                  <TD className={CARD_WIDE}>
+                    <div className="flex flex-wrap justify-end gap-1.5 max-md:justify-start">
                       <Button size="sm" variant="ghost" onClick={() => setExpanded(open ? null : row.info.classId)} aria-expanded={open}>
                         {open ? "Hide timeline" : "Timeline"}
                       </Button>
