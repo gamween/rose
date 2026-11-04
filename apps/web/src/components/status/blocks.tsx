@@ -5,10 +5,10 @@ import { useCallback } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { FIXED_ADDRESSES, type Deployment } from "@/components/docs/deployment";
 import { viewCall } from "@/lib/engine";
-import { formatCount, formatUnits } from "@/lib/format";
+import { formatCount, formatUnits, formatUtcDateTime } from "@/lib/format";
 import { fetchEngineConfig } from "./engineConfig";
 import { fetchRecentEvents, nanosToMillis, type StoredEvent } from "./events";
-import { EXPLORERS, shorten } from "./explorers";
+import { baseAddressUrl, baseTxUrl, nearAccountUrl, nearBlockUrl, nearTxUrl, shorten, solanaAddressUrl, solanaTxUrl } from "@/lib/explorer";
 import { formatLatency, KEY_RELEASE, pairLatencies, type LatencyReport } from "./latency";
 import { decodeAddress, decodeString, decodeUint, EMPTY_CODE_HASH, ethCall, ethGetCode, SELECTORS, solanaBalance, viewAccessKeyList, viewAccount } from "./rpc";
 import { ExternalLink, RawResult, Row, Rows, StatusBlock } from "./StatusBlock";
@@ -24,9 +24,7 @@ function requireEngine(deployment: Deployment): string {
   return deployment.ENGINE_ACCOUNT;
 }
 
-function formatTime(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
-}
+const formatTime = formatUtcDateTime;
 
 /** Engine account: keyless check with the raw `view_access_key_list` result. */
 export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
@@ -53,7 +51,7 @@ export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
         <>
           <Rows>
             <Row label="Account" mono>
-              <ExternalLink href={EXPLORERS.nearAccount(account)}>{account}</ExternalLink>
+              <ExternalLink href={nearAccountUrl(account)}>{account}</ExternalLink>
             </Row>
             <Row label="Access keys">
               {keys.keys.length === 0 ? "None: the contract has no full-access or function-call key." : `${keys.keys.length} key(s) still attached.`}
@@ -65,7 +63,7 @@ export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
               <span className="tabular">{formatCount(info.storage_usage)} bytes</span>
             </Row>
             <Row label="Block">
-              <ExternalLink href={EXPLORERS.nearBlock(keys.block_height)} className="tabular">
+              <ExternalLink href={nearBlockUrl(keys.block_height)} className="tabular">
                 {formatCount(keys.block_height)}
               </ExternalLink>
             </Row>
@@ -101,7 +99,7 @@ export function VersionsBlock({ deployment, refreshKey }: BlockProps) {
       {({ mpcVersion, engine }) => (
         <Rows>
           <Row label="MPC contract" mono>
-            <ExternalLink href={EXPLORERS.nearAccount(FIXED_ADDRESSES.mpcContract)}>{FIXED_ADDRESSES.mpcContract}</ExternalLink>
+            <ExternalLink href={nearAccountUrl(FIXED_ADDRESSES.mpcContract)}>{FIXED_ADDRESSES.mpcContract}</ExternalLink>
           </Row>
           <Row label="MPC version">
             <span className="tabular">{mpcVersion}</span>
@@ -118,7 +116,7 @@ export function VersionsBlock({ deployment, refreshKey }: BlockProps) {
                 </span>
               </Row>
               <Row label="Fee recipient" mono>
-                <ExternalLink href={EXPLORERS.nearAccount(engine.config.fee_recipient)}>{engine.config.fee_recipient}</ExternalLink>
+                <ExternalLink href={nearAccountUrl(engine.config.fee_recipient)}>{engine.config.fee_recipient}</ExternalLink>
               </Row>
             </>
           ) : (
@@ -272,16 +270,16 @@ export function RoseVaultBlock({ deployment, refreshKey }: BlockProps) {
       {({ address, signer, lockup, derivedSigner }) => (
         <Rows>
           <Row label="Address" mono>
-            <ExternalLink href={EXPLORERS.baseAddress(address)}>{address}</ExternalLink>
+            <ExternalLink href={baseAddressUrl(address)}>{address}</ExternalLink>
           </Row>
           <Row label="Signer" mono>
-            <ExternalLink href={EXPLORERS.baseAddress(signer)}>{signer}</ExternalLink>
+            <ExternalLink href={baseAddressUrl(signer)}>{signer}</ExternalLink>
             <span className="ml-2 font-sans text-[12px] text-ink-400">
               {derivedSigner ? "engine path vault/base" : "set in the constructor, cannot change"}
             </span>
           </Row>
           <Row label="Lockup" mono>
-            <ExternalLink href={EXPLORERS.baseAddress(lockup)}>{lockup}</ExternalLink>
+            <ExternalLink href={baseAddressUrl(lockup)}>{lockup}</ExternalLink>
             <span className="ml-2 font-sans text-[12px] text-ink-400">
               {lockup.toLowerCase() === FIXED_ADDRESSES.sablierLockup.toLowerCase() ? "canonical Sablier Lockup v4" : "not the canonical Sablier Lockup"}
             </span>
@@ -334,7 +332,7 @@ export function SolanaBlock({ deployment, refreshKey }: BlockProps) {
           <Row label="Vault" mono>
             {vault ? (
               <>
-                <ExternalLink href={EXPLORERS.solanaAddress(vault.address)}>{vault.address}</ExternalLink>
+                <ExternalLink href={solanaAddressUrl(vault.address)}>{vault.address}</ExternalLink>
                 <span className="tabular ml-2 font-sans text-[12px] text-ink-400">{formatUnits(vault.lamports, LAMPORTS_DECIMALS, 4)} SOL</span>
               </>
             ) : (
@@ -342,14 +340,14 @@ export function SolanaBlock({ deployment, refreshKey }: BlockProps) {
             )}
           </Row>
           <Row label="Gas payer" mono>
-            <ExternalLink href={EXPLORERS.solanaAddress(gas.address)}>{gas.address}</ExternalLink>
+            <ExternalLink href={solanaAddressUrl(gas.address)}>{gas.address}</ExternalLink>
             <span className="tabular ml-2 font-sans text-[12px] text-ink-400">{formatUnits(gas.lamports, LAMPORTS_DECIMALS, 4)} SOL</span>
           </Row>
           <Row label="Slot">
             <span className="tabular">{formatCount(slot)} (finalized)</span>
           </Row>
           <Row label="Streamflow" mono>
-            <ExternalLink href={EXPLORERS.solanaAddress(FIXED_ADDRESSES.streamflowProgram)}>{FIXED_ADDRESSES.streamflowProgram}</ExternalLink>
+            <ExternalLink href={solanaAddressUrl(FIXED_ADDRESSES.streamflowProgram)}>{FIXED_ADDRESSES.streamflowProgram}</ExternalLink>
           </Row>
         </Rows>
       )}
@@ -398,7 +396,7 @@ export function CashTokensBlock({ deployment, refreshKey }: BlockProps) {
       {({ near, base }) => (
         <Rows>
           <Row label="NEAR" mono>
-            <ExternalLink href={EXPLORERS.nearAccount(near.account)}>{near.account}</ExternalLink>
+            <ExternalLink href={nearAccountUrl(near.account)}>{near.account}</ExternalLink>
           </Row>
           <Row label="Supply">
             <span className="tabular">
@@ -406,7 +404,7 @@ export function CashTokensBlock({ deployment, refreshKey }: BlockProps) {
             </span>
           </Row>
           <Row label="Base" mono>
-            {base ? <ExternalLink href={EXPLORERS.baseAddress(base.address)}>{base.address}</ExternalLink> : <Badge tone="warning">Not deployed yet</Badge>}
+            {base ? <ExternalLink href={baseAddressUrl(base.address)}>{base.address}</ExternalLink> : <Badge tone="warning">Not deployed yet</Badge>}
           </Row>
           {base ? (
             <Row label="Supply">
@@ -416,7 +414,7 @@ export function CashTokensBlock({ deployment, refreshKey }: BlockProps) {
             </Row>
           ) : null}
           <Row label="Circle USDC" mono>
-            <ExternalLink href={EXPLORERS.baseAddress(FIXED_ADDRESSES.circleUsdcBase)}>{FIXED_ADDRESSES.circleUsdcBase}</ExternalLink>
+            <ExternalLink href={baseAddressUrl(FIXED_ADDRESSES.circleUsdcBase)}>{FIXED_ADDRESSES.circleUsdcBase}</ExternalLink>
             <span className="ml-2 font-sans text-[12px] text-ink-400">also accepted on Base</span>
           </Row>
         </Rows>
@@ -488,11 +486,11 @@ export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
                 {verifications.map((item) => (
                   <tr key={item.event.seq} className="border-t border-ink-800">
                     <td className="whitespace-nowrap px-3 py-1.5 text-ink-300">
-                      <ExternalLink href={EXPLORERS.nearBlock(item.event.block_height)}>{formatTime(nanosToMillis(item.event.timestamp))}</ExternalLink>
+                      <ExternalLink href={nearBlockUrl(item.event.block_height)}>{formatTime(nanosToMillis(item.event.timestamp))}</ExternalLink>
                     </td>
                     <td className="tabular px-3 py-1.5 text-ink-100">#{item.positionId}</td>
                     <td className="px-3 py-1.5 font-mono text-ink-100">
-                      <ExternalLink href={EXPLORERS.nearAccount(item.depositor)}>{item.depositor}</ExternalLink>
+                      <ExternalLink href={nearAccountUrl(item.depositor)}>{item.depositor}</ExternalLink>
                     </td>
                     <td className="px-3 py-1.5 font-mono text-ink-300" title={item.classId}>
                       {shorten(item.classId, 8, 6)}
