@@ -75,3 +75,23 @@ Spike EOA `0xFa76B8f304d2A87FCAee0c258A76118368d0d671`; prototype vault `0x3985d
 EIP-712 known-answer vectors (viem 2.21.54 `hashTypedData`, chain 84532, verifyingContract `0x00000000000000000000000000000000000A11cE`), asserted in `test_digests_knownAnswerVectors`: `Transfer(0x036CbD53842c5426634e7929541eC2318f3dCF7e, 0x…b0b0, 1000000, 7)` → `0x652ed7c219938bcc420b0786454c4e4a58b5baeed9dd1cfdf3ba8c4b1e08ac01`; `Release(0xA65A…532e, 81, 0x…b0b0, 8)` → `0x87ab8e82a059a262d10be8885c9b5993c14f8bbe9ba38e33cc96179b5f5ee308`.
 
 `StreamDeposited` data layout (rebuilt byte by byte by the engine): topics `[keccak256("StreamDeposited(address,string,address,uint256,address,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)") = 0xbc9f6be2…8340, sender, streamId]`; data words: offset of `nearAccount` (0x1c0), lockup, token, deposited, withdrawn, start, cliff, end, granularity, startUnlock, cliffUnlock, cancelable, transferable, timestamp, then the string length and bytes padded to 32.
+
+## NEAR MPC `sign` (domains 0 and 1), measured from a contract
+
+Spike contract `c.rose-sign-1793752785.testnet` (throwaway, outside the repo). Hashes checked with RPC `EXPERIMENTAL_tx_status`.
+
+| Fact | Evidence | Result (2026-11-04) |
+|---|---|---|
+| `sign` gas floor | `view v1.signer-prod.testnet config`; call with 14 Tgas, tx `AJowwtnxEwTxSmeZLjswrPjjMA7fy98HPYNqe31CWRfH` | `sign_call_gas_attachment_requirement_tera_gas: 15` (README says 10); 14 Tgas panics `Provided gas is lower than required` |
+| ECDSA payload bound | payload n+1, tx `AzXGcUjGgaj2EcuMVqE7ywC2W9tizaRwUXb4L35GLqxe`; `crates/contract/src/api/sign.rs:47-50` at 3.18.0 | Must be below the group order n (README says field size p): `Ecdsa payload cannot be converted to Scalar` |
+| Domain 0 signature recovers to the derived address | tx `57TzcvbHbkBrZioL6Dg2jLnTxGGbYEYBY7oACbXv87MT`, Foundry `ecrecover`, `cast wallet verify` | EIP-712 digest signed for path `vault/base` recovers to `0x556e29bce7c6ab74a8B36b3c754D3Ac2842223b5` = address of `derived_public_key("vault/base", c.rose-sign-1793752785.testnet, 0)`; mapping r = big_R.x, v = 27 + recovery_id |
+| Low s | 10 live signatures | all low-s; recovery_id does not follow big_R parity, so v is always taken from recovery_id |
+| Domain 0 cost and latency | 10 transactions | about 12.7 Tgas burnt; 21 Tgas prepaid works, 20 fails; median 4.87 s (3.73 to 6.04 s) |
+| Two `sign` promises joined (domain 1, paths `vault/sol` and `gas/sol`) | tx `DiXxwbXDzWJg8g1tqsKi394foDAQWqHwSkFvyBMXSYN6` | about 22.8 Tgas burnt, 38 Tgas prepaid works; 4.3 to 4.9 s |
+| Refund only on `PromiseError` | txs `BToSjfQNBoj5Nev73VpGJvpJTWvTvSQAUhWPKgEKmqaf`, `AJowwtnxEwTxSmeZLjswrPjjMA7fy98HPYNqe31CWRfH` | the callback receives `PromiseError` about 1.2 s after a failed request |
+| Durable-nonce payout signed by the MPC and broadcast | NEAR tx `2EnjBoZADxx2GoBng8XHRq4LDbagHjKwB1exhasZtgxH`; Solana [4CrVjw75…](https://explorer.solana.com/tx/4CrVjw75paRmX7Uopaoeyfv1D83oLKpyJBLM6AbNziMkuPGQ4ykxgUBGT3TZ8vxZeajR7XqsAvnEMtutNBuTL9Wy?cluster=devnet) | landed 534 slots after the nonce value was read; fee payer = `gas/sol`; replay rejected (`BlockhashNotFound`) |
+| Solana legacy message serialization | Rust builder vs web3.js 1.98.4 `TransactionMessage.compileToLegacyMessage()` on 5 messages | byte-for-byte identical |
+| ATA derivation inside a NEAR contract | txs `5WJAQJh3tTvc6zWogCbc6KKe7WERsN1LxgPXuittNGHt`, `4reqx9ehTvunZohW4kWV7xCKcNAMGi82gjxDXcv13jDm` | 0.35 to 0.85 Tgas, results equal spl-token |
+| Durable nonce account rent on devnet | `getMinimumBalanceForRentExemption(80)` | 1,056,640 lamports |
+| Streamflow `withdraw` / `transfer_recipient` encodings | `@streamflow/stream` 13.4.0 (commit `fb236fff`), `streamflow-sdk` 0.15.0 (commit `63df7d7b`, `programs/streamflow-sdk/src/lib.rs` lines 804-846 and 902-928) | Rust encoders equal the js-sdk bytes; treasury `5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw` |
+| NEAR testnet explorers | NearBlocks API `/v1/blocks/latest`; `explorer.testnet.near.org` | NearBlocks testnet frozen at block 270,420,307 (RPC head 276.1M); `explorer.testnet.near.org` serves an explorer selector page. Live explorer still to confirm in a browser |
