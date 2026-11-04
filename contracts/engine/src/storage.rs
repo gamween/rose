@@ -12,9 +12,9 @@ use near_sdk::{env, near, require, AccountId, NearToken, Promise};
 
 use crate::{assert_one_yocto, Contract, ContractExt, RoseEvent};
 
-/// Bytes of one holding row: a 32-byte hashed key, the 48-byte `Holding` and the 40-byte record
+/// Bytes of one holding row: a 32-byte hashed key, the 64-byte `Holding` and the 40-byte record
 /// overhead of the NEAR trie.
-pub const HOLDING_ROW_BYTES: u64 = 32 + 48 + 40;
+pub const HOLDING_ROW_BYTES: u64 = 32 + 64 + 40;
 /// Bytes of the storage account record itself.
 pub const STORAGE_ACCOUNT_BYTES: u64 = 32 + 24 + 40;
 

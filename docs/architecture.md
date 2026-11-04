@@ -47,7 +47,7 @@ All amounts are integers. Token amounts are base units of the token. Cash amount
 - `config`: MPC account and domain ids (sign secp256k1, sign Ed25519, CKD, ForeignTx), CKD master public key, fee recipient, NEAR cash token, accepted Base cash tokens, RoseVault address and its chain id (the EIP-712 domain), canonical Sablier Lockup address, Streamflow program id, default key timeout and reveal window, derived foreign addresses (`vault/base`, `vault/sol`, `gas/sol`), filled once by the permissionless `bootstrap` that reads `derived_public_key` from the MPC contract.
 - `classes`: `class_id -> Class { chain, token, decimals, schedule, positions, total_units, created_at }`. `class_id` is the hex SHA-256 of the borsh-encoded `(chain, token, decimals, normalized schedule)`, so the same economic position always maps to the same class.
 - `positions`: `position_id -> Position { class_id, source (Base stream or Streamflow metadata pubkey), allocation, depositor, deposited_at, state (Held, Releasing, Released) }`.
-- `holdings`: `(holder, class_id) -> Holding { balance, checkpoint, claimable, encumbered }`, the NEP-245 ledger with accrual accounting (spec 4); the holder is an account or a Tender's retired lot. Every balance change accrues `balance * (f(now) - checkpoint)` into `claimable` first.
+- `holdings`: `(holder, class_id) -> Holding { balance, checkpoint, claimable, carry }`, the NEP-245 ledger with accrual accounting (spec 4); the holder is an account or a Tender's retired lot. Every balance change accrues `balance * (f(now) - checkpoint)` into `claimable` first, carrying the fraction below one base unit into the next accrual (`carry`), so a holding's lifetime accrual is the floor of its exact accrual.
 - `storage_accounts`: NEP-145 deposits and bytes used per account (the account record plus one row per class held).
 - `cash`: `(account, venue) -> free cash`. Venues: `Near` (tUSDC NEP-141) and `Base { token }` (an ERC-20 held by RoseVault; every token is credited, only accepted ones can host rounds).
 - `rounds`, `bids`, `orders`: `round_id -> Round { kind, class_id, venue, creator, window, max_price, f_ts, phase, key, result, terms, … }`, one sealed order per `(round, bidder, side)`.
@@ -56,6 +56,13 @@ All amounts are integers. Token amounts are base units of the token. Cash amount
 - `price_history`: per class, the clearing price points.
 - `events`: the ring buffer of the last 1,024 events with sequence number, block height, timestamp and predecessor.
 - `custody`: replay keys (`BaseLog { tx_hash, log_index }`, `SolStream { metadata }`, `SolNonce { account, value }`) with their pending or consumed state and the account a pending registration holds, refused deposits, payouts (`Payout { chain, kind, debit, requester, requested_block, sign_requests, status, digest, base signature, solana transaction (raw message, draws, nonce, authority, raw signatures) }`) and their per-account lists, Solana deposit records and stream infos (the withdraw accounts from the attested metadata, `engine_withdrawn` = proven withdrawals, the one unconfirmed payout drawing on the stream and its amount), the per-class list of Solana positions a payout may draw on (released and fully withdrawn streams pruned), positions with a release in flight, the per-account count of custody actions in flight.
+
+### Stored layouts
+
+State is Borsh: an enum is stored as its variant index and a struct as its fields in order. Rules for every type that reaches storage (records, the event ring buffer, storage-key prefixes, the class schedule) or the MPC payload hash:
+
+- An enum only gains variants at the end; a variant is never inserted, reordered or removed. `tests::layout::borsh_enums_only_gain_variants_at_the_end` pins the stored order of every Borsh enum of the engine and fails on anything but an append.
+- A struct field, or a variant's fields, never change in a deployed engine. A change that needs one deploys to a new account (the final engine is keyless and never upgraded; a staging engine updated in place with an incompatible layout cannot read what it wrote before, which is how `get_events` failed on `engine-s3`).
 
 ## Round state machine
 

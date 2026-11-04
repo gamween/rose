@@ -230,6 +230,11 @@ pub enum RoseEvent {
         payout_id: U64,
         reason: String,
     },
+    PositionReleaseRequested {
+        position_id: U64,
+        payout_id: U64,
+        account: AccountId,
+    },
     /// A signed Solana payout or release proven executed on chain.
     PayoutLanded {
         payout_id: U64,
@@ -238,11 +243,6 @@ pub enum RoseEvent {
     /// by a transaction that only advances its nonce.
     PayoutCancelling {
         payout_id: U64,
-    },
-    PositionReleaseRequested {
-        position_id: U64,
-        payout_id: U64,
-        account: AccountId,
     },
 }
 

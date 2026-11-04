@@ -3,7 +3,8 @@
 //! Foreign identifiers are strings in the form their chain renders them: lowercase `0x` hex for
 //! Base addresses and hashes, base58 for Solana public keys. Foreign timestamps, block numbers,
 //! indexes and stream ids are plain JSON numbers (they are far below `2^53`); token amounts are
-//! `U128` strings, as everywhere else in the engine.
+//! JSON strings (`U128`, or `U64` for Solana's `u64` amounts), as everywhere else in the engine:
+//! a Solana allocation easily exceeds `2^53` base units.
 
 use near_sdk::json_types::{Base64VecU8, U128, U64};
 use near_sdk::{near, AccountId};
@@ -107,11 +108,20 @@ pub struct SolDepositArgs {
 /// (owner System, authority = vault) and the recipient's associated token account for the mint
 /// (owner SPL Token, initialized, owned by the recipient), which must already exist so that the
 /// engine's fee payer never pays rent for it.
+///
+/// The nonce account belongs to the calling NEAR account through its address: it must be
+/// `create_with_seed(base, seed, System program)` with a `seed` starting with the caller's
+/// prefix (`nonce_seed_prefix`), so nobody else can spend its nonce values.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct SolNonceProof {
     /// Nonce account (base58).
     pub account: String,
+    /// The key the nonce account was created from with a seed (base58; it signed the creation).
+    pub base: String,
+    /// The seed: the caller's 24-character prefix, then at most 8 characters of the caller's
+    /// choice (so one wallet can hold several nonce accounts for one NEAR account).
+    pub seed: String,
     /// Anchor transaction (base58 signature): any successful finalized transaction not newer
     /// than the account reads.
     pub anchor_tx: String,
@@ -256,8 +266,9 @@ pub enum PayoutKind {
     },
 }
 
-/// What the engine debited before requesting the signature, refunded only when no signature was
-/// produced.
+/// What the engine debited before requesting the signature. Refunded only when its proof failed
+/// (nothing was signed) or a signed Solana transaction was proven not to have executed; never
+/// because a signature request failed.
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PayoutDebit {
@@ -300,11 +311,11 @@ pub enum PayoutStatus {
     /// The vault signature exists but the fee payer's does not: `resign_sol_gas` (or
     /// `submit_sol_signature`) completes it.
     AwaitingGasSignature,
-    /// A Solana payout or redeem proven executed on chain.
-    Landed,
     /// Nothing was signed, or the signed Solana transaction was proven not to have executed;
     /// the debit was refunded.
     Failed { reason: String },
+    /// A Solana payout or redeem proven executed on chain.
+    Landed,
 }
 
 /// A signature of `vault/base` over the payout's EIP-712 digest, as `executeTransfer` and
@@ -471,24 +482,24 @@ pub struct SolStreamInfo {
     pub partner_tokens: String,
     pub start_time: u64,
     pub cliff: u64,
-    pub cliff_amount: u64,
+    pub cliff_amount: U64,
     pub period: u64,
-    pub amount_per_period: u64,
-    pub net_amount_deposited: u64,
+    pub amount_per_period: U64,
+    pub net_amount_deposited: U64,
     pub end_time: u64,
     /// Tokens withdrawn from the stream's escrow and proven: the attested `amount_withdrawn`
     /// at registration plus every payout withdrawal proven landed since. Only the engine
     /// withdraws vault streams (automatic withdrawal is refused at deposit).
-    pub engine_withdrawn: u64,
+    pub engine_withdrawn: U64,
     /// The attested `amount_withdrawn` at registration (paid to the depositor before).
-    pub registered_withdrawn: u64,
+    pub registered_withdrawn: U64,
     /// Accrual checkpoint the position's units were minted from.
     pub checkpoint: U128,
     /// The one payout drawing on the stream that is not confirmed yet (at most one at a time, so
     /// that the attested `amount_withdrawn` tells unambiguously whether it landed).
     pub drawing: Option<U64>,
     /// What that payout withdraws (0 when none).
-    pub pending_withdraw: u64,
+    pub pending_withdraw: U64,
 }
 
 impl SolStreamInfo {
@@ -497,10 +508,10 @@ impl SolStreamInfo {
         StreamflowParams {
             start_time: self.start_time,
             cliff: self.cliff,
-            cliff_amount: self.cliff_amount,
+            cliff_amount: self.cliff_amount.0,
             period: self.period,
-            amount_per_period: self.amount_per_period,
-            net_amount_deposited: self.net_amount_deposited,
+            amount_per_period: self.amount_per_period.0,
+            net_amount_deposited: self.net_amount_deposited.0,
             end_time: self.end_time,
             ..StreamflowParams::default()
         }

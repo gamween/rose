@@ -36,9 +36,10 @@ use crate::foreign::mpc::{
     SvmExtractor, SvmFinality, SvmRpcRequest,
 };
 use crate::foreign::solana::{
-    self as sol, advance_nonce_account, associated_token_address, spl_transfer_checked,
-    streamflow_transfer_recipient, streamflow_withdraw, Instruction, NonceAccount, Pubkey,
-    StreamflowMetadata, StreamflowWithdrawAccounts, TokenAccount, SYSTEM_PROGRAM, TOKEN_PROGRAM,
+    self as sol, advance_nonce_account, associated_token_address, create_with_seed,
+    spl_transfer_checked, streamflow_transfer_recipient, streamflow_withdraw, Instruction,
+    NonceAccount, Pubkey, StreamflowMetadata, StreamflowWithdrawAccounts, TokenAccount,
+    MAX_SEED_LEN, SYSTEM_PROGRAM, TOKEN_PROGRAM,
 };
 use crate::types::{
     Chain, ClaimSource, ClassId, Holder, PositionId, PositionSource, PositionState, Venue,
@@ -53,6 +54,9 @@ const TGAS_PROVE_THEN_SIGN: u64 =
 /// Most extractors one ForeignTx request may carry (`MAX_EXTRACTORS_PER_REQUEST` of the MPC
 /// contract interface 3.18.0).
 const MAX_EXTRACTORS: usize = 32;
+/// Length of the seed prefix that binds a nonce account to a NEAR account (hex characters of
+/// `sha256(account id)`: 96 bits, out of reach of a second-preimage search).
+const NONCE_SEED_PREFIX_LEN: usize = 24;
 
 /// The proven accounts of a Solana payout or redeem.
 struct PayoutAccounts {
@@ -150,11 +154,12 @@ impl Contract {
     /// can pay now: unlocked minus proven withdrawals; at least one whole token per stream
     /// unless the draw empties it; a stream with an unconfirmed payout cannot be drawn on); the
     /// claimed amount is their sum. The engine debits the source, proves the caller's durable
-    /// nonce account (authority = vault) and the recipient's token account (initialized, of the
-    /// class mint, owned by `to_owner`) with one ForeignTx request, then has `vault/sol` and
+    /// nonce account (authority = vault, address derived with a seed bound to the caller, see
+    /// [`SolNonceProof`]) and the recipient's token account (initialized, of the class mint,
+    /// owned by `to_owner`) with one ForeignTx request, then has `vault/sol` and
     /// `gas/sol` sign `AdvanceNonceAccount`, one Streamflow `withdraw` per draw and
     /// `TransferChecked` of the sum. The payout stays `Signed` until `confirm_sol_payout`.
-    /// Attach the payout storage deposit and about 150 Tgas.
+    /// Attach the payout storage deposit and 200 Tgas (the call keeps 105 Tgas for its chain).
     #[payable]
     pub fn claim_sol_tokens(
         &mut self,
@@ -175,7 +180,7 @@ impl Contract {
         let mint = sol::parse_pubkey(&class.token).expect("stored base58 mint");
         let (vault, _) = self.sol_keys();
         self.require_outside_recipient(&to_owner);
-        let accounts = self.payout_accounts(&nonce, &vault, &mint, &to_owner);
+        let accounts = self.payout_accounts(&nonce, &caller, &vault, &mint, &to_owner);
         let vault_tokens = associated_token_address(&vault, &mint).expect("valid seeds");
         let mut instructions = vec![advance_nonce_account(accounts.nonce, vault)];
         for (_, stream, amount) in &planned {
@@ -230,11 +235,11 @@ impl Contract {
                 .get_mut(&position_id)
                 .expect("checked draw");
             info.drawing = Some(U64(id));
-            info.pending_withdraw = *amount;
+            info.pending_withdraw = U64(*amount);
             recorded.push(SolDraw {
                 position_id: U64(position_id),
                 amount: U128(u128::from(*amount)),
-                expected_withdrawn: U128(u128::from(info.engine_withdrawn) + u128::from(*amount)),
+                expected_withdrawn: U128(u128::from(info.engine_withdrawn.0) + u128::from(*amount)),
             });
         }
         self.sol_transaction_mut(id).draws = recorded;
@@ -252,7 +257,7 @@ impl Contract {
     /// `[AdvanceNonce] + transfer_recipient(vault -> to)` and stays `Signed` until
     /// `confirm_sol_redeem` proves it executed (the burn is then final) or not (the units and
     /// the claimable tokens come back). Attach the payout storage deposit; about 60 Tgas on
-    /// Base, 150 Tgas on Solana.
+    /// Base, 200 Tgas on Solana.
     #[payable]
     pub fn redeem(
         &mut self,
@@ -316,21 +321,23 @@ impl Contract {
                 );
                 let owed = self.owed_by_stream(&stream, position.allocation.0, f_burned);
                 require!(
-                    stream.engine_withdrawn < stream.net_amount_deposited,
+                    stream.engine_withdrawn.0 < stream.net_amount_deposited.0,
                     "Stream is fully withdrawn: there is nothing left to release"
                 );
                 let to_owner = sol_recipient(&to, None);
                 let mint = sol::parse_pubkey(&stream.mint).expect("stored base58 mint");
                 let (vault, _) = self.sol_keys();
                 self.require_outside_recipient(&to_owner);
-                let accounts = self.payout_accounts(&nonce, &vault, &mint, &to_owner);
+                require!(
+                    sol::format_pubkey(&to_owner) != self.sol_deposit(metadata).deposit_address,
+                    "The recipient must not be the stream's deposit address"
+                );
+                let accounts = self.payout_accounts(&nonce, &caller, &vault, &mint, &to_owner);
                 let owner_source = ClaimSource::Holding {
                     account: caller.clone(),
                     class_id: class_id.clone(),
                 };
-                let claimable = self
-                    .holding(&Holder::Account(caller.clone()), &class_id)
-                    .claimable_at(f_burned);
+                let claimable = self.claimable_of(&owner_source);
                 require!(
                     claimable >= u128::from(owed),
                     format!(
@@ -600,11 +607,15 @@ impl Contract {
     /// Settles a signed Solana payout once its durable nonce advanced (the transaction can no
     /// longer execute): one ForeignTx `AccountState` request at `Finalized` proves the nonce
     /// account (`nonce_data`, its value must differ from the signed one) and the metadata of
-    /// every drawn stream (`stream_data`, in draw order). When every stream's `amount_withdrawn`
-    /// reached what the payout withdraws, the payout is `Landed` and the withdrawals count;
-    /// otherwise the transaction failed on chain: that verdict needs two such proofs at least
-    /// [`super::CONFIRM_FAILURE_DELAY_BLOCKS`] apart (a lagging RPC read of a stream cannot
-    /// produce it), then the claim is refunded. `anchor_tx` is any
+    /// every drawn stream (`stream_data`, in draw order). A stream whose `amount_withdrawn`
+    /// reached what the payout withdraws proves the transaction executed (it is atomic, and only
+    /// this payout can withdraw from its streams): the payout is `Landed` and the withdrawals
+    /// count. Only when every stream's `amount_withdrawn` is exactly the proven amount did the
+    /// transaction fail on chain; that verdict needs two such proofs, the second requested at
+    /// least [`super::CONFIRM_FAILURE_DELAY_BLOCKS`] after the first one's answer (a lagging
+    /// RPC read of a stream cannot produce it), then the claim is refunded. A proof showing a
+    /// stream below its proven amount (a stale read) or between that and the payout's amount
+    /// (Streamflow withdraws exactly the amount or fails) is refused. `anchor_tx` is any
     /// successful finalized transaction not newer than the reads (the payout's own transaction
     /// when it succeeded). Anyone; about 60 Tgas. Bytes are hex, read at `finalized`.
     pub fn confirm_sol_payout(
@@ -632,11 +643,15 @@ impl Contract {
         let (nonce_pubkey, nonce_account) = self.advanced_nonce(&solana, &nonce_data);
         let mut extractors = vec![nonce_pubkey];
         let mut values = vec![nonce_account];
-        let mut landed = true;
+        let mut landed = false;
         for (draw, data) in solana.draws.iter().zip(&stream_data) {
             let stream = self.sol_stream(draw.position_id.0);
             let (pubkey, account, metadata) = self.stream_state(&stream, data);
-            landed &= u128::from(metadata.amount_withdrawn) >= draw.expected_withdrawn.0;
+            landed |= drawn_stream_executed(
+                draw,
+                u128::from(metadata.amount_withdrawn),
+                u128::from(stream.engine_withdrawn.0),
+            );
             extractors.push(pubkey);
             values.push(account);
         }
@@ -646,17 +661,24 @@ impl Contract {
         self.verify_foreign_promise(request).then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_FOR_RECORD_CALLBACK)
-                .on_sol_payout_confirmed(payout_id, hex::encode(hash), landed),
+                .on_sol_payout_confirmed(
+                    payout_id,
+                    hex::encode(hash),
+                    landed,
+                    U64(env::block_height()),
+                ),
         )
     }
 
-    /// Confirmation callback of a payout. Called by the contract itself.
+    /// Confirmation callback of a payout; `requested_at` is the block of the confirmation call.
+    /// Called by the contract itself.
     #[private]
     pub fn on_sol_payout_confirmed(
         &mut self,
         payout_id: U64,
         expected_hash: String,
         landed: bool,
+        requested_at: U64,
     ) -> bool {
         let id = payout_id.0;
         if self.payout(id).status != PayoutStatus::Signed
@@ -666,7 +688,7 @@ impl Contract {
         }
         if landed {
             self.land_payout(id);
-        } else if self.not_executed_twice(id) {
+        } else if self.not_executed_twice(id, requested_at.0) {
             self.fail_payout(id, "the payout transaction did not execute");
         }
         landed
@@ -674,14 +696,17 @@ impl Contract {
 
     /// Settles the signed release of a Solana position once its durable nonce advanced: one
     /// ForeignTx request proves the nonce account and the stream metadata (`stream_data`). The
-    /// release executed when the stream left the vault, or when its `amount_withdrawn` moved
-    /// (someone other than the engine withdrew, which only the new recipient can), or anything
-    /// else changed: the burn is then final and the position `Released`. Only a stream exactly as
-    /// registered (eligible at the vault, paying the vault's token account, withdrawn amount
-    /// unchanged) proves the transaction failed on chain, twice at least
-    /// [`super::CONFIRM_FAILURE_DELAY_BLOCKS`] apart: the units come back to the redeemer
-    /// (accruing from the burn), so do the claimable tokens it paid, and the position is `Held`
-    /// again. Anyone; about 60 Tgas. Bytes are hex, read at `finalized`.
+    /// release executed when the attested stream shows what a read of the registered stream,
+    /// however stale, cannot: a recipient other than the vault, a token account other than
+    /// the vault's, more withdrawn than the engine proved (only a new recipient can withdraw),
+    /// or a closed or canceled stream. The burn is then final and the position `Released`. Only
+    /// a stream exactly as registered (eligible at the vault, paying the vault's token account,
+    /// withdrawn amount unchanged) proves the transaction failed on chain, twice, the second
+    /// proof requested at least [`super::CONFIRM_FAILURE_DELAY_BLOCKS`] after the first one's
+    /// answer: the units come back to the redeemer (accruing from the burn), so do the claimable
+    /// tokens it paid, and the position is `Held` again. A proof that can only be a stale read
+    /// (less withdrawn than proven, or the stream still at its deposit address) is refused.
+    /// Anyone; about 60 Tgas. Bytes are hex, read at `finalized`.
     pub fn confirm_sol_redeem(
         &mut self,
         position_id: U64,
@@ -708,12 +733,7 @@ impl Contract {
         let (nonce_pubkey, nonce_account) = self.advanced_nonce(&solana, &nonce_data);
         let stream = self.sol_stream(position_id.0);
         let (pubkey, account, metadata) = self.stream_state(&stream, &stream_data);
-        let (vault, _) = self.sol_keys();
-        let program = self.streamflow_program();
-        let untouched = StreamflowMetadata::check_deposit(&account, &program, &vault).is_ok()
-            && Ok(metadata.recipient_tokens) == associated_token_address(&vault, &metadata.mint)
-            && metadata.amount_withdrawn == stream.engine_withdrawn;
-        let landed = !untouched;
+        let landed = self.release_executed(&stream, &account, &metadata);
         let (request, hash) = account_state_request(
             &anchor_tx,
             vec![nonce_pubkey, pubkey],
@@ -724,17 +744,24 @@ impl Contract {
         self.verify_foreign_promise(request).then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_FOR_RECORD_CALLBACK)
-                .on_sol_redeem_confirmed(U64(id), hex::encode(hash), landed),
+                .on_sol_redeem_confirmed(
+                    U64(id),
+                    hex::encode(hash),
+                    landed,
+                    U64(env::block_height()),
+                ),
         )
     }
 
-    /// Confirmation callback of a release. Called by the contract itself.
+    /// Confirmation callback of a release; `requested_at` is the block of the confirmation call.
+    /// Called by the contract itself.
     #[private]
     pub fn on_sol_redeem_confirmed(
         &mut self,
         payout_id: U64,
         expected_hash: String,
         landed: bool,
+        requested_at: U64,
     ) -> bool {
         let id = payout_id.0;
         if self.payout(id).status != PayoutStatus::Signed
@@ -744,7 +771,7 @@ impl Contract {
         }
         if landed {
             self.land_payout(id);
-        } else if self.not_executed_twice(id) {
+        } else if self.not_executed_twice(id, requested_at.0) {
             self.fail_payout(id, "the release transaction did not execute");
         }
         landed
@@ -875,7 +902,7 @@ impl Contract {
     /// nothing is owed.
     fn owed_by_stream(&self, stream: &SolStreamInfo, units: u128, f_now: u128) -> u64 {
         let accrued = crate::unlock::accrual(units, stream.checkpoint.0, f_now);
-        let withdrawn = u128::from(stream.engine_withdrawn - stream.registered_withdrawn);
+        let withdrawn = u128::from(stream.engine_withdrawn.0 - stream.registered_withdrawn.0);
         u64::try_from(accrued.saturating_sub(withdrawn))
             .unwrap_or(u64::MAX)
             .min(Self::withdrawable_now(stream))
@@ -889,8 +916,8 @@ impl Contract {
             .unlocked_amount(crate::now_secs());
         u64::try_from(unlocked)
             .unwrap_or(u64::MAX)
-            .saturating_sub(stream.engine_withdrawn)
-            .saturating_sub(stream.pending_withdraw)
+            .saturating_sub(stream.engine_withdrawn.0)
+            .saturating_sub(stream.pending_withdraw.0)
     }
 
     /// Validates the draws of a payout of `class_id`: distinct streams of the class still held,
@@ -946,7 +973,7 @@ impl Contract {
             );
             require!(
                 u128::from(amount) >= one_token
-                    || stream.engine_withdrawn + amount == stream.net_amount_deposited,
+                    || stream.engine_withdrawn.0 + amount == stream.net_amount_deposited.0,
                 format!("A draw takes at least one whole token ({one_token}) unless it empties stream {position_id}")
             );
             total = total
@@ -958,17 +985,32 @@ impl Contract {
     }
 
     /// Validates the caller's account bytes of a payout or redeem: the durable nonce account
-    /// (System-owned, `Current`, initialized, authority = vault) and the recipient's associated
-    /// token account for `mint` (initialized, owned by `owner`).
+    /// (System-owned, `Current`, initialized, authority = vault, created with a seed bound to
+    /// `caller`) and the recipient's associated token account for `mint` (initialized, owned by
+    /// `owner`).
     fn payout_accounts(
         &self,
         proof: &SolNonceProof,
+        caller: &AccountId,
         vault: &Pubkey,
         mint: &Pubkey,
         owner: &Pubkey,
     ) -> PayoutAccounts {
         let nonce = sol::parse_pubkey(&proof.account)
             .unwrap_or_else(|_| env::panic_str("Nonce account must be a base58 key"));
+        let base = sol::parse_pubkey(&proof.base)
+            .unwrap_or_else(|_| env::panic_str("Nonce base must be a base58 key"));
+        let prefix = nonce_seed_prefix(caller);
+        require!(
+            proof.seed.starts_with(&prefix) && proof.seed.len() <= MAX_SEED_LEN,
+            format!(
+                "The nonce account's seed must start with {prefix} (the caller's prefix) and be at most {MAX_SEED_LEN} characters"
+            )
+        );
+        require!(
+            create_with_seed(&base, &proof.seed, &SYSTEM_PROGRAM) == Ok(nonce),
+            "The nonce account must be created with the seed from the base key (createNonceAccount with basePubkey and seed)"
+        );
         let nonce_account = SvmAccount {
             owner: Bytes32(SYSTEM_PROGRAM),
             data: parse_hex(&proof.data, "nonce data"),
@@ -1201,18 +1243,60 @@ impl Contract {
         self.mark_request_resolved(id);
     }
 
-    /// Records a proof that payout `id` did not execute; true when an earlier such proof is at
-    /// least [`super::CONFIRM_FAILURE_DELAY_BLOCKS`] old (the verdict may then be acted on).
-    fn not_executed_twice(&mut self, id: PayoutId) -> bool {
+    /// Records a proof that payout `id` did not execute, requested at block `requested_at`;
+    /// true when an earlier such proof was answered at least
+    /// [`super::CONFIRM_FAILURE_DELAY_BLOCKS`] before this one was requested, so the two proofs
+    /// read the chain that far apart (the first one's reads happened before its answer, this
+    /// one's after its request), and the verdict may be acted on. The first proof is recorded at
+    /// the block it was answered.
+    fn not_executed_twice(&mut self, id: PayoutId, requested_at: u64) -> bool {
         let now = env::block_height();
         let solana = self.sol_transaction_mut(id);
         match solana.not_executed_seen_at {
-            Some(seen) => now >= seen.0 + super::CONFIRM_FAILURE_DELAY_BLOCKS,
+            Some(seen) => requested_at >= seen.0 + super::CONFIRM_FAILURE_DELAY_BLOCKS,
             None => {
                 solana.not_executed_seen_at = Some(U64(now));
                 false
             }
         }
+    }
+
+    /// Whether the attested state of a releasing stream proves its release executed (`true`) or
+    /// shows it exactly as registered (`false`). Panics on a state only a stale read can show
+    /// (less withdrawn than proven, or the stream still at its deposit address, before its move)
+    /// and on one that is neither.
+    fn release_executed(
+        &self,
+        stream: &SolStreamInfo,
+        account: &SvmAccount,
+        metadata: &StreamflowMetadata,
+    ) -> bool {
+        let (vault, _) = self.sol_keys();
+        require!(
+            metadata.amount_withdrawn >= stream.engine_withdrawn.0,
+            "Stale stream read: it shows less withdrawn than the engine proved; read it again at finalized"
+        );
+        require!(
+            sol::format_pubkey(&metadata.recipient)
+                != self.sol_deposit(&stream.metadata).deposit_address,
+            "Stale stream read: it shows the stream at its deposit address, before its move; read it again at finalized"
+        );
+        let mint = sol::parse_pubkey(&stream.mint).expect("stored base58 mint");
+        let vault_tokens = associated_token_address(&vault, &mint).expect("valid seeds");
+        let executed = metadata.recipient != vault
+            || metadata.recipient_tokens != vault_tokens
+            || metadata.amount_withdrawn > stream.engine_withdrawn.0
+            || metadata.closed
+            || metadata.canceled_at != 0;
+        let untouched =
+            StreamflowMetadata::check_deposit(account, &self.streamflow_program(), &vault).is_ok()
+                && metadata.recipient_tokens == vault_tokens
+                && metadata.amount_withdrawn == stream.engine_withdrawn.0;
+        require!(
+            executed || untouched,
+            "The stream is neither as registered nor moved on: the proof is refused"
+        );
+        executed
     }
 
     /// Panics when `owner` is one of the engine's own Solana keys: tokens or a stream sent there
@@ -1289,10 +1373,10 @@ impl Contract {
                 .get_mut(&position_id)
                 .expect("drawn stream");
             stream.engine_withdrawn =
-                u64::try_from(draw.expected_withdrawn.0).expect("within the stream");
+                U64(u64::try_from(draw.expected_withdrawn.0).expect("within the stream"));
             stream.drawing = None;
-            stream.pending_withdraw = 0;
-            if stream.engine_withdrawn >= stream.net_amount_deposited {
+            stream.pending_withdraw = U64(0);
+            if stream.engine_withdrawn.0 >= stream.net_amount_deposited.0 {
                 self.prune_stream(&class_id, position_id);
             }
         }
@@ -1339,7 +1423,7 @@ impl Contract {
             if let Some(stream) = self.custody.sol_streams.get_mut(&draw.position_id.0) {
                 if stream.drawing == Some(U64(id)) {
                     stream.drawing = None;
-                    stream.pending_withdraw = 0;
+                    stream.pending_withdraw = U64(0);
                 }
             }
         }
@@ -1404,7 +1488,7 @@ impl Contract {
     /// on Solana, signs `transfer_recipient` from where the stream sits (the vault or the
     /// deposit address) to the return address named at attribution, with the caller-supplied
     /// recent blockhash. Anyone; attach the payout storage deposit and about 60 Tgas (Base) or
-    /// 80 Tgas (Solana). On Base callable again only when the previous return failed; on Solana
+    /// 120 Tgas (Solana). On Base callable again only when the previous return failed; on Solana
     /// also once the previous one is signed (its blockhash may have expired).
     #[payable]
     pub fn return_refused_deposit(
@@ -1553,4 +1637,29 @@ pub(super) fn parse_anchor(text: &str) -> [u8; 64] {
         Ok(64) => anchor,
         _ => env::panic_str("anchor_tx must be a base58 transaction signature"),
     }
+}
+
+/// Whether one drawn stream's attested `amount_withdrawn` proves its payout executed (`true`:
+/// it reached what the payout withdraws) or shows it untouched (`false`: exactly the proven
+/// amount). Panics on a stale read (below the proven amount) and on an amount in between:
+/// Streamflow's `withdraw(amount)` withdraws exactly `amount` or fails ("Amount requested is
+/// larger than available", error 115, measured on devnet), so no execution leaves one.
+fn drawn_stream_executed(draw: &SolDraw, amount_withdrawn: u128, engine_withdrawn: u128) -> bool {
+    let position_id = draw.position_id.0;
+    require!(
+        amount_withdrawn >= engine_withdrawn,
+        format!("Stale read of stream {position_id}: it shows less withdrawn than the engine proved; read it again at finalized")
+    );
+    let executed = amount_withdrawn >= draw.expected_withdrawn.0;
+    require!(
+        executed || amount_withdrawn == engine_withdrawn,
+        format!("Stream {position_id} shows a withdrawal this payout cannot explain: the proof is refused")
+    );
+    executed
+}
+
+/// The 24 hex characters of `sha256(account id)` that start the seed of every nonce account
+/// `account` may use (see [`SolNonceProof`]).
+pub(crate) fn nonce_seed_prefix(account: &AccountId) -> String {
+    hex::encode(sol::sha256(account.as_bytes()))[..NONCE_SEED_PREFIX_LEN].to_string()
 }

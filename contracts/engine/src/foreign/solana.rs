@@ -24,6 +24,13 @@
 //! - Program-derived addresses (`solana-pubkey` 2.x `src/lib.rs`, `create_program_address` and
 //!   `find_program_address`): `sha256(seeds || program_id || "ProgramDerivedAddress")`, rejected
 //!   when it decompresses as an Edwards point; the bump is tried from 255 down.
+//! - Addresses with seed (`solana-pubkey` 2.x `Pubkey::create_with_seed`): `sha256(base || seed
+//!   || owner)` for a seed of at most 32 bytes, with no curve check; the System program's
+//!   `CreateAccountWithSeed` (and so `createNonceAccount` with a seed) requires the new account
+//!   to be that address.
+//! - SPL Token mint (`spl-token` 4.x `src/state.rs`, `Mint::LEN = 82`): `mint_authority`
+//!   `COption<Pubkey>` (u32 tag + 32 bytes), `supply` u64, `decimals` u8 at 44, `is_initialized`
+//!   at 45, `freeze_authority` `COption<Pubkey>` at 46 (tag) and 50..82.
 //! - Streamflow: `streamflow-finance/js-sdk` at `v13.4.0` (commit
 //!   `fb236fff325ab02d7ff5d0ff5e393be8934cda9d`), `packages/stream/solana/instructions.ts`
 //!   (`withdrawStreamInstruction` line 455, `transferStreamInstruction` line 618),
@@ -143,6 +150,10 @@ pub enum SolanaError {
     TokenOwner,
     /// The token account is not initialized, or is frozen.
     TokenState,
+    /// The mint account is not 82 bytes.
+    MintLength,
+    /// The mint is not initialized, or a `COption` tag is neither 0 nor 1.
+    MintState,
 }
 
 /// Parses a base58 public key.
@@ -208,6 +219,19 @@ pub fn find_program_address(
         }
     }
     Err(SolanaError::NoViableBump)
+}
+
+/// `Pubkey::create_with_seed`: `sha256(base || seed || owner)` for a seed of at most
+/// [`MAX_SEED_LEN`] bytes.
+pub fn create_with_seed(base: &Pubkey, seed: &str, owner: &Pubkey) -> Result<Pubkey, SolanaError> {
+    if seed.len() > MAX_SEED_LEN {
+        return Err(SolanaError::Seeds);
+    }
+    let mut preimage = Vec::with_capacity(32 + seed.len() + 32);
+    preimage.extend_from_slice(base);
+    preimage.extend_from_slice(seed.as_bytes());
+    preimage.extend_from_slice(owner);
+    Ok(sha256(&preimage))
 }
 
 /// Associated token account of `owner` for `mint` under the classic SPL Token program.
@@ -765,6 +789,38 @@ impl TokenAccount {
             return Err(SolanaError::TokenState);
         }
         Ok(token)
+    }
+}
+
+/// Length of a classic SPL Token mint account (`Mint::LEN`).
+pub const MINT_ACCOUNT_LEN: usize = 82;
+
+/// The fields of a classic SPL Token mint the engine reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mint {
+    /// Decimals of the token (offset 44).
+    pub decimals: u8,
+    /// Key that may freeze any token account of the mint (`COption` at 46). Once `None` it can
+    /// never be set again (`spl-token` `SetAuthority` fails with `MintCannotFreeze`).
+    pub freeze_authority: Option<Pubkey>,
+}
+
+impl Mint {
+    /// Parses the 82 bytes of an initialized mint.
+    pub fn parse(data: &[u8]) -> Result<Self, SolanaError> {
+        if data.len() != MINT_ACCOUNT_LEN {
+            return Err(SolanaError::MintLength);
+        }
+        let tag = |offset: usize| {
+            u32::from_le_bytes(data[offset..offset + 4].try_into().expect("4 bytes"))
+        };
+        if tag(0) > 1 || tag(46) > 1 || data[45] != 1 {
+            return Err(SolanaError::MintState);
+        }
+        Ok(Self {
+            decimals: data[44],
+            freeze_authority: (tag(46) == 1).then(|| data[50..82].try_into().expect("32 bytes")),
+        })
     }
 }
 

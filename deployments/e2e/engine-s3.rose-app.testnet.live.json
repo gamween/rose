@@ -1,0 +1,919 @@
+{
+  "header": {
+    "engine": "engine-s3.rose-app.testnet",
+    "env_file": "deployments/engine-s3.rose-app.testnet.env"
+  },
+  "steps": {
+    "nokey:create": {
+      "at": "2026-11-04T07:26:35.984Z",
+      "txs": [
+        {
+          "label": "Halden Ventures: create_exit with a 60 s key timeout (KOL Round)",
+          "chain": "near",
+          "hash": "2qYgQrj6qQmZAa2cWwaJNmzwPW2vamBHV72JQk6XETAi",
+          "link": "https://testnet.near.rocks/tx/2qYgQrj6qQmZAa2cWwaJNmzwPW2vamBHV72JQk6XETAi",
+          "gasTgas": 3.54
+        }
+      ],
+      "done": true,
+      "data": {
+        "roundId": "4",
+        "kind": "Exit",
+        "classId": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+        "creator": "halden-ventures.rose-app.testnet",
+        "closesAt": "1793777273388000000",
+        "revealWindow": "60000000000"
+      }
+    },
+    "nokey:cash-before": {
+      "at": "2026-11-04T07:26:36.054Z",
+      "txs": [],
+      "done": true,
+      "data": {
+        "cash": "64340000"
+      }
+    },
+    "nokey:bid": {
+      "at": "2026-11-04T07:26:39.602Z",
+      "txs": [
+        {
+          "label": "halden: place_bid",
+          "chain": "near",
+          "hash": "44gKDGbKixNBPQoyJN56Uab9g1JAWb3m6wff7rp16Jtt",
+          "link": "https://testnet.near.rocks/tx/44gKDGbKixNBPQoyJN56Uab9g1JAWb3m6wff7rp16Jtt",
+          "gasTgas": 4.36
+        }
+      ],
+      "done": true,
+      "data": {
+        "roundId": "4",
+        "bidId": 0,
+        "who": "halden",
+        "bidder": "halden-ventures.rose-app.testnet",
+        "side": "Buy",
+        "collateral": "10000000",
+        "ciphertextSha256": "78f7c78792726db2424a2c5637b5913449198a36d8bf6741f5cca47861fe8e08",
+        "malformed": false
+      }
+    },
+    "nokey:close-refused": {
+      "at": "2026-11-04T07:29:00.431Z",
+      "txs": [
+        {
+          "label": "close after the key timeout (refused)",
+          "chain": "near",
+          "hash": "DCb8yQt5CsnNdUh7VDJzL9n7SUR3qxxbx8vqg5cdMnHF",
+          "link": "https://testnet.near.rocks/tx/DCb8yQt5CsnNdUh7VDJzL9n7SUR3qxxbx8vqg5cdMnHF",
+          "gasTgas": 2.78,
+          "failed": true,
+          "note": "Key timeout reached: the round can only be cancelled (cancel_no_key)"
+        }
+      ],
+      "done": true,
+      "data": {
+        "refused": "Key timeout reached: the round can only be cancelled (cancel_no_key)"
+      }
+    },
+    "nokey:cancel": {
+      "at": "2026-11-04T07:29:03.951Z",
+      "txs": [
+        {
+          "label": "cancel_no_key",
+          "chain": "near",
+          "hash": "4CszxtfbVfadaWgWZv7tF1eUt2NYbXVw16hQi3tNazk7",
+          "link": "https://testnet.near.rocks/tx/4CszxtfbVfadaWgWZv7tF1eUt2NYbXVw16hQi3tNazk7",
+          "gasTgas": 3.43
+        }
+      ],
+      "done": true,
+      "data": {
+        "status": "Cancelled",
+        "reason": "NoKey",
+        "key": null
+      }
+    },
+    "nokey:settle": {
+      "at": "2026-11-04T07:29:08.316Z",
+      "txs": [
+        {
+          "label": "settle_bid (refund of escrow and bond)",
+          "chain": "near",
+          "hash": "A1LojEZZ4YuXY6RdTFvHv4qEsjd3RYFsEZcPcQg8h1zW",
+          "link": "https://testnet.near.rocks/tx/A1LojEZZ4YuXY6RdTFvHv4qEsjd3RYFsEZcPcQg8h1zW",
+          "gasTgas": 5.08
+        }
+      ],
+      "done": true,
+      "data": {
+        "cash_before": "64340000",
+        "cash_after": "64340000",
+        "settled": {
+          "round_id": "4",
+          "bid_id": 0,
+          "bidder": "halden-ventures.rose-app.testnet",
+          "fill_quantity": "0",
+          "cash": "0",
+          "refund": "10000000",
+          "bond_refunded": true
+        }
+      }
+    },
+    "close:tender": {
+      "at": "2026-11-04T07:37:18.217Z",
+      "txs": [
+        {
+          "label": "close (tender): CKD key request",
+          "chain": "near",
+          "hash": "AEmbLjSh63d5u7G3fgGpcyfjYN6iUxhnkjfJYi9m6oMn",
+          "link": "https://testnet.near.rocks/tx/AEmbLjSh63d5u7G3fgGpcyfjYN6iUxhnkjfJYi9m6oMn",
+          "gasTgas": 37.46
+        }
+      ],
+      "done": true,
+      "data": {
+        "round_id": "1",
+        "key": "bls12381g1:67iyfCnWGFrpK5A6frmbp2Fdoay1bPBQKePgSj8Rbce4C34yXEfSZiP7Rmm5oyVohH",
+        "key_source": "Callback",
+        "ckd_response": {
+          "big_y": "bls12381g1:737cuCmDfyd44m5rwuhfJXQfW3VpehZZpZx7FCT1vp7x89XrzWjJ3rVsBBdKhd15ay",
+          "big_c": "bls12381g1:7Grk7i26E4U27wTStzP1MCe3FbmbHtjwMZHN4UxCuLXbo5KRBY4NZmbeU8nB2aRRCM"
+        },
+        "unwrapped_offline_equal": true,
+        "latency_ms": 4146,
+        "reveal_ends_at": "2026-11-04T07:41:15.455Z"
+      }
+    },
+    "close:exit": {
+      "at": "2026-11-04T07:37:26.012Z",
+      "txs": [
+        {
+          "label": "close (exit): CKD key request",
+          "chain": "near",
+          "hash": "2ZrRx5cx93GxHHxjZcM4H7oYdFcDQodd9bDkGBkzHp5T",
+          "link": "https://testnet.near.rocks/tx/2ZrRx5cx93GxHHxjZcM4H7oYdFcDQodd9bDkGBkzHp5T",
+          "gasTgas": 37.43
+        }
+      ],
+      "done": true,
+      "data": {
+        "round_id": "2",
+        "key": "bls12381g1:62g4fAnYbrtxewFyMEApArbxk7fCrcAmWvmrdqx9grvabQNf7GBsTGhCSKH5mbmBJX",
+        "key_source": "Callback",
+        "ckd_response": {
+          "big_y": "bls12381g1:7iQh7jQMW7w1hiH8H5XgwCssaUN2mbNksqSYg6wJrUKWk6j7RfSEpD5UtCvm55rLFA",
+          "big_c": "bls12381g1:6vyrdFBMogiWP9KtxCMfSarm6s43LbkQAW4VRHihakTgdnoy3Q6xUSfv2tdqh9SphZ"
+        },
+        "unwrapped_offline_equal": true,
+        "latency_ms": 4250,
+        "reveal_ends_at": "2026-11-04T07:41:23.346Z"
+      }
+    },
+    "close:advance": {
+      "at": "2026-11-04T07:37:35.853Z",
+      "txs": [
+        {
+          "label": "close (advance): CKD key request",
+          "chain": "near",
+          "hash": "99ivgchDQarJnR6KuzCm6nFEDboTE9e2myfhoRmhnXkQ",
+          "link": "https://testnet.near.rocks/tx/99ivgchDQarJnR6KuzCm6nFEDboTE9e2myfhoRmhnXkQ",
+          "gasTgas": 37.46
+        }
+      ],
+      "done": true,
+      "data": {
+        "round_id": "3",
+        "key": "bls12381g1:6zwMH3XgQ2bPBxscWut9Eiaa1CenZFErSpioM1R1iwCKSdFYjkZq8VM2Nj18DNgog1",
+        "key_source": "Callback",
+        "ckd_response": {
+          "big_y": "bls12381g1:72ycKPGdRCwHfSjYJ2EQVRipjEjgbbi54AuA8FazJeuGR7bWV9FLd7YgXLx1fkD4zv",
+          "big_c": "bls12381g1:6bjVRo8kbZtmpGJJQjYa7fy9D8TcHaujtqvgwvvpSRNjjeWE2iPygamRr22GWqwEYk"
+        },
+        "unwrapped_offline_equal": true,
+        "latency_ms": 6159,
+        "reveal_ends_at": "2026-11-04T07:41:33.109Z"
+      }
+    },
+    "open:tender": {
+      "at": "2026-11-04T07:37:43.667Z",
+      "txs": [
+        {
+          "label": "open_bid 0 (Halden Ventures, ask) by rose-app.testnet",
+          "chain": "near",
+          "hash": "B9jZyKqw8VM3W4UFkg55fkEYdoirZeViVBZhiryFJMhz",
+          "link": "https://testnet.near.rocks/tx/B9jZyKqw8VM3W4UFkg55fkEYdoirZeViVBZhiryFJMhz",
+          "gasTgas": 132.11
+        },
+        {
+          "label": "open_bid 1 (Tessaro Capital, ask) by rose-app.testnet",
+          "chain": "near",
+          "hash": "5ayEQCQDpSGbELv345Qam4yEth2LxKjekZpmMsciZrtj",
+          "link": "https://testnet.near.rocks/tx/5ayEQCQDpSGbELv345Qam4yEth2LxKjekZpmMsciZrtj",
+          "gasTgas": 132.12
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "bidId": 0,
+          "who": "halden",
+          "side": "Sell",
+          "opened": {
+            "quantity": "40000000000000000000000",
+            "price": "30000"
+          },
+          "matchesSealed": true
+        },
+        {
+          "bidId": 1,
+          "who": "tessaro",
+          "side": "Sell",
+          "opened": {
+            "quantity": "30000000000000000000000",
+            "price": "36000"
+          },
+          "matchesSealed": true
+        }
+      ]
+    },
+    "open:exit": {
+      "at": "2026-11-04T07:38:01.695Z",
+      "txs": [
+        {
+          "label": "open_bid 0 (Ines Marlow, ask) by rose-app.testnet",
+          "chain": "near",
+          "hash": "BiFSZgQAXixKLnA178HVHkKH7hq8XKpPF9sduktBhiRN",
+          "link": "https://testnet.near.rocks/tx/BiFSZgQAXixKLnA178HVHkKH7hq8XKpPF9sduktBhiRN",
+          "gasTgas": 132.09
+        },
+        {
+          "label": "open_bid 1 (Varick Partners, ask) by rose-app.testnet",
+          "chain": "near",
+          "hash": "ENpp23HQowrxuQiJDhdGdbbk6Y4NQKunuHbrFttSoCrf",
+          "link": "https://testnet.near.rocks/tx/ENpp23HQowrxuQiJDhdGdbbk6Y4NQKunuHbrFttSoCrf",
+          "gasTgas": 132.09
+        },
+        {
+          "label": "open_bid 2 (Halden Ventures, bid) by rose-app.testnet",
+          "chain": "near",
+          "hash": "J45Dt2MDh49GJ4b75Y4o6rprDAm7vr88eX6z563ocQkz",
+          "link": "https://testnet.near.rocks/tx/J45Dt2MDh49GJ4b75Y4o6rprDAm7vr88eX6z563ocQkz",
+          "gasTgas": 132.21
+        },
+        {
+          "label": "open_bid 3 (Tessaro Capital, bid) by rose-app.testnet",
+          "chain": "near",
+          "hash": "AUj29TQtxUiGNCNAitxS7XXg6AijNP1yquZSDSRgForm",
+          "link": "https://testnet.near.rocks/tx/AUj29TQtxUiGNCNAitxS7XXg6AijNP1yquZSDSRgForm",
+          "gasTgas": 132.21
+        },
+        {
+          "label": "Nadia Solvik: open_bid of the malformed bid with the author's own opening (refused)",
+          "chain": "near",
+          "hash": "5cy62YfEpE4MioY1txbjGSGWWGAgqRNK2kzQZxSC4LEs",
+          "link": "https://testnet.near.rocks/tx/5cy62YfEpE4MioY1txbjGSGWWGAgqRNK2kzQZxSC4LEs",
+          "gasTgas": 131.29,
+          "failed": true,
+          "note": "Opening does not match the ciphertext"
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "bidId": 0,
+          "who": "ines",
+          "side": "Sell",
+          "opened": {
+            "quantity": "60000000000000",
+            "price": "20000"
+          },
+          "matchesSealed": true
+        },
+        {
+          "bidId": 1,
+          "who": "varick",
+          "side": "Sell",
+          "opened": {
+            "quantity": "50000000000000",
+            "price": "26000"
+          },
+          "matchesSealed": true
+        },
+        {
+          "bidId": 2,
+          "who": "halden",
+          "side": "Buy",
+          "opened": {
+            "quantity": "70000000000000",
+            "price": "28000"
+          },
+          "matchesSealed": true
+        },
+        {
+          "bidId": 3,
+          "who": "tessaro",
+          "side": "Buy",
+          "opened": {
+            "quantity": "40000000000000",
+            "price": "22000"
+          },
+          "matchesSealed": true
+        },
+        {
+          "bidId": 4,
+          "who": "nadia",
+          "side": "Buy",
+          "opened": null,
+          "matchesSealed": null,
+          "unopenable": "decryption failed; on chain: Opening does not match the ciphertext"
+        }
+      ]
+    },
+    "open:advance": {
+      "at": "2026-11-04T07:38:13.482Z",
+      "txs": [
+        {
+          "label": "open_bid 0 (Teodor Vance, ask) by rose-app.testnet",
+          "chain": "near",
+          "hash": "5LosXyqkg7NJkLMqAMbWdYyacBRQ8F7HCCUxEiG9USbK",
+          "link": "https://testnet.near.rocks/tx/5LosXyqkg7NJkLMqAMbWdYyacBRQ8F7HCCUxEiG9USbK",
+          "gasTgas": 132.11
+        },
+        {
+          "label": "open_bid 1 (Varick Partners, bid) by rose-app.testnet",
+          "chain": "near",
+          "hash": "31bpYVTpkMoaQp2xmnRUhVDYJpsmqonL247iJ4haKC55",
+          "link": "https://testnet.near.rocks/tx/31bpYVTpkMoaQp2xmnRUhVDYJpsmqonL247iJ4haKC55",
+          "gasTgas": 132.12
+        },
+        {
+          "label": "open_bid 2 (Ines Marlow, bid) by rose-app.testnet",
+          "chain": "near",
+          "hash": "HTdvYg6cMoQTRTcvgWoY8tfgz3MPBDL563EnxRzd3iry",
+          "link": "https://testnet.near.rocks/tx/HTdvYg6cMoQTRTcvgWoY8tfgz3MPBDL563EnxRzd3iry",
+          "gasTgas": 132.13
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "bidId": 0,
+          "who": "teodor",
+          "side": "Sell",
+          "opened": {
+            "quantity": "3000000000000000000000",
+            "price": "35000"
+          },
+          "matchesSealed": true
+        },
+        {
+          "bidId": 1,
+          "who": "varick",
+          "side": "Buy",
+          "opened": {
+            "quantity": "2000000000000000000000",
+            "price": "45000"
+          },
+          "matchesSealed": true
+        },
+        {
+          "bidId": 2,
+          "who": "ines",
+          "side": "Buy",
+          "opened": {
+            "quantity": "2000000000000000000000",
+            "price": "40000"
+          },
+          "matchesSealed": true
+        }
+      ]
+    },
+    "clear:tender": {
+      "at": "2026-11-04T07:41:22.551Z",
+      "txs": [
+        {
+          "label": "clear (tender)",
+          "chain": "near",
+          "hash": "8pNWktzoM4ZDe5oVVHUeKf7ijNkTkJitzXLUbpWAxg5p",
+          "link": "https://testnet.near.rocks/tx/8pNWktzoM4ZDe5oVVHUeKf7ijNkTkJitzXLUbpWAxg5p",
+          "gasTgas": 4.26
+        }
+      ],
+      "done": true,
+      "data": {
+        "matches": true,
+        "engine": {
+          "price": "36000",
+          "volume": "41666666666666666666666",
+          "notional": "1500000000",
+          "fee": "4500000",
+          "fills": [
+            {
+              "bidId": 0,
+              "qty": "40000000000000000000000",
+              "cash": "1440000000"
+            },
+            {
+              "bidId": 1,
+              "qty": "1666666666666666666666",
+              "cash": "59999999"
+            }
+          ]
+        },
+        "reference": {
+          "price": "36000",
+          "volume": "41666666666666666666666",
+          "notional": "1500000000",
+          "fee": "4500000",
+          "fills": [
+            {
+              "bidId": 0,
+              "qty": "40000000000000000000000",
+              "cash": "1440000000"
+            },
+            {
+              "bidId": 1,
+              "qty": "1666666666666666666666",
+              "cash": "59999999"
+            }
+          ]
+        },
+        "status": "Settled",
+        "voids": {}
+      }
+    },
+    "clear:exit": {
+      "at": "2026-11-04T07:41:30.323Z",
+      "txs": [
+        {
+          "label": "clear (exit)",
+          "chain": "near",
+          "hash": "6QKNsWcCSJnSDM3p8aqaQ8wTs5zVnKUhwjXMfWToU8gm",
+          "link": "https://testnet.near.rocks/tx/6QKNsWcCSJnSDM3p8aqaQ8wTs5zVnKUhwjXMfWToU8gm",
+          "gasTgas": 4.3
+        }
+      ],
+      "done": true,
+      "data": {
+        "matches": true,
+        "engine": {
+          "price": "27000",
+          "volume": "70000000000000",
+          "notional": "1890000000",
+          "fee": "5670000",
+          "fills": [
+            {
+              "bidId": 0,
+              "qty": "60000000000000",
+              "cash": "1620000000"
+            },
+            {
+              "bidId": 1,
+              "qty": "10000000000000",
+              "cash": "270000000"
+            },
+            {
+              "bidId": 2,
+              "qty": "70000000000000",
+              "cash": "1890000000"
+            },
+            {
+              "bidId": 3,
+              "qty": "0",
+              "cash": "0"
+            },
+            {
+              "bidId": 4,
+              "qty": "0",
+              "cash": "0"
+            }
+          ]
+        },
+        "reference": {
+          "price": "27000",
+          "volume": "70000000000000",
+          "notional": "1890000000",
+          "fee": "5670000",
+          "fills": [
+            {
+              "bidId": 0,
+              "qty": "60000000000000",
+              "cash": "1620000000"
+            },
+            {
+              "bidId": 1,
+              "qty": "10000000000000",
+              "cash": "270000000"
+            },
+            {
+              "bidId": 2,
+              "qty": "70000000000000",
+              "cash": "1890000000"
+            },
+            {
+              "bidId": 3,
+              "qty": "0",
+              "cash": "0"
+            },
+            {
+              "bidId": 4,
+              "qty": "0",
+              "cash": "0"
+            }
+          ]
+        },
+        "status": "Settled",
+        "voids": {
+          "4": "Unopened"
+        }
+      }
+    },
+    "clear:advance": {
+      "at": "2026-11-04T07:41:40.231Z",
+      "txs": [
+        {
+          "label": "clear (advance)",
+          "chain": "near",
+          "hash": "7WDuM2JPpXuxFN9FrhxsJVjxq8Esst9psky3p77SsM2m",
+          "link": "https://testnet.near.rocks/tx/7WDuM2JPpXuxFN9FrhxsJVjxq8Esst9psky3p77SsM2m",
+          "gasTgas": 5.07
+        }
+      ],
+      "done": true,
+      "data": {
+        "matches": true,
+        "engine": {
+          "price": "37500",
+          "volume": "3000000000000000000000",
+          "notional": "112500000",
+          "fee": "337500",
+          "fills": [
+            {
+              "bidId": 0,
+              "qty": "3000000000000000000000",
+              "cash": "112500000"
+            },
+            {
+              "bidId": 1,
+              "qty": "2000000000000000000000",
+              "cash": "75000000"
+            },
+            {
+              "bidId": 2,
+              "qty": "1000000000000000000000",
+              "cash": "37500000"
+            }
+          ]
+        },
+        "reference": {
+          "price": "37500",
+          "volume": "3000000000000000000000",
+          "notional": "112500000",
+          "fee": "337500",
+          "fills": [
+            {
+              "bidId": 0,
+              "qty": "3000000000000000000000",
+              "cash": "112500000"
+            },
+            {
+              "bidId": 1,
+              "qty": "2000000000000000000000",
+              "cash": "75000000"
+            },
+            {
+              "bidId": 2,
+              "qty": "1000000000000000000000",
+              "cash": "37500000"
+            }
+          ]
+        },
+        "status": "Settled",
+        "voids": {}
+      }
+    },
+    "settle:tender": {
+      "at": "2026-11-04T07:41:49.095Z",
+      "txs": [
+        {
+          "label": "settle_bid 0 (tender, Halden Ventures)",
+          "chain": "near",
+          "hash": "BFkY6RxQADDF6ZLCsmFBHwFkMoaZP5hWXGKqiDP4Djxm",
+          "link": "https://testnet.near.rocks/tx/BFkY6RxQADDF6ZLCsmFBHwFkMoaZP5hWXGKqiDP4Djxm",
+          "gasTgas": 5.59
+        },
+        {
+          "label": "settle_bid 1 (tender, Tessaro Capital)",
+          "chain": "near",
+          "hash": "Ejdp5tiLDbujKBpggRb2ybyLA1UxtLAawVXJGWCy97tP",
+          "link": "https://testnet.near.rocks/tx/Ejdp5tiLDbujKBpggRb2ybyLA1UxtLAawVXJGWCy97tP",
+          "gasTgas": 5.61
+        }
+      ],
+      "done": true,
+      "data": {
+        "round_id": "1",
+        "lien_id": null,
+        "bids": [
+          {
+            "bid_id": 0,
+            "bidder": "halden-ventures.rose-app.testnet",
+            "side": "Sell",
+            "fill": "40000000000000000000000",
+            "cash": "1440000000",
+            "fee": "0",
+            "bond": "16000000",
+            "bond_refunded": true,
+            "void": null
+          },
+          {
+            "bid_id": 1,
+            "bidder": "tessaro-capital.rose-app.testnet",
+            "side": "Sell",
+            "fill": "1666666666666666666666",
+            "cash": "59999999",
+            "fee": "0",
+            "bond": "12000000",
+            "bond_refunded": true,
+            "void": null
+          }
+        ]
+      }
+    },
+    "settle:exit": {
+      "at": "2026-11-04T07:42:11.336Z",
+      "txs": [
+        {
+          "label": "settle_bid 0 (exit, Ines Marlow)",
+          "chain": "near",
+          "hash": "EwVgJ1Gv52Hzk9QHb7rsNokKetHZgwDQVuFEmKgeVky",
+          "link": "https://testnet.near.rocks/tx/EwVgJ1Gv52Hzk9QHb7rsNokKetHZgwDQVuFEmKgeVky",
+          "gasTgas": 5.41
+        },
+        {
+          "label": "settle_bid 1 (exit, Varick Partners)",
+          "chain": "near",
+          "hash": "CBBNL1z6LJDxkuojEthHJUY9Xwa3Kcd48YN92MMRxs4G",
+          "link": "https://testnet.near.rocks/tx/CBBNL1z6LJDxkuojEthHJUY9Xwa3Kcd48YN92MMRxs4G",
+          "gasTgas": 5.43
+        },
+        {
+          "label": "settle_bid 2 (exit, Halden Ventures)",
+          "chain": "near",
+          "hash": "5ENuGG2S3MHuvY9bGDbMVztVtd35Ai1tu37o2AjPpMuW",
+          "link": "https://testnet.near.rocks/tx/5ENuGG2S3MHuvY9bGDbMVztVtd35Ai1tu37o2AjPpMuW",
+          "gasTgas": 5.93
+        },
+        {
+          "label": "settle_bid 3 (exit, Tessaro Capital)",
+          "chain": "near",
+          "hash": "EvnYKnPryenzuuYZkQej2JkQT9tkLhrAuuB6QuYvcd1Q",
+          "link": "https://testnet.near.rocks/tx/EvnYKnPryenzuuYZkQej2JkQT9tkLhrAuuB6QuYvcd1Q",
+          "gasTgas": 5.15
+        },
+        {
+          "label": "settle_bid 4 (exit, Nadia Solvik)",
+          "chain": "near",
+          "hash": "3mMoWJc42KYSES6Vx4wpBk8dXHgcifyZgweV8Wanjr9H",
+          "link": "https://testnet.near.rocks/tx/3mMoWJc42KYSES6Vx4wpBk8dXHgcifyZgweV8Wanjr9H",
+          "gasTgas": 5.35
+        }
+      ],
+      "done": true,
+      "data": {
+        "round_id": "2",
+        "lien_id": null,
+        "bids": [
+          {
+            "bid_id": 0,
+            "bidder": "ines-marlow.rose-app.testnet",
+            "side": "Sell",
+            "fill": "60000000000000",
+            "cash": "1620000000",
+            "fee": "0",
+            "bond": "30000000",
+            "bond_refunded": true,
+            "void": null
+          },
+          {
+            "bid_id": 1,
+            "bidder": "varick-partners.rose-app.testnet",
+            "side": "Sell",
+            "fill": "10000000000000",
+            "cash": "270000000",
+            "fee": "0",
+            "bond": "25000000",
+            "bond_refunded": true,
+            "void": null
+          },
+          {
+            "bid_id": 2,
+            "bidder": "halden-ventures.rose-app.testnet",
+            "side": "Buy",
+            "fill": "70000000000000",
+            "cash": "1890000000",
+            "fee": "5670000",
+            "bond": "19660000",
+            "bond_refunded": true,
+            "void": null
+          },
+          {
+            "bid_id": 3,
+            "bidder": "tessaro-capital.rose-app.testnet",
+            "side": "Buy",
+            "fill": "0",
+            "cash": "0",
+            "fee": "0",
+            "bond": "8830000",
+            "bond_refunded": true,
+            "void": null
+          },
+          {
+            "bid_id": 4,
+            "bidder": "nadia-solvik.rose-app.testnet",
+            "side": "Buy",
+            "fill": "0",
+            "cash": "0",
+            "fee": "0",
+            "bond": "1000000",
+            "bond_refunded": false,
+            "void": "Unopened"
+          }
+        ]
+      }
+    },
+    "settle:advance": {
+      "at": "2026-11-04T07:42:24.056Z",
+      "txs": [
+        {
+          "label": "settle_bid 0 (advance, Teodor Vance)",
+          "chain": "near",
+          "hash": "6HPy1j2d6aFhwPDqeVhS4TDwHZ4EbHQQTvgBUnVvBqzs",
+          "link": "https://testnet.near.rocks/tx/6HPy1j2d6aFhwPDqeVhS4TDwHZ4EbHQQTvgBUnVvBqzs",
+          "gasTgas": 5.14
+        },
+        {
+          "label": "settle_bid 1 (advance, Varick Partners)",
+          "chain": "near",
+          "hash": "DBLM6fDGsiYURxbGbgzkrZemGy4bQwnXNRVziE7RiYS1",
+          "link": "https://testnet.near.rocks/tx/DBLM6fDGsiYURxbGbgzkrZemGy4bQwnXNRVziE7RiYS1",
+          "gasTgas": 5.56
+        },
+        {
+          "label": "settle_bid 2 (advance, Ines Marlow)",
+          "chain": "near",
+          "hash": "J8S9zBc3k91chKkeHimxwuGdSYPqkGGB7qiGj9mKdA3V",
+          "link": "https://testnet.near.rocks/tx/J8S9zBc3k91chKkeHimxwuGdSYPqkGGB7qiGj9mKdA3V",
+          "gasTgas": 5.54
+        }
+      ],
+      "done": true,
+      "data": {
+        "round_id": "3",
+        "lien_id": "0",
+        "bids": [
+          {
+            "bid_id": 0,
+            "bidder": "teodor-vance.rose-app.testnet",
+            "side": "Sell",
+            "fill": "3000000000000000000000",
+            "cash": "112500000",
+            "fee": "0",
+            "bond": "1800000",
+            "bond_refunded": true,
+            "void": null
+          },
+          {
+            "bid_id": 1,
+            "bidder": "varick-partners.rose-app.testnet",
+            "side": "Buy",
+            "fill": "2000000000000000000000",
+            "cash": "75000000",
+            "fee": "225000",
+            "bond": "1000000",
+            "bond_refunded": true,
+            "void": null
+          },
+          {
+            "bid_id": 2,
+            "bidder": "ines-marlow.rose-app.testnet",
+            "side": "Buy",
+            "fill": "1000000000000000000000",
+            "cash": "37500000",
+            "fee": "112500",
+            "bond": "1000000",
+            "bond_refunded": true,
+            "void": null
+          }
+        ]
+      }
+    },
+    "payout:near-cash": {
+      "at": "2026-11-04T07:42:29.130Z",
+      "txs": [
+        {
+          "label": "Ines Marlow: withdraw_near_cash 1732.387500 tUSDC (Exit proceeds and refunded bonds)",
+          "chain": "near",
+          "hash": "AGEXJZc7f4DCnDf1buEzgja8UUBkhNRYoDgg2yYdpuj7",
+          "link": "https://testnet.near.rocks/tx/AGEXJZc7f4DCnDf1buEzgja8UUBkhNRYoDgg2yYdpuj7",
+          "gasTgas": 8.75
+        }
+      ],
+      "done": true,
+      "data": {
+        "amount": "1732387500",
+        "wallet_before": "0",
+        "wallet_after": "1732387500"
+      }
+    },
+    "payout:base-cash": {
+      "at": "2026-11-04T07:42:38.778Z",
+      "txs": [
+        {
+          "label": "Halden Ventures: withdraw_base_cash 1460.000000 tUSDC (Tender proceeds)",
+          "chain": "near",
+          "hash": "HE2H2wpBjwJpG9Lz85NWfhU7XA9ANLNhwmomeWT9eJ9A",
+          "link": "https://testnet.near.rocks/tx/HE2H2wpBjwJpG9Lz85NWfhU7XA9ANLNhwmomeWT9eJ9A",
+          "gasTgas": 16.79
+        },
+        {
+          "label": "executeTransfer of tUSDC to Halden Ventures",
+          "chain": "base",
+          "hash": "0x3e6fa1d87de796b5577535866ddaff4b94051f03bac9daaf646fff253eba1949",
+          "link": "https://sepolia.basescan.org/tx/0x3e6fa1d87de796b5577535866ddaff4b94051f03bac9daaf646fff253eba1949",
+          "gasUsed": "68871"
+        }
+      ],
+      "done": true,
+      "data": {
+        "amount": "1460000000",
+        "payout_id": "12",
+        "to": "0x7f62Ad9672D6347F4b0171a128b8243D36749aD3",
+        "balance_before": "0",
+        "balance_after": "1460000000"
+      }
+    },
+    "payout:lien": {
+      "at": "2026-11-04T07:42:50.866Z",
+      "txs": [
+        {
+          "label": "Sablier withdrawMax(stream 92, RoseVault): unlocked CINDR into the vault",
+          "chain": "base",
+          "hash": "0x381ab97017540a09710faf1961f293ac097d49cee731e4dc452d53651a02ec60",
+          "link": "https://sepolia.basescan.org/tx/0x381ab97017540a09710faf1961f293ac097d49cee731e4dc452d53651a02ec60",
+          "gasUsed": "102530"
+        },
+        {
+          "label": "Varick Partners: claim_base_tokens (lien share 0, 314878234398800000 CINDR base units)",
+          "chain": "near",
+          "hash": "6hgSgqMU7RGqYWutEkLhFNqMYv8jjoAZXbwny28MtQcH",
+          "link": "https://testnet.near.rocks/tx/6hgSgqMU7RGqYWutEkLhFNqMYv8jjoAZXbwny28MtQcH",
+          "gasTgas": 17.39
+        },
+        {
+          "label": "executeTransfer of CINDR to Varick Partners (Advance repayment)",
+          "chain": "base",
+          "hash": "0x407e89d5c60b9257d64c2fd47a9ce1ccf56716f1c396636416b9a6e660cb46c8",
+          "link": "https://sepolia.basescan.org/tx/0x407e89d5c60b9257d64c2fd47a9ce1ccf56716f1c396636416b9a6e660cb46c8",
+          "gasUsed": "68891"
+        }
+      ],
+      "done": true,
+      "data": {
+        "lien_id": "0",
+        "claim_total": "3000000000000000000000",
+        "delivered": "472317351598200000",
+        "share_claim": "2000000000000000000000",
+        "claimed": "314878234398800000",
+        "payout_id": "13",
+        "to": "0xace8726d1417cF492Db190933aC279E63e24032F"
+      }
+    },
+    "payout:redeem": {
+      "at": "2026-11-04T07:43:00.527Z",
+      "txs": [
+        {
+          "label": "Nadia Solvik: redeem position 11 (stream 94) in kind",
+          "chain": "near",
+          "hash": "BYxzmETKB4HS6JCVUfLdksFifurtK8QVK5VrydomiNry",
+          "link": "https://testnet.near.rocks/tx/BYxzmETKB4HS6JCVUfLdksFifurtK8QVK5VrydomiNry",
+          "gasTgas": 18.79
+        },
+        {
+          "label": "executeRelease of stream 94 to Nadia Solvik",
+          "chain": "base",
+          "hash": "0x51b430b29e8a9c965920c0a868bf6864292658bf70d8ad5f32e4dfce5343a744",
+          "link": "https://sepolia.basescan.org/tx/0x51b430b29e8a9c965920c0a868bf6864292658bf70d8ad5f32e4dfce5343a744",
+          "gasUsed": "168140"
+        }
+      ],
+      "done": true,
+      "data": {
+        "position_id": "11",
+        "stream_id": 94,
+        "payout_id": "14",
+        "owner": "0x9f1aCDb745eCe0773Fba43663830006E15D86049",
+        "position_state": "Released"
+      }
+    }
+  }
+}

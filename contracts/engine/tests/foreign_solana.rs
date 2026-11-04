@@ -1,20 +1,22 @@
 //! Solana messages, instructions, derivations and account parsers against recorded facts: five
 //! messages compiled by `@solana/web3.js`, the payout broadcast on devnet, the ATA computed by
-//! `@solana/spl-token`, and the Streamflow accounts attested live by the MPC.
+//! `@solana/spl-token`, a nonce account created with a seed on devnet, two devnet mints and the
+//! Streamflow accounts attested live by the MPC.
 
 use proptest::prelude::*;
 use rose_engine::foreign::mpc::{parse_hex, Bytes32, SvmAccount};
 use rose_engine::foreign::solana::{
     advance_nonce_account, assemble_transaction, associated_token_address, create_account,
-    create_associated_token_account_idempotent, create_program_address, find_program_address,
-    format_pubkey, initialize_nonce_account, is_on_curve, parse_near_ed25519, parse_pubkey,
-    push_compact_u16, sha256, spl_transfer_checked, streamflow_transfer_recipient,
-    streamflow_withdraw, system_transfer, AccountMeta, Instruction, LegacyMessage, NonceAccount,
-    Pubkey, SolanaError, StreamflowError, StreamflowMetadata, StreamflowWithdrawAccounts,
-    ASSOCIATED_TOKEN_PROGRAM, MAX_TRANSACTION_LEN, NONCE_ACCOUNT_LEN, STREAMFLOW_DEVNET_PROGRAM,
-    STREAMFLOW_METADATA_LEN, STREAMFLOW_TRANSFER_RECIPIENT_DISCRIMINATOR, STREAMFLOW_TREASURY,
-    STREAMFLOW_WITHDRAW_ALL, STREAMFLOW_WITHDRAW_DISCRIMINATOR, SYSTEM_PROGRAM,
-    SYSVAR_RECENT_BLOCKHASHES, SYSVAR_RENT, TOKEN_PROGRAM,
+    create_associated_token_account_idempotent, create_program_address, create_with_seed,
+    find_program_address, format_pubkey, initialize_nonce_account, is_on_curve, parse_near_ed25519,
+    parse_pubkey, push_compact_u16, sha256, spl_transfer_checked, streamflow_transfer_recipient,
+    streamflow_withdraw, system_transfer, AccountMeta, Instruction, LegacyMessage, Mint,
+    NonceAccount, Pubkey, SolanaError, StreamflowError, StreamflowMetadata,
+    StreamflowWithdrawAccounts, ASSOCIATED_TOKEN_PROGRAM, MAX_TRANSACTION_LEN, NONCE_ACCOUNT_LEN,
+    STREAMFLOW_DEVNET_PROGRAM, STREAMFLOW_METADATA_LEN,
+    STREAMFLOW_TRANSFER_RECIPIENT_DISCRIMINATOR, STREAMFLOW_TREASURY, STREAMFLOW_WITHDRAW_ALL,
+    STREAMFLOW_WITHDRAW_DISCRIMINATOR, SYSTEM_PROGRAM, SYSVAR_RECENT_BLOCKHASHES, SYSVAR_RENT,
+    TOKEN_PROGRAM,
 };
 use rose_engine::unlock::{StreamflowParams, StreamflowStream};
 use serde_json::Value;
@@ -115,6 +117,52 @@ fn constants_match_their_base58_and_discriminators_their_names() {
     );
     assert_eq!(parse_pubkey("0OIl"), Err(SolanaError::Key));
     assert_eq!(parse_pubkey("abc"), Err(SolanaError::Key));
+}
+
+/// A durable nonce account created on devnet with `SystemProgram.createNonceAccount({ basePubkey,
+/// seed })` (`@solana/web3.js` 1.99.0), transaction
+/// `2UuQMx7UNH4iYXVKU45zimdVXP87w9acmP9wksNqkDQ6LaAZpLyFFHwMG93ErsT3jqDZ7tfjQQDBjmAhHmcfV1LM`:
+/// the System program accepted the address, which `PublicKey.createWithSeed` also gives.
+#[test]
+fn create_with_seed_matches_the_system_program() {
+    let base = key("6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n");
+    let address = create_with_seed(&base, "0123456789abcdef01234567probe001", &SYSTEM_PROGRAM);
+    assert_eq!(
+        address.map(|a| format_pubkey(&a)),
+        Ok("52gAaTfvLXp2WZMuK6KBkF3fj5K4mjqnJrSUDPwsMhaH".to_string())
+    );
+    assert_eq!(
+        create_with_seed(&base, &"x".repeat(33), &SYSTEM_PROGRAM),
+        Err(SolanaError::Seeds)
+    );
+}
+
+/// Two devnet mints read at `finalized` (slot 518,501,161): Circle's devnet USDC, which has a
+/// freeze authority, and the demo mint, which has none.
+#[test]
+fn mint_accounts_parse_their_decimals_and_freeze_authority() {
+    let usdc = parse_hex("01000000eb8544cf9118277a9632e9995066651bbfb1408b8573ebc02e53efab5abf0e0bb1c44b32ac3806e2060101000000a80633ff067d88dfa5d4357bf44e26cecccf0866688103c6ba609fa44c18d208").unwrap();
+    let mint = Mint::parse(&usdc).unwrap();
+    assert_eq!(mint.decimals, 6);
+    assert_eq!(
+        mint.freeze_authority.map(|a| format_pubkey(&a)),
+        Some("CJtyoKSLrktozQzjERTiK3btQtiTK3nN4QrqGHLidyCT".to_string())
+    );
+    let demo = parse_hex("0100000057b457bd2d0c395140edb9196fc047fb35157cc1d9731a90ee6de7fd4e8d8a3100f2052a010000000601000000000000000000000000000000000000000000000000000000000000000000000000").unwrap();
+    assert_eq!(
+        Mint::parse(&demo),
+        Ok(Mint {
+            decimals: 6,
+            freeze_authority: None
+        })
+    );
+    assert_eq!(Mint::parse(&demo[..81]), Err(SolanaError::MintLength));
+    let mut bad_tag = demo.clone();
+    bad_tag[46] = 2;
+    assert_eq!(Mint::parse(&bad_tag), Err(SolanaError::MintState));
+    let mut uninitialized = demo;
+    uninitialized[45] = 0;
+    assert_eq!(Mint::parse(&uninitialized), Err(SolanaError::MintState));
 }
 
 #[test]

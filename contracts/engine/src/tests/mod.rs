@@ -9,6 +9,7 @@ mod custody;
 mod custody_solana;
 mod exit;
 mod guards;
+mod layout;
 mod liens;
 mod sealing;
 mod storage;

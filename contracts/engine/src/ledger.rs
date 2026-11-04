@@ -1,10 +1,14 @@
 //! Accrual accounting for class units (spec section 4).
 //!
-//! Every account holds `(balance, checkpoint, claimable)` per class. Before any balance change the
-//! holding accrues `balance * (f(now) - checkpoint)` into `claimable` and moves its checkpoint to
-//! `f(now)`. Units locked into a round or encumbered by a lien leave the holding and carry their
-//! own checkpoint, so the right party accrues them for the right period. Every division rounds
-//! down, so the sum of entitlements never exceeds what the underlying streams released.
+//! Every account holds `(balance, checkpoint, claimable, carry)` per class. Before any balance
+//! change the holding accrues `balance * (f(now) - checkpoint)` into `claimable` and moves its
+//! checkpoint to `f(now)`; the fractional part of each accrual is carried to the next one, so a
+//! holding's lifetime accrual is the floor of its exact accrual rather than a sum of floors (a
+//! holder who never moved its units has exactly `floor(units * (f - checkpoint))`, the amount a
+//! redeem of their stream computes in one step). Units locked into a round or encumbered by a
+//! lien leave the holding and carry their own checkpoint, so the right party accrues them for the
+//! right period. Every division rounds down, so the sum of entitlements never exceeds what the
+//! underlying streams released.
 //!
 //! This module is pure: no NEAR SDK, no I/O.
 
@@ -45,17 +49,21 @@ pub struct Holding {
     pub checkpoint: u128,
     /// Unlocked tokens owed to the owner, in token base units.
     pub claimable: u128,
+    /// Fractional part of the accruals so far, `(sum of balance * delta f) mod ONE`: below one
+    /// base unit, carried into the next accrual.
+    pub carry: u128,
 }
 
 impl Holding {
     /// Accrues the balance up to `f_now`.
     pub fn accrue(&mut self, f_now: u128) -> Result<(), LedgerError> {
         if f_now > self.checkpoint {
-            let earned = accrual(self.balance, self.checkpoint, f_now);
+            let (earned, carry) = self.accrued(self.balance, self.checkpoint, f_now);
             self.claimable = self
                 .claimable
                 .checked_add(earned)
                 .ok_or(LedgerError::Overflow)?;
+            self.carry = carry;
             self.checkpoint = f_now;
         }
         Ok(())
@@ -63,8 +71,23 @@ impl Holding {
 
     /// Tokens the holding would hold as claimable once accrued up to `f_now`, without mutating.
     pub fn claimable_at(&self, f_now: u128) -> u128 {
-        self.claimable
-            .saturating_add(accrual(self.balance, self.checkpoint, f_now))
+        let (earned, _) = self.accrued(self.balance, self.checkpoint, f_now);
+        self.claimable.saturating_add(earned)
+    }
+
+    /// Whole tokens `units` accrue from `from` to `to` together with the carry, and the new
+    /// carry: `(carry + units * (to - from)) divmod ONE`.
+    fn accrued(&self, units: u128, from: u128, to: u128) -> (u128, u128) {
+        if to <= from {
+            return (0, self.carry);
+        }
+        let (whole, fraction) =
+            math::mul_div_rem(units, to - from, math::ONE).unwrap_or((accrual(units, from, to), 0));
+        let fraction = fraction + self.carry;
+        (
+            whole.saturating_add(fraction / math::ONE),
+            fraction % math::ONE,
+        )
     }
 
     /// Adds units that accrue to this owner from `f_now` on.
@@ -85,7 +108,9 @@ impl Holding {
             .balance
             .checked_add(units)
             .ok_or(LedgerError::Overflow)?;
-        self.add_claimable(accrual(units, f_from, f_now))
+        let (earned, carry) = self.accrued(units, f_from, f_now);
+        self.carry = carry;
+        self.add_claimable(earned)
     }
 
     /// Removes units after accruing them up to `f_now`.
@@ -270,6 +295,7 @@ mod tests {
             balance: u128::MAX,
             checkpoint: 0,
             claimable: 0,
+            carry: 0,
         };
         assert_eq!(full.credit(0, 1), Err(LedgerError::Overflow));
     }
@@ -313,6 +339,27 @@ mod tests {
     }
 
     proptest! {
+        /// A holding that keeps its units accrues, over any sequence of touches, exactly the
+        /// floor of its exact accrual: the fractions carried between touches are never lost.
+        #[test]
+        fn a_held_balance_accrues_the_floor_of_its_exact_accrual(
+            units in 1u128..1_000_000_000_000_000_000_000u128,
+            from in 0u128..ONE / 2,
+            steps in proptest::collection::vec(0u128..=ONE, 1..12),
+        ) {
+            let mut fs = steps;
+            fs.sort_unstable();
+            let f_now = (from + 1).max(fs[0]);
+            let mut h = Holding::default();
+            h.credit_since(f_now, units, from).unwrap();
+            for f in &fs {
+                h.accrue((*f).max(f_now)).unwrap();
+            }
+            let f_end = fs.last().unwrap().max(&f_now);
+            prop_assert_eq!(h.claimable, accrual(units, from, *f_end));
+            prop_assert!(h.carry < ONE);
+        }
+
         #[test]
         fn split_holdings_never_exceed_a_single_holding(
             units in 1u128..1_000_000_000_000_000_000_000u128,

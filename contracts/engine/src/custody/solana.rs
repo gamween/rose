@@ -17,8 +17,9 @@
 //! units minted. A registration proof that shows the stream elsewhere than at the vault changes
 //! nothing (the move may not have executed yet).
 //!
-//! Only classic SPL Token mints are supported: the mint account is attested as owned by the
-//! Token program, and every token account is its associated token account.
+//! Only classic SPL Token mints without a freeze authority are supported: the mint account is
+//! attested as owned by the Token program, and every token account is its associated token
+//! account.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{env, near, require, AccountId, Gas, NearToken, Promise, PromiseOrValue};
@@ -38,7 +39,7 @@ use crate::foreign::mpc::{
 };
 use crate::foreign::solana::{
     self as sol, associated_token_address, create_associated_token_account_idempotent,
-    streamflow_transfer_recipient, StreamflowMetadata, TOKEN_PROGRAM,
+    streamflow_transfer_recipient, Mint, StreamflowMetadata, TOKEN_PROGRAM,
 };
 use crate::math::ONE;
 use crate::types::{Chain, ClassId, Position, PositionSource, PositionState};
@@ -49,9 +50,6 @@ use crate::{class_id_of, Contract, ContractExt, RoseEvent};
 const TGAS_DERIVED_KEY: u64 = 10;
 /// Static gas of the deposit key callback: the proof it requests and its own work.
 const GAS_FOR_KEY_CALLBACK: Gas = Gas::from_tgas(TGAS_PROOF + TGAS_CALLBACK_WORK);
-/// Length of a classic SPL Token mint account; `decimals` is at offset 44.
-const MINT_ACCOUNT_LEN: usize = 82;
-const MINT_DECIMALS_OFFSET: usize = 44;
 
 #[near]
 impl Contract {
@@ -63,12 +61,13 @@ impl Contract {
     /// lands in is recomputed from the attested metadata. The stream must already have the
     /// vault-compatible flags (non-cancelable, non-transferable by the sender, transferable by
     /// the recipient, no automatic withdrawal, not pausable, no rate update, no top-up, no
-    /// Streamflow or partner fee) and at least one whole token left to lock; otherwise it is
+    /// Streamflow or partner fee), a mint without a freeze authority (whoever holds it could
+    /// freeze the vault's token account) and at least one whole token left to lock; otherwise it is
     /// recorded as refused at the deposit address and returnable to `return_to`. A stream
     /// already moved, registered or refused at the vault cannot be attributed. Anyone owning a
     /// NEAR account; attach exactly [`RECORD_STORAGE_DEPOSIT`] (kept with the record, returned
-    /// when nothing is recorded) and about 80 Tgas. The app passes the account bytes it read at
-    /// `finalized` right before the call.
+    /// when nothing is recorded) and 120 Tgas (the call keeps 80 Tgas for its chain). The app
+    /// passes the account bytes it read at `finalized` right before the call.
     #[payable]
     pub fn attribute_sol_deposit(&mut self, args: SolDepositArgs) -> Promise {
         require!(
@@ -94,11 +93,9 @@ impl Contract {
         let metadata = parse_hex(&args.metadata_data, "metadata_data");
         StreamflowMetadata::parse(&metadata)
             .unwrap_or_else(|e| env::panic_str(&format!("Invalid stream metadata: {e:?}")));
-        let mint = parse_hex(&args.mint_data, "mint_data");
-        require!(
-            mint.len() == MINT_ACCOUNT_LEN,
-            "mint_data must be an 82-byte SPL Token mint account"
-        );
+        Mint::parse(&parse_hex(&args.mint_data, "mint_data")).unwrap_or_else(|_| {
+            env::panic_str("mint_data must be an initialized 82-byte SPL Token mint account")
+        });
         require!(
             self.attribution_open(&args.metadata),
             "Stream is already moved, registered or refused at the vault"
@@ -217,8 +214,8 @@ impl Contract {
             return false;
         }
         let metadata_bytes = parse_hex(&args.metadata_data, "metadata_data");
-        let mint_bytes = parse_hex(&args.mint_data, "mint_data");
-        let decimals = mint_bytes[MINT_DECIMALS_OFFSET];
+        let token = Mint::parse(&parse_hex(&args.mint_data, "mint_data")).expect("validated");
+        let decimals = token.decimals;
         let metadata = StreamflowMetadata::parse(&metadata_bytes).expect("validated");
         let program = self.streamflow_program();
         let deposit_pubkey = sol::parse_pubkey(&deposit_address).expect("formatted above");
@@ -228,7 +225,12 @@ impl Contract {
         };
         let eligible = StreamflowMetadata::check_deposit(&account, &program, &deposit_pubkey)
             .map_err(|e| format!("{e:?}"))
-            .and_then(|metadata| eligible_stream(&metadata, decimals));
+            .and_then(|metadata| {
+                if token.freeze_authority.is_some() {
+                    return Err(FREEZABLE_MINT.to_string());
+                }
+                eligible_stream(&metadata, decimals)
+            });
         let mint = sol::format_pubkey(&metadata.mint);
         let (class_id, stage) = match eligible {
             Ok(stream) => (
@@ -291,7 +293,8 @@ impl Contract {
     /// Signs the move of an attributed stream from its deposit address to the vault:
     /// `create_associated_token_account_idempotent` for the vault (paid by `gas/sol`) then
     /// Streamflow `transfer_recipient` by the deposit key, with the caller's recent blockhash.
-    /// Anyone; attach the payout storage deposit and about 80 Tgas. Callable again with a fresh
+    /// Anyone; attach the payout storage deposit and 120 Tgas (the call keeps 70 Tgas for its
+    /// signatures). Callable again with a fresh
     /// blockhash while the stream is not registered.
     #[payable]
     pub fn move_sol_deposit(&mut self, metadata: String, recent_blockhash: String) -> Promise {
@@ -357,7 +360,7 @@ impl Contract {
     /// changes nothing (call again once the move executed); an ineligible stream at the vault is
     /// refused and returnable from the vault. Anyone; attach
     /// `registration_deposit_for(account, class)` (the records' storage, kept, plus the holder's
-    /// storage, whose unused part is returned) and about 60 Tgas.
+    /// storage, whose unused part is returned) and 80 Tgas.
     #[payable]
     pub fn register_sol_deposit(
         &mut self,
@@ -507,7 +510,7 @@ impl Contract {
 }
 
 impl Contract {
-    fn sol_deposit(&self, metadata: &str) -> SolDeposit {
+    pub(super) fn sol_deposit(&self, metadata: &str) -> SolDeposit {
         self.custody
             .sol_deposits
             .get(metadata)
@@ -594,16 +597,16 @@ impl Contract {
                 partner_tokens: sol::format_pubkey(&metadata.partner_tokens),
                 start_time: metadata.start_time,
                 cliff: metadata.cliff,
-                cliff_amount: metadata.cliff_amount,
+                cliff_amount: U64(metadata.cliff_amount),
                 period: metadata.period,
-                amount_per_period: metadata.amount_per_period,
-                net_amount_deposited: metadata.net_amount_deposited,
+                amount_per_period: U64(metadata.amount_per_period),
+                net_amount_deposited: U64(metadata.net_amount_deposited),
                 end_time: metadata.end_time,
-                engine_withdrawn: metadata.amount_withdrawn,
-                registered_withdrawn: metadata.amount_withdrawn,
+                engine_withdrawn: U64(metadata.amount_withdrawn),
+                registered_withdrawn: U64(metadata.amount_withdrawn),
                 checkpoint: U128(checkpoint),
                 drawing: None,
-                pending_withdraw: 0,
+                pending_withdraw: U64(0),
             },
         );
         self.custody
@@ -689,6 +692,9 @@ impl Contract {
         self.sign_sol_pair(id, held_by_path, message)
     }
 }
+
+/// Refusal reason of a stream whose mint has a freeze authority.
+const FREEZABLE_MINT: &str = "the mint has a freeze authority: its holder could freeze the vault's token account and block every payout of the class";
 
 /// The schedule of an attested stream when the engine can lock it: a valid plain schedule, not
 /// fully unlocked (its units would accrue nothing) and at least one whole token left to lock

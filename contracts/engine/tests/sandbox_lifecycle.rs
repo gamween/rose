@@ -560,10 +560,10 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
             "schedule": {
                 "start_time": now - 1_500,
                 "cliff": 0,
-                "cliff_amount": 0,
+                "cliff_amount": "0",
                 "period": 1_000,
-                "amount_per_period": 100 * USDC as u64,
-                "net_amount_deposited": 1_000 * USDC as u64,
+                "amount_per_period": (100 * USDC).to_string(),
+                "net_amount_deposited": (1_000 * USDC).to_string(),
                 "end_time": now - 1_500 + 10_000,
             },
         }))
@@ -590,16 +590,27 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
             ],
         )
         .await?;
+    let attribute_args = json!({ "args": {
+        "metadata": sol::format_pubkey(&stream),
+        "class_id": class,
+        "return_to": sol::format_pubkey(&return_to),
+        "anchor_tx": anchor,
+        "metadata_data": hex::encode(at_deposit.bytes()),
+        "mint_data": hex::encode(mint_bytes(6)),
+    }});
+    // The call keeps 80 Tgas for its key, proof and callbacks after its own work: 80 attached
+    // is not enough, 120 (spec 7.2) is.
     let result = holder
         .call(engine.id(), "attribute_sol_deposit")
-        .args_json(json!({ "args": {
-            "metadata": sol::format_pubkey(&stream),
-            "class_id": class,
-            "return_to": sol::format_pubkey(&return_to),
-            "anchor_tx": anchor,
-            "metadata_data": hex::encode(at_deposit.bytes()),
-            "mint_data": hex::encode(mint_bytes(6)),
-        }}))
+        .args_json(attribute_args.clone())
+        .deposit(RECORD_STORAGE_DEPOSIT)
+        .gas(Gas::from_tgas(80))
+        .transact()
+        .await?;
+    gas.fails_with("attribute_sol_deposit (80 Tgas)", result, "Attach more gas")?;
+    let result = holder
+        .call(engine.id(), "attribute_sol_deposit")
+        .args_json(attribute_args)
         .deposit(RECORD_STORAGE_DEPOSIT)
         .gas(Gas::from_tgas(120))
         .transact()
@@ -613,15 +624,38 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
         .await?;
     assert_eq!(record["stage"], "Attributed", "{record}");
 
-    // Move: the deposit key and gas/sol sign the engine-built message.
+    // Move: the deposit key and gas/sol sign the engine-built message. It takes the payout
+    // storage deposit (0.025 NEAR, not 0.02) and keeps 70 Tgas for its joined signatures:
+    // 70 attached is not enough, 120 (spec 7.2) is.
+    let move_args = json!({
+        "metadata": sol::format_pubkey(&stream),
+        "recent_blockhash": sol::format_pubkey(&[1u8; 32]),
+    });
     let result = holder
         .call(engine.id(), "move_sol_deposit")
-        .args_json(json!({
-            "metadata": sol::format_pubkey(&stream),
-            "recent_blockhash": sol::format_pubkey(&[1u8; 32]),
-        }))
+        .args_json(move_args.clone())
+        .deposit(NearToken::from_millinear(20))
+        .gas(Gas::from_tgas(120))
+        .transact()
+        .await?;
+    gas.fails_with(
+        "move_sol_deposit (0.02 NEAR)",
+        result,
+        "Attach exactly 0.025 NEAR",
+    )?;
+    let result = holder
+        .call(engine.id(), "move_sol_deposit")
+        .args_json(move_args.clone())
         .deposit(PAYOUT_STORAGE_DEPOSIT)
-        .gas(Gas::from_tgas(100))
+        .gas(Gas::from_tgas(70))
+        .transact()
+        .await?;
+    gas.fails_with("move_sol_deposit (70 Tgas)", result, "Attach more gas")?;
+    let result = holder
+        .call(engine.id(), "move_sol_deposit")
+        .args_json(move_args)
+        .deposit(PAYOUT_STORAGE_DEPOSIT)
+        .gas(Gas::from_tgas(120))
         .transact()
         .await?;
     gas.ok("move_sol_deposit", result)?;
@@ -665,8 +699,19 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     let claimable = engine.claimable(holder.id(), &class).await?;
     assert_eq!(claimable, 100 * USDC, "one period of 100 tokens unlocked");
 
-    // Claim: the holder names the stream, proves its nonce account and its token account.
-    let nonce_account = [12u8; 32];
+    // Claim: the holder names the stream, proves its nonce account (created from its wallet
+    // with a seed bound to its NEAR account) and its token account.
+    let nonce_base = [12u8; 32];
+    let prefix: String = engine
+        .view("nonce_seed_prefix_of", json!({ "account_id": holder.id() }))
+        .await?;
+    assert_eq!(
+        prefix,
+        hex::encode(sol::sha256(holder.id().as_bytes()))[..24]
+    );
+    let nonce_seed = format!("{prefix}a");
+    let nonce_account =
+        sol::create_with_seed(&nonce_base, &nonce_seed, &sol::SYSTEM_PROGRAM).unwrap();
     let signed_nonce = [13u8; 32];
     let advanced_nonce = [14u8; 32];
     let recipient_tokens = sol::associated_token_address(&return_to, &mint).unwrap();
@@ -674,6 +719,8 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     let proof = |value: [u8; 32]| {
         json!({
             "account": sol::format_pubkey(&nonce_account),
+            "base": sol::format_pubkey(&nonce_base),
+            "seed": nonce_seed,
             "anchor_tx": nonce_anchor,
             "data": hex::encode(nonce_bytes(vault, value)),
             "recipient_tokens_data": hex::encode(token_account_bytes(mint, return_to)),
@@ -731,7 +778,10 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     let info: Value = engine
         .view("get_sol_stream", json!({ "position_id": "0" }))
         .await?;
-    assert_eq!(info["engine_withdrawn"], 0, "nothing counts before landing");
+    assert_eq!(
+        info["engine_withdrawn"], "0",
+        "nothing counts before landing"
+    );
     assert_eq!(info["drawing"], "1");
 
     // A redeem waits for the payout's confirmation.
@@ -780,7 +830,7 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     let info: Value = engine
         .view("get_sol_stream", json!({ "position_id": "0" }))
         .await?;
-    assert_eq!(info["engine_withdrawn"], claimable as u64);
+    assert_eq!(info["engine_withdrawn"], claimable.to_string());
     assert!(info["drawing"].is_null());
 
     // Redeem: the stream's unlocked tokens are all withdrawn, so the holder pays nothing more;

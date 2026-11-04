@@ -72,9 +72,14 @@ impl Contract {
     #[payable]
     pub fn create_tender(&mut self, params: TenderParams) -> U64 {
         require!(params.budget.0 > 0, "Budget must be positive");
+        let chain = self.class(&params.class_id).chain;
         require!(
-            foreign_address_valid(self.class(&params.class_id).chain, &params.retire_to),
+            foreign_address_valid(chain, &params.retire_to),
             "retire_to must be a lowercase 0x address (Base) or a 32-byte base58 key (Solana)"
+        );
+        require!(
+            !self.is_engine_address(chain, &params.retire_to),
+            "retire_to must not be RoseVault or one of the engine's own keys: tokens sent there would sit outside every record"
         );
         let fee =
             clearing::fee(params.budget.0).unwrap_or_else(|_| env::panic_str("Budget too large"));
@@ -547,6 +552,22 @@ pub(crate) fn remaining_lock_secs(round: &Round) -> u64 {
 
 /// True when `address` is a valid payout address on `chain`: a lowercase `0x` address on Base,
 /// a base58 32-byte key on Solana.
+impl Contract {
+    /// True when `address` is RoseVault or one of the engine's derived foreign keys on `chain`.
+    fn is_engine_address(&self, chain: Chain, address: &str) -> bool {
+        let derived = self.config.derived_addresses.as_ref();
+        match chain {
+            Chain::Base => {
+                address == self.config.rose_vault
+                    || derived.is_some_and(|keys| keys.vault_base == address)
+            }
+            Chain::Solana => {
+                derived.is_some_and(|keys| keys.vault_sol == address || keys.gas_sol == address)
+            }
+        }
+    }
+}
+
 fn foreign_address_valid(chain: Chain, address: &str) -> bool {
     match chain {
         Chain::Base => crate::is_evm_address(address),

@@ -89,11 +89,11 @@ pub enum PositionSource {
 pub enum PositionState {
     /// Held by the vault.
     Held,
+    /// Released in kind through `redeem`.
+    Released,
     /// A `redeem` is in flight: its units are burned and its release is signed or being signed,
     /// not yet final (a Solana release becomes final once `confirm_sol_redeem` proves it).
     Releasing,
-    /// Released in kind through `redeem`.
-    Released,
 }
 
 /// One locked allocation held by a vault.

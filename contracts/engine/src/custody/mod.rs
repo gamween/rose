@@ -9,11 +9,14 @@
 //!   itself from ledger state and asks the MPC to sign.
 //! - Every fact is acted on at most once through a [`types::ReplayKey`]: marked pending when the
 //!   request goes out, cleared on a `PromiseError` or a mismatch, consumed on a match.
-//! - The ledger is debited before every `sign` request and refunded only when no signature can
-//!   exist: on a `PromiseError` of the first request (never on a response the callback could not
-//!   read, never after a retry), or when a signed Solana transaction is proven not to have
-//!   executed. A response the callback could not read is completed with `submit_base_signature`
-//!   or `submit_sol_signature`, which verify the signature against the derived key.
+//! - The ledger is debited before every `sign` request, and a signature request never refunds:
+//!   a failed request does not prove that no signature will surface (a late MPC response is
+//!   public), so a Base authorization is retried until signed and a Solana durable-nonce action
+//!   whose authority signature failed is cancelled on chain by a nonce-only transaction. Refunds
+//!   come only from a failed proof (nothing was signed) or a confirmation that a signed Solana
+//!   transaction did not execute. A response the callback could not read is completed with
+//!   `submit_base_signature` or `submit_sol_signature`, which verify the signature against the
+//!   derived key.
 //! - Solana payouts and redeems are two-phase: a signed durable-nonce transaction stays `Signed`
 //!   until anyone proves its nonce advanced (`confirm_sol_payout`, `confirm_sol_redeem`); the
 //!   attested stream state then says whether it executed, and only then is it final or reverted.
@@ -53,6 +56,7 @@ use crate::unlock::{ClassSchedule, SablierLinearStream, StreamflowParams, Stream
 use crate::{class_id_of, Contract, ContractExt, RoseEvent};
 
 pub use base::deposit_units_of;
+pub(crate) use payouts::nonce_seed_prefix;
 pub use types::*;
 
 /// Storage deposit attached to every method that stores a signed action record, sized to the
@@ -268,6 +272,12 @@ impl Contract {
         )
     }
 
+    /// The 24 hex characters (`sha256(account_id)`) every seed of `account_id`'s payout nonce
+    /// accounts starts with (see `SolNonceProof`). Pure, for the app.
+    pub fn nonce_seed_prefix_of(&self, account_id: AccountId) -> String {
+        nonce_seed_prefix(&account_id)
+    }
+
     /// State of a replay key, or `None` when the fact was never requested.
     pub fn get_replay(&self, key: ReplayKey) -> Option<ReplayState> {
         self.custody.replays.get(&key).copied()
@@ -304,10 +314,10 @@ impl Contract {
         let params = StreamflowParams {
             start_time: schedule.start_time,
             cliff: schedule.cliff,
-            cliff_amount: schedule.cliff_amount,
+            cliff_amount: schedule.cliff_amount.0,
             period: schedule.period,
-            amount_per_period: schedule.amount_per_period,
-            net_amount_deposited: schedule.net_amount_deposited,
+            amount_per_period: schedule.amount_per_period.0,
+            net_amount_deposited: schedule.net_amount_deposited.0,
             end_time: schedule.end_time,
             ..StreamflowParams::default()
         };
@@ -623,7 +633,8 @@ impl Contract {
 
 /// What a `sign` promise returned.
 pub(crate) enum MpcResult<T> {
-    /// The promise failed (`PromiseError::Failed`): this request produced no signature.
+    /// The promise failed (`PromiseError::Failed`): no signature reached the engine, though a
+    /// response arriving after the MPC's yield timeout may still be public.
     Failed,
     /// The promise succeeded but its value cannot be read: a signature may exist.
     Unreadable,
@@ -645,15 +656,15 @@ pub(crate) fn require_gas_left(tgas: u64) {
     );
 }
 
-/// Arguments of `compute_sol_class_id`.
+/// Arguments of `compute_sol_class_id`: the stream's schedule, token amounts as `U64` strings.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct StreamflowScheduleArgs {
     pub start_time: u64,
     pub cliff: u64,
-    pub cliff_amount: u64,
+    pub cliff_amount: U64,
     pub period: u64,
-    pub amount_per_period: u64,
-    pub net_amount_deposited: u64,
+    pub amount_per_period: U64,
+    pub net_amount_deposited: U64,
     pub end_time: u64,
 }

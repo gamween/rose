@@ -1,0 +1,165 @@
+{
+  "header": {
+    "issuer": "Cindral Foundation",
+    "token": "Cindral (CINDR)",
+    "root_account": "rose-app.testnet"
+  },
+  "steps": {
+    "near-account:cindral-foundation.rose-app.testnet": {
+      "at": "2026-11-04T07:16:30.448Z",
+      "txs": [
+        {
+          "label": "create cindral-foundation.rose-app.testnet with 0.6 NEAR",
+          "chain": "near",
+          "hash": "BtiScPFbRvgrMLtZgfimJ9msaFyYjfYVHYuYTkygeSWq",
+          "link": "https://testnet.near.rocks/tx/BtiScPFbRvgrMLtZgfimJ9msaFyYjfYVHYuYTkygeSWq"
+        }
+      ],
+      "done": true,
+      "data": {
+        "account": "cindral-foundation.rose-app.testnet",
+        "name": "Cindral Foundation",
+        "public_key": "ed25519:G2tP5ZP7Qm5U925qhofzfwUrZyhoTZvd5BMhe8hRqh62"
+      }
+    },
+    "near-account:halden-ventures.rose-app.testnet": {
+      "at": "2026-11-04T07:16:32.407Z",
+      "txs": [
+        {
+          "label": "create halden-ventures.rose-app.testnet with 0.35 NEAR",
+          "chain": "near",
+          "hash": "8rxPAHaVk48MgNmo58wUdckW2Efcimt8JsYiaTvhvirt",
+          "link": "https://testnet.near.rocks/tx/8rxPAHaVk48MgNmo58wUdckW2Efcimt8JsYiaTvhvirt"
+        }
+      ],
+      "done": true,
+      "data": {
+        "account": "halden-ventures.rose-app.testnet",
+        "name": "Halden Ventures",
+        "public_key": "ed25519:GTEswjbpmyw2Sk1pnjoMVzKnDYbrVyoKz38Zn5QPhKSQ"
+      }
+    },
+    "near-account:tessaro-capital.rose-app.testnet": {
+      "at": "2026-11-04T07:16:34.197Z",
+      "txs": [
+        {
+          "label": "create tessaro-capital.rose-app.testnet with 0.35 NEAR",
+          "chain": "near",
+          "hash": "7dJvtztSj6XzAraPAeGH1AwPfFJApzKBhBibWPgtG6YN",
+          "link": "https://testnet.near.rocks/tx/7dJvtztSj6XzAraPAeGH1AwPfFJApzKBhBibWPgtG6YN"
+        }
+      ],
+      "done": true,
+      "data": {
+        "account": "tessaro-capital.rose-app.testnet",
+        "name": "Tessaro Capital",
+        "public_key": "ed25519:8uvqWQ7AZ1zqP6nBVRYLTEcN4pjF3vMjCyqm3h9oEyb1"
+      }
+    },
+    "near-account:ines-marlow.rose-app.testnet": {
+      "at": "2026-11-04T07:16:36.216Z",
+      "txs": [
+        {
+          "label": "create ines-marlow.rose-app.testnet with 0.45 NEAR",
+          "chain": "near",
+          "hash": "8F9DUE4oJ65F5vwkQwAdc2ewBgWtsVRY5bUKZi77aiq3",
+          "link": "https://testnet.near.rocks/tx/8F9DUE4oJ65F5vwkQwAdc2ewBgWtsVRY5bUKZi77aiq3"
+        }
+      ],
+      "done": true,
+      "data": {
+        "account": "ines-marlow.rose-app.testnet",
+        "name": "Ines Marlow",
+        "public_key": "ed25519:whw82g4hVfohDuqzeZXiYT3WiRkNSHAPZNU4MCiFLVh"
+      }
+    },
+    "near-account:varick-partners.rose-app.testnet": {
+      "at": "2026-11-04T07:16:38.407Z",
+      "txs": [
+        {
+          "label": "create varick-partners.rose-app.testnet with 0.45 NEAR",
+          "chain": "near",
+          "hash": "CNX5q67VCq6wanKqPzr2zvkMPf4L3EvDDTJPYLTs1aEh",
+          "link": "https://testnet.near.rocks/tx/CNX5q67VCq6wanKqPzr2zvkMPf4L3EvDDTJPYLTs1aEh"
+        }
+      ],
+      "done": true,
+      "data": {
+        "account": "varick-partners.rose-app.testnet",
+        "name": "Varick Partners",
+        "public_key": "ed25519:tAVHqfcYN6j5RpJ73gUAABZh44bp22L97YdGummmmM3"
+      }
+    },
+    "near-account:teodor-vance.rose-app.testnet": {
+      "at": "2026-11-04T07:16:40.251Z",
+      "txs": [
+        {
+          "label": "create teodor-vance.rose-app.testnet with 0.35 NEAR",
+          "chain": "near",
+          "hash": "2RZtXcG7PbN3oWptB2ygWEwuknBQmS6JnCcCEGrKHkLx",
+          "link": "https://testnet.near.rocks/tx/2RZtXcG7PbN3oWptB2ygWEwuknBQmS6JnCcCEGrKHkLx"
+        }
+      ],
+      "done": true,
+      "data": {
+        "account": "teodor-vance.rose-app.testnet",
+        "name": "Teodor Vance",
+        "public_key": "ed25519:AG8uqzAX6KesrXEk8kyrfdDSGtHrNCCEVtWeMFAKjRYk"
+      }
+    },
+    "near-account:nadia-solvik.rose-app.testnet": {
+      "at": "2026-11-04T07:16:42.297Z",
+      "txs": [
+        {
+          "label": "create nadia-solvik.rose-app.testnet with 0.35 NEAR",
+          "chain": "near",
+          "hash": "2WYsuERai7BrNPWX4pQGDqA4BmvpYBrUVRYcsn5aksQC",
+          "link": "https://testnet.near.rocks/tx/2WYsuERai7BrNPWX4pQGDqA4BmvpYBrUVRYcsn5aksQC"
+        }
+      ],
+      "done": true,
+      "data": {
+        "account": "nadia-solvik.rose-app.testnet",
+        "name": "Nadia Solvik",
+        "public_key": "ed25519:3ZEZsSLML55grtNz3rjSNq8vEbvhxaf23PfvcQK1xDVN"
+      }
+    },
+    "addresses": {
+      "at": "2026-11-04T07:16:42.302Z",
+      "txs": [],
+      "done": true,
+      "data": {
+        "evm": {
+          "issuer": "0x7d4777cfC6ed48061B0BcCae558D29919b412042",
+          "halden": "0x7f62Ad9672D6347F4b0171a128b8243D36749aD3",
+          "tessaro": "0x88F3825DDB25f31708BA480fb70387bA85784414",
+          "ines": "0x8A51AC1aED9F29a98816AC0870C9720C80622f61",
+          "varick": "0xace8726d1417cF492Db190933aC279E63e24032F",
+          "teodor": "0x4e3D4ba6eF6943A24E13157c7334D9B4C3b86B5b",
+          "nadia": "0x9f1aCDb745eCe0773Fba43663830006E15D86049"
+        },
+        "solana": {
+          "issuer": "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n",
+          "ines": "5nY8X75zT48JHbQgb57g37AVvqrSYKcXqr7v2GEUo1G7",
+          "varick": "Cwr2UibjjeXiGSaSpSqnoDhuynkQP2HFTMncaqqPMqSv"
+        }
+      }
+    },
+    "solana-mint": {
+      "at": "2026-11-04T07:17:26.068Z",
+      "txs": [
+        {
+          "label": "createMint (CINDR, 9 decimals)",
+          "chain": "solana",
+          "hash": "KvkQKDThFFTmU44NmjK4Zkfz4zWC9CfnDW7mWFoTwck3GEZ9DvZLrtsXewJNbi6yPMvspJzUHG6wLYy5neqp7Lb",
+          "link": "https://explorer.solana.com/tx/KvkQKDThFFTmU44NmjK4Zkfz4zWC9CfnDW7mWFoTwck3GEZ9DvZLrtsXewJNbi6yPMvspJzUHG6wLYy5neqp7Lb?cluster=devnet"
+        }
+      ],
+      "done": true,
+      "data": {
+        "mint": "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv",
+        "decimals": 9
+      }
+    }
+  }
+}

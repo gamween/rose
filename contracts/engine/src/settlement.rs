@@ -323,10 +323,11 @@ impl Contract {
     }
 
     /// Takes `amount` unlocked tokens out of `source` for a payout, after accruing it. Internal
-    /// API for the payout wiring: debit before the sign promise, `refund_claimable` only on a
-    /// `PromiseError`. Panics with "Not enough claimable tokens" when the source is short. The
-    /// receipt names the class, chain and token, and the foreign address a retired lot restricts
-    /// the payout to.
+    /// API for the payout wiring: debit before the proof or sign promise, `refund_claimable` only
+    /// when the proof failed or a signed Solana transaction was proven not to have executed
+    /// (never on a failed signature request). Panics with "Not enough claimable tokens" when the
+    /// source is short. The receipt names the class, chain and token, and the foreign address a
+    /// retired lot restricts the payout to.
     pub fn take_claimable(&mut self, source: &ClaimSource, amount: u128) -> ClaimReceipt {
         require!(amount > 0, "Amount must be positive");
         let class_id = self.claim_class(source);
@@ -387,8 +388,8 @@ impl Contract {
         }
     }
 
-    /// Gives back tokens taken by `take_claimable` when the payout produced no signature.
-    /// Internal API for payout callbacks.
+    /// Gives back tokens taken by `take_claimable` when the payout's proof failed or its signed
+    /// Solana transaction was proven not to have executed. Internal API for payout callbacks.
     pub fn refund_claimable(&mut self, source: &ClaimSource, amount: u128) {
         match source {
             ClaimSource::Holding { account, class_id } => {

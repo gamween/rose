@@ -38,7 +38,9 @@
 //! - Payouts: the engine builds the message itself (an EIP-712 digest or a Solana legacy message)
 //!   from ledger state, never from caller-supplied bytes, and asks the MPC to sign that exact
 //!   payload. A valid response is a public, replayable authorization, which is why the contract
-//!   debits before the request and refunds only when no signature was produced.
+//!   debits before the request and never refunds because a signature request failed (a late
+//!   response is public too): only a failed proof, before anything is signed, or a confirmation
+//!   that a signed Solana transaction did not execute gives the debit back.
 
 pub mod evm;
 pub mod mpc;
