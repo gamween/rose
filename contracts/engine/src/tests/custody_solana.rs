@@ -3422,7 +3422,9 @@ proptest! {
     #[test]
     fn a_sole_holder_can_always_redeem_its_stream(
         net in 1_000u64..10_000_000_000_000,
-        per_divisor in 2u64..10_000,
+        // At least five periods: a stream ending within an hour of its attribution (at 2,000 s) is
+        // refused at the deposit address.
+        per_divisor in 5u64..10_000,
         claims in proptest::collection::vec((1u64..2_500, 1u64..=1_000), 0..5),
         wait in 0u64..3_000,
     ) {
