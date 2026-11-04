@@ -115,7 +115,8 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
-      if (document.querySelector("[role='dialog']")) return;
+      // Every modal of the app is a native <dialog> (no role attribute): an open one owns the keyboard.
+      if (document.querySelector("dialog[open]")) return;
       const command = keyCommand(event.key);
       if (!command) return;
       if (command === "toggle" && event.key === " " && isControl(event.target)) return;

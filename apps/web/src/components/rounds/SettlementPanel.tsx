@@ -4,7 +4,8 @@
  * Settlement and payout links (spec 8.3): the transactions this browser sent for the round
  * (close, openings, clear, settlements, cash deposits) with explorer links, and where the
  * proceeds go next on NEAR, Base and Solana. The engine keeps no transaction hashes (no
- * indexer), so links to other participants' transactions go through the engine account page.
+ * indexer), so other participants' settlement and payout transactions are reached through each
+ * participant's account history on near.rocks.
  */
 
 import Link from "next/link";
@@ -28,6 +29,14 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
   const roseVault = deployed("roseVault");
   const solanaVault = deployed("solanaVault");
   const settledOrCancelled = round.status === "Settled" || round.status === "Cancelled";
+  const participants = useMemo(() => {
+    const byAccount = new Map<string, string[]>();
+    for (const bid of detail.bids) {
+      const label = `${bid.side === "Buy" ? "bid" : "ask"} #${String(bid.bidId)}${bid.status === "Settled" ? " settled" : ""}`;
+      byAccount.set(bid.bidder, [...(byAccount.get(bid.bidder) ?? []), label]);
+    }
+    return [...byAccount].map(([account, orders]) => ({ account, orders }));
+  }, [detail.bids]);
 
   return (
     <section aria-label="Settlement and payouts" className="rounded-lg border border-ink-750 bg-ink-850" data-settlement>
@@ -94,6 +103,22 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
           </dd>
         </div>
       </dl>
+      {participants.length > 0 ? (
+        <div className="border-t border-ink-750 px-4 py-3" data-participants>
+          <h4 className="font-display text-[10px] uppercase tracking-wide text-ink-400">Participants · their settlement and payout transactions</h4>
+          <p className="mt-0.5 text-[11px] text-ink-400">The engine keeps no transaction hashes, so each order links to its account history on near.rocks, where its place, settle and claim transactions are listed.</p>
+          <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+            {participants.map((participant) => (
+              <li key={participant.account} className="min-w-0">
+                <a href={nearAccountUrl(participant.account)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline [overflow-wrap:anywhere]">
+                  {participant.account} ↗
+                </a>
+                <span className="text-ink-400"> · {participant.orders.join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="border-t border-ink-750 px-4 py-3">
         <h4 className="font-display text-[10px] uppercase tracking-wide text-ink-400">Transactions sent from this browser</h4>
         {receipts.length === 0 ? (

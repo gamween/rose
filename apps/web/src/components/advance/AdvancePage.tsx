@@ -71,8 +71,8 @@ function AdvanceCard({ round, data }: { round: Round; data: AdvanceData }) {
           <dd className="tabular text-ink-50">{formatAmount(round.advanceMinFill ?? 0n, decimals)}</dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Open" ? "Closes in" : "Opens"}</dt>
-          <dd className="tabular text-ink-50">{round.status === "Open" ? <Countdown target={closesMs} /> : formatDate(nsToMs(round.opensAt))}</dd>
+          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Open" ? "Closes in" : round.status === "Scheduled" ? "Opens" : "Closed"}</dt>
+          <dd className="tabular text-ink-50">{round.status === "Open" ? <Countdown target={closesMs} /> : round.status === "Scheduled" ? formatDate(nsToMs(round.opensAt)) : formatDate(closesMs)}</dd>
         </div>
         <div>
           <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Sealed bids</dt>
@@ -242,24 +242,36 @@ export function AdvancePage() {
       ) : data ? (
         <>
           {tab === "browse" ? (
-            data.rounds.length === 0 ? (
-              <EmptyState
-                illustration="tender"
-                title="No open Advance"
-                description="Nobody is selling a claim on their first unlocks right now. Holders create one from the next tab; funders bid from the round page."
-                action={
-                  <Button variant="secondary" onClick={() => setTab("create")}>
-                    Create an Advance
-                  </Button>
-                }
-              />
-            ) : (
-              <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" data-advance-list>
-                {data.rounds.map((round) => (
-                  <AdvanceCard key={round.roundId.toString()} round={round} data={data} />
-                ))}
-              </ul>
-            )
+            <div className="flex flex-col gap-6">
+              {data.rounds.length === 0 ? (
+                <EmptyState
+                  illustration="tender"
+                  title="No open Advance"
+                  description="Nobody is selling a claim on their first unlocks right now. Holders create one from the next tab; funders bid from the round page."
+                  action={
+                    <Button variant="secondary" onClick={() => setTab("create")}>
+                      Create an Advance
+                    </Button>
+                  }
+                />
+              ) : (
+                <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" data-advance-list>
+                  {data.rounds.map((round) => (
+                    <AdvanceCard key={round.roundId.toString()} round={round} data={data} />
+                  ))}
+                </ul>
+              )}
+              {data.past.length > 0 ? (
+                <section className="flex flex-col gap-3" data-advance-past>
+                  <h2 className="font-display text-[11px] uppercase tracking-wide text-ink-400">Settled and cancelled</h2>
+                  <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {data.past.map((round) => (
+                      <AdvanceCard key={round.roundId.toString()} round={round} data={data} />
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
           ) : null}
           {tab === "create" ? (
             <Card>

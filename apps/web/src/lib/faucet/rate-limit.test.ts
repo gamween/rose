@@ -6,9 +6,8 @@ import {
   WINDOW_SECONDS,
   clientIp,
   cookieHeader,
-  decideRateLimit,
   readCookie,
-  recordRequest,
+  reserveRateLimit,
   signCookie,
   verifyCookie,
 } from "./rate-limit";
@@ -57,19 +56,44 @@ describe("signed cookie", () => {
   });
 });
 
-describe("decideRateLimit", () => {
+describe("reserveRateLimit", () => {
   it("limits one request per address, five per ip, and by cookie", () => {
     const limiter = new MemoryRateLimiter();
     const base = { chain: "base" as const, ip: "1.1.1.1", cookie: {}, nowSeconds: T0, limiter };
-    expect(decideRateLimit({ ...base, subject: "0xa" })).toEqual({ allowed: true });
-    recordRequest({ ...base, subject: "0xa" });
-    expect(decideRateLimit({ ...base, subject: "0xa", nowSeconds: T0 + 60 })).toMatchObject({ allowed: false, scope: "address", retryAfterSeconds: WINDOW_SECONDS - 60 });
-    for (let i = 1; i < IP_LIMIT; i += 1) recordRequest({ ...base, subject: `0x${i}` });
-    expect(decideRateLimit({ ...base, subject: "0xnew" })).toMatchObject({ allowed: false, scope: "ip" });
-    expect(decideRateLimit({ ...base, subject: "0xnew", ip: "2.2.2.2" })).toEqual({ allowed: true });
-    expect(decideRateLimit({ ...base, subject: "0xnew", ip: "2.2.2.2", cookie: { base: T0 - 100 } })).toMatchObject({ allowed: false, scope: "cookie", retryAfterSeconds: WINDOW_SECONDS - 100 });
-    expect(decideRateLimit({ ...base, subject: "0xnew", ip: "2.2.2.2", cookie: { solana: T0 - 100 } })).toEqual({ allowed: true });
+    expect(reserveRateLimit({ ...base, subject: "0xa" })).toMatchObject({ allowed: true });
+    expect(reserveRateLimit({ ...base, subject: "0xa", nowSeconds: T0 + 60 })).toMatchObject({ allowed: false, scope: "address", retryAfterSeconds: WINDOW_SECONDS - 60 });
+    for (let i = 1; i < IP_LIMIT; i += 1) expect(reserveRateLimit({ ...base, subject: `0x${String(i)}` }).allowed).toBe(true);
+    expect(reserveRateLimit({ ...base, subject: "0xnew" })).toMatchObject({ allowed: false, scope: "ip" });
+    expect(reserveRateLimit({ ...base, subject: "0xnew", ip: "2.2.2.2", cookie: { base: T0 - 100 } })).toMatchObject({ allowed: false, scope: "cookie", retryAfterSeconds: WINDOW_SECONDS - 100 });
+    expect(reserveRateLimit({ ...base, subject: "0xnew", ip: "2.2.2.2", cookie: { solana: T0 - 100 } })).toMatchObject({ allowed: true });
     expect(ADDRESS_LIMIT).toBe(1);
+  });
+
+  it("records the reservation before the send, and a release frees both counters", () => {
+    const limiter = new MemoryRateLimiter();
+    const input = { chain: "solana" as const, subject: "addr", ip: "3.3.3.3", cookie: {}, nowSeconds: T0, limiter };
+    const first = reserveRateLimit(input);
+    expect(first.allowed).toBe(true);
+    /* A concurrent request arriving before the first send finishes is refused at once. */
+    expect(reserveRateLimit(input)).toMatchObject({ allowed: false, scope: "address" });
+    if (first.allowed) first.release();
+    expect(reserveRateLimit(input).allowed).toBe(true);
+    expect(limiter.check("solana:ip:3.3.3.3", 1, T0).allowed).toBe(false);
+    expect(limiter.check("solana:ip:3.3.3.3", 2, T0).allowed).toBe(true);
+  });
+
+  it("does not record anything when one of the limits refuses", () => {
+    const limiter = new MemoryRateLimiter();
+    for (let i = 0; i < IP_LIMIT; i += 1) limiter.record("near:ip:4.4.4.4", T0);
+    expect(reserveRateLimit({ chain: "near", subject: "fresh.testnet", ip: "4.4.4.4", cookie: {}, nowSeconds: T0, limiter })).toMatchObject({ allowed: false, scope: "ip" });
+    expect(limiter.check("near:address:fresh.testnet", 1, T0).allowed).toBe(true);
+  });
+});
+
+describe("readCookie", () => {
+  it("reads a malformed percent-encoding as no cookie instead of throwing", () => {
+    expect(readCookie("rose_faucet=%E0%A4%A", "rose_faucet")).toBeNull();
+    expect(readCookie("other=%E0; rose_faucet=ok", "rose_faucet")).toBe("ok");
   });
 });
 

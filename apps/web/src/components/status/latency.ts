@@ -24,16 +24,32 @@ export type LatencyReport = {
 export type PairingSpec = {
   /** Event that starts the clock. */
   request: string;
-  /** Event that stops it. */
-  completion: string;
-  /** Event recording a failed attempt (the clock keeps running for a retry). */
-  failure?: string;
-  /** Field of `data` shared by the request and its completion. */
+  /** Events that stop it. */
+  completion: string | readonly string[];
+  /** Events recording a failed attempt (the clock keeps running for a retry). */
+  failure?: string | readonly string[];
+  /** Field of `data` shared by the request and its completion (a string, or an object compared by its JSON). */
   key: string;
 };
 
 /** Key requests of a round: `key_requested` until `key_received` (callback or `submit_key`). */
 export const KEY_RELEASE: PairingSpec = { request: "key_requested", completion: "key_received", failure: "key_request_failed", key: "round_id" };
+
+/**
+ * ForeignTx verifications of a foreign log or account state, by replay key: requested until the
+ * deposit is registered (position or Base cash) or refused by the engine's rules after the proof;
+ * a failed proof or a mismatch keeps the clock running until a retry succeeds.
+ */
+export const FOREIGN_TX: PairingSpec = {
+  request: "deposit_verification_requested",
+  completion: ["deposit_registered", "base_cash_registered", "deposit_refused"],
+  failure: ["deposit_verification_failed", "deposit_mismatch"],
+  key: "key",
+};
+
+function names(value: string | readonly string[] | undefined): ReadonlySet<string> {
+  return new Set(value === undefined ? [] : typeof value === "string" ? [value] : value);
+}
 
 function percentile(sorted: number[], fraction: number): number {
   if (sorted.length === 0) return 0;
@@ -49,19 +65,21 @@ function percentile(sorted: number[], fraction: number): number {
 export function pairLatencies(events: readonly StoredEvent[], spec: PairingSpec): LatencyReport {
   const open = new Map<string, PendingRequest>();
   const samples: LatencySample[] = [];
+  const completions = names(spec.completion);
+  const failures = names(spec.failure);
   let failed = 0;
   for (const event of events) {
     const key = event.data[spec.key];
     if (key === undefined || key === null) continue;
-    const id = String(key);
+    const id = typeof key === "object" ? JSON.stringify(key) : String(key);
     if (event.event === spec.request) {
       const existing = open.get(id);
       if (!existing) open.set(id, { key: id, requestedAt: nanosToMillis(event.timestamp), block: event.block_height, failures: 0 });
-    } else if (spec.failure && event.event === spec.failure) {
+    } else if (failures.has(event.event)) {
       failed += 1;
       const existing = open.get(id);
       if (existing) existing.failures += 1;
-    } else if (event.event === spec.completion) {
+    } else if (completions.has(event.event)) {
       const request = open.get(id);
       if (!request) continue;
       open.delete(id);

@@ -7,13 +7,15 @@ const SOL_ADDRESS = "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n";
 const NEAR_KEY = "ed25519:8bWAWmjS8VxkwUiGJKyjEFZesSxchRZQ1YF5K6Xq8vu9";
 const SECRET = "cookie-secret";
 const T0 = 1_800_000_000_000;
+const CAPS = { hourly: 5, daily: 15 };
+const SITE = "https://rose-rounds.vercel.app";
 
 function config(overrides: Partial<FaucetConfig> = {}): FaucetConfig {
   return {
-    base: { configured: true, rpcUrl: "https://sepolia.base.org", amountWei: 2_000_000_000_000_000n },
-    solana: { configured: true, rpcUrl: "https://api.devnet.solana.com", lamports: 50_000_000n },
-    near: { configured: true, helperUrl: "https://helper.nearprotocol.com/account", rpcUrl: "https://rpc.testnet.near.org", funderAccountId: null, funderYocto: 500_000_000_000_000_000_000_000n },
-    "solana-demo-token": { configured: true, rpcUrl: "https://api.devnet.solana.com", mint: "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv", wholeTokens: 1_000n },
+    base: { configured: true, rpcUrl: "https://sepolia.base.org", amountWei: 2_000_000_000_000_000n, caps: CAPS },
+    solana: { configured: true, rpcUrl: "https://api.devnet.solana.com", lamports: 50_000_000n, caps: CAPS },
+    near: { configured: true, helperUrl: "https://helper.nearprotocol.com/account", rpcUrl: "https://rpc.testnet.near.org", funderAccountId: null, funderYocto: 500_000_000_000_000_000_000_000n, funderCaps: CAPS },
+    "solana-demo-token": { configured: true, rpcUrl: "https://api.devnet.solana.com", mint: "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv", wholeTokens: 1_000n, caps: CAPS },
     cookieSecret: SECRET,
     ...overrides,
   };
@@ -46,7 +48,7 @@ function senders(overrides: Partial<FaucetSenders> = {}): FaucetSenders & { call
 function post(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("http://localhost/api/faucet", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": "1.1.1.1", ...headers },
+    headers: { "content-type": "application/json", origin: SITE, "x-forwarded-for": "1.1.1.1", ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
@@ -58,21 +60,22 @@ function handler(deps: { senders?: FaucetSenders; config?: FaucetConfig; limiter
     limiter: deps.limiter ?? new MemoryRateLimiter(),
     now: deps.now ?? (() => T0),
     secure: true,
+    env: { NEXT_PUBLIC_SITE_URL: SITE } as unknown as NodeJS.ProcessEnv,
   });
 }
 
 describe("GET /api/faucet", () => {
   it("reports limits and per-chain availability without secrets", async () => {
-    const response = handler({ config: config({ solana: { configured: false, rpcUrl: "x", lamports: 1n } }) }).GET();
+    const response = handler({ config: config({ solana: { configured: false, rpcUrl: "x", lamports: 1n, caps: { hourly: 1, daily: 2 } } }) }).GET();
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toEqual({
       limits: { perAddress: 1, perIp: 5, windowSeconds: 86400 },
       chains: {
-        base: { configured: true, amount: "2000000000000000", unit: "wei" },
-        solana: { configured: false, amount: "1", unit: "lamports" },
-        near: { configured: true, amount: "10 NEAR", unit: "NEAR" },
-        "solana-demo-token": { configured: true, amount: "1000", unit: "tokens" },
+        base: { configured: true, amount: "2000000000000000", unit: "wei", caps: CAPS },
+        solana: { configured: false, amount: "1", unit: "lamports", caps: { hourly: 1, daily: 2 } },
+        near: { configured: true, amount: "10 NEAR", unit: "NEAR", caps: CAPS },
+        "solana-demo-token": { configured: true, amount: "1000", unit: "tokens", caps: CAPS },
       },
     });
     expect(JSON.stringify(body)).not.toContain(SECRET);
@@ -122,7 +125,7 @@ describe("POST /api/faucet", () => {
     const solStillOpen = await h.POST(post({ chain: "solana", address: SOL_ADDRESS }));
     expect(solStillOpen.status).toBe(200);
     expect(mocks.calls).toEqual([`solana-demo-token:${SOL_ADDRESS}`, `solana:${SOL_ADDRESS}`]);
-    const off = await handler({ config: config({ "solana-demo-token": { configured: false, rpcUrl: "x", mint: null, wholeTokens: 1n } }) }).POST(post({ chain: "solana-demo-token", address: SOL_ADDRESS }));
+    const off = await handler({ config: config({ "solana-demo-token": { configured: false, rpcUrl: "x", mint: null, wholeTokens: 1n, caps: CAPS } }) }).POST(post({ chain: "solana-demo-token", address: SOL_ADDRESS }));
     expect(off.status).toBe(503);
     expect(await off.json()).toMatchObject({ error: "not_configured", message: expect.stringContaining("Solana demo token") });
   });
@@ -169,7 +172,7 @@ describe("POST /api/faucet", () => {
   });
 
   it("answers 503 when a chain or the cookie secret is not configured", async () => {
-    const noBase = await handler({ config: config({ base: { configured: false, rpcUrl: "x", amountWei: 1n } }) }).POST(post({ chain: "base", address: EVM_ADDRESS }));
+    const noBase = await handler({ config: config({ base: { configured: false, rpcUrl: "x", amountWei: 1n, caps: CAPS } }) }).POST(post({ chain: "base", address: EVM_ADDRESS }));
     expect(noBase.status).toBe(503);
     expect(await noBase.json()).toMatchObject({ error: "not_configured", message: expect.stringContaining("Base Sepolia") });
     const noSecret = await handler({ config: config({ cookieSecret: null }) }).POST(post({ chain: "solana", address: SOL_ADDRESS }));
@@ -206,5 +209,92 @@ describe("POST /api/faucet", () => {
     const retry = await h.POST(post({ chain: "base", address: EVM_ADDRESS }));
     expect(retry.status).toBe(200);
     expect(await retry.json()).toMatchObject({ txHash: "0xretry" });
+  });
+
+  it("refuses a non-JSON body with 415 before parsing it", async () => {
+    const mocks = senders();
+    const response = await handler({ senders: mocks }).POST(post(JSON.stringify({ chain: "base", address: EVM_ADDRESS }), { "content-type": "text/plain" }));
+    expect(response.status).toBe(415);
+    expect(await response.json()).toMatchObject({ error: "unsupported_media_type" });
+    expect(mocks.calls).toEqual([]);
+  });
+
+  it("refuses another site's Origin and a request with no Origin or Referer with 403", async () => {
+    const mocks = senders();
+    const h = handler({ senders: mocks });
+    const cross = await h.POST(post({ chain: "base", address: EVM_ADDRESS }, { origin: "https://evil.example" }));
+    expect(cross.status).toBe(403);
+    expect(await cross.json()).toMatchObject({ error: "forbidden_origin" });
+    const bare = new Request("http://localhost/api/faucet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain: "base", address: EVM_ADDRESS }) });
+    expect((await h.POST(bare)).status).toBe(403);
+    const referred = await h.POST(post({ chain: "base", address: EVM_ADDRESS }, { origin: "", referer: `${SITE}/app` }));
+    expect(referred.status).toBe(200);
+    expect(mocks.calls).toEqual([`base:${EVM_ADDRESS}`]);
+  });
+
+  it("reserves the address before sending, so concurrent requests send once", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const mocks = senders({
+      sendSolana: async (address) => {
+        mocks.calls.push(`solana:${address}`);
+        await gate;
+        return { signature: "5ig", amount: "50000000" };
+      },
+    });
+    const h = handler({ senders: mocks });
+    const first = h.POST(post({ chain: "solana", address: SOL_ADDRESS }));
+    const second = await h.POST(post({ chain: "solana", address: SOL_ADDRESS }, { "x-forwarded-for": "9.9.9.9" }));
+    expect(second.status).toBe(429);
+    release();
+    expect((await first).status).toBe(200);
+    expect(mocks.calls).toEqual([`solana:${SOL_ADDRESS}`]);
+  });
+
+  it("sends one transaction at a time per chain on an instance", async () => {
+    let active = 0;
+    let peak = 0;
+    const mocks = senders({
+      sendBase: async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        return { txHash: "0xabc", amount: "1" };
+      },
+    });
+    const h = handler({ senders: mocks });
+    const addresses = [1, 2, 3].map((i) => `0x${i.toString(16).padStart(40, "0")}`);
+    const responses = await Promise.all(addresses.map((address) => h.POST(post({ chain: "base", address }))));
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
+    expect(peak).toBe(1);
+  });
+
+  it("maps the global cap and an already funded address, and frees the reservation", async () => {
+    let attempts = 0;
+    const mocks = senders({
+      sendBase: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new FaucetError("rate_limited", "The Base Sepolia faucet reached its limit of 5 sends per hour for all visitors. Try again in about 10 minutes.", 600);
+        if (attempts === 2) throw new FaucetError("already_funded", "This address already holds 0.5 ETH on Base Sepolia.");
+        return { txHash: "0xok", amount: "1" };
+      },
+    });
+    const h = handler({ senders: mocks });
+    const capped = await h.POST(post({ chain: "base", address: EVM_ADDRESS }));
+    expect(capped.status).toBe(429);
+    expect(capped.headers.get("retry-after")).toBe("600");
+    expect(await capped.json()).toMatchObject({ error: "rate_limited", retryAfterSeconds: 600, message: expect.stringContaining("all visitors") });
+    const funded = await h.POST(post({ chain: "base", address: EVM_ADDRESS }));
+    expect(funded.status).toBe(409);
+    expect(await funded.json()).toMatchObject({ error: "already_funded" });
+    expect((await h.POST(post({ chain: "base", address: EVM_ADDRESS }))).status).toBe(200);
+  });
+
+  it("ignores a malformed faucet cookie instead of failing", async () => {
+    const response = await handler().POST(post({ chain: "base", address: EVM_ADDRESS }, { cookie: "rose_faucet=%E0%A4%A" }));
+    expect(response.status).toBe(200);
   });
 });

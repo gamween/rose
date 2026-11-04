@@ -11,15 +11,15 @@ import { ResultsTab } from "./ResultsTab";
 import { IssuerGate, useIssuerBase } from "./shared";
 import { TenderTab } from "./TenderTab";
 
-export type IssuerTab = "class" | "cohort" | "distribute" | "tender" | "dao" | "fund" | "results";
+export type IssuerTab = "class" | "cohort" | "distribute" | "fund" | "tender" | "dao" | "results";
 
 const TABS = [
   { id: "class", label: "Create a class" },
   { id: "cohort", label: "Cohort streams" },
   { id: "distribute", label: "Distribute units" },
+  { id: "fund", label: "Fund" },
   { id: "tender", label: "Launch Tender" },
   { id: "dao", label: "Run via DAO" },
-  { id: "fund", label: "Fund" },
   { id: "results", label: "Results" },
 ] as const;
 

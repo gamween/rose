@@ -1,6 +1,6 @@
 import { ONE, type Bid, type Order } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { buildBook, roundCurves, tenderCurves, uniformCurves } from "./curves";
+import { buildBook, priceTickLabel, roundCurves, tenderCurves, uniformCurves } from "./curves";
 
 const U = (n: number) => BigInt(n) * 1_000_000n;
 
@@ -104,5 +104,16 @@ describe("roundCurves", () => {
     expect(curves.steps.length).toBeGreaterThan(10);
     const empty = roundCurves({ kind: "Exit", fTs: 0n, maxPrice: U(10), budget: null }, 6, buildBook({ maxPrice: U(10) }, []));
     expect(empty.maxPrice).toBe(U(10));
+  });
+});
+
+describe("price axis labels", () => {
+  it("prints enough decimals for the tick step, so no two ticks read the same (engine-s4 round 5 axis)", () => {
+    const labels = [0, 0.005, 0.01, 0.015, 0.02].map((tick) => priceTickLabel(tick, 0.005));
+    expect(labels).toEqual(["0.000", "0.005", "0.010", "0.015", "0.020"]);
+    expect(priceTickLabel(0.4, 0.2)).toBe("0.40");
+    expect(priceTickLabel(0.02, 0.01)).toBe("0.02");
+    expect(priceTickLabel(6, 2)).toBe("6");
+    expect(priceTickLabel(2500, 500)).toBe("2.5k");
   });
 });

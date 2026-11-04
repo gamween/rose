@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Countdown } from "@/components/ui/Countdown";
 import { cn } from "@/lib/cn";
 import { ROUTES } from "@/lib/routes";
-import { cancelledOutcome, classShortLabel, formatDate, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, venueTokenAccount, type NextAction } from "./model";
+import { cancelledOutcome, classShortLabel, clearingOf, formatDate, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, venueTokenAccount, type NextAction } from "./model";
 import { KindBadge, StatusBadge } from "./shared";
 import type { BookSummary } from "./useRoundsList";
 
@@ -44,7 +44,7 @@ function bookLine(round: Round, book: BookSummary | null, decimals: number): str
   if (!book || round.bidCount === 0) return null;
   const parts: string[] = [];
   if (book.escrow > 0n) parts.push(`${formatUsdc(book.escrow)} USDC escrowed`);
-  if (book.lockedUnits > 0n) parts.push(`${formatQty(book.lockedUnits, decimals)} locked`);
+  if (book.lockedUnits > 0n) parts.push(`${formatQty(book.lockedUnits, decimals)} units locked`);
   return parts.join(" · ") || null;
 }
 
@@ -57,6 +57,7 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
   const progress = roundProgress(round, nowMs);
   const href = `${ROUTES.rounds}/${round.roundId.toString()}`;
   const terminal = round.status === "Settled" || round.status === "Cancelled";
+  const cleared = clearingOf(round);
 
   return (
     <article className="group relative flex flex-col gap-3 rounded-lg border border-ink-750 bg-ink-850 p-4 transition-colors hover:border-ink-600" data-round-card={round.roundId.toString()}>
@@ -83,17 +84,20 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
         </div>
         <div className="min-w-0">
           <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Sealed orders</dt>
-          <dd className="tabular truncate text-[13px] text-ink-100" title={sealed ?? undefined}>
-            {String(round.bidCount)}
-            {sealed ? <span className="text-ink-400"> · {sealed}</span> : null}
-          </dd>
+          <dd className="tabular truncate text-[13px] text-ink-100">{String(round.bidCount)}</dd>
         </div>
         <div className="min-w-0">
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Cancelled" ? "Outcome" : round.result ? "Cleared at" : "Locked at close"}</dt>
+          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Cancelled" ? "Outcome" : cleared ? "Cleared at" : "Locked at close"}</dt>
           <dd className="tabular truncate text-[13px] text-ink-100">
-            {round.status === "Cancelled" ? cancelledOutcome(round) : round.result ? `${formatUsdc(round.result.price)} USDC` : lockedPercent(round.fTs)}
+            {round.status === "Cancelled" ? cancelledOutcome(round) : cleared ? `${formatUsdc(cleared.price)} USDC` : lockedPercent(round.fTs)}
           </dd>
         </div>
+        {sealed ? (
+          <div className="col-span-3 min-w-0" data-round-book>
+            <dt className="sr-only">Public collateral</dt>
+            <dd className="tabular text-[12px] text-ink-400 [overflow-wrap:anywhere]">{sealed}</dd>
+          </div>
+        ) : null}
       </dl>
 
       <div className="h-1 w-full overflow-hidden rounded-sm bg-ink-800" aria-hidden>

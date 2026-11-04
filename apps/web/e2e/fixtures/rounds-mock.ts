@@ -21,6 +21,9 @@ export const ROUNDS_MOCK = {
   engine: "rose-ckd-1793753433.testnet",
   mpk: "bls12381g2:xeYho48G2Sr9oJz4gw9sLGZGspeeKpHZvMDAwWvoNTRnVMFJH96GxX98TT2MRhTtsot1wcGR1Ti2Xh8PCsbYJ2enbLNdJXDvTYSK8aTE3nJ5NZXU7Kt1F6mFtReWs5pR4kj",
   round1Key: "bls12381g1:6znYwWzn6SVgzXFKy7zEmZA6CR2aS317nJXuWKAmmeEdnrc3Qp6dX7EfE26GZBA889",
+  /** The live CKD response `(big_y, big_c)` of that round (packages/ibe-wasm/test), unwrapped by the `submit_key` panel. */
+  round1BigY: "bls12381g1:6JsKyncUXqmVX4RcTD83LCcSL25iVYoi1ShPZxFE2hBoo27Lh2nXDNHu3JnA3Paara",
+  round1BigC: "bls12381g1:5jQ5mhW68mDqLQGxgnDiFShQy87sFxrDrQ1QLoYibyyZWDUsaJ19nVCaYr38FnqBbF",
   demoAccount: "rose-demo-e2e.testnet",
   demoToken: "0x4444444444444444444444444444444444444444",
   tusdc: "tusdc.rose-app.testnet",
@@ -164,6 +167,8 @@ function bid(bid_id: number, bidder: string, side: Side, collateral: bigint, cip
   };
 }
 
+const ZERO_RESULT: NonNullable<MockRound["result"]> = { price: 0n, volume: 0n, notional: 0n, fee: 0n, issuer_charged: 0n, issuer_refund: 0n };
+
 function round(round_id: number, kind: MockRound["kind"], now: number, overrides: Partial<MockRound>): MockRound {
   return {
     round_id,
@@ -277,6 +282,8 @@ function buildState(now: number): RoundsMockState {
       key_received_at: now - 4 * DAY + 40,
       reveal_ends_at: now - 4 * DAY + 640,
       ended_at: now - 4 * DAY + 700,
+      // The engine stores a zero-price result for every cancelled round so its orders can settle (rounds.rs `cancel`).
+      result: ZERO_RESULT,
       bids: [bid(0, "ines.testnet", "Buy", 60n * USDC, null, { status: "Settled", opened: { quantity: 10n * E18, price: 5n * USDC }, settled: true }), bid(1, "varick.testnet", "Sell", 10n * E18, null, { status: "Settled", opened: { quantity: 10n * E18, price: 8n * USDC }, settled: true })],
     }),
   );
@@ -492,6 +499,7 @@ function clearExit(r: MockRound): void {
   if (result.outcome === "no_crossing") {
     r.phase = "Cancelled";
     r.cancel_reason = "NoCrossing";
+    r.result = ZERO_RESULT;
     return;
   }
   r.phase = "Settled";
@@ -569,16 +577,38 @@ function apply(state: RoundsMockState, method: string, args: Record<string, unkn
     }
     case "close": {
       const r = roundOf();
+      if (r.bids.length > 0 && now >= r.closes_at + r.key_timeout) throw new Error("Key timeout reached: the round can only be cancelled (cancel_no_key)");
+      if (r.bids.length === 0) {
+        r.phase = "Cancelled";
+        r.cancel_reason = "Empty";
+        r.result = ZERO_RESULT;
+        r.ended_at = now;
+        return null;
+      }
       r.phase = "KeyRequested";
       r.close_requested_at = now;
       r.keyAfterReads = 2;
       return null;
     }
+    case "submit_key": {
+      const r = roundOf();
+      if (r.phase !== "KeyRequested" || r.key !== null) throw new Error("Round does not expect a key: it must be closed and without a key");
+      if (!(r.round_id === 1 && args.key === ROUNDS_MOCK.round1Key)) throw new Error("Key does not verify for this round");
+      r.phase = "Revealing";
+      r.key = String(args.key);
+      r.key_source = "Submitted";
+      r.key_received_at = now;
+      r.reveal_ends_at = now + r.reveal_window;
+      r.keyAfterReads = 0;
+      return null;
+    }
     case "cancel_no_key":
     case "cancel_round": {
       const r = roundOf();
+      if (method === "cancel_no_key" && now < r.closes_at + r.key_timeout) throw new Error("Key timeout not reached");
       r.phase = "Cancelled";
       r.cancel_reason = method === "cancel_round" ? "Creator" : "NoKey";
+      r.result = ZERO_RESULT;
       r.ended_at = now;
       return null;
     }
@@ -586,6 +616,7 @@ function apply(state: RoundsMockState, method: string, args: Record<string, unkn
       const r = roundOf();
       const b = r.bids[Number(args.bid_id)];
       if (!b) throw new Error("no such bid");
+      if (b.opened !== null) throw new Error("Bid already opened");
       const plaintext = String(args.plaintext_hex);
       b.opened = { quantity: leU128(plaintext.slice(0, 32)), price: leU128(plaintext.slice(32, 64)) };
       b.status = "Opened";
@@ -719,7 +750,8 @@ function view(state: RoundsMockState, method: string, args: Record<string, unkno
     case "get_events":
       return { events: [], total: "0", oldest: "0" };
     case "stats":
-      return { rounds_total: state.rounds.size, rounds_settled: 15, volume_settled_usdc: "2184000000", classes: 3, positions: 7 };
+      // `rounds_total` is the engine's next round id (views.rs `stats`).
+      return { rounds_total: Math.max(0, ...state.rounds.keys()) + 1, rounds_settled: 15, volume_settled_usdc: "2184000000", classes: 3, positions: 7 };
     case "get_price_history":
       return { points: [], total: 0 };
     default:

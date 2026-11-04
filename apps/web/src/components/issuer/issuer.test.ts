@@ -1,9 +1,10 @@
 import { EngineCalls, ONE, type Bid, type ClassInfo, type Round, type RoundResult } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { checkRows, parseAllocationLines, rowsTotal, splitBatches } from "./allocations";
+import { checkRows, cohortSizeError, distributionDeposit, parseAllocationLines, rowsTotal, splitBatches } from "./allocations";
 import { dateTimeToSeconds, normalizeLinear, normalizeStepped, sablierScheduleArgs, secondsToDateTime, streamflowScheduleArgs } from "./class-schedule";
 import { sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, yoctoToNearText } from "./dao";
-import { askOrders, candidateTable, eventsOfRound, recompute, tenderReportCsv } from "./report";
+import { askOrders, candidateTable, eventsOfRound, isFinalRound, recompute, tenderReportCsv } from "./report";
+import { defaultRoundClass, isFullyUnlocked } from "./shared";
 import { maxPriceFromDiscount, percentToBps, tenderArgsFromForm, tenderEscrow, validateRetireTo, windowFromInput } from "./tender-form";
 
 const DAY = 86_400n;
@@ -66,6 +67,17 @@ describe("allocations", () => {
     expect(splitBatches([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
     expect(splitBatches([], 50)).toEqual([]);
   });
+  it("refuses what RoseVault refuses: an allocation under one whole token, more than 50 holders", () => {
+    const rows = checkRows([{ account: "halden.testnet", amount: "0.5" }, { account: "ines.testnet", amount: "1" }], 18, null, 10n ** 18n);
+    expect(rows.map((row) => row.error)).toEqual(["At least one whole token per holder (RoseVault minimum).", null]);
+    expect(cohortSizeError(50)).toBeNull();
+    expect(cohortSizeError(51)).toContain("at most 50 holders");
+  });
+  it("attaches only the holder storage to distribute_units, not the deposit-record storage", () => {
+    expect(distributionDeposit(15_000_000_000_000_000_000_000n)).toBe(0n);
+    expect(distributionDeposit(18_360_000_000_000_000_000_000n)).toBe(3_360_000_000_000_000_000_000n);
+    expect(distributionDeposit(0n)).toBe(0n);
+  });
 });
 
 describe("tender form", () => {
@@ -102,6 +114,23 @@ describe("tender form", () => {
     expect(tenderArgsFromForm({ ...form, keyTimeout: 30n * SECOND }, now, BOUNDS)).toEqual({ error: "The key timeout must be at least 1 min." });
     expect(tenderArgsFromForm({ ...form, revealWindow: 8n * 86_400n * SECOND }, now, BOUNDS)).toEqual({ error: "The reveal window must be at most 7 d." });
     expect(tenderArgsFromForm({ ...form, revealWindow: null }, now, BOUNDS)).toEqual({ error: "Enter the reveal window in whole minutes." });
+  });
+  it("refuses a class that is fully unlocked at the close time, as the engine does", () => {
+    const now = Date.UTC(2026, 10, 4, 12, 0);
+    const form = { classId: "c", chain: "Base" as const, venue: "Near" as const, budget: 950_000_000n, mode: "price" as const, maxPrice: 9_000_000n, referencePrice: null, discountBps: null, retireTo: "0x000000000000000000000000000000000000dead", window: { opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND };
+    const start = BigInt(Date.UTC(2026, 9, 1) / 1000);
+    const schedule = (end: bigint) => ({ kind: "Linear" as const, start, cliff: 0n, end, granularity: 1n, total: 1n, startUnlock: 0n, cliffUnlock: 0n, minDeposit: 10n ** 18n });
+    const endsBeforeClose = { decimals: 18, schedule: schedule(BigInt(Date.UTC(2026, 10, 4, 18, 0) / 1000)) };
+    expect(tenderArgsFromForm({ ...form, unlock: endsBeforeClose }, now, BOUNDS)).toEqual({ error: expect.stringContaining("fully unlocked at the close time") });
+    const endsLater = { decimals: 18, schedule: schedule(BigInt(Date.UTC(2027, 10, 4) / 1000)) };
+    expect(tenderArgsFromForm({ ...form, unlock: endsLater }, now, BOUNDS)).toHaveProperty("args");
+  });
+  it("starts round forms on a class that is still locked", () => {
+    const cls = (classId: string, fractionNow: bigint) => ({ classId, fractionNow }) as ClassInfo;
+    expect(defaultRoundClass([cls("done", ONE), cls("live", ONE / 2n)])).toBe("live");
+    expect(defaultRoundClass([cls("done", ONE)])).toBe("done");
+    expect(defaultRoundClass([])).toBe("");
+    expect(isFullyUnlocked(cls("done", ONE))).toBe(true);
   });
 });
 
@@ -162,9 +191,31 @@ describe("tender report", () => {
     const csv = tenderReportCsv({ engine: "engine.rose-app.testnet", round, cls, symbol: "CINDR", bids, result: null, events: [], generatedAt: Date.UTC(2026, 10, 4) });
     const lines = csv.split("\n");
     expect(lines[0]).toBe("section,field,value,,,,");
-    expect(csv).toContain("parameters,budget,950.00");
-    expect(csv).toContain("asks,0,halden.testnet,100.0000,100.0000,9.000000,Opened");
-    expect(csv).toContain("candidates,9.000000,100.0000,105.5555,100.0000,true,");
+    // Exact, separator-free values and ISO times, so a spreadsheet or a script reads them back without loss.
+    expect(csv).toContain("parameters,budget_usdc,950\n");
+    expect(csv).toContain("asks,0,halden.testnet,100,100,9,Opened");
+    expect(csv).toContain("candidates,9,100,105.555555555555555555,100,true,");
+    expect(csv).toContain(`parameters,opens_at_utc,${new Date(Number(T0) * 1000).toISOString()}`);
+    expect(csv).not.toMatch(/"\d{1,3}(,\d{3})+/);
+    const result: RoundResult = { price: 9_000_000n, volume: 1_666_666_666_666_666_666_666n, notional: 59_999_999n, fee: 180_000n, issuerCharged: 59_999_999n, issuerRefund: 1n, remainingLockSecs: DAY, fills: [] };
+    const settled = tenderReportCsv({ engine: "e", round, cls, symbol: "CINDR", bids, result, events: [], generatedAt: 0 });
+    expect(settled).toContain("result,volume_units,1666.666666666666666666\n");
+    expect(settled).toContain("result,notional_usdc,59.999999\n");
     expect(eventsOfRound([{ seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "7" } } }], 7n)).toHaveLength(1);
+  });
+
+  it("leaves out base_cash_registered events, whose round id is only a depositCash earmark", () => {
+    const events = [
+      { seq: 57n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "base_cash_registered", data: { round_id: "0" } } },
+      { seq: 58n, blockHeight: 2n, timestamp: 0n, predecessor: "a", event: { event: "round_cleared", data: { round_id: "0" } } },
+    ] as never;
+    expect(eventsOfRound(events, 0n).map((entry) => entry.seq)).toEqual([58n]);
+  });
+
+  it("treats a round as final once settled or cancelled with every order settled", () => {
+    expect(isFinalRound({ status: "Settled", bidCount: 2, settledCount: 2 })).toBe(true);
+    expect(isFinalRound({ status: "Settled", bidCount: 2, settledCount: 1 })).toBe(false);
+    expect(isFinalRound({ status: "Cancelled", bidCount: 0, settledCount: 0 })).toBe(true);
+    expect(isFinalRound({ status: "Open", bidCount: 0, settledCount: 0 })).toBe(false);
   });
 });

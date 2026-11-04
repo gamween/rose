@@ -92,7 +92,21 @@ export const SELECTORS = {
   "symbol()": "0x95d89b41",
   "decimals()": "0x313ce567",
   "totalSupply()": "0x18160ddd",
+  "balanceOf(address)": "0x70a08231",
 } as const;
+
+/** Call data of `balanceOf(holder)`: the selector and the address left-padded to one word. */
+export function balanceOfData(holder: string): string {
+  return `${SELECTORS["balanceOf(address)"]}${holder.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+}
+
+/** EVM `eth_getBalance` at `latest`, in wei. */
+export async function ethBalance(address: string, options: ViewOptions = {}): Promise<bigint> {
+  const body = await postJson<string>(options.rpcUrl ?? BASE_SEPOLIA_RPC, { jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [address, "latest"] }, options);
+  if (body.error) throw new EngineViewError("execution", body.error.message ?? "The Base RPC returned an error.");
+  if (typeof body.result !== "string") throw new EngineViewError("invalid_response", "eth_getBalance returned no value.");
+  return BigInt(body.result);
+}
 
 function word(hex: string, index: number): string {
   const start = 2 + index * 64;

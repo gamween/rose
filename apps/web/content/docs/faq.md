@@ -82,7 +82,7 @@ A holder sells a senior claim on the first `K` tokens that will unlock from `X` 
 
 ### What is a cash venue?
 
-The place where a round's cash lives: NEAR tUSDC, or Base USDC held by RoseVault. Each round declares exactly one at creation; every escrow, bond, fee and seller proceed of that round is claimable only there.
+The place where a round's cash lives: NEAR tUSDC, or a Base ERC-20 the engine accepts (rose Base tUSDC or Circle USDC on Base Sepolia), held by RoseVault. Each round declares exactly one at creation; every escrow, bond, fee and seller proceed of that round is claimable only there.
 
 ## Mechanism
 
@@ -108,7 +108,7 @@ After `closes_at + key_timeout` (default 1 h), once no key request is in flight,
 
 ### What is the bond?
 
-`max(1 USDC, 1% of the bid's escrow or of its locked units valued at the round's max price)`, posted in the round's cash token with each bid and refunded on a valid opening.
+`max(1 USDC, 1% of the bid's escrow or of its locked units valued at the round's max price)`, posted in the round's cash token with each bid and refunded on a valid opening. It is slashed when the order is void at opening: never opened, an escrow below its sealed `limit * quantity` plus fee, a quantity above its locked units, a buy quantity above the round's largest buy quantity, or an Advance reserve whose quantity is not the claim `K`.
 
 ### How is the clearing price computed?
 
@@ -150,7 +150,7 @@ No. It is a demo convenience that sends a little testnet gas from a server-side 
 
 ### Which wallets?
 
-NEAR Wallet Selector wallets on testnet; injected EVM wallets on Base Sepolia; Phantom and Solflare on Solana devnet; plus an in-app demo wallet for each chain, for judges.
+NEAR Connect (`@hot-labs/near-connect`) wallets on testnet (Meteor, Intear, Nightly and the others its manifest flags for testnet); injected EVM wallets on Base Sepolia; Phantom and Solflare on Solana devnet; plus an in-app demo wallet for each chain, for judges.
 
 ### Can I sell a position from the vault and keep nothing on NEAR?
 

@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * The filterable, cursor-paginated rounds list (`get_rounds` returns `{ rounds, next }`; the
- * engine scans at most 200 ids per call, so an empty page with a cursor just means "keep
- * scanning"). Classes and token symbols are read once for the filter and the card labels.
+ * The filterable rounds list, newest first (the open rounds are the newest), paged backwards in
+ * id windows below `stats().rounds_total` (see `fetchNewestRounds`). Classes and token symbols are
+ * read once for the filter and the card labels.
  */
 
 import type { ClassInfo, Round, RoundFilter, RoundKind, RoundStatus } from "@rose/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveQuery, type QueryState } from "@/components/status/useLiveQuery";
-import { classSymbols, fetchAllClasses, fetchRoundsPage, rethrowNotDeployed, roundsEngine, ROUNDS_PAGE_SIZE, type RoundsEngine } from "./engine";
+import { classSymbols, fetchAllClasses, fetchNewestRounds, rethrowNotDeployed, roundsEngine, type RoundsEngine } from "./engine";
 
 export interface RoundsFilterState {
   kind: RoundKind | "";
@@ -66,34 +66,20 @@ async function summarizeBooks(engine: RoundsEngine, rounds: readonly Round[], si
 }
 
 const POLL_MS = 15_000;
-/** Pages fetched in one go while the scan window returns nothing (sparse filters). */
-const MAX_EMPTY_SCANS = 5;
 
+/** The first page lists the newest rounds (the open ones), starting below the next round id. */
 async function fetchFirstPage(filter: RoundFilter, signal: AbortSignal): Promise<RoundsListData> {
   const engine = roundsEngine();
   if (!engine) throw new Error("engine not configured");
   try {
-    const [classes, block] = await Promise.all([fetchAllClasses(engine, signal), engine.views.raw.rpc.block("final", signal)]);
+    const [classes, block, stats] = await Promise.all([fetchAllClasses(engine, signal), engine.views.raw.rpc.block("final", signal), engine.views.stats({ signal })]);
     const symbols = await classSymbols(classes);
-    const { rounds, next } = await fetchPages(engine, filter, null, signal);
+    const { rounds, next } = await fetchNewestRounds(engine, filter, BigInt(stats.roundsTotal), signal);
     const books = await summarizeBooks(engine, rounds, signal);
     return { engine, classes, symbols, rounds, books, next, blockTimeMs: Number(BigInt(block.header.timestamp_nanosec) / 1_000_000n) };
   } catch (error) {
     rethrowNotDeployed(error);
   }
-}
-
-/** Keeps scanning while the engine returns an empty window with a cursor, up to a bounded number of calls. */
-async function fetchPages(engine: RoundsEngine, filter: RoundFilter, from: bigint | null, signal: AbortSignal): Promise<{ rounds: Round[]; next: bigint | null }> {
-  const rounds: Round[] = [];
-  let cursor = from;
-  for (let scans = 0; scans < MAX_EMPTY_SCANS; scans += 1) {
-    const page = await fetchRoundsPage(engine, filter, cursor, ROUNDS_PAGE_SIZE, signal);
-    rounds.push(...page.rounds);
-    cursor = page.next;
-    if (cursor === null || rounds.length >= ROUNDS_PAGE_SIZE) break;
-  }
-  return { rounds, next: cursor };
 }
 
 export function useRoundsList(filter: RoundsFilterState): {
@@ -134,7 +120,7 @@ export function useRoundsList(filter: RoundsFilterState): {
     setLoadMoreError(null);
     try {
       const signal = new AbortController().signal;
-      const page = await fetchPages(state.value.engine, roundFilter, cursor, signal);
+      const page = await fetchNewestRounds(state.value.engine, roundFilter, cursor, signal);
       const books = await summarizeBooks(state.value.engine, page.rounds, signal);
       setExtraState((current) => {
         const same = current.key === filterKey;

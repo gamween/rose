@@ -80,6 +80,8 @@ export type WalletRuntimeValue = {
   disconnectNear: () => Promise<void>;
   forgetNearDemo: () => void;
   markNearDemoCreated: () => void;
+  /** Keeps the demo key under a fresh account id, when the generated id is someone else's account. */
+  renewNearDemoAccountId: () => Promise<NearDemoWallet>;
   /** Signs and sends one engine or token call with whichever NEAR wallet is connected. */
   sendNearCall: (call: FunctionCall) => Promise<FinalExecutionOutcome>;
   evmConnectors: readonly Connector[];
@@ -217,6 +219,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       disconnectNear: () => viaRuntime((runtime) => runtime.disconnectNear()),
       forgetNearDemo: () => void viaRuntime((runtime) => runtime.forgetNearDemo()).catch(() => undefined),
       markNearDemoCreated: () => void viaRuntime((runtime) => runtime.markNearDemoCreated()).catch(() => undefined),
+      renewNearDemoAccountId: () => viaRuntime((runtime) => runtime.renewNearDemoAccountId()),
       sendNearCall: (call) => viaRuntime((runtime) => runtime.sendNearCall(call)),
       evmConnectors: [],
       connectEvm: (connector) => viaRuntime((runtime) => runtime.connectEvm(connector)),

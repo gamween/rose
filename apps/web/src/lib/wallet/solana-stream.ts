@@ -59,7 +59,7 @@ async function demoTokenBalance(connection: Connection, owner: PublicKey, mint: 
 
 type FaucetReply = { signature?: string; error?: string; message?: string };
 
-const FAUCET_ERROR_KIND: Record<string, ActionErrorKind> = { rate_limited: "rate_limited", faucet_dry: "insufficient_balance", not_configured: "not_deployed", invalid_request: "contract", upstream: "rpc" };
+const FAUCET_ERROR_KIND: Record<string, ActionErrorKind> = { rate_limited: "rate_limited", already_funded: "rate_limited", faucet_dry: "insufficient_balance", not_configured: "not_deployed", invalid_request: "contract", upstream: "rpc" };
 
 /** Asks `/api/faucet` for the demo tokens (server-side hot wallet, the faucet's limits apply); returns the transfer signature. */
 export async function requestDemoTokens(owner: PublicKey): Promise<string> {

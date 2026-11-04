@@ -10,9 +10,11 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { deployedAddress, NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
-import { CHAIN_LABEL, txLinks, type ChainId } from "@/lib/explorer";
+import { addressUrl, CHAIN_LABEL, txLinks, type ChainId } from "@/lib/explorer";
 import { formatUnits } from "@/lib/format";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
+import { nearDemoKeyIsOnAccount } from "@/lib/wallet/near-demo";
+import { requireSuccessfulReceipt } from "@/lib/wallet/receipt";
 import { createSolanaDemoPosition, demoPositionLinks } from "@/lib/wallet/solana-stream";
 import { LearnMore } from "./LearnMore";
 
@@ -38,6 +40,8 @@ function faucetError(failure: FaucetFailure): RoseActionError {
   switch (failure.error) {
     case "rate_limited":
       return new RoseActionError("rate_limited", "Faucet limit reached", failure.message);
+    case "already_funded":
+      return new RoseActionError("rate_limited", "Already funded", failure.message);
     case "faucet_dry":
       return new RoseActionError("insufficient_balance", "Faucet empty", failure.message);
     case "not_configured":
@@ -213,9 +217,23 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               onRun={() =>
                 void runNearAccount("Creating the NEAR demo account", async () => {
                   if (!nearDemo) throw new Error("No NEAR demo wallet.");
-                  const result = (await callFaucet({ chain: "near", accountId: nearDemo.accountId, publicKey: nearDemo.publicKey })) as { txHash: string; amount: string };
+                  const create = async (demo: { accountId: string; publicKey: string }) => (await callFaucet({ chain: "near", accountId: demo.accountId, publicKey: demo.publicKey })) as { txHash: string; amount: string };
+                  let demo = nearDemo;
+                  let result: { txHash: string; amount: string };
+                  try {
+                    result = await create(demo);
+                  } catch (error) {
+                    if (!(error instanceof RoseActionError) || !/already exists/.test(error.message)) throw error;
+                    /* The id is taken: by this very key (an earlier creation whose answer was lost), or by someone else. */
+                    if (await nearDemoKeyIsOnAccount(demo)) {
+                      wallets.markNearDemoCreated();
+                      return { message: `Account ${demo.accountId} already exists with this demo key`, links: [{ href: addressUrl("near", demo.accountId), label: "Account on near.rocks" }] };
+                    }
+                    demo = await wallets.renewNearDemoAccountId();
+                    result = await create(demo);
+                  }
                   wallets.markNearDemoCreated();
-                  return { message: `Account ${nearDemo.accountId} created with ${result.amount}`, links: txLinks("near", result.txHash) };
+                  return { message: `Account ${demo.accountId} created with ${result.amount}`, links: txLinks("near", result.txHash) };
                 })
               }
             />
@@ -258,7 +276,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title="Mint 1,000 tUSDC on Base"
               description={
                 <>
-                  Public capped mint on rose Test USDC (10,000 per address per 24 h). Needs a little ETH for gas.
+                  Public capped mint on rose Test USDC: 10,000 tUSDC per address per 24-hour window, which starts at your first mint after the previous window ended. Needs a little ETH for gas.
                   {wallets.balances.baseTusdc !== null ? ` Balance: ${formatUnits(wallets.balances.baseTusdc, 6)} tUSDC.` : ""}
                 </>
               }
@@ -269,7 +287,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                   if (!baseTusdc) throw new Error("Test USDC is not deployed.");
                   const wallet = await wallets.getEvmWalletClient();
                   const hash = await mintTestUsdc(wallet, baseTusdc, BASE_TUSDC_MINT);
-                  await basePublicClient().waitForTransactionReceipt({ hash });
+                  requireSuccessfulReceipt(await basePublicClient().waitForTransactionReceipt({ hash }), "The tUSDC mint");
                   return { message: "1,000 tUSDC minted on Base", links: txLinks("base", hash) };
                 })
               }
@@ -284,7 +302,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                   if (!demoFaucet) throw new Error("DemoStreamFaucet is not deployed.");
                   const wallet = await wallets.getEvmWalletClient();
                   const hash = await mintDemoPosition(wallet, demoFaucet, demoClass);
-                  const receipt = await basePublicClient().waitForTransactionReceipt({ hash });
+                  const receipt = requireSuccessfulReceipt(await basePublicClient().waitForTransactionReceipt({ hash }), "The demo position mint");
                   const minted = decodePositionMinted(receipt);
                   return { message: minted ? `Sablier stream #${minted.streamId.toString()} minted` : "Demo position minted", links: txLinks("base", hash) };
                 })
@@ -330,7 +348,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
             />
             <ActionRow
               title="Create a demo Streamflow position"
-              description="Creates a non-cancelable, transferable Streamflow stream of 1,000 demo tokens to your own address. The faucet sends the demo tokens when your wallet has none; your wallet pays about 0.012 SOL of rent and fees (send SOL first)."
+              description="Creates a non-cancelable, transferable Streamflow stream of 1,000 demo tokens to your own address. The faucet sends the demo tokens when your wallet holds fewer than 1,000; your wallet pays about 0.012 SOL of rent and fees (send SOL first)."
               state={solPosition}
               disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : null}
               onRun={() =>

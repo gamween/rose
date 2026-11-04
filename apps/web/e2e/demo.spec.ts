@@ -90,6 +90,36 @@ test.describe("guided demo", () => {
     expect(errors).toEqual([]);
   });
 
+  test("keyboard shortcuts stay with an open dialog, and the activity feed keeps the price decimals", async ({ page, isMobile }) => {
+    const errors = collectErrors(page);
+    await open(page, "?round=exit");
+    const step = page.locator("[data-demo-step]");
+    await expect(step).toHaveAttribute("data-demo-step", "custody");
+    if (isMobile) {
+      await page.getByRole("button", { name: "Open menu" }).click();
+      await page.locator("[data-menu-action='activity']").click();
+    } else {
+      await page.locator("[data-activity]").click();
+    }
+    const feed = page.getByRole("dialog", { name: "Activity" });
+    await expect(feed).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("End");
+    await expect(step).toHaveAttribute("data-demo-step", "custody");
+    // engine-s4 rounds #0 and #2 cleared at 36000 and 37500 base units: 0.036 and 0.0375, never "0.03".
+    await expect(feed.locator("[data-activity-feed]")).toContainText("Round #0 cleared at 0.036 USDC", { timeout: 20_000 });
+    await expect(feed.locator("[data-activity-feed]")).toContainText("Round #2 cleared at 0.0375 USDC");
+    await page.keyboard.press("Escape");
+    await expect(feed).toBeHidden();
+    await page.keyboard.press("ArrowRight");
+    await expect(step).toHaveAttribute("data-demo-step", "deposit");
+    await page.keyboard.press("End");
+    await expect(step).toHaveAttribute("data-demo-step", "payout");
+    await expect(page.locator("[data-demo-step]")).toContainText("claim_sol_tokens");
+    await expect(page.locator("[data-demo-tx='solana'] a").last()).toHaveAttribute("href", /^https:\/\/explorer\.solana\.com\/tx\/44Jfunex.+\?cluster=devnet$/);
+    expect(errors).toEqual([]);
+  });
+
   test("switches rounds, deep-links a step and autoplays with reduced motion", async ({ page }) => {
     const errors = collectErrors(page);
     await page.emulateMedia({ reducedMotion: "reduce" });

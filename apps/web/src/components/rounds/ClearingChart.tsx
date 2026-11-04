@@ -13,7 +13,7 @@ import { linearScale, useMeasure } from "@/components/prices/chart";
 import { CHART_GRID, CHART_REFERENCE, CHART_SERIES, CHART_SURFACE, CHART_TEXT } from "@/components/prices/palette";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { cn } from "@/lib/cn";
-import type { Curves, CurveStep } from "./curves";
+import { priceTickLabel, type Curves, type CurveStep } from "./curves";
 import { formatQty, formatUsdc } from "./model";
 
 const DEMAND = CHART_SERIES[0];
@@ -89,6 +89,7 @@ export function ClearingChart({ curves, decimals, kind, clearing, noCrossing, cl
   const demandPath = useMemo(() => stepPath(curves.steps, (s) => s.demand, x, y, decimals), [curves.steps, decimals, x, y]);
   const supplyPath = useMemo(() => stepPath(curves.steps, (s) => s.supply, x, y, decimals), [curves.steps, decimals, x, y]);
   const xTicks = ticks(maxPrice, 6).filter((tick) => tick <= maxPrice);
+  const xStep = xTicks.length > 1 ? (xTicks[1] ?? 0) - (xTicks[0] ?? 0) : maxPrice;
   const yTicks = ticks(maxQty * 1.1, 4);
   const hovered = hover !== null ? curves.steps[hover] : undefined;
 
@@ -199,8 +200,8 @@ export function ClearingChart({ curves, decimals, kind, clearing, noCrossing, cl
                 </g>
               ))}
               {xTicks.map((tick) => (
-                <text key={`x${String(tick)}`} x={x(tick)} y={HEIGHT - MARGIN.bottom + 16} textAnchor="middle" fontSize={11} fill={CHART_TEXT.muted} className="tabular">
-                  {compact(tick)}
+                <text key={`x${String(tick)}`} x={x(tick)} y={HEIGHT - MARGIN.bottom + 16} textAnchor="middle" fontSize={11} fill={CHART_TEXT.muted} className="tabular" data-price-tick>
+                  {priceTickLabel(tick, xStep)}
                 </text>
               ))}
               <text x={w - MARGIN.right} y={HEIGHT - 4} textAnchor="end" fontSize={10} fill={CHART_TEXT.muted}>

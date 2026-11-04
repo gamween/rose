@@ -4,9 +4,10 @@
  * the engine's bounds and the `retire_to` address checked against the class chain.
  */
 
-import { BPS_DENOMINATOR, fee, type Chain, type TenderArgs, type Venue } from "@rose/sdk";
+import { BPS_DENOMINATOR, fee, ONE, type Chain, type ClassInfo, type TenderArgs, type Venue } from "@rose/sdk";
 import { isEvmAddress, isSolanaAddress, msToNs } from "@/lib/amounts";
 import { durationErrors, horizonError, type WindowBounds } from "@/lib/round-window";
+import { fractionAt } from "@/lib/unlock-schedule";
 import { dateTimeToSeconds } from "./class-schedule";
 
 /** The EVM burn address convention (`0x…dEaD`) and the Solana incinerator, as retire-to shortcuts. */
@@ -85,6 +86,8 @@ export type TenderFormValues = {
   /** Nanoseconds; null when the field does not hold whole minutes. */
   keyTimeout: bigint | null;
   revealWindow: bigint | null;
+  /** The class schedule, to refuse a close time at which the class is fully unlocked (rounds.rs). */
+  unlock?: Pick<ClassInfo, "schedule" | "decimals">;
 };
 
 export type TenderFormResult = { args: TenderArgs } | { error: string };
@@ -106,6 +109,9 @@ export function tenderArgsFromForm(values: TenderFormValues, nowMs: number, limi
   if (retireError) return { error: retireError };
   const window = windowFromInput(values.window, nowMs, limits);
   if ("error" in window) return { error: window.error };
+  if (values.unlock && fractionAt(values.unlock, window.closesAt / 1_000_000_000n) >= ONE) {
+    return { error: "This class is fully unlocked at the close time, so nothing is left to buy back (the engine refuses it). Choose a class still locked then, or close earlier." };
+  }
   const durations = durationErrors({ keyTimeout: values.keyTimeout, revealWindow: values.revealWindow }, limits);
   if (durations.keyTimeout) return { error: durations.keyTimeout };
   if (durations.revealWindow) return { error: durations.revealWindow };

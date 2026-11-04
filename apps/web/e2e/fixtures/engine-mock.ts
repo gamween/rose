@@ -75,18 +75,19 @@ const classes = [
   },
 ];
 
+/** `get_price_history` points: `round_id` is a JSON number (`RoundId`, u64), as the live engine returns it; `get_rounds` ids are strings. */
 const history: Record<string, unknown[]> = {
   [SEED]: [
-    { round_id: "1", kind: "Tender", price: "7200000", remaining_lock_secs: String(320 * DAY), volume: "120000000000000000000000", settled_at: ns(NOW_SEC - 45 * DAY) },
-    { round_id: "3", kind: "Exit", price: "7850000", remaining_lock_secs: String(300 * DAY), volume: "40000000000000000000000", settled_at: ns(NOW_SEC - 25 * DAY) },
-    { round_id: "5", kind: "Exit", price: "8400000", remaining_lock_secs: String(288 * DAY), volume: "25000000000000000000000", settled_at: ns(NOW_SEC - 13 * DAY) },
-    { round_id: "7", kind: "Tender", price: "8100000", remaining_lock_secs: String(278 * DAY), volume: "60000000000000000000000", settled_at: ns(NOW_SEC - 3 * DAY) },
+    { round_id: 1, kind: "Tender", price: "7200000", remaining_lock_secs: String(320 * DAY), volume: "120000000000000000000000", settled_at: ns(NOW_SEC - 45 * DAY) },
+    { round_id: 3, kind: "Exit", price: "7850000", remaining_lock_secs: String(300 * DAY), volume: "40000000000000000000000", settled_at: ns(NOW_SEC - 25 * DAY) },
+    { round_id: 5, kind: "Exit", price: "8400000", remaining_lock_secs: String(288 * DAY), volume: "25000000000000000000000", settled_at: ns(NOW_SEC - 13 * DAY) },
+    { round_id: 7, kind: "Tender", price: "8100000", remaining_lock_secs: String(278 * DAY), volume: "60000000000000000000000", settled_at: ns(NOW_SEC - 3 * DAY) },
   ],
   [KOL]: [
-    { round_id: "4", kind: "Exit", price: "9100000", remaining_lock_secs: String(170 * DAY), volume: "8000000000000000000000", settled_at: ns(NOW_SEC - 20 * DAY) },
-    { round_id: "6", kind: "Advance", price: "9600000", remaining_lock_secs: String(158 * DAY), volume: "5000000000000000000000", settled_at: ns(NOW_SEC - 8 * DAY) },
+    { round_id: 4, kind: "Exit", price: "9100000", remaining_lock_secs: String(170 * DAY), volume: "8000000000000000000000", settled_at: ns(NOW_SEC - 20 * DAY) },
+    { round_id: 6, kind: "Advance", price: "9600000", remaining_lock_secs: String(158 * DAY), volume: "5000000000000000000000", settled_at: ns(NOW_SEC - 8 * DAY) },
   ],
-  [STRATEGIC]: [{ round_id: "2", kind: "Exit", price: "6900000", remaining_lock_secs: String(340 * DAY), volume: "30000000000000", settled_at: ns(NOW_SEC - 35 * DAY) }],
+  [STRATEGIC]: [{ round_id: 2, kind: "Exit", price: "6900000", remaining_lock_secs: String(340 * DAY), volume: "30000000000000", settled_at: ns(NOW_SEC - 35 * DAY) }],
 };
 
 const tenders = [
@@ -158,7 +159,8 @@ function engineView(method: string, args: Record<string, unknown>): unknown {
       return classes.find((cls) => cls.class_id === args.class_id) ?? null;
     case "get_price_history": {
       const points = history[String(args.class_id)] ?? [];
-      return { points, total: points.length };
+      const from = Number(args.from_index ?? 0);
+      return { points: points.slice(from, from + Number(args.limit ?? 50)), total: points.length };
     }
     case "get_rounds": {
       const from = Number(args.from_index ?? 0);
@@ -198,6 +200,8 @@ function baseCall(to: string, data: string): string {
       return `0x${word("6")}`;
     case "0x18160ddd":
       return `0x${word("2540be400")}`;
+    case "0x70a08231":
+      return `0x${word("3b9aca00")}`;
     default:
       throw new Error(`Unmocked selector ${selector}`);
   }
@@ -258,6 +262,7 @@ export async function mockChains(page: Page, overrides: MockOverrides = {}): Pro
     const custom = overrides.baseRequest?.(request.method, request.params);
     if (custom !== undefined) return fulfil(route, { jsonrpc: "2.0", id: request.id, result: custom });
     if (request.method === "eth_getCode") return fulfil(route, { jsonrpc: "2.0", id: request.id, result: "0x6080" });
+    if (request.method === "eth_getBalance") return fulfil(route, { jsonrpc: "2.0", id: request.id, result: "0x2386f26fc10000" });
     const call = request.params[0] as { to: string; data: string };
     return fulfil(route, { jsonrpc: "2.0", id: request.id, result: baseCall(call.to, call.data) });
   });

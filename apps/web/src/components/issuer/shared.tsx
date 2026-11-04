@@ -6,14 +6,14 @@
  * blocks for one-shot actions.
  */
 
-import { baseSepoliaChain, type ClassInfo, type ConfigView, type Limits } from "@rose/sdk";
+import { baseSepoliaChain, ONE, type ClassInfo, type ConfigView, type Limits } from "@rose/sdk";
 import { createPublicClient, http, type PublicClient } from "viem";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { ConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatDate, formatFraction, secondsToMs, shortHex, venueLabel } from "@/lib/amounts";
 import { engineClient, requireEngine, type EngineClient } from "@/lib/engine-client";
@@ -80,8 +80,34 @@ export function classLabel(cls: ClassInfo, symbols: ReadonlyMap<string, string>)
   return `${classSymbol(cls, symbols)} · ${cls.chain} · ends ${new Date(secondsToMs(bounds.end)).toISOString().slice(0, 10)} · ${shortHex(cls.classId, 6, 4)}`;
 }
 
-/** Native select over the engine's classes. */
-export function ClassPicker({ classes, symbols, value, onChange, id, disabled }: { classes: ClassInfo[]; symbols: ReadonlyMap<string, string>; value: string; onChange: (classId: string) => void; id?: string; disabled?: boolean }) {
+/** Whether every token of the class is unlocked already: no round can lock what is left. */
+export function isFullyUnlocked(cls: Pick<ClassInfo, "fractionNow">): boolean {
+  return cls.fractionNow >= ONE;
+}
+
+/** The class a round form starts on: the first one still locked, else the first one. */
+export function defaultRoundClass(classes: readonly ClassInfo[]): string {
+  return (classes.find((cls) => !isFullyUnlocked(cls)) ?? classes[0])?.classId ?? "";
+}
+
+/** Native select over the engine's classes; with `lockedOnly`, fully unlocked classes are listed but disabled. */
+export function ClassPicker({
+  classes,
+  symbols,
+  value,
+  onChange,
+  id,
+  disabled,
+  lockedOnly = false,
+}: {
+  classes: ClassInfo[];
+  symbols: ReadonlyMap<string, string>;
+  value: string;
+  onChange: (classId: string) => void;
+  id?: string;
+  disabled?: boolean;
+  lockedOnly?: boolean;
+}) {
   return (
     <select
       id={id}
@@ -92,11 +118,15 @@ export function ClassPicker({ classes, symbols, value, onChange, id, disabled }:
       data-class-picker
     >
       <option value="">Choose a class</option>
-      {classes.map((cls) => (
-        <option key={cls.classId} value={cls.classId}>
-          {classLabel(cls, symbols)}
-        </option>
-      ))}
+      {classes.map((cls) => {
+        const unlocked = lockedOnly && isFullyUnlocked(cls);
+        return (
+          <option key={cls.classId} value={cls.classId} disabled={unlocked}>
+            {classLabel(cls, symbols)}
+            {unlocked ? " · fully unlocked" : ""}
+          </option>
+        );
+      })}
     </select>
   );
 }
@@ -249,6 +279,19 @@ export function useVenueOptions(base: IssuerBase | null): { id: string; label: s
   }, [base]);
 }
 
+/** Opens the connect modal on the NEAR tab: the issuer signs with a NEAR account. */
+function IssuerConnectButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} data-issuer-connect>
+        Connect NEAR
+      </Button>
+      <ConnectModal open={open} onClose={() => setOpen(false)} initialChain="near" />
+    </>
+  );
+}
+
 /** The shared calm states: engine not deployed, loading, read error, no NEAR wallet. */
 export function IssuerGate({ state, onRetry, children }: { state: EngineQueryState<IssuerBase>; onRetry: () => void; children: (base: IssuerBase) => ReactNode }) {
   const wallets = useWallets();
@@ -291,7 +334,7 @@ export function IssuerGate({ state, onRetry, children }: { state: EngineQuerySta
           illustration="ledger"
           title="Connect a NEAR wallet to act as the issuer"
           description="Every issuer action (registering cohort deposits, distributing units, creating and funding a Tender) is signed by your NEAR account. Previews below work without a wallet."
-          action={<Badge tone="ember">Top bar → Connect</Badge>}
+          action={<IssuerConnectButton />}
         />
         {children(state.value)}
       </div>

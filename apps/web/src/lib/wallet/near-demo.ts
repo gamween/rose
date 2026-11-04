@@ -70,9 +70,19 @@ export async function nearAccountExists(accountId: string): Promise<boolean> {
   }
 }
 
-export async function nearBalanceYocto(accountId: string): Promise<bigint> {
-  const view = await nearRpc().viewAccount(accountId);
-  return BigInt(view.amount);
+/** Whether the demo key is an access key of its account id, so an existing account is this wallet's own. */
+export async function nearDemoKeyIsOnAccount(wallet: Pick<NearDemoWallet, "accountId" | "publicKey">, rpc: Pick<NearRpc, "viewAccessKey"> = nearRpc()): Promise<boolean> {
+  try {
+    await rpc.viewAccessKey(wallet.accountId, wallet.publicKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The same key under a fresh account id, for when the generated id turns out to be taken by someone else. */
+export function withFreshDemoAccountId(wallet: NearDemoWallet, accountId = randomDemoAccountId()): NearDemoWallet {
+  return { ...wallet, accountId };
 }
 
 /** Signs and sends one function call with the demo key; throws a `RoseActionError` on failure. */
@@ -89,23 +99,6 @@ export async function sendNearDemoCall(wallet: NearDemoWallet, call: FunctionCal
   } catch (error) {
     throw error instanceof Error ? error : new RoseActionError("unknown", "Transaction failed", String(error));
   }
-  const failure = outcomeFailure(outcome);
-  if (failure !== null) {
-    const described = failureToActionError(failure);
-    throw new RoseActionError(described.kind, described.title, described.message, described.retryable);
-  }
-  return outcome;
-}
-
-/** Sends plain NEAR from the demo account (used to top up another account in the funds panel). */
-export async function sendNearDemoTransfer(wallet: NearDemoWallet, receiverId: string, amountYocto: bigint): Promise<FinalExecutionOutcome> {
-  const account = nearDemoAccount(wallet);
-  const outcome = (await account.signAndSendTransaction({
-    receiverId,
-    actions: [actions.transfer(amountYocto)],
-    waitUntil: "EXECUTED_OPTIMISTIC",
-    throwOnFailure: false,
-  })) as unknown as FinalExecutionOutcome;
   const failure = outcomeFailure(outcome);
   if (failure !== null) {
     const described = failureToActionError(failure);

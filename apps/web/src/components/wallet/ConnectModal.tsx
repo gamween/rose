@@ -64,7 +64,15 @@ export function ConnectModal({ open, onClose, initialChain = "near" }: { open: b
   const wallets = useWallets();
   const toast = useToast();
   const [chain, setChain] = useState<ChainId>(initialChain);
+  const [openedWith, setOpenedWith] = useState<ChainId | null>(open ? initialChain : null);
   const [busy, setBusy] = useState(false);
+  /* The modal stays mounted: every opening starts on the chain the caller asked for. */
+  if (open && openedWith !== initialChain) {
+    setOpenedWith(initialChain);
+    setChain(initialChain);
+  } else if (!open && openedWith !== null) {
+    setOpenedWith(null);
+  }
   const { loadWallets, walletsStatus } = wallets;
 
   /* The wallet SDKs load when the modal opens; every row also awaits them when clicked first. */

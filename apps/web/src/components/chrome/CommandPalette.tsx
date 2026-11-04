@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { GITHUB_URL, ROUTES } from "@/lib/routes";
+import { REPOSITORY_URL, ROUTES } from "@/lib/routes";
 
 export type PaletteCommand = {
   id: string;
@@ -13,6 +13,16 @@ export type PaletteCommand = {
   keywords?: string;
   run: () => void;
 };
+
+/** The groups in the order the palette shows them. */
+export const PALETTE_GROUPS: readonly PaletteCommand["group"][] = ["Actions", "Navigate", "Help"];
+
+/** Commands matching `query`, grouped in display order, so the n-th entry is the n-th row on screen. */
+export function orderedMatches(commands: readonly PaletteCommand[], query: string): PaletteCommand[] {
+  const needle = query.trim().toLowerCase();
+  const matches = needle ? commands.filter((command) => `${command.label} ${command.hint ?? ""} ${command.keywords ?? ""}`.toLowerCase().includes(needle)) : commands;
+  return PALETTE_GROUPS.flatMap((group) => matches.filter((command) => command.group === group));
+}
 
 /** Cmd+K / Ctrl+K palette with navigation and the global actions. */
 export function CommandPalette({ open, onClose, commands }: { open: boolean; onClose: () => void; commands: PaletteCommand[] }) {
@@ -34,17 +44,14 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
       { id: "nav-docs", label: "Docs", hint: "/docs", group: "Help", keywords: "documentation guide", run: () => router.push(ROUTES.docs) },
       { id: "nav-contracts", label: "Contracts and addresses", hint: "/docs/contracts", group: "Help", run: () => router.push(ROUTES.contracts) },
       { id: "nav-status", label: "Status", hint: "/status", group: "Help", keywords: "keyless mpc latency", run: () => router.push(ROUTES.status) },
-      { id: "nav-github", label: "GitHub repository", hint: "github.com", group: "Help", run: () => window.open(GITHUB_URL, "_blank", "noopener") },
+      ...(REPOSITORY_URL ? [{ id: "nav-github", label: "GitHub repository", hint: "github.com", group: "Help" as const, run: () => window.open(REPOSITORY_URL ?? "", "_blank", "noopener") }] : []),
       ...commands,
     ],
     [commands, router],
   );
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return all;
-    return all.filter((command) => `${command.label} ${command.hint ?? ""} ${command.keywords ?? ""}`.toLowerCase().includes(needle));
-  }, [all, query]);
+  /** The matches in display order (Actions, Navigate, Help): the keyboard, the highlight and Enter all index this one list. */
+  const filtered = useMemo(() => orderedMatches(all, query), [all, query]);
 
   const active = Math.min(cursor, Math.max(0, filtered.length - 1));
 
@@ -76,8 +83,6 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
     command.run();
   };
 
-  const groups: PaletteCommand["group"][] = ["Actions", "Navigate", "Help"];
-  let flatIndex = -1;
 
   return (
     <dialog
@@ -88,7 +93,8 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
       aria-label="Command palette"
       className="mx-auto mt-[10vh] w-[calc(100%-32px)] max-w-xl rounded-lg border border-ink-700 bg-ink-850 p-0 text-ink-100 shadow-2xl backdrop:bg-ink-950/80 backdrop:backdrop-blur-[2px]"
     >
-      <div className="flex items-center gap-2 border-b border-ink-750 px-3">
+      {/* The focus ring sits on the search row, flush with it, instead of the global outline offset around the bare input. */}
+      <div className="flex items-center gap-2 border-b border-ink-750 px-3 focus-within:shadow-[inset_0_-2px_0_var(--color-ember-400)]" data-palette-row>
         <span aria-hidden className="font-display text-[11px] uppercase tracking-wide text-ember-300">⌘K</span>
         <input
           ref={inputRef}
@@ -112,30 +118,26 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
           aria-controls={listId}
           aria-activedescendant={filtered[active] ? `${listId}-${filtered[active].id}` : undefined}
           placeholder="Go to a page or run an action"
-          className="h-12 w-full bg-transparent text-[14px] text-ink-50 placeholder:text-ink-400 focus:outline-none"
+          style={{ outline: "none" }}
+          className="h-12 w-full bg-transparent text-[14px] text-ink-50 placeholder:text-ink-400"
           data-palette-input
         />
       </div>
       <ul id={listId} role="listbox" className="max-h-[50vh] overflow-y-auto py-2">
         {filtered.length === 0 ? <li className="px-4 py-6 text-center text-[13px] text-ink-400">No match for “{query}”.</li> : null}
-        {groups.map((group) => {
-          const items = filtered.filter((command) => command.group === group);
+        {PALETTE_GROUPS.map((group) => {
+          const items = filtered.flatMap((command, index) => (command.group === group ? [{ command, index }] : []));
           if (items.length === 0) return null;
           return (
             <li key={group} role="presentation">
               <p className="px-4 pb-1 pt-2 font-display text-[11px] uppercase tracking-wide text-ink-400">{group}</p>
               <ul role="group" aria-label={group}>
-                {items.map((command) => {
-                  flatIndex += 1;
-                  const selected = flatIndex === active;
-                  const index = flatIndex;
-                  return (
-                    <PaletteItem key={command.id} id={`${listId}-${command.id}`} selected={selected} onHover={() => setActive(index)} onSelect={() => choose(command)}>
-                      <span className="text-[13px] text-ink-50">{command.label}</span>
-                      {command.hint ? <span className="tabular text-[11px] text-ink-400">{command.hint}</span> : null}
-                    </PaletteItem>
-                  );
-                })}
+                {items.map(({ command, index }) => (
+                  <PaletteItem key={command.id} id={`${listId}-${command.id}`} selected={index === active} onHover={() => setActive(index)} onSelect={() => choose(command)}>
+                    <span className="text-[13px] text-ink-50">{command.label}</span>
+                    {command.hint ? <span className="tabular text-[11px] text-ink-400">{command.hint}</span> : null}
+                  </PaletteItem>
+                ))}
               </ul>
             </li>
           );

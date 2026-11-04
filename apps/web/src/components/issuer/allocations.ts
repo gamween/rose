@@ -3,7 +3,11 @@
  * pastes, their validation against the unit schedule, and batching under the engine limit.
  */
 
+import { RECORD_STORAGE_DEPOSIT } from "@rose/sdk";
 import { isNearAccountId, parseAmount } from "@/lib/amounts";
+
+/** `RoseVault.MAX_ALLOCATIONS`: `createStreams` reverts `TooManyAllocations` above it. */
+export const MAX_COHORT_ALLOCATIONS = 50;
 
 export type AllocationRow = { account: string; amount: string };
 
@@ -22,10 +26,12 @@ export function parseAllocationLines(text: string): AllocationRow[] {
 }
 
 /**
- * Validates rows for `createStreams`: a NEAR account, a positive amount in whole-token text,
- * a multiple of `unitAmount` (base units) when one is given, no duplicate accounts.
+ * Validates rows for `createStreams`: a NEAR account, a positive amount in whole-token text, at
+ * least `minimum` base units when one is given (RoseVault refuses an allocation below one whole
+ * token, `AmountBelowMinimum`), a multiple of `unitAmount` (base units) when one is given, no
+ * duplicate accounts.
  */
-export function checkRows(rows: readonly AllocationRow[], decimals: number, unitAmount: bigint | null): CheckedRow[] {
+export function checkRows(rows: readonly AllocationRow[], decimals: number, unitAmount: bigint | null, minimum: bigint | null = null): CheckedRow[] {
   const seen = new Set<string>();
   return rows.map((row) => {
     const amountUnits = parseAmount(row.amount, decimals);
@@ -34,6 +40,7 @@ export function checkRows(rows: readonly AllocationRow[], decimals: number, unit
     else if (seen.has(row.account)) error = "Duplicate account.";
     else if (amountUnits === null) error = `Not an amount (at most ${String(decimals)} decimals).`;
     else if (amountUnits <= 0n) error = "The amount must be positive.";
+    else if (minimum !== null && amountUnits < minimum) error = "At least one whole token per holder (RoseVault minimum).";
     else if (unitAmount !== null && unitAmount > 0n && amountUnits % unitAmount !== 0n) error = "Not a multiple of the unit amount.";
     seen.add(row.account);
     return { ...row, amountUnits, error };
@@ -42,6 +49,20 @@ export function checkRows(rows: readonly AllocationRow[], decimals: number, unit
 
 export function rowsTotal(rows: readonly CheckedRow[]): bigint {
   return rows.reduce((sum, row) => sum + (row.error === null && row.amountUnits !== null ? row.amountUnits : 0n), 0n);
+}
+
+/** Why RoseVault would refuse the cohort as a whole, or null. */
+export function cohortSizeError(count: number): string | null {
+  return count > MAX_COHORT_ALLOCATIONS ? `RoseVault takes at most ${String(MAX_COHORT_ALLOCATIONS)} holders per createStreams; split the cohort (${String(count)} rows).` : null;
+}
+
+/**
+ * What `distribute_units` needs attached for one receiver: `registration_deposit_for` minus the
+ * deposit-record storage it includes (`RECORD_STORAGE_DEPOSIT`), which only a deposit
+ * registration keeps. 0 means the receiver can already hold the units.
+ */
+export function distributionDeposit(registrationDeposit: bigint): bigint {
+  return registrationDeposit > RECORD_STORAGE_DEPOSIT ? registrationDeposit - RECORD_STORAGE_DEPOSIT : 0n;
 }
 
 /** Splits receivers into batches of at most `max` (the engine's `max_distribution_receivers`). */

@@ -3,7 +3,7 @@ import { KeyPair } from "near-api-js";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { baseSepoliaWalletTransport, forgetEvmDemoWallet, generateEvmDemoWallet, loadEvmDemoWallet, saveEvmDemoWallet } from "./evm-demo";
-import { generateNearDemoWallet, loadNearDemoWallet, randomDemoAccountId, saveNearDemoWallet } from "./near-demo";
+import { generateNearDemoWallet, loadNearDemoWallet, nearDemoKeyIsOnAccount, randomDemoAccountId, saveNearDemoWallet, withFreshDemoAccountId } from "./near-demo";
 import { generateSolanaDemoWallet, loadSolanaDemoWallet, saveSolanaDemoWallet, signWithSolanaDemo, solanaDemoKeypair } from "./solana-demo";
 import { exportEvmDemoWallet, exportNearDemoWallet, exportSolanaDemoWallet } from "./export";
 import { DEMO_STORAGE_KEYS, readStored, writeStored } from "./storage";
@@ -79,6 +79,19 @@ describe("demo wallets", () => {
     writeStored(DEMO_STORAGE_KEYS.solana, { secretKey: [1, 2, 3] });
     expect(loadSolanaDemoWallet()).toBeNull();
     expect(readStored(DEMO_STORAGE_KEYS.near)).toBeNull();
+  });
+});
+
+describe("NEAR demo account id collisions", () => {
+  it("recognizes its own key on an existing account and keeps the key under a fresh id otherwise", async () => {
+    const wallet = generateNearDemoWallet("rose-demo-aaaaaa.testnet");
+    const own = { viewAccessKey: async () => ({ nonce: 1, permission: "FullAccess" }) } as unknown as Parameters<typeof nearDemoKeyIsOnAccount>[1];
+    const other = { viewAccessKey: () => Promise.reject(new Error("access key does not exist")) } as unknown as Parameters<typeof nearDemoKeyIsOnAccount>[1];
+    expect(await nearDemoKeyIsOnAccount(wallet, own)).toBe(true);
+    expect(await nearDemoKeyIsOnAccount(wallet, other)).toBe(false);
+    const renewed = withFreshDemoAccountId(wallet, "rose-demo-bbbbbb.testnet");
+    expect(renewed).toEqual({ ...wallet, accountId: "rose-demo-bbbbbb.testnet" });
+    expect(withFreshDemoAccountId(wallet).accountId).toMatch(/^rose-demo-[a-z0-9]{6}\.testnet$/);
   });
 });
 

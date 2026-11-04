@@ -16,13 +16,15 @@ export type AdvanceData = {
   symbols: Map<string, string>;
   /** Open first, then scheduled, newest first within each. */
   rounds: Round[];
+  /** Settled and cancelled Advances, newest first: their round pages keep the results. */
+  past: Round[];
   holdings: Holding[];
   cash: Cash[];
   liens: { held: Lien[]; shares: LienShare[] };
   blockTimeSec: bigint;
 };
 
-async function pagedRounds(status: "Open" | "Scheduled", signal: AbortSignal): Promise<Round[]> {
+async function pagedRounds(status: "Open" | "Scheduled" | "Settled" | "Cancelled", signal: AbortSignal): Promise<Round[]> {
   const { views } = requireEngine();
   const rounds: Round[] = [];
   let from: bigint | undefined;
@@ -50,12 +52,14 @@ function symbolsOf(classes: ReadonlyMap<string, ClassInfo>, cashTokens: readonly
 
 export async function fetchAdvanceData(account: string | null, signal: AbortSignal): Promise<AdvanceData> {
   const { views } = requireEngine();
-  const [config, limits, classes, open, scheduled, portfolio, liens, block] = await Promise.all([
+  const [config, limits, classes, open, scheduled, settled, cancelled, portfolio, liens, block] = await Promise.all([
     views.getConfig({ signal }),
     views.getLimits({ signal }),
     allClasses(signal),
     pagedRounds("Open", signal),
     pagedRounds("Scheduled", signal),
+    pagedRounds("Settled", signal),
+    pagedRounds("Cancelled", signal),
     account ? views.getPortfolio(account, { signal }) : Promise.resolve(null),
     account ? views.getLiens(account, { signal }) : Promise.resolve({ held: [], shares: [] }),
     nearRpc().block("final", signal),
@@ -67,6 +71,7 @@ export async function fetchAdvanceData(account: string | null, signal: AbortSign
     classes,
     symbols: await symbolsOf(classes, config.base_cash_tokens),
     rounds: [...open.sort(byNewest), ...scheduled.sort(byNewest)],
+    past: [...settled, ...cancelled].sort(byNewest),
     holdings: portfolio?.holdings ?? [],
     cash: portfolio?.cash ?? [],
     liens,

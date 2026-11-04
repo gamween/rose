@@ -3,9 +3,13 @@ import { formatUnits } from "@/lib/format";
 
 export type RoundKind = "Tender" | "Exit" | "Advance";
 
-/** `PricePoint` of `get_price_history` (`contracts/engine/src/types.rs`), JSON shape. */
+/**
+ * `PricePoint` of `get_price_history` (`contracts/engine/src/types.rs`), JSON shape. `round_id` is
+ * a `RoundId` (u64) serialized as a JSON number, unlike `get_rounds` whose `round_id` is a `U64`
+ * string: every lookup across the two goes through `String(...)`.
+ */
 export type PricePoint = {
-  round_id: string;
+  round_id: string | number;
   kind: RoundKind;
   /** Clearing price per whole locked token (per claimed token in an Advance), cash base units. */
   price: string;
@@ -34,10 +38,19 @@ export type ClassView = {
   created_at: string;
 };
 
+/** What a price is quoted per: a locked token (Tender, Exit) or a claimed token (Advance, spec 5.4). */
+export type PriceUnit = "locked" | "claimed";
+
+export const PRICE_UNIT_LABEL: Record<PriceUnit, string> = { locked: "USDC per locked token", claimed: "USDC per claimed token" };
+
+export function priceUnitOf(kind: RoundKind): PriceUnit {
+  return kind === "Advance" ? "claimed" : "locked";
+}
+
 export type PlottedPoint = {
   roundId: string;
   kind: RoundKind;
-  /** USDC per locked token, for plotting. */
+  /** USDC per locked token (per claimed token for an Advance), for plotting. */
   price: number;
   priceText: string;
   remainingLockDays: number;
@@ -51,6 +64,9 @@ export type PlottedPoint = {
 };
 
 export type ClassSeries = {
+  /** `classId` for the locked-token line, `classId:claimed` for the Advance line of the same class. */
+  key: string;
+  unit: PriceUnit;
   classId: string;
   chain: "Base" | "Solana";
   token: string;
@@ -105,7 +121,7 @@ export function toPlottedPoint(point: PricePoint, decimals: number, reference: b
   const priceRaw = BigInt(point.price);
   const discount = discountToReference(priceRaw, reference);
   return {
-    roundId: point.round_id,
+    roundId: String(point.round_id),
     kind: point.kind,
     price: Number(priceRaw) / 10 ** USDC_DECIMALS,
     priceText: formatUnits(priceRaw, USDC_DECIMALS, 4),
@@ -119,24 +135,29 @@ export function toPlottedPoint(point: PricePoint, decimals: number, reference: b
 }
 
 /**
- * One series per class, points in settlement order. `references` maps a Tender round id to the
- * reference price its issuer declared at creation (absent for rounds without one).
+ * One series per class for the per-locked-token prices (Tender, Exit), points in settlement
+ * order, and a separate series for the class's Advance prices, which are per claimed token and
+ * never share a line with them. `references` maps a Tender round id (the `get_rounds` string) to
+ * the reference price its issuer declared at creation (absent for rounds without one).
  */
 export function buildSeries(classes: readonly ClassView[], histories: ReadonlyMap<string, PricePoint[]>, references: ReadonlyMap<string, bigint>): ClassSeries[] {
-  return classes.map((cls) => {
+  return classes.flatMap((cls) => {
     const points = (histories.get(cls.class_id) ?? [])
-      .map((point) => toPlottedPoint(point, cls.decimals, point.kind === "Tender" ? (references.get(point.round_id) ?? null) : null))
+      .map((point) => toPlottedPoint(point, cls.decimals, point.kind === "Tender" ? (references.get(String(point.round_id)) ?? null) : null))
       .sort((a, b) => a.settledAtMs - b.settledAtMs || Number(a.roundId) - Number(b.roundId));
-    return {
+    const base = {
       classId: cls.class_id,
       chain: cls.chain,
       token: cls.token,
       tokenKey: tokenKeyOf(cls),
       decimals: cls.decimals,
-      label: classLabel(cls),
       scheduleEndMs: scheduleEndSeconds(cls.schedule) * 1_000,
-      points,
     };
+    const locked: ClassSeries = { ...base, key: cls.class_id, unit: "locked", label: classLabel(cls), points: points.filter((point) => priceUnitOf(point.kind) === "locked") };
+    const claimed = points.filter((point) => priceUnitOf(point.kind) === "claimed");
+    if (claimed.length === 0) return [locked];
+    const advance: ClassSeries = { ...base, key: `${cls.class_id}:claimed`, unit: "claimed", label: `${classLabel(cls)} · Advance`, points: claimed };
+    return locked.points.length > 0 ? [locked, advance] : [advance];
   });
 }
 

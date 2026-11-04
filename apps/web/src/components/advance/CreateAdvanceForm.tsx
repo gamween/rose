@@ -1,7 +1,9 @@
 "use client";
 
 import { ONE, type Venue } from "@rose/sdk";
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import { dateTimeToSeconds, secondsToDateTime } from "@/components/issuer/class-schedule";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput } from "@/components/ui/Input";
@@ -12,6 +14,7 @@ import { requireEngine } from "@/lib/engine-client";
 import { RoseActionError } from "@/lib/errors";
 import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
 import { defaultDurations, formatBound, minutesToNs } from "@/lib/round-window";
+import { ROUTES } from "@/lib/routes";
 import { useAction } from "@/lib/use-action";
 import { fractionAt } from "@/lib/unlock-schedule";
 import { classLabel } from "@/lib/token-symbols";
@@ -23,11 +26,9 @@ export type AdvanceSubmission = { classId: string; venue: Venue; units: bigint; 
 
 const selectClass = "h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 focus:border-ember-500 focus:outline-none";
 
-function defaultCloseLocal(nowMs: number): string {
-  const date = new Date(nowMs + 24 * 3600 * 1000);
-  date.setSeconds(0, 0);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+/** One day after `nowSec`, as the UTC `datetime-local` text the issuer forms use too. */
+function defaultClose(nowSec: number): string {
+  return secondsToDateTime(nowSec + 24 * 3600);
 }
 
 /** The holder's form: units `X`, claim `K` bounded live by `X (1 - f(ts))`, sealed reserve, min fill, ceiling, venue and window. */
@@ -42,7 +43,7 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
   const [minFill, setMinFill] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [venueKey, setVenueKey] = useState("near");
-  const [closesAt, setClosesAt] = useState(() => defaultCloseLocal(Number(data.blockTimeSec) * 1000));
+  const [closesAt, setClosesAt] = useState(() => defaultClose(Number(data.blockTimeSec)));
   const [timing, setTiming] = useState<RoundTimingValue>(() => defaultDurations(data.config));
   const [touched, setTouched] = useState(false);
 
@@ -54,8 +55,8 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
     ...data.config.base_cash_tokens.map((token) => ({ key: token.toLowerCase(), venue: { Base: { token: token.toLowerCase() } } as Venue, label: venueLabel({ Base: { token } }, data.symbols) })),
   ];
   const venue = venues.find((item) => item.key === venueKey)?.venue ?? "Near";
-  const closesAtMs = closesAt ? new Date(closesAt).getTime() : NaN;
-  const closesAtSec = Number.isFinite(closesAtMs) ? BigInt(Math.floor(closesAtMs / 1000)) : null;
+  const closesAtSec = dateTimeToSeconds(closesAt);
+  const closesAtMs = closesAtSec === null ? NaN : Number(closesAtSec) * 1000;
   const fTs = info && closesAtSec !== null ? fractionAt(info, closesAtSec) : null;
 
   const form = {
@@ -109,7 +110,7 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
             </select>
           )}
         </Field>
-        <Field label="Bidding closes at (settlement time ts)" error={show("closesAtMs")} hint={`${fTs !== null ? `f(ts) = ${formatFraction(fTs, 2)} unlocked at settlement · ` : ""}at most ${formatBound(data.limits.maxRoundHorizon)} from now`}>
+        <Field label="Bidding closes at, UTC (settlement time ts)" error={show("closesAtMs")} hint={`${fTs !== null ? `f(ts) = ${formatFraction(fTs, 2)} unlocked at settlement · ` : ""}at most ${formatBound(data.limits.maxRoundHorizon)} from now`}>
           {({ inputId, invalid }) => <Input id={inputId} type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} invalid={invalid} />}
         </Field>
         <Field label="Units to encumber (X)" error={show("units")} hint="Encumbered units cannot be transferred or enter another round until the claim is delivered.">
@@ -177,8 +178,8 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
 /**
  * The holder's bond is taken from their cash in the venue: on NEAR the shortfall is deposited
  * right here (the storage deposit the cash row needs, then `ft_transfer_call` of tUSDC); Base
- * cash is deposited for a round, so it is funded from a round page or the issuer console once
- * the Advance exists.
+ * cash takes a RoseVault deposit, Base finality and an MPC proof, so it is funded from the
+ * issuer console's Fund tab, which credits any NEAR account.
  */
 function BondShortfall({ venue, shortfall, nearCashToken, onDeposited }: { venue: Venue; shortfall: bigint; nearCashToken: string; onDeposited: () => void }) {
   const wallets = useWallets();
@@ -189,7 +190,11 @@ function BondShortfall({ venue, shortfall, nearCashToken, onDeposited }: { venue
   if (venue !== "Near") {
     return (
       <p className="rounded-md border border-warning-400/40 bg-warning-400/10 px-3 py-2 text-[12px] text-warning-400" data-bond-shortfall>
-        Your cash in this venue is short by {formatUsdc(shortfall)} USDC for the bond. Base cash is deposited for a round: pick NEAR tUSDC here, or fund the Base venue from a round page.
+        Your cash in this venue is short by {formatUsdc(shortfall)} USDC for the bond. Deposit it on Base from{" "}
+        <Link href={`${ROUTES.issuer}#fund`} className="text-ember-300 underline-offset-2 hover:underline">
+          Issuer → Fund
+        </Link>{" "}
+        (Base venue, credited to your NEAR account), then come back; or pick NEAR tUSDC here.
       </p>
     );
   }

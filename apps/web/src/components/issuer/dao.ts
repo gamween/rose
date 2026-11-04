@@ -12,7 +12,7 @@
  *   `{{placeholders}}`, string values only.
  */
 
-import { bytesToBase64, utf8ToBytes, type FunctionCall, type TenderArgs } from "@rose/sdk";
+import { bytesToBase64, depositNearCashCall, GAS, ONE_YOCTO, utf8ToBytes, type FunctionCall, type TenderArgs } from "@rose/sdk";
 
 export type SputnikProposal = {
   proposal: {
@@ -34,6 +34,27 @@ export function sputnikProposal(call: FunctionCall, description: string): Sputni
       },
     },
   };
+}
+
+/**
+ * The DAO's NEAR cash funding: `ft_transfer_call(engine, amount, "")` on the cash token, signed
+ * by the DAO when the proposal executes. The engine credits the sender (`ft_on_transfer`, empty
+ * `msg`), so only the DAO itself can fund its cash in this venue. A FunctionCall proposal, not a
+ * Sputnik `Transfer` with `msg`: that kind attaches a fixed 10 Tgas to `ft_transfer_call`, too
+ * little for the engine's receipt (verified in the contract source, docs/verification.md).
+ */
+export function daoNearFundingCall(token: string, engine: string, amount: bigint): FunctionCall {
+  return depositNearCashCall(token, engine, amount);
+}
+
+/** NEP-141 `ft_transfer` from the signer to `receiver` (1 yoctoNEAR, as the standard requires). */
+export function ftTransferCall(token: string, receiver: string, amount: bigint, memo: string): FunctionCall {
+  return { receiverId: token, methodName: "ft_transfer", args: { receiver_id: receiver, amount: amount.toString(), memo }, gas: GAS.simple, deposit: ONE_YOCTO };
+}
+
+/** What the DAO still needs in its engine cash before `create_tender` can debit the escrow. */
+export function daoShortfall(escrow: bigint, daoCash: bigint): bigint {
+  return daoCash >= escrow ? 0n : escrow - daoCash;
 }
 
 /** Yocto to a NEAR amount text accepted by near-cli-rs (`'1 NEAR'`, `'0.05 NEAR'`). */

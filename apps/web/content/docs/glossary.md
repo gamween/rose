@@ -17,13 +17,13 @@ section: Reference
 
 **Bid.** A sealed buy order in an Exit or Advance: a limit price and a quantity, backed by a public cash escrow.
 
-**Bond.** `max(1 USDC, 1% of the bid's escrow or of its locked units valued at the round's max price)`, posted in the round's cash token with every bid and refunded on a valid opening. Slashed if the bid is never opened or exceeds its collateral.
+**Bond.** `max(1 USDC, 1% of the bid's escrow or of its locked units valued at the round's max price)`, posted in the round's cash token with every bid and refunded on a valid opening. Slashed when the order is void at opening (see Slashing).
 
 **Boneh-Franklin IBE.** The identity-based encryption scheme over BLS12-381 that seals bids, against the NEAR MPC CKD key (identity on G1, master key on G2). Ported from Sealwell.
 
 **Candidate price.** In a Tender, a submitted ask price at or below the max price. `P*` is chosen among candidates.
 
-**Cash venue.** Where a round's cash lives: NEAR tUSDC, or Base USDC held by RoseVault. One venue per round, declared at creation.
+**Cash venue.** Where a round's cash lives: NEAR tUSDC, or a Base ERC-20 the engine accepts (rose Base tUSDC or Circle USDC), held by RoseVault. One venue per round, declared at creation.
 
 **Chain Signatures.** NEAR's MPC threshold signing for addresses on other chains. The engine's Base signer (`vault/base`) and Solana addresses (`vault/sol`, `gas/sol`, `dep/...`) are derived this way.
 
@@ -45,7 +45,7 @@ section: Reference
 
 **Encumbered units.** Units pledged in an Advance. Non-transferable, cannot enter other rounds, cannot be redeemed, until the lien is delivered.
 
-**Engine (rose-engine).** The NEAR contract holding classes, positions, units, liens, rounds, the cash ledger and the foreign custody logic. Keyless after init, no upgrade method.
+**Engine (rose-engine).** The NEAR contract holding classes, positions, units, liens, rounds, the cash ledger and the foreign custody logic. No upgrade method; the final engine is keyless after init (staging engines keep a key, and the status page shows which one the app uses).
 
 **Escrow.** The public cash a buyer locks when placing a bid. The sealed `limit * quantity` plus its fee must not exceed it.
 
@@ -121,7 +121,7 @@ section: Reference
 
 **Settlement time `ts`.** `closes_at`. Prices are quoted per locked token at `ts`; accruals switch from seller to buyer at `ts`.
 
-**Slashing.** Forfeiture of a bid's bond when it is never opened or exceeds its collateral. Slashed bonds go to the fee treasury.
+**Slashing.** Forfeiture of an order's bond when it is void at opening: never opened (`Unopened`), an escrow below the sealed `limit * quantity` plus fee (`EscrowTooSmall`), a sell quantity above its locked units (`QuantityAboveLocked`), a buy quantity above the round's largest buy quantity (`QuantityAboveSupply`), or an Advance reserve whose quantity is not the claim `K` (`ClaimMismatch`). Slashed bonds go to the fee treasury.
 
 **Sputnik DAO.** The NEAR DAO framework. The issuer console builds a function-call proposal so a DAO can create and fund a Tender after a vote.
 

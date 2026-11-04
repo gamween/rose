@@ -12,7 +12,7 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount } from "@/lib/amounts";
 import { txLinks } from "@/lib/explorer";
 import { useFlow } from "@/lib/use-action";
-import { checkRows, parseAllocationLines, rowsTotal, splitBatches, type AllocationRow } from "./allocations";
+import { checkRows, distributionDeposit, parseAllocationLines, rowsTotal, splitBatches, type AllocationRow } from "./allocations";
 import { ClassPicker, ClassSummary, classSymbol, FieldLabel, formatNear, Hint, Preview, type IssuerBase } from "./shared";
 
 type Deposits = { perReceiver: Map<string, bigint>; total: bigint };
@@ -65,7 +65,7 @@ export function DistributeTab({ base, initialClassId }: { base: IssuerBase; init
     await Promise.all(
       checked.map(async (row) => {
         const amount = await base.engine.views.registrationDepositFor(row.account, cls.classId);
-        perReceiver.set(row.account, amount);
+        perReceiver.set(row.account, distributionDeposit(amount));
       }),
     );
     setDeposits({ perReceiver, total: [...perReceiver.values()].reduce((sum, value) => sum + value, 0n) });

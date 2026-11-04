@@ -36,9 +36,13 @@ test.describe("landing", () => {
     }
     await expect(page.getByText(/Protocol not deployed yet|Settled volume/).first()).toBeVisible();
     const footer = page.getByRole("navigation", { name: "Footer" });
-    for (const name of ["Docs", "GitHub", "Contracts", "Status"]) {
+    for (const name of ["Docs", "Contracts", "Status"]) {
       await expect(footer.getByRole("link", { name })).toBeVisible();
     }
+    // GitHub answers 404 while the repository is private: the link appears once NEXT_PUBLIC_REPOSITORY_URL is set.
+    const repository = process.env.NEXT_PUBLIC_REPOSITORY_URL?.trim();
+    if (repository) await expect(footer.getByRole("link", { name: "GitHub" })).toHaveAttribute("href", repository);
+    else await expect(footer.getByRole("link", { name: "GitHub" })).toHaveCount(0);
   });
 
   test("scrolls through the sequence without console errors", async ({ page }) => {
