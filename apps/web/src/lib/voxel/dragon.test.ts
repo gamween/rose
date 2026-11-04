@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BONE_COUNT, FAR_WING_BONE, HEAD_BONE, JAW_BONE, KIND, buildDragon } from "./dragon";
+import { BONE_COUNT, FAR_WING_BONE, HEAD_BONE, JAW_BONE, KIND, buildDragon, buildDragonInSteps } from "./dragon";
 
 describe("procedural voxel dragon", () => {
   const model = buildDragon();
@@ -8,6 +8,18 @@ describe("procedural voxel dragon", () => {
     const kind = model.data[i * 4]!;
     kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
   }
+
+  it("builds the same model in steps, pausing between them", async () => {
+    let pauses = 0;
+    const stepped = await buildDragonInSteps(() => {
+      pauses += 1;
+      return Promise.resolve();
+    });
+    expect(pauses).toBe(5);
+    expect(stepped.positions).toEqual(model.positions);
+    expect(stepped.colors).toEqual(model.colors);
+    expect(stepped.data).toEqual(model.data);
+  });
 
   it("is deterministic and sized for instanced rendering", () => {
     expect(buildDragon().positions).toEqual(model.positions);

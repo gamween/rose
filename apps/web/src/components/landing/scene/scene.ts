@@ -13,7 +13,7 @@ import {
   Vector4,
   WebGLRenderer,
 } from "three";
-import { FAR_WING_BONE, HEAD_BONE, JOINTS, buildDragon, type DragonModel } from "@/lib/voxel/dragon";
+import { FAR_WING_BONE, HEAD_BONE, JOINTS, buildDragonInSteps, type DragonModel } from "@/lib/voxel/dragon";
 import { sequenceAt, lerp, clamp01, smoothstep, type SequenceState } from "@/lib/landing/timeline";
 import { QUALITY_TIERS, createQualityState, sampleFrame, type QualityState, type QualityTier } from "@/lib/landing/quality";
 import { ParticlePool, instancedBox } from "./particles";
@@ -158,13 +158,12 @@ function nextTask(): Promise<void> {
 }
 
 /**
- * Builds the scene in short tasks: the voxel dragon first (pure CPU), then the GPU objects, so the
- * page stays responsive while the landing loads.
+ * Builds the scene in short tasks: the voxel dragon first (pure CPU, one task per body part), then
+ * the GPU objects, so the page stays responsive while the landing loads.
  */
 export async function createLandingScene(options: SceneOptions): Promise<LandingScene> {
   const { canvas } = options;
-  const model = buildDragon();
-  await nextTask();
+  const model = await buildDragonInSteps(nextTask);
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
   renderer.setClearColor(new Color(0x000000), 1);
   renderer.autoClear = true;

@@ -145,13 +145,19 @@ const NOSTRILS: readonly Vec3[] = [
   [-32, 41, 49],
 ];
 
-/** Builds the rose dragon: a hand-authored procedural voxel model (no third-party asset). */
-export function buildDragon(): DragonModel {
-  const grid = new VoxelGrid({ min: [-84, -1, -80], max: [72, 84, 66] });
+function dragonGrid(): VoxelGrid {
+  return new VoxelGrid({ min: [-84, -1, -80], max: [72, 84, 66] });
+}
 
+/** Torso and belly plates. */
+function buildTorso(grid: VoxelGrid): void {
   grid.tube(TORSO, TORSO_RADII, M.scale);
   grid.ellipsoid([-12, 14, -20], [8, 9, 10], M.belly, 0, true);
   grid.ellipsoid([4, 11, -30], [8, 9, 11], M.belly, 0, true);
+}
+
+/** Neck with its throat plates and spines. */
+function buildNeck(grid: VoxelGrid): void {
   grid.tube(NECK, NECK_RADII, M.scale, neckBone);
   const neckSamples = sampleCurve(NECK, 1);
   neckSamples.forEach((p, i) => {
@@ -170,12 +176,22 @@ export function buildDragon(): DragonModel {
       grid.tube([top, [top[0] - lateral[2] * 0.2, top[1] + spike, top[2] + lateral[0] * 0.2]], [0.9, 0.3], M.spine, () => neckBone(t), false);
     }
   });
+}
 
+/** Head and legs. */
+function buildLimbs(grid: VoxelGrid): void {
   buildHead(grid);
   buildLegs(grid);
+}
+
+/** The far wing, then the near wing. */
+function buildWings(grid: VoxelGrid): void {
   buildWing(grid, "far");
   buildWing(grid, "near");
+}
 
+/** Tail, back and tail spines, and the glowing tail tip. */
+function buildTailAndSpines(grid: VoxelGrid): void {
   grid.tube(TAIL, TAIL_RADII, M.scale);
   const torsoSamples = sampleCurve(TORSO, 1);
   torsoSamples.forEach((p, i) => {
@@ -203,7 +219,27 @@ export function buildDragon(): DragonModel {
     () => 0,
     true,
   );
+}
 
+const BUILD_STEPS: readonly ((grid: VoxelGrid) => void)[] = [buildTorso, buildNeck, buildLimbs, buildWings, buildTailAndSpines];
+
+/** Builds the rose dragon: a hand-authored procedural voxel model (no third-party asset). */
+export function buildDragon(): DragonModel {
+  const grid = dragonGrid();
+  for (const step of BUILD_STEPS) step(grid);
+  return collect(grid);
+}
+
+/**
+ * The same model as `buildDragon`, built in short steps with `pause` between them (the landing
+ * yields to the browser there, so no single task blocks input while the page loads).
+ */
+export async function buildDragonInSteps(pause: () => Promise<void>): Promise<DragonModel> {
+  const grid = dragonGrid();
+  for (const step of BUILD_STEPS) {
+    step(grid);
+    await pause();
+  }
   return collect(grid);
 }
 
