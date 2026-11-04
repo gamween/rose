@@ -1,0 +1,448 @@
+{
+  "engine": "engine-s5.rose-app.testnet",
+  "near_holder": "b1.rose-ckd-1793753433.testnet",
+  "steps": {
+    "setup": {
+      "mint": "7VHniAAW1qUwnQm3BajykbYF2DEQzL6kHmE2nPtLUQFh",
+      "holder": "HfBvzwJNr3beFqEQUDVVq75ck6GVUuXVGbqtFcqUS5ML",
+      "metadata": "21FP57CGWBW2gFzmwQmYrGxozM8GwF4audbZMiFzc7Bq",
+      "create_tx": "5VGqdaE691u7iFsKeYAryJABV7mmAuz3CQopfucu3zkaMsGL3YX6bUf1AyrscCPWQYonqTvPdcSFHwx5y1rGM5u6",
+      "create_link": "https://explorer.solana.com/tx/5VGqdaE691u7iFsKeYAryJABV7mmAuz3CQopfucu3zkaMsGL3YX6bUf1AyrscCPWQYonqTvPdcSFHwx5y1rGM5u6?cluster=devnet",
+      "schedule": {
+        "start_time": 1793811095,
+        "cliff": 0,
+        "cliff_amount": 0,
+        "period": 60,
+        "amount_per_period": 60000000,
+        "net_amount_deposited": 3900000000,
+        "end_time": 1793814995
+      }
+    },
+    "transfer": {
+      "class_id": "0c76f85a0243729d46028252351a566b9b46473139f67a8307a436e05a3a476f",
+      "path": "dep/b1.rose-ckd-1793753433.testnet/0c76f85a0243729d46028252351a566b9b46473139f67a8307a436e05a3a476f",
+      "deposit_address": "4NnFD8Yak7aQRm2wZdtP9BXUe2JZcPuvt7Vu5Mxh7uFk",
+      "solana_tx": "3PMZt2ayUXVYn523nbsbzSULbz1BDDhxXwVQybRgkRQau5xR3t7Q7No72HxaVv8BXzJvckoBF7W5MeBTMdJkd57g",
+      "solana_link": "https://explorer.solana.com/tx/3PMZt2ayUXVYn523nbsbzSULbz1BDDhxXwVQybRgkRQau5xR3t7Q7No72HxaVv8BXzJvckoBF7W5MeBTMdJkd57g?cluster=devnet"
+    },
+    "attribute": {
+      "near_tx": "A73shHiHP8XLgcY54byKSv5yF9P322gj5CY8PZWjvMXH",
+      "link": "https://testnet.near.rocks/tx/A73shHiHP8XLgcY54byKSv5yF9P322gj5CY8PZWjvMXH",
+      "gas_tgas": 26.9,
+      "mpc_responses": [
+        "ed25519:4NnFD8Yak7aQRm2wZdtP9BXUe2JZcPuvt7Vu5Mxh7uFk",
+        {
+          "payload_hash": "df43de95fbe4c4923901f94d2fa1a2ed276220e5869c7657cc447fa46c799f98",
+          "signature": {
+            "scheme": "Secp256k1",
+            "big_r": {
+              "affine_point": "023ec1d0476d9c11a08a6963f59a1f5a50ad7d3a64cc1726d8711c54be1204f502"
+            },
+            "s": {
+              "scalar": "0289b763935f7a81567158547b64f1fced8b0fa30d13450bb06b57ddc504c51d"
+            },
+            "recovery_id": 1
+          }
+        }
+      ]
+    },
+    "move": {
+      "near_tx": "F1VsceuvoV3tGVjjypkgkwHD2MdqczUww6VJsZds1rns",
+      "link": "https://testnet.near.rocks/tx/F1VsceuvoV3tGVjjypkgkwHD2MdqczUww6VJsZds1rns",
+      "gas_tgas": 28.71,
+      "mpc_responses": [
+        {
+          "scheme": "Ed25519",
+          "signature": [
+            12,
+            108,
+            196,
+            156,
+            94,
+            182,
+            3,
+            205,
+            236,
+            86,
+            194,
+            20,
+            137,
+            250,
+            89,
+            132,
+            205,
+            180,
+            216,
+            105,
+            26,
+            222,
+            77,
+            28,
+            146,
+            13,
+            150,
+            49,
+            225,
+            104,
+            141,
+            141,
+            92,
+            156,
+            34,
+            164,
+            162,
+            121,
+            28,
+            224,
+            170,
+            42,
+            195,
+            248,
+            22,
+            219,
+            143,
+            181,
+            192,
+            7,
+            173,
+            86,
+            104,
+            175,
+            251,
+            198,
+            79,
+            195,
+            32,
+            181,
+            179,
+            132,
+            212,
+            11
+          ]
+        },
+        {
+          "scheme": "Ed25519",
+          "signature": [
+            227,
+            87,
+            195,
+            41,
+            117,
+            238,
+            76,
+            217,
+            85,
+            55,
+            242,
+            240,
+            199,
+            66,
+            30,
+            85,
+            191,
+            243,
+            83,
+            137,
+            214,
+            49,
+            138,
+            150,
+            85,
+            15,
+            48,
+            100,
+            6,
+            216,
+            6,
+            228,
+            108,
+            192,
+            156,
+            206,
+            87,
+            169,
+            3,
+            44,
+            64,
+            111,
+            234,
+            38,
+            244,
+            19,
+            89,
+            199,
+            116,
+            130,
+            191,
+            45,
+            192,
+            227,
+            127,
+            137,
+            91,
+            154,
+            212,
+            158,
+            60,
+            101,
+            97,
+            12
+          ]
+        }
+      ],
+      "payout_id": "2",
+      "solana_tx": "5YdRkjGcpU6XTwfo26hKBEra8hnEtTJrgTweTaBsVxGdizD28jALSbTpmx5HDxm4A1S8oLLZuEPAdKzaJGY9ECBM",
+      "solana_link": "https://explorer.solana.com/tx/5YdRkjGcpU6XTwfo26hKBEra8hnEtTJrgTweTaBsVxGdizD28jALSbTpmx5HDxm4A1S8oLLZuEPAdKzaJGY9ECBM?cluster=devnet",
+      "fee": 10000,
+      "units": 24106
+    },
+    "register": {
+      "near_tx": "96RdsDN4jsSrovDgDanjTe9eeuPCL28TTgpB7JEDAc3h",
+      "link": "https://testnet.near.rocks/tx/96RdsDN4jsSrovDgDanjTe9eeuPCL28TTgpB7JEDAc3h",
+      "gas_tgas": 21.27,
+      "mpc_responses": [
+        {
+          "payload_hash": "a9d9a2fe163fd1e2fa4f9325b1f5644c23a0b611fcf37746921355b8d27195e8",
+          "signature": {
+            "scheme": "Secp256k1",
+            "big_r": {
+              "affine_point": "022b3946277a89b7e7bb91fdf9fc6e42e04f9f0117ae9160d69eb406aeecff592c"
+            },
+            "s": {
+              "scalar": "1d4d913358b0afb18c0993f8e20337fadd9d886da48aa8ff0ab385c1cc695739"
+            },
+            "recovery_id": 0
+          }
+        }
+      ],
+      "position_id": "7",
+      "units": "3900000000",
+      "engine_withdrawn": "0"
+    },
+    "wait_end": {
+      "amount_withdrawn": "3900000000",
+      "auto_claim_tx": "3KHqQvJWv7CCiGExdgKNQaS7jEQKtuQfPYmm2DyheRFv77yNAJ6YHbwhm4njxL3mjE3SAv2519hfysivwiKaoeqz",
+      "auto_claim_link": "https://explorer.solana.com/tx/3KHqQvJWv7CCiGExdgKNQaS7jEQKtuQfPYmm2DyheRFv77yNAJ6YHbwhm4njxL3mjE3SAv2519hfysivwiKaoeqz?cluster=devnet",
+      "memo": "[10] Auto-Claim"
+    },
+    "sync": {
+      "booked_by": "engine-s5.rose-app.testnet",
+      "event_seq": "159",
+      "block_height": "276229276",
+      "booked": "3800000000",
+      "swept_after": {
+        "balance": "3300000000",
+        "pending": "0"
+      },
+      "stream_pruned": true
+    },
+    "claim": {
+      "nonce_account": "9sARC5QvVRTEwBwxaL9e4s7DYUfpEzk5m3pezE7qUwRE",
+      "nonce_base": "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n",
+      "nonce_seed": "5b5e5669f3e18f8da246a7caw2fg2h4a",
+      "receipt_account": "5LZnARr2Ed4pGm57zFgfViUxpS2c4apbPoXj8eWtbGHe",
+      "receipt_seed": "5b5e5669f3e18f8da246a7caw2fg2h4r",
+      "nonce_create_tx": "VsdDjFteNQtvGCo2W67Z3gKsYs9n2GKWPjJuNqoshuQ9boY4SwWDaonsVCv7U9Lb7b4mXfbv6LSyp8AFm8xn7V2",
+      "nonce_create_link": "https://explorer.solana.com/tx/VsdDjFteNQtvGCo2W67Z3gKsYs9n2GKWPjJuNqoshuQ9boY4SwWDaonsVCv7U9Lb7b4mXfbv6LSyp8AFm8xn7V2?cluster=devnet",
+      "to_owner": "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n",
+      "amount": "3300000000",
+      "nonce_value": "9wbWM2yRCnsmBK8jGdqab4w5MTZb3myj6QeM4GFpijfK",
+      "swept_before": {
+        "balance": "3300000000",
+        "pending": "0"
+      },
+      "near_tx": "E6xcrwU9FzswnNGGse2oPerpvQPfcQjwy1Nv8izyygv8",
+      "link": "https://testnet.near.rocks/tx/E6xcrwU9FzswnNGGse2oPerpvQPfcQjwy1Nv8izyygv8",
+      "gas_tgas": 43.28,
+      "mpc_responses": [
+        {
+          "payload_hash": "3359e6463190b03ab23444cdd513e39b2aaaf65a6fc9592ab5952e6f7faa1b77",
+          "signature": {
+            "scheme": "Secp256k1",
+            "big_r": {
+              "affine_point": "034b5391dc1ccd71ad5302f1ced9ddbcd7db0b7309eb68f5c73757be4fa1cd6e22"
+            },
+            "s": {
+              "scalar": "75ac4ae7a20ea56205c994b546304ed7ad4783da0bba053a1ea45715a6b85751"
+            },
+            "recovery_id": 1
+          }
+        },
+        {
+          "scheme": "Ed25519",
+          "signature": [
+            13,
+            27,
+            166,
+            123,
+            0,
+            19,
+            146,
+            119,
+            94,
+            12,
+            174,
+            155,
+            168,
+            255,
+            148,
+            200,
+            103,
+            123,
+            201,
+            54,
+            2,
+            188,
+            207,
+            191,
+            250,
+            205,
+            9,
+            148,
+            45,
+            152,
+            157,
+            93,
+            150,
+            51,
+            10,
+            250,
+            22,
+            163,
+            61,
+            25,
+            4,
+            214,
+            204,
+            4,
+            213,
+            93,
+            122,
+            133,
+            162,
+            147,
+            78,
+            23,
+            247,
+            64,
+            92,
+            49,
+            232,
+            141,
+            64,
+            201,
+            226,
+            180,
+            165,
+            2
+          ]
+        },
+        {
+          "scheme": "Ed25519",
+          "signature": [
+            72,
+            45,
+            109,
+            224,
+            144,
+            24,
+            77,
+            185,
+            184,
+            54,
+            187,
+            249,
+            89,
+            107,
+            78,
+            49,
+            178,
+            79,
+            120,
+            141,
+            91,
+            68,
+            48,
+            78,
+            246,
+            17,
+            144,
+            253,
+            49,
+            253,
+            44,
+            252,
+            116,
+            137,
+            184,
+            244,
+            231,
+            72,
+            110,
+            225,
+            21,
+            221,
+            90,
+            33,
+            179,
+            84,
+            61,
+            238,
+            107,
+            232,
+            172,
+            129,
+            134,
+            54,
+            19,
+            166,
+            82,
+            201,
+            94,
+            181,
+            40,
+            115,
+            123,
+            10
+          ]
+        }
+      ],
+      "payout_id": "11",
+      "swept_pending": "3300000000",
+      "balance_before": "0",
+      "solana_tx": "2ShT3TqZKJvYF9xhVvkg8bBrTVrcUxP3wgmtb1QpQxBfHykftBHD5zAAz6iM36o3iz7psHUdPRFhRD4pSy5Xzzrd",
+      "solana_link": "https://explorer.solana.com/tx/2ShT3TqZKJvYF9xhVvkg8bBrTVrcUxP3wgmtb1QpQxBfHykftBHD5zAAz6iM36o3iz7psHUdPRFhRD4pSy5Xzzrd?cluster=devnet",
+      "fee": 10000,
+      "units": 405,
+      "recipient_balance": {
+        "before": "0",
+        "after": "3300000000"
+      }
+    },
+    "confirm": {
+      "near_tx": "EhLjMXGH8ogMmnpQuBzpHEhHnnxgCHZursmrpxCwQNJs",
+      "link": "https://testnet.near.rocks/tx/EhLjMXGH8ogMmnpQuBzpHEhHnnxgCHZursmrpxCwQNJs",
+      "gas_tgas": 16.92,
+      "mpc_responses": [
+        {
+          "payload_hash": "995645a89a7396fd461ab803ac499ccfe928fb1a255eb0bd9b17f3ca97575fac",
+          "signature": {
+            "scheme": "Secp256k1",
+            "big_r": {
+              "affine_point": "03e3207a90ff6237c18285bc91ae2939488c773664c4471518b68eaa844aee9362"
+            },
+            "s": {
+              "scalar": "2666699b1a441a6a6b816ab324b56af061125a65d5485a9831e24a573efa2589"
+            },
+            "recovery_id": 0
+          }
+        }
+      ],
+      "status": "Landed",
+      "swept_after": {
+        "balance": "0",
+        "pending": "0"
+      }
+    }
+  }
+}
