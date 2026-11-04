@@ -14,7 +14,7 @@ export const CHART_SHAPES = ["circle", "square", "diamond", "triangle"] as const
 
 export type ChartShape = (typeof CHART_SHAPES)[number] | "cross";
 
-export const CHART_TEXT = { primary: "#e9e1d9", secondary: "#a3978d", muted: "#7d7168" } as const;
+export const CHART_TEXT = { primary: "#e9e1d9", secondary: "#a3978d", muted: "#918379" } as const;
 
 export const CHART_GRID = "#201c19";
 

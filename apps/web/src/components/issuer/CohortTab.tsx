@@ -324,7 +324,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
               }}
               rows={3}
               placeholder={"halden.testnet,1000\ntessaro.testnet,1500"}
-              className="w-full rounded-md border border-ink-700 bg-ink-900 px-3 py-2 font-mono text-[12px] text-ink-50 placeholder:text-ink-500 focus:border-ember-500 focus:outline-none"
+              className="w-full rounded-md border border-ink-700 bg-ink-900 px-3 py-2 font-mono text-[12px] text-ink-50 placeholder:text-ink-400 focus:border-ember-500 focus:outline-none"
               aria-label="Paste allocations"
             />
           </div>

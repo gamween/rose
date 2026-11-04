@@ -4,7 +4,7 @@ import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 const fieldBase =
-  "h-9 w-full rounded-md border bg-ink-900 px-3 text-[13px] text-ink-50 placeholder:text-ink-500 transition-colors focus:outline-none focus-visible:outline-none disabled:opacity-50";
+  "h-9 w-full rounded-md border bg-ink-900 px-3 text-[13px] text-ink-50 placeholder:text-ink-400 transition-colors focus:outline-none focus-visible:outline-none disabled:opacity-50";
 
 function fieldTone(invalid: boolean): string {
   return invalid

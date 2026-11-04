@@ -92,7 +92,7 @@ export function MyOrders({ detail, onChanged }: { detail: RoundDetail; onChanged
                       {formatQty(bid.opened.quantity, cls.decimals)} @ {formatUsdc(bid.opened.price)} USDC
                     </span>
                   ) : (
-                    <span className="text-ink-500">plaintext not in this browser (sealed elsewhere); it shows once the order is opened</span>
+                    <span className="text-ink-400">plaintext not in this browser (sealed elsewhere); it shows once the order is opened</span>
                   )}
                 </span>
                 <OutcomeLine bid={bid} decimals={cls.decimals} />

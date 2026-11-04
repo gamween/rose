@@ -127,7 +127,7 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
                     ) : bid.void ? (
                       <span className="text-[11px] text-danger-400">void: {VOID_LABEL[bid.void] ?? bid.void}</span>
                     ) : (
-                      <span className="text-ink-500">sealed</span>
+                      <span className="text-ink-400">sealed</span>
                     )}
                   </TD>
                 </TR>
@@ -136,7 +136,7 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
           </TBody>
         </Table>
       )}
-      {bonds > 0n ? <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-500">Bonds posted: {formatUsdc(bonds)} USDC, refunded on a valid opening, slashed to the treasury otherwise.</p> : null}
+      {bonds > 0n ? <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-400">Bonds posted: {formatUsdc(bonds)} USDC, refunded on a valid opening, slashed to the treasury otherwise.</p> : null}
     </section>
   );
 }

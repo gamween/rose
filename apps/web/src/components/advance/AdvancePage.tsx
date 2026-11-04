@@ -79,7 +79,7 @@ function AdvanceCard({ round, data }: { round: Round; data: AdvanceData }) {
         </div>
       </dl>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-ink-500">Delivered by the schedule, no oracle, no liquidation.</span>
+        <span className="text-[11px] text-ink-400">Delivered by the schedule, no oracle, no liquidation.</span>
         <Link href={`${ROUTES.rounds}/${round.roundId.toString()}`} className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
           {round.status === "Open" ? "Bid on this Advance →" : "View round →"}
         </Link>

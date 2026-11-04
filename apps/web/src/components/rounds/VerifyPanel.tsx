@@ -83,7 +83,7 @@ export function VerifyPanel({ detail }: { detail: RoundDetail }) {
               </ul>
             ) : null}
             {verification.book.excluded.length > 0 ? (
-              <p className="text-ink-500">
+              <p className="text-ink-400">
                 Left out of the book: {verification.book.excluded.map((e) => `#${String(e.bidId)} (${e.reason})`).join(", ")}.
               </p>
             ) : null}

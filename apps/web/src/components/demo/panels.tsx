@@ -34,10 +34,10 @@ function Box({ label, children, note, data }: { label: string; children: ReactNo
     <section aria-label={label} className="rounded-lg border border-ink-750 bg-ink-850" data-demo-panel={data}>
       <h3 className="flex flex-wrap items-baseline justify-between gap-2 border-b border-ink-750 px-4 py-2.5">
         <span className="font-display text-[11px] uppercase tracking-wide text-ink-300">{label}</span>
-        <span className="text-[11px] text-ink-500">read live from the engine</span>
+        <span className="text-[11px] text-ink-400">read live from the engine</span>
       </h3>
       <div className="px-4 py-3">{children}</div>
-      {note ? <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-500">{note}</p> : null}
+      {note ? <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-400">{note}</p> : null}
     </section>
   );
 }
@@ -77,7 +77,7 @@ function ClassPanel(props: PanelProps) {
       <Grid>
         <Param label="Class" mono={false} className="col-span-2">
           <span>{classLabel(cls, symbolOf(props))}</span>
-          <span className="tabular block truncate text-[11px] text-ink-500">{cls.classId}</span>
+          <span className="tabular block truncate text-[11px] text-ink-400">{cls.classId}</span>
         </Param>
         <Param label="Token" mono={false}>
           <a href={addressUrl(cls.chain === "Base" ? "base" : "solana", cls.token)} target="_blank" rel="noreferrer" className="tabular underline-offset-2 hover:underline">
@@ -249,7 +249,7 @@ function SealedPanel(props: PanelProps) {
                   {computed !== undefined ? (
                     <span className={cn("ml-2 text-[11px]", computed === recorded?.ciphertextSha256 ? "text-success-400" : "text-danger-400")}>{computed === recorded?.ciphertextSha256 ? "matches the seal" : "differs from the seal"}</span>
                   ) : (
-                    <span className="ml-2 text-[11px] text-ink-500">as posted</span>
+                    <span className="ml-2 text-[11px] text-ink-400">as posted</span>
                   )}
                 </TD>
               </TR>
@@ -328,7 +328,7 @@ function OpeningsPanel(props: PanelProps) {
                       differs from the record
                     </span>
                   ) : (
-                    <span className="text-ink-500">not recorded</span>
+                    <span className="text-ink-400">not recorded</span>
                   )}
                 </TD>
               </TR>

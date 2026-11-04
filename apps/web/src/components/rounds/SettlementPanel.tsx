@@ -58,7 +58,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
                 RoseVault {roseVault.slice(0, 10)}… ↗
               </a>
             ) : (
-              <span className="text-ink-500">RoseVault not deployed yet</span>
+              <span className="text-ink-400">RoseVault not deployed yet</span>
             )}
             {round.venue !== "Near" ? (
               <a href={addressUrl("base", round.venue.Base.token)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
@@ -82,14 +82,14 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
                     vault {solanaVault.slice(0, 10)}… ↗
                   </a>
                 ) : (
-                  <span className="text-ink-500">Solana vault not bootstrapped yet</span>
+                  <span className="text-ink-400">Solana vault not bootstrapped yet</span>
                 )}
                 <a href={addressUrl("solana", cls.token)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
                   mint {cls.token.slice(0, 10)}… ↗
                 </a>
               </>
             ) : (
-              <span className="text-ink-500">This class lives on Base; nothing moves on Solana.</span>
+              <span className="text-ink-400">This class lives on Base; nothing moves on Solana.</span>
             )}
           </dd>
         </div>
@@ -97,7 +97,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
       <div className="border-t border-ink-750 px-4 py-3">
         <h4 className="font-display text-[10px] uppercase tracking-wide text-ink-400">Transactions sent from this browser</h4>
         {receipts.length === 0 ? (
-          <p className="mt-1 text-[12px] text-ink-500">{settledOrCancelled ? "None yet. Every transaction you send for this round is listed here with its explorer link." : "Actions you take on this round appear here with their explorer links."}</p>
+          <p className="mt-1 text-[12px] text-ink-400">{settledOrCancelled ? "None yet. Every transaction you send for this round is listed here with its explorer link." : "Actions you take on this round appear here with their explorer links."}</p>
         ) : (
           <ol className="mt-1 flex flex-col divide-y divide-ink-800 text-[12px]" data-receipts>
             {[...receipts].reverse().map((receipt) => (
@@ -106,7 +106,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
                   <span className="font-display text-[10px] uppercase tracking-wide text-ink-300">{receipt.kind}</span> <span className="text-ink-400">{receipt.label}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-3">
-                  <span className="tabular text-[11px] text-ink-500">{formatDateTime(receipt.at).replace(" UTC", "")}</span>
+                  <span className="tabular text-[11px] text-ink-400">{formatDateTime(receipt.at).replace(" UTC", "")}</span>
                   <a href={txUrl(receipt.chain, receipt.hash)} target="_blank" rel="noreferrer" className="tabular text-ember-300 underline-offset-2 hover:underline">
                     {receipt.hash.slice(0, 8)}… ↗
                   </a>
@@ -115,7 +115,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
             ))}
           </ol>
         )}
-        <p className="mt-2 text-[11px] text-ink-500">Chain of the venue: {venueChain(round.venue) === "near" ? "NEAR testnet" : "Base Sepolia"}.</p>
+        <p className="mt-2 text-[11px] text-ink-400">Chain of the venue: {venueChain(round.venue) === "near" ? "NEAR testnet" : "Base Sepolia"}.</p>
       </div>
     </section>
   );

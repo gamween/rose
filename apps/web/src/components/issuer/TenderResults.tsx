@@ -241,7 +241,7 @@ function ReportBody({ data, printable }: { data: Loaded; printable: boolean }) {
           </p>
         ) : null}
       </Section>
-      <p className="text-[11px] text-ink-500">
+      <p className="text-[11px] text-ink-400">
         Generated {formatDate(data.generatedAt)} from {data.engine} (NEAR testnet). Every number above is read from the contract; the candidate table is recomputed with the open-source clearing reference.
       </p>
     </div>

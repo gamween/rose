@@ -112,7 +112,7 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
           aria-controls={listId}
           aria-activedescendant={filtered[active] ? `${listId}-${filtered[active].id}` : undefined}
           placeholder="Go to a page or run an action"
-          className="h-12 w-full bg-transparent text-[14px] text-ink-50 placeholder:text-ink-500 focus:outline-none"
+          className="h-12 w-full bg-transparent text-[14px] text-ink-50 placeholder:text-ink-400 focus:outline-none"
           data-palette-input
         />
       </div>
@@ -141,7 +141,7 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
           );
         })}
       </ul>
-      <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-500">↑ ↓ to move, Enter to run, Esc to close</p>
+      <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-400">↑ ↓ to move, Enter to run, Esc to close</p>
     </dialog>
   );
 }

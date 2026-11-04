@@ -61,7 +61,7 @@ export function HowItWorks({ demo }: { demo: boolean }) {
               </div>
               <div>
                 <h3 className="flex items-baseline gap-2 font-display text-[16px] text-ink-50">
-                  <span aria-hidden className="tabular text-[11px] text-ink-500">0{index + 1}</span>
+                  <span aria-hidden className="tabular text-[11px] text-ink-400">0{index + 1}</span>
                   {round.name}
                 </h3>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-ink-300">{round.line}</p>

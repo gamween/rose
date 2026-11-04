@@ -35,7 +35,7 @@ function Parameters({ detail }: { detail: RoundDetail }) {
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-4 xl:grid-cols-6">
         <Param label="Class" mono={false} className="col-span-2">
           <span title={cls.classId}>{classLabel(cls, symbol)}</span>
-          <span className="tabular block truncate text-[11px] text-ink-500">{cls.classId}</span>
+          <span className="tabular block truncate text-[11px] text-ink-400">{cls.classId}</span>
         </Param>
         <Param label="Cash venue" mono={false}>
           {venueLabel(round.venue)}
@@ -43,7 +43,7 @@ function Parameters({ detail }: { detail: RoundDetail }) {
         <Param label="Max price">{formatUsdc(round.maxPrice)} USDC</Param>
         <Param label="Locked at close" >
           {lockedPercent(round.fTs)}
-          <span className="block text-[11px] text-ink-500">f(ts) per unit · {formatDuration(Number(round.remainingLockSecs))} left</span>
+          <span className="block text-[11px] text-ink-400">f(ts) per unit · {formatDuration(Number(round.remainingLockSecs))} left</span>
         </Param>
         <Param label="Creator" mono={false}>
           <a href={nearAccountUrl(round.creator)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline" title={round.creator}>
@@ -54,7 +54,7 @@ function Parameters({ detail }: { detail: RoundDetail }) {
           <>
             <Param label="Budget">{formatUsdc(round.budget ?? 0n)} USDC</Param>
             <Param label="Issuer escrow">
-              {formatUsdc(round.issuerEscrow ?? 0n)} <span className="text-[11px] text-ink-500">budget + 30 bps</span>
+              {formatUsdc(round.issuerEscrow ?? 0n)} <span className="text-[11px] text-ink-400">budget + 30 bps</span>
             </Param>
             {round.referencePrice !== null ? <Param label="Declared reference">{formatUsdc(round.referencePrice)} USDC</Param> : null}
             <Param label="Retire to" mono={false}>
@@ -217,7 +217,7 @@ function LoadedRound({ id }: { id: bigint }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={refreshing ? "tabular text-[11px] text-ink-500" : "tabular text-[11px] text-ink-500 opacity-0"} aria-live="polite">
+          <span className={refreshing ? "tabular text-[11px] text-ink-400" : "tabular text-[11px] text-ink-400 opacity-0"} aria-live="polite">
             refreshing…
           </span>
           <Button size="sm" variant="secondary" onClick={refresh} data-refresh>

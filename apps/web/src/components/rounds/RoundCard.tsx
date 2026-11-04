@@ -67,7 +67,7 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
           </Link>
           <p className="mt-0.5 truncate text-[12px] text-ink-400" title={cls ? `Class ${cls.classId}` : round.classId}>
             {cls ? classShortLabel(cls, symbol) : `Class ${round.classId.slice(0, 10)}…`}
-            {cls ? <span className="text-ink-500"> · unlocks until {formatDate(scheduleEndSecs(cls) * 1000)}</span> : null}
+            {cls ? <span className="text-ink-400"> · unlocks until {formatDate(scheduleEndSecs(cls) * 1000)}</span> : null}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">

@@ -78,7 +78,7 @@ function TokenFilter({ groups, value, onChange }: { groups: TokenGroup[]; value:
             group.tokenKey === value ? "border-ember-600 bg-ember-700/25 text-ember-200" : "border-ink-700 bg-ink-900 text-ink-300 hover:border-ink-600 hover:text-ink-50"
           }`}
         >
-          {group.symbol} <span className="text-ink-500">· {group.chain}</span>
+          {group.symbol} <span className="text-ink-400">· {group.chain}</span>
         </button>
       ))}
     </div>
@@ -149,7 +149,7 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
           <LockScatterChart group={{ ...group, series: plotted }} />
         </div>
       </section>
-      <p className="text-[12px] text-ink-500">Read from the engine at block {formatCount(blockHeight)}.</p>
+      <p className="text-[12px] text-ink-400">Read from the engine at block {formatCount(blockHeight)}.</p>
     </div>
   );
 }

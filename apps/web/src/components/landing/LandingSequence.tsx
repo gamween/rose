@@ -190,7 +190,7 @@ export function LandingSequence() {
         {mode === "live" ? (
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-8 flex flex-col items-center gap-2 font-display text-[11px] uppercase tracking-[0.2em] text-ink-500"
+            className="pointer-events-none absolute inset-x-0 bottom-8 flex flex-col items-center gap-2 font-display text-[11px] uppercase tracking-[0.2em] text-ink-400"
             style={{ opacity: "calc(1 - var(--progress, 0) * 25)" }}
           >
             Scroll

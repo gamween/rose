@@ -13,7 +13,7 @@ export function DocsNav({ sections, onNavigate, className }: { sections: DocSect
     <nav aria-label="Docs" className={cn("flex flex-col gap-6", className)}>
       {sections.map((section) => (
         <div key={section.name}>
-          <p className="mb-2 px-2 font-display text-[11px] uppercase tracking-wide text-ink-500">{section.name}</p>
+          <p className="mb-2 px-2 font-display text-[11px] uppercase tracking-wide text-ink-400">{section.name}</p>
           <ul className="flex flex-col gap-px">
             {section.docs.map((doc) => {
               const active = doc.slug === activeSlug;

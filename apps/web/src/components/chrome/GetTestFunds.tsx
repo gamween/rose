@@ -118,7 +118,7 @@ function ActionRow({
         </Button>
       </div>
       {children}
-      {disabledReason ? <p className="text-[11px] text-ink-500">{disabledReason}</p> : null}
+      {disabledReason ? <p className="text-[11px] text-ink-400">{disabledReason}</p> : null}
       {state.status === "success" ? (
         <p className="flex flex-wrap items-center gap-x-3 text-[12px] text-success-400">
           {state.message}
@@ -143,7 +143,7 @@ function ChainHeading({ chain, address, kind }: { chain: ChainId; address: strin
     <h3 className="flex items-center gap-2 font-display text-[11px] uppercase tracking-wide text-ink-200">
       {CHAIN_LABEL[chain]}
       {kind === "demo" ? <Badge tone="ember">Demo</Badge> : null}
-      {address ? <span className="tabular truncate normal-case tracking-normal text-ink-400">{address}</span> : <span className="normal-case tracking-normal text-ink-500">not connected</span>}
+      {address ? <span className="tabular truncate normal-case tracking-normal text-ink-400">{address}</span> : <span className="normal-case tracking-normal text-ink-400">not connected</span>}
     </h3>
   );
 }

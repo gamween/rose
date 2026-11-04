@@ -27,7 +27,7 @@ export function DocsToc({ headings, className }: { headings: DocHeading[]; class
 
   return (
     <nav aria-label="On this page" className={cn("text-[12.5px]", className)}>
-      <p className="mb-2 font-display text-[11px] uppercase tracking-wide text-ink-500">On this page</p>
+      <p className="mb-2 font-display text-[11px] uppercase tracking-wide text-ink-400">On this page</p>
       <ul className="flex flex-col border-l border-ink-750">
         {headings.map((heading) => (
           <li key={heading.id}>

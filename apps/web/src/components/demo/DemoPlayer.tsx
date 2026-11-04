@@ -135,7 +135,7 @@ export function DemoPlayer({ manifest }: { manifest: DemoManifest }) {
           <h1 className="mt-1 font-display text-[22px] text-ink-50 md:text-[26px]">Watch a full round</h1>
           <p className="mt-1.5 max-w-3xl text-[13px] text-ink-400">
             Seeded rounds of the fictional {manifest.issuer} ({manifest.token.symbol}) on{" "}
-            <a href={nearAccountUrl(manifest.engine)} target="_blank" rel="noreferrer" className="text-ink-200 underline-offset-2 hover:underline">
+            <a href={nearAccountUrl(manifest.engine)} target="_blank" rel="noreferrer" className="text-ink-200 underline decoration-ink-400 underline-offset-2 hover:decoration-ink-200">
               {manifest.engine}
             </a>
             . Every step is a real transaction on NEAR testnet, Base Sepolia or Solana devnet, and the numbers are read live from the engine. <LearnMore topic="sealedRounds" />
@@ -182,7 +182,7 @@ export function DemoPlayer({ manifest }: { manifest: DemoManifest }) {
                       state === "active" ? "bg-ink-800 text-ink-50" : "text-ink-300 hover:bg-ink-850 hover:text-ink-100",
                     )}
                   >
-                    <span className={cn("tabular mt-px w-5 shrink-0 text-[11px]", state === "active" ? "text-ember-300" : state === "done" ? "text-success-400" : "text-ink-500")}>{String(position + 1).padStart(2, "0")}</span>
+                    <span className={cn("tabular mt-px w-5 shrink-0 text-[11px]", state === "active" ? "text-ember-300" : state === "done" ? "text-success-400" : "text-ink-400")}>{String(position + 1).padStart(2, "0")}</span>
                     <span className="min-w-0 flex-1 leading-snug">{step.title}</span>
                   </button>
                 </li>
@@ -215,7 +215,7 @@ export function DemoPlayer({ manifest }: { manifest: DemoManifest }) {
           <span className="tabular ml-1 text-[12px] text-ink-300" aria-live="polite" data-demo-counter>
             {String(index + 1)} / {String(steps.length)}
           </span>
-          <span className="ml-auto hidden text-[11px] text-ink-500 md:inline">
+          <span className="ml-auto hidden text-[11px] text-ink-400 md:inline">
             ← → to move · Space to play · {String(steps.length)} steps, about {String(Math.round(totalDuration(steps) / 60_000))} min on autoplay
           </span>
           <ButtonLink href={`${ROUTES.rounds}/${scenario.roundId}`} variant="ghost" size="sm" className="ml-auto md:ml-2">

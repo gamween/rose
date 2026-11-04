@@ -101,7 +101,7 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
                   {fill.opened ? `${formatQty(fill.opened.quantity, cls.decimals)} @ ${formatUsdc(fill.opened.price)}` : "—"}
                   {fill.void ? <span className="block text-[11px] text-danger-400">void: {fill.void}</span> : null}
                 </TD>
-                <TD numeric>{fill.fillQuantity > 0n ? formatQty(fill.fillQuantity, cls.decimals) : <span className="text-ink-500">0</span>}</TD>
+                <TD numeric>{fill.fillQuantity > 0n ? formatQty(fill.fillQuantity, cls.decimals) : <span className="text-ink-400">0</span>}</TD>
                 <TD numeric>
                   {fill.cash > 0n ? (
                     <>
@@ -110,7 +110,7 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
                       {fill.fee > 0n ? <span className="block text-[11px] text-ink-400">fee {formatUsdc(fill.fee)}</span> : null}
                     </>
                   ) : (
-                    <span className="text-ink-500">refund</span>
+                    <span className="text-ink-400">refund</span>
                   )}
                 </TD>
                 <TD numeric>{fill.void ? <span className="text-danger-400">slashed</span> : <span className="text-ink-300">{formatUsdc(fill.bond)} back</span>}</TD>

@@ -72,7 +72,7 @@ export function DocsSearch({ index, onNavigate, className }: { index: SearchEntr
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 placeholder:text-ink-500 hover:border-ink-600 focus:border-ember-500 focus:outline-none"
+        className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 placeholder:text-ink-400 hover:border-ink-600 focus:border-ember-500 focus:outline-none"
       />
       {showList ? (
         <ul

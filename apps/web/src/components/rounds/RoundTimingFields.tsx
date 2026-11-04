@@ -22,7 +22,7 @@ export function RoundTimingFields({ value, onChange, errors, limits }: { value: 
           {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={value.revealWindow} onValueChange={(revealWindow) => onChange({ ...value, revealWindow })} decimals={0} unit="min" data-reveal-window />}
         </Field>
       </div>
-      <p className="text-[12px] text-ink-500">{boundsHint(limits)}</p>
+      <p className="text-[12px] text-ink-400">{boundsHint(limits)}</p>
     </div>
   );
 }

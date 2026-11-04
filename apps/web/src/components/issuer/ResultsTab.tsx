@@ -95,7 +95,7 @@ export function ResultsTab({ base }: { base: IssuerBase }) {
                           Results →
                         </Link>
                       ) : (
-                        <span className="text-[12px] text-ink-500">after settlement</span>
+                        <span className="text-[12px] text-ink-400">after settlement</span>
                       )}
                     </TD>
                   </TR>

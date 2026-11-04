@@ -64,7 +64,7 @@ export function StatusBlock<T>({
         {state.status === "not_deployed" ? (
           <div className="flex flex-col gap-2">
             <p className="text-ink-300">{state.detail}</p>
-            <p className="text-[12px] text-ink-500">{notDeployedHint}</p>
+            <p className="text-[12px] text-ink-400">{notDeployedHint}</p>
           </div>
         ) : null}
         {state.status === "error" ? (
@@ -80,7 +80,7 @@ export function StatusBlock<T>({
         {state.status === "ok" ? children(state.value) : null}
       </div>
       {state.status === "ok" ? (
-        <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-500">
+        <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-400">
           Read at <time dateTime={new Date(state.fetchedAt).toISOString()}>{new Date(state.fetchedAt).toLocaleTimeString()}</time>
         </footer>
       ) : null}

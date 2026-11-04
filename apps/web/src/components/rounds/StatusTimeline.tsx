@@ -108,9 +108,9 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
         {steps.map((step) => (
           <li key={step.id} className="flex min-w-0 flex-col items-center gap-1.5 text-center" data-step={step.id} data-state={step.state}>
             <StepDot state={step.state} />
-            <span className={cn("font-display text-[10px] uppercase tracking-wide", step.state === "active" ? "text-ember-300" : step.state === "failed" ? "text-danger-400" : step.state === "done" ? "text-ink-200" : "text-ink-500")}>{step.label}</span>
+            <span className={cn("font-display text-[10px] uppercase tracking-wide", step.state === "active" ? "text-ember-300" : step.state === "failed" ? "text-danger-400" : step.state === "done" ? "text-ink-200" : "text-ink-400")}>{step.label}</span>
             <span className="tabular hidden text-[11px] text-ink-400 sm:block">{step.at !== null ? formatDateTime(step.at).replace(" UTC", "") : "—"}</span>
-            <span className="hidden text-[11px] leading-tight text-ink-500 lg:block">{step.detail}</span>
+            <span className="hidden text-[11px] leading-tight text-ink-400 lg:block">{step.detail}</span>
           </li>
         ))}
       </ol>
@@ -193,11 +193,11 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
               </Button>
             )
           ) : null}
-          {!connected && action.kind !== "done" && action.kind !== "wait_open" ? <p className="text-right text-[11px] text-ink-500">Connect a NEAR wallet to act.</p> : null}
+          {!connected && action.kind !== "done" && action.kind !== "wait_open" ? <p className="text-right text-[11px] text-ink-400">Connect a NEAR wallet to act.</p> : null}
           {status.status === "error" ? <Notice tone="danger" className="max-w-xs">{status.error.message}</Notice> : null}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-750 px-4 py-2 text-[11px] text-ink-500">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-750 px-4 py-2 text-[11px] text-ink-400">
         <span>
           key timeout {formatDuration(Number(round.keyTimeout) / 1e9)} · reveal window {formatDuration(Number(round.revealWindow) / 1e9)}
         </span>

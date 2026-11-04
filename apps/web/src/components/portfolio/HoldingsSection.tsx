@@ -116,7 +116,7 @@ export function HoldingsSection({ rows, data, onClaim, onRedeem }: { rows: Holdi
         </CardBody>
       ) : null}
       {rows.length > 0 ? (
-        <CardBody className="border-t border-ink-750 py-2 text-[11px] text-ink-500">
+        <CardBody className="border-t border-ink-750 py-2 text-[11px] text-ink-400">
           Units in rounds keep accruing to you until the round settles; encumbered units accrue to the lien until its claim is delivered. Dust rounding always favors the pool.
         </CardBody>
       ) : null}

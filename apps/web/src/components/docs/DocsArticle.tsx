@@ -24,7 +24,7 @@ function Heading({ level, className, children, id, ...rest }: ComponentProps<"h2
         <a
           href={`#${id}`}
           aria-label={`Link to this section`}
-          className="ml-2 text-ink-500 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+          className="ml-2 text-ink-400 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
         >
           #
         </a>
@@ -79,7 +79,7 @@ const components: Partial<Components> = {
   h4: (props) => <Heading level={4} {...props} />,
   p: (props) => <p className="my-4 text-[14px] leading-relaxed text-ink-200" {...props} />,
   a: Anchor,
-  ul: (props) => <ul className="my-4 list-disc space-y-1.5 pl-5 text-[14px] leading-relaxed text-ink-200 marker:text-ink-500" {...props} />,
+  ul: (props) => <ul className="my-4 list-disc space-y-1.5 pl-5 text-[14px] leading-relaxed text-ink-200 marker:text-ink-400" {...props} />,
   ol: (props) => <ol className="my-4 list-decimal space-y-1.5 pl-5 text-[14px] leading-relaxed text-ink-200 marker:text-ink-400" {...props} />,
   li: (props) => <li className="[&>p]:my-1" {...props} />,
   strong: (props) => <strong className="font-semibold text-ink-50" {...props} />,

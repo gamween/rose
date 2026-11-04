@@ -53,7 +53,7 @@ export function TxList({ txs }: { txs: readonly DemoTx[] }) {
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                {spent && !tx.failed ? <span className="tabular text-[11px] text-ink-500">{spent}</span> : null}
+                {spent && !tx.failed ? <span className="tabular text-[11px] text-ink-400">{spent}</span> : null}
                 {primary ? (
                   <a href={primary.href} target="_blank" rel="noreferrer" className="tabular text-[12px] text-ember-300 underline-offset-2 hover:underline" title={tx.hash}>
                     {tx.hash.slice(0, 8)}… ↗
@@ -80,17 +80,17 @@ export function EventList({ events, decimals, classId, emptyHint }: { events: re
     <section aria-label="On-chain history" className="rounded-lg border border-ink-750 bg-ink-850" data-demo-events>
       <h3 className="flex flex-wrap items-baseline justify-between gap-2 border-b border-ink-750 px-4 py-2.5">
         <span className="font-display text-[11px] uppercase tracking-wide text-ink-300">Engine history</span>
-        <span className="text-[11px] text-ink-500">get_events, read live</span>
+        <span className="text-[11px] text-ink-400">get_events, read live</span>
       </h3>
       {events.length === 0 ? (
-        <p className="px-4 py-3 text-[12px] text-ink-500">{emptyHint}</p>
+        <p className="px-4 py-3 text-[12px] text-ink-400">{emptyHint}</p>
       ) : (
         <ol className="flex flex-col divide-y divide-ink-800">
           {events.map((entry) => (
             <li key={entry.seq.toString()} className="flex flex-col gap-0.5 px-4 py-2 text-[12px] sm:flex-row sm:items-baseline sm:gap-3" data-demo-event={entry.event.event}>
-              <span className="tabular w-14 shrink-0 text-ink-500">#{entry.seq.toString()}</span>
+              <span className="tabular w-14 shrink-0 text-ink-400">#{entry.seq.toString()}</span>
               <span className="min-w-0 flex-1 text-ink-200 [overflow-wrap:anywhere]">{describeRoseEvent(entry.event, format)}</span>
-              <span className="tabular shrink-0 text-[11px] text-ink-500">
+              <span className="tabular shrink-0 text-[11px] text-ink-400">
                 block {entry.blockHeight.toString()} · {formatDateTime(nsToMs(entry.timestamp)).replace(" UTC", "")}
               </span>
             </li>

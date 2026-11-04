@@ -161,7 +161,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
           const order = BASE_STEPS.findIndex((s) => s.id === baseStep);
           const state = baseStep === "done" || index < order ? "done" : index === order ? "active" : "upcoming";
           return (
-            <li key={step.id} className={cn("flex items-center gap-2", state === "done" ? "text-success-400" : state === "active" ? "text-ember-300" : "text-ink-500")}>
+            <li key={step.id} className={cn("flex items-center gap-2", state === "done" ? "text-success-400" : state === "active" ? "text-ember-300" : "text-ink-400")}>
               <span aria-hidden className={cn("size-2 rounded-sm", state === "done" ? "bg-success-500" : state === "active" ? "animate-pulse bg-ember-500" : "bg-ink-700")} />
               {step.label}
               {state === "active" && step.id === "finality" && finality ? <span className="tabular text-ink-400">· {finality}</span> : null}

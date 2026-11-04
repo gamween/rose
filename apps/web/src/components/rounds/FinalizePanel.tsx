@@ -205,7 +205,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
                         step.status === "failed" && "text-danger-400",
                         step.status === "unopenable" && "text-danger-400",
                         (step.status === "decrypting" || step.status === "sending") && "text-ember-300",
-                        step.status === "queued" && "text-ink-500",
+                        step.status === "queued" && "text-ink-400",
                       )}
                     >
                       {step.status === "sending" ? "sending" : step.status}

@@ -31,7 +31,7 @@ function Row({ label, value, strong = false, hint }: { label: string; value: str
     <div className="flex items-baseline justify-between gap-3 text-[12px]">
       <dt className="text-ink-400">
         {label}
-        {hint ? <span className="block text-[11px] text-ink-500">{hint}</span> : null}
+        {hint ? <span className="block text-[11px] text-ink-400">{hint}</span> : null}
       </dt>
       <dd className={strong ? "tabular text-[13px] text-ink-50" : "tabular text-ink-200"}>{value}</dd>
     </div>

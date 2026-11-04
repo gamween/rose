@@ -360,7 +360,7 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
                       {demo.state.error.title}: {demo.state.error.message}
                     </p>
                   ) : null}
-                  {!demoFaucet ? <p className="text-[11px] text-ink-500">DemoStreamFaucet is not deployed yet.</p> : null}
+                  {!demoFaucet ? <p className="text-[11px] text-ink-400">DemoStreamFaucet is not deployed yet.</p> : null}
                 </div>
               }
             />

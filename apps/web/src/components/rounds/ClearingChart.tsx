@@ -135,7 +135,7 @@ export function ClearingChart({ curves, decimals, kind, clearing, noCrossing, cl
               P*
             </li>
           ) : null}
-          <li className="text-ink-500">quantities in tokens</li>
+          <li className="text-ink-400">quantities in tokens</li>
         </ul>
         <button type="button" className="font-display uppercase tracking-wide text-ink-400 underline-offset-2 hover:text-ink-100 hover:underline" onClick={() => setView((v) => (v === "chart" ? "table" : "chart"))} aria-pressed={view === "table"}>
           {view === "chart" ? "Table view" : "Chart view"}
@@ -250,7 +250,7 @@ export function ClearingChart({ curves, decimals, kind, clearing, noCrossing, cl
           </div>
         </div>
       )}
-      <p className="text-[11px] text-ink-500">{describe}</p>
+      <p className="text-[11px] text-ink-400">{describe}</p>
     </div>
   );
 }

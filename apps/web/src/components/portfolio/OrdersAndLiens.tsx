@@ -147,7 +147,7 @@ export function LiensSection({ held, data, onRelease }: { held: LienProgress[]; 
               })}
             </ul>
           )}
-          {shares.some((share) => share.claimable > 0n) ? <p className="text-[12px] text-ink-500">Claimable lien tokens are listed under Claims with the other token claims.</p> : null}
+          {shares.some((share) => share.claimable > 0n) ? <p className="text-[12px] text-ink-400">Claimable lien tokens are listed under Claims with the other token claims.</p> : null}
         </section>
       </CardBody>
     </Card>

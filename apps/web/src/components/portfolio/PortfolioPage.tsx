@@ -59,7 +59,7 @@ function WalletStrip({ onConnect }: { onConnect: (chain: ChainId) => void }) {
                 {shortAddress(entry.chain, entry.address)}
               </a>
             ) : (
-              <p className="text-[12px] text-ink-500">Not connected</p>
+              <p className="text-[12px] text-ink-400">Not connected</p>
             )}
           </div>
           {entry.address ? (
