@@ -242,7 +242,7 @@ No other party can move funds, see bids early or stop a round.
   cut at 192 bytes, so every entry fits 448 bytes (measured over every variant with 64-character
   ids) and the full 1,024-entry history at most 458,752 bytes (4.59 NEAR). `new` refuses to
   initialize an engine whose balance does not cover its code and state, that history and the
-  0.5 NEAR MPC reserve (about 15.2 NEAR with a 1 MB wasm; the deployment script funds 17 NEAR), so
+  0.5 NEAR MPC reserve (about 15.4 NEAR with a 1.03 MB wasm; the deployment script funds 17 NEAR), so
   filling the history can never eat the reserve, and a zero-deposit `storage_deposit` top-up
   records nothing (before the fix, about 600 free calls pushed a 12 NEAR engine below its
   reserve). Holding, cash and lien share rows are

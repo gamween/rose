@@ -47,7 +47,7 @@ Every lifecycle transition is a public method; there is no keeper.
 | `retry_base_signature`, `retry_sol_payout` | anyone | request failed, or unanswered for 600 blocks | Signs again (never refunds a signature request); abandons a payout still waiting for its proof |
 | `redeem` | unit holder | holds `D_p` free units | Burns the units and authorizes the release of the position; on Solana it stays `Signed` until `confirm_sol_redeem` |
 
-Units follow NEP-245 (`mt_transfer`, `mt_transfer_call` and the batch variants; token id = class id). The contract keeps a bounded, paginated event history in state so the app needs no indexer: 1,024 entries of at most 448 bytes each (free texts cut at 192 bytes), paid by nobody, so `new` refuses to initialize an engine whose balance does not cover its code and state, that history and the 0.5 NEAR MPC reserve (about 15.2 NEAR; the deployment script funds 17 NEAR).
+Units follow NEP-245 (`mt_transfer`, `mt_transfer_call` and the batch variants; token id = class id). The contract keeps a bounded, paginated event history in state so the app needs no indexer: 1,024 entries of at most 448 bytes each (free texts cut at 192 bytes), paid by nobody, so `new` refuses to initialize an engine whose balance does not cover its code and state, that history and the 0.5 NEAR MPC reserve (about 15.4 NEAR; the deployment script funds 17 NEAR).
 
 ### Round identity
 
