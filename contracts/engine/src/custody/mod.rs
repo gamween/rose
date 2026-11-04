@@ -18,8 +18,13 @@
 //!   `submit_base_signature` or `submit_sol_signature`, which verify the signature against the
 //!   derived key.
 //! - Solana payouts and redeems are two-phase: a signed durable-nonce transaction stays `Signed`
-//!   until anyone proves its nonce advanced (`confirm_sol_payout`, `confirm_sol_redeem`); the
-//!   attested stream state then says whether it executed, and only then is it final or reverted.
+//!   until anyone proves its nonce advanced (`confirm_sol_payout`, `confirm_sol_redeem`); its
+//!   receipt nonce, which only the executed transaction advances, then says whether it executed,
+//!   and only then is it final or reverted. Both nonce accounts stay reserved to the action
+//!   until then, so no other engine-signed transaction can move either.
+//! - Streamflow's auto-claim withdraws every ended vault stream into the vault's token account
+//!   outside any engine payout; `sync_sol_stream` proves it and books the tokens in the class's
+//!   swept balance, which payouts then pay with `TransferChecked` alone.
 //! - Callbacks never panic after a replay key was marked: every validation maps to a refusal or a
 //!   cleared key, so a pending key cannot be left behind by a rolled-back callback. A callback
 //!   that issues promises has static gas covering what it attaches, the receipt fees and its own
@@ -134,6 +139,8 @@ enum StorageKey {
     Pending,
     ClassStreams,
     KeyHolds,
+    NonceHolds,
+    Swept,
 }
 
 /// Custody state, one field of the contract.
@@ -158,6 +165,13 @@ pub struct CustodyState {
     /// The account a pending deposit registration holds (see `pending`), per replay key, so an
     /// abandoned request's hold is released when the fact is requested again.
     key_holds: LookupMap<ReplayKey, AccountId>,
+    /// Nonce and receipt accounts (base58) of the durable-nonce actions not settled yet, with
+    /// the action holding them: no other action may use either until it is settled, so between
+    /// its signature and its confirmation only its own transaction (or its cancellation) can
+    /// advance them.
+    nonce_holds: LookupMap<String, PayoutId>,
+    /// Swept balance per Solana class (see [`SolSwept`]).
+    swept: LookupMap<ClassId, SolSwept>,
 }
 
 impl CustodyState {
@@ -175,6 +189,8 @@ impl CustodyState {
             pending: LookupMap::new(StorageKey::Pending),
             class_streams: LookupMap::new(StorageKey::ClassStreams),
             key_holds: LookupMap::new(StorageKey::KeyHolds),
+            nonce_holds: LookupMap::new(StorageKey::NonceHolds),
+            swept: LookupMap::new(StorageKey::Swept),
         }
     }
 }

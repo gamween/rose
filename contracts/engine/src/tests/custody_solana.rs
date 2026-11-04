@@ -18,7 +18,7 @@ use super::custody::{
 use super::*;
 use crate::custody::{
     ClaimSourceArgs, PayoutDebit, PayoutKind, PayoutStatus, RefusedAsset, ReplayKey, ReplayState,
-    SolDepositArgs, SolDepositStage, SolDrawArgs, SolNonceProof, PAYOUT_STORAGE_DEPOSIT,
+    SolDepositArgs, SolDepositStage, SolDrawArgs, SolNonceProof, SolSwept, PAYOUT_STORAGE_DEPOSIT,
     RECORD_STORAGE_DEPOSIT,
 };
 use crate::foreign::mpc::{
@@ -39,6 +39,8 @@ const RETURN_TO: [u8; 32] = [4u8; 32];
 const NONCE_BASE: [u8; 32] = [12u8; 32];
 const NONCE_VALUE: [u8; 32] = [13u8; 32];
 const NONCE_NEXT: [u8; 32] = [14u8; 32];
+/// The value the claimant's receipt nonce account holds until a transaction advances it.
+const RECEIPT_VALUE: [u8; 32] = [0xeeu8; 32];
 const PARTNER: [u8; 32] = [8u8; 32];
 /// Seconds (and blocks) between a confirmation call and its MPC answer in these tests.
 const ANSWER_DELAY: u64 = 7;
@@ -61,6 +63,7 @@ struct StreamSpec {
     transferable_by_recipient: bool,
     automatic_withdrawal: bool,
     partner_fee_percent: u32,
+    closed: bool,
 }
 
 /// The escrow token account of a test stream.
@@ -95,6 +98,7 @@ fn stream_bytes(stream: [u8; 32], spec: &StreamSpec) -> Vec<u8> {
     data[459] = u8::from(spec.automatic_withdrawal);
     data[461] = u8::from(spec.transferable_by_recipient);
     data[462] = u8::from(spec.can_topup);
+    data[671] = u8::from(spec.closed);
     data
 }
 
@@ -154,6 +158,7 @@ fn sol_spec(recipient: [u8; 32]) -> StreamSpec {
         transferable_by_recipient: true,
         automatic_withdrawal: false,
         partner_fee_percent: 0,
+        closed: false,
     }
 }
 
@@ -373,14 +378,26 @@ fn nonce_account() -> [u8; 32] {
     sol::create_with_seed(&NONCE_BASE, &nonce_seed(), &SYSTEM_PROGRAM).unwrap()
 }
 
+/// The seed of the claimant's receipt nonce account.
+fn receipt_seed() -> String {
+    format!("{}r", crate::custody::nonce_seed_prefix(&accounts(1)))
+}
+
+/// The claimant's receipt nonce account: created from `NONCE_BASE` with its seed.
+fn receipt_account() -> [u8; 32] {
+    sol::create_with_seed(&NONCE_BASE, &receipt_seed(), &SYSTEM_PROGRAM).unwrap()
+}
+
 /// The caller's account bytes of a payout or redeem to `RETURN_TO` with nonce `value`.
 fn proof(value: [u8; 32]) -> SolNonceProof {
     SolNonceProof {
         account: fmt(&nonce_account()),
         base: fmt(&NONCE_BASE),
         seed: nonce_seed(),
+        receipt_seed: receipt_seed(),
         anchor_tx: anchor(),
         data: hex::encode(nonce_bytes(vault(), value)),
+        receipt_data: hex::encode(nonce_bytes(vault(), RECEIPT_VALUE)),
         recipient_tokens_data: hex::encode(token_bytes(MINT, RETURN_TO, 1)),
     }
 }
@@ -390,6 +407,10 @@ fn proof_hash(value: [u8; 32]) -> [u8; 32] {
         (
             nonce_account(),
             sol_account(SYSTEM_PROGRAM, nonce_bytes(vault(), value)),
+        ),
+        (
+            receipt_account(),
+            sol_account(SYSTEM_PROGRAM, nonce_bytes(vault(), RECEIPT_VALUE)),
         ),
         (
             recipient_tokens(),
@@ -426,9 +447,27 @@ fn request_claim(
     value: [u8; 32],
     at: u64,
 ) -> u64 {
+    request_claim_with(contract, class, draws, 0, value, at)
+}
+
+/// Requests a claim of `draws` plus `swept` from the class's swept balance.
+fn request_claim_with(
+    contract: &mut Contract,
+    class: &str,
+    draws: Vec<SolDrawArgs>,
+    swept: u128,
+    value: [u8; 32],
+    at: u64,
+) -> u64 {
     payout_env(&accounts(1), at);
     contract
-        .claim_sol_tokens(holding(class), draws, fmt(&RETURN_TO), proof(value))
+        .claim_sol_tokens(
+            holding(class),
+            draws,
+            (swept > 0).then_some(U128(swept)),
+            fmt(&RETURN_TO),
+            proof(value),
+        )
         .detach();
     contract.payouts_total().0 - 1
 }
@@ -464,46 +503,69 @@ fn claim(
     value: [u8; 32],
     at: u64,
 ) -> u64 {
-    let id = request_claim(contract, class, draws, value, at);
+    claim_with(contract, class, draws, 0, value, at)
+}
+
+/// A claim of `draws` plus `swept` through proof and signatures.
+fn claim_with(
+    contract: &mut Contract,
+    class: &str,
+    draws: Vec<SolDrawArgs>,
+    swept: u128,
+    value: [u8; 32],
+    at: u64,
+) -> u64 {
+    let id = request_claim_with(contract, class, draws, swept, value, at);
     prove(contract, id, value, at + 5 * NS);
     assert!(sign(contract, id, at + 10 * NS));
     id
 }
 
-/// The `landed` and `requested_at` arguments a confirmation passed to its callback, and the
+/// The `executed` and `requested_at` arguments a confirmation passed to its callback, and the
 /// proof hash.
-fn confirmation(method: &str) -> (bool, String, U64) {
+fn confirmation() -> (bool, String, U64) {
     let args = get_created_receipts()
         .iter()
         .flat_map(|receipt| receipt.actions.iter())
         .find_map(|action| match action {
             near_sdk::mock::MockAction::FunctionCallWeight {
                 method_name, args, ..
-            } if method_name == method.as_bytes() => {
+            } if method_name == b"on_sol_confirmed" => {
                 Some(serde_json::from_slice::<serde_json::Value>(args).unwrap())
             }
             _ => None,
         })
-        .unwrap_or_else(|| panic!("no {method} callback scheduled"));
+        .unwrap_or_else(|| panic!("no on_sol_confirmed callback scheduled"));
     (
-        args["landed"].as_bool().unwrap(),
+        args["executed"].as_bool().unwrap(),
         args["expected_hash"].as_str().unwrap().to_string(),
         serde_json::from_value(args["requested_at"].clone()).unwrap(),
     )
 }
 
-/// Confirms payout `id` with the nonce at `nonce_after` and the drawn streams in `streams`;
-/// returns what the engine concluded. A "did not execute" verdict takes two proofs, the second
-/// requested `CONFIRM_FAILURE_DELAY_BLOCKS` after the first one's answer: the first one leaves
-/// the payout `Signed`.
+/// The receipt nonce account's value once the nonce moved to `nonce_after`: equal to it when
+/// the transaction executed, untouched otherwise.
+fn receipt_after(nonce_after: [u8; 32], executed: bool) -> [u8; 32] {
+    if executed {
+        nonce_after
+    } else {
+        RECEIPT_VALUE
+    }
+}
+
+/// Confirms payout `id` with the nonce at `nonce_after` and the receipt as an executed (or a
+/// failed) transaction leaves it; returns what the engine concluded. A "did not execute"
+/// verdict takes two proofs, the second requested `CONFIRM_FAILURE_DELAY_BLOCKS` after the
+/// first one's answer: the first one leaves the payout `Signed`.
 fn confirm_payout(
     contract: &mut Contract,
     id: u64,
     nonce_after: [u8; 32],
-    streams: &[([u8; 32], StreamSpec)],
+    executed: bool,
     at: u64,
 ) -> bool {
-    let landed = prove_payout_state(contract, id, nonce_after, streams, at);
+    let receipt = receipt_after(nonce_after, executed);
+    let landed = prove_payout_state(contract, id, nonce_after, receipt, at);
     if !landed {
         assert_eq!(
             contract.get_payout(U64(id)).unwrap().status,
@@ -515,30 +577,46 @@ fn confirm_payout(
             contract,
             id,
             nonce_after,
-            streams,
+            receipt,
             later
         ));
     }
     landed
 }
 
-/// One confirmation proof of payout `id`, answered `ANSWER_DELAY` later.
+/// One confirmation proof of payout `id` with the nonce at `nonce_after` and the receipt at
+/// `receipt`, answered `ANSWER_DELAY` later.
 fn prove_payout_state(
     contract: &mut Contract,
     id: u64,
     nonce_after: [u8; 32],
-    streams: &[([u8; 32], StreamSpec)],
+    receipt: [u8; 32],
     at: u64,
 ) -> bool {
-    let request = request_payout_proof(contract, id, nonce_after, streams, at);
-    answer_payout_proof(contract, id, &request, at + ts(ANSWER_DELAY))
+    let request = request_payout_proof(contract, id, nonce_after, receipt, at);
+    answer_proof(contract, id, &request, at + ts(ANSWER_DELAY))
 }
 
 /// A confirmation request in flight: what its callback will receive.
 struct ProofRequest {
-    landed: bool,
+    executed: bool,
     hash: String,
     requested_at: U64,
+}
+
+/// The proof hash of a confirmation reading the nonce at `nonce_after` and the receipt at
+/// `receipt`.
+fn confirmation_hash(nonce_after: [u8; 32], receipt: [u8; 32]) -> String {
+    hex::encode(sol_hash(vec![
+        (
+            nonce_account(),
+            sol_account(SYSTEM_PROGRAM, nonce_bytes(vault(), nonce_after)),
+        ),
+        (
+            receipt_account(),
+            sol_account(SYSTEM_PROGRAM, nonce_bytes(vault(), receipt)),
+        ),
+    ]))
 }
 
 /// Requests a confirmation proof of payout `id` at `at`.
@@ -546,7 +624,7 @@ fn request_payout_proof(
     contract: &mut Contract,
     id: u64,
     nonce_after: [u8; 32],
-    streams: &[([u8; 32], StreamSpec)],
+    receipt: [u8; 32],
     at: u64,
 ) -> ProofRequest {
     env_at(&accounts(4), at);
@@ -555,77 +633,54 @@ fn request_payout_proof(
             U64(id),
             anchor(),
             hex::encode(nonce_bytes(vault(), nonce_after)),
-            streams
-                .iter()
-                .map(|(stream, spec)| hex::encode(stream_bytes(*stream, spec)))
-                .collect(),
+            hex::encode(nonce_bytes(vault(), receipt)),
         )
         .detach();
-    let (landed, hash, requested_at) = confirmation("on_sol_payout_confirmed");
+    let (executed, hash, requested_at) = confirmation();
     assert_eq!(requested_at, U64(at / NS));
-    let mut accounts_proven = vec![(
-        nonce_account(),
-        sol_account(SYSTEM_PROGRAM, nonce_bytes(vault(), nonce_after)),
-    )];
-    accounts_proven.extend(
-        streams
-            .iter()
-            .map(|(stream, spec)| metadata_account(*stream, spec)),
-    );
-    assert_eq!(hash, hex::encode(sol_hash(accounts_proven)));
+    assert_eq!(hash, confirmation_hash(nonce_after, receipt));
+    assert_eq!(executed, receipt == nonce_after);
     ProofRequest {
-        landed,
+        executed,
         hash,
         requested_at,
     }
 }
 
-/// Delivers the MPC answer of a confirmation request of payout `id` at `at`.
-fn answer_payout_proof(contract: &mut Contract, id: u64, request: &ProofRequest, at: u64) -> bool {
+/// Delivers the MPC answer of a confirmation request of action `id` at `at`.
+fn answer_proof(contract: &mut Contract, id: u64, request: &ProofRequest, at: u64) -> bool {
     let expected: [u8; 32] = hex::decode(&request.hash).unwrap().try_into().unwrap();
     env_with_results(at, vec![foreign_response(expected)]);
     assert_eq!(
-        contract.on_sol_payout_confirmed(
+        contract.on_sol_confirmed(
             U64(id),
             request.hash.clone(),
-            request.landed,
+            request.executed,
             request.requested_at
         ),
-        request.landed
+        request.executed
     );
-    request.landed
+    request.executed
 }
 
-/// Confirms the release of `position_id` with the stream at `spec`; returns what the engine
+/// Confirms the release of `position_id` as executed (or not); returns what the engine
 /// concluded.
-fn confirm_redeem(
-    contract: &mut Contract,
-    position_id: u64,
-    stream: [u8; 32],
-    spec: &StreamSpec,
-    at: u64,
-) -> bool {
-    let landed = prove_release_state(contract, position_id, stream, spec, at);
+fn confirm_redeem(contract: &mut Contract, position_id: u64, executed: bool, at: u64) -> bool {
+    let receipt = receipt_after(NONCE_NEXT, executed);
+    let landed = prove_release_state(contract, position_id, receipt, at);
     if !landed {
         assert!(contract.get_pending_release(U64(position_id)).is_some());
         let later = at + ts(ANSWER_DELAY + crate::custody::CONFIRM_FAILURE_DELAY_BLOCKS);
-        assert!(!prove_release_state(
-            contract,
-            position_id,
-            stream,
-            spec,
-            later
-        ));
+        assert!(!prove_release_state(contract, position_id, receipt, later));
     }
     landed
 }
 
-/// One confirmation proof of the release of `position_id`.
+/// One confirmation proof of the release of `position_id` with the receipt at `receipt`.
 fn prove_release_state(
     contract: &mut Contract,
     position_id: u64,
-    stream: [u8; 32],
-    spec: &StreamSpec,
+    receipt: [u8; 32],
     at: u64,
 ) -> bool {
     let id = contract.get_pending_release(U64(position_id)).unwrap().0;
@@ -635,24 +690,55 @@ fn prove_release_state(
             U64(position_id),
             anchor(),
             hex::encode(nonce_bytes(vault(), NONCE_NEXT)),
+            hex::encode(nonce_bytes(vault(), receipt)),
+        )
+        .detach();
+    let (executed, hash, requested_at) = confirmation();
+    assert_eq!(hash, confirmation_hash(NONCE_NEXT, receipt));
+    answer_proof(
+        contract,
+        id,
+        &ProofRequest {
+            executed,
+            hash,
+            requested_at,
+        },
+        at + ts(ANSWER_DELAY),
+    )
+}
+
+/// Proves `stream` (position `position_id`) at `spec` with `sync_sol_stream` at `at`; returns
+/// what the callback booked.
+fn sync_stream(
+    contract: &mut Contract,
+    position_id: u64,
+    stream: [u8; 32],
+    spec: &StreamSpec,
+    at: u64,
+) -> bool {
+    env_at(&accounts(4), at);
+    contract
+        .sync_sol_stream(
+            U64(position_id),
+            anchor(),
             hex::encode(stream_bytes(stream, spec)),
         )
         .detach();
-    let (landed, hash, requested_at) = confirmation("on_sol_redeem_confirmed");
-    let expected = sol_hash(vec![
-        (
-            nonce_account(),
-            sol_account(SYSTEM_PROGRAM, nonce_bytes(vault(), NONCE_NEXT)),
-        ),
-        metadata_account(stream, spec),
-    ]);
-    assert_eq!(hash, hex::encode(expected));
-    env_with_results(at + ts(ANSWER_DELAY), vec![foreign_response(expected)]);
-    assert_eq!(
-        contract.on_sol_redeem_confirmed(U64(id), hash, landed, requested_at),
-        landed
-    );
-    landed
+    let hash = sol_hash(vec![metadata_account(stream, spec)]);
+    env_with_results(at + ts(ANSWER_DELAY), vec![foreign_response(hash)]);
+    contract.on_sol_stream_synced(
+        U64(position_id),
+        hex::encode(hash),
+        hex::encode(stream_bytes(stream, spec)),
+    )
+}
+
+/// The stream at the vault after Streamflow's auto-claim: everything withdrawn, closed.
+fn swept_spec() -> StreamSpec {
+    StreamSpec {
+        closed: true,
+        ..at_vault(1_000)
+    }
 }
 
 /// The Streamflow `withdraw` amounts inside a compiled message, in instruction order.
@@ -1267,21 +1353,21 @@ fn a_payout_draws_on_named_streams_and_lands_once_confirmed() {
             U64(id),
             anchor(),
             hex::encode(nonce_bytes(vault(), NONCE_VALUE)),
-            vec![hex::encode(stream_bytes(STREAM, &at_vault(300)))],
+            hex::encode(nonce_bytes(vault(), NONCE_VALUE)),
         )
     });
     env_at(&accounts(4), ts(4_020));
-    panics_with("every drawn stream", || {
+    panics_with("Invalid receipt nonce account", || {
         contract.confirm_sol_payout(
             U64(id),
             anchor(),
             hex::encode(nonce_bytes(vault(), NONCE_NEXT)),
-            vec![],
+            hex::encode(nonce_bytes(RETURN_TO, NONCE_NEXT)),
         )
     });
     // A mismatched attestation changes nothing.
     env_with_results(ts(4_030), vec![foreign_response([7u8; 32])]);
-    assert!(!contract.on_sol_payout_confirmed(U64(id), hex::encode([8u8; 32]), true, U64(4_100)));
+    assert!(!contract.on_sol_confirmed(U64(id), hex::encode([8u8; 32]), true, U64(4_100)));
     assert_eq!(
         contract.get_payout(U64(id)).unwrap().status,
         PayoutStatus::Signed
@@ -1291,8 +1377,8 @@ fn a_payout_draws_on_named_streams_and_lands_once_confirmed() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(300))],
-        ts(4_040),
+        true,
+        ts(4_040)
     ));
     assert_eq!(
         contract.get_payout(U64(id)).unwrap().status,
@@ -1313,7 +1399,7 @@ fn a_payout_draws_on_named_streams_and_lands_once_confirmed() {
             U64(id),
             anchor(),
             hex::encode(nonce_bytes(vault(), NONCE_NEXT)),
-            vec![hex::encode(stream_bytes(STREAM, &at_vault(300)))],
+            hex::encode(nonce_bytes(vault(), NONCE_NEXT)),
         )
     });
     assert_eq!(claimable(&contract, ts(6_000)), 200);
@@ -1346,13 +1432,13 @@ fn a_payout_whose_transaction_failed_on_chain_is_refunded() {
         NONCE_VALUE,
         ts(4_000),
     );
-    // The nonce advanced (the failed transaction still consumed it) but nothing was withdrawn.
+    // The nonce advanced (the failed transaction still consumed it) but the receipt did not.
     assert!(!confirm_payout(
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(0))],
-        ts(4_100),
+        false,
+        ts(4_100)
     ));
     assert!(matches!(
         contract.get_payout(U64(id)).unwrap().status,
@@ -1446,7 +1532,13 @@ fn draws_are_checked_against_the_class_the_stream_and_its_unconfirmed_payout() {
     for (draws, expected) in checks {
         payout_env(&accounts(1), at);
         panics_with(expected, || {
-            contract.claim_sol_tokens(holding(&class), draws, fmt(&RETURN_TO), proof(NONCE_VALUE))
+            contract.claim_sol_tokens(
+                holding(&class),
+                draws,
+                None,
+                fmt(&RETURN_TO),
+                proof(NONCE_VALUE),
+            )
         });
     }
     let id = claim(
@@ -1462,6 +1554,7 @@ fn draws_are_checked_against_the_class_the_stream_and_its_unconfirmed_payout() {
         contract.claim_sol_tokens(
             holding(&class),
             vec![draw(0, 50)],
+            None,
             fmt(&RETURN_TO),
             proof(NONCE_NEXT),
         )
@@ -1470,8 +1563,8 @@ fn draws_are_checked_against_the_class_the_stream_and_its_unconfirmed_payout() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(450)), (STREAM_2, at_vault(500))],
-        ts(6_010),
+        true,
+        ts(6_010)
     ));
     // Less than a whole token only when the draw empties the stream.
     payout_env(&accounts(1), ts(6_020));
@@ -1479,6 +1572,7 @@ fn draws_are_checked_against_the_class_the_stream_and_its_unconfirmed_payout() {
         contract.claim_sol_tokens(
             holding(&class),
             vec![draw(0, 50)],
+            None,
             fmt(&RETURN_TO),
             proof(NONCE_NEXT),
         )
@@ -1486,38 +1580,52 @@ fn draws_are_checked_against_the_class_the_stream_and_its_unconfirmed_payout() {
     let most = claim(
         &mut contract,
         &class,
-        vec![draw(0, 500)],
+        vec![draw(0, 450)],
         NONCE_NEXT,
-        ts(11_000),
+        ts(10_600),
     );
     assert!(confirm_payout(
         &mut contract,
         most,
         [15u8; 32],
-        &[(STREAM, at_vault(950))],
-        ts(11_010),
+        true,
+        ts(10_610)
     ));
-    let rest = claim(
-        &mut contract,
-        &class,
-        vec![draw(0, 50)],
-        [15u8; 32],
-        ts(11_020),
+    // From five minutes before its end a stream takes no draw: Streamflow's auto-claim empties
+    // it one second after the end, and its last tranche is paid from the swept balance.
+    payout_env(&accounts(1), ts(10_700));
+    panics_with("ends within five minutes", || {
+        contract.claim_sol_tokens(
+            holding(&class),
+            vec![draw(0, 100)],
+            None,
+            fmt(&RETURN_TO),
+            proof([15u8; 32]),
+        )
+    });
+    env_at(&accounts(1), ts(10_700));
+    assert_eq!(
+        contract
+            .get_sol_streams(class.clone())
+            .iter()
+            .find(|s| s.position_id == U64(0))
+            .unwrap()
+            .withdrawable,
+        U128(0)
     );
-    assert_eq!(withdraw_amounts(&message_of(&contract, rest)), vec![50]);
-    assert!(confirm_payout(
+    assert!(sync_stream(
         &mut contract,
-        rest,
-        [16u8; 32],
-        &[(STREAM, at_vault(1_000))],
-        ts(11_030),
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_010)
     ));
     assert!(
         contract
             .get_sol_streams(class.clone())
             .iter()
             .all(|s| s.position_id != U64(0)),
-        "an emptied stream is pruned"
+        "a fully withdrawn stream is pruned"
     );
 
     // The other class's stream never served this class.
@@ -1543,6 +1651,7 @@ fn the_recipient_token_account_must_exist_for_the_mint_and_owner() {
             contract.claim_sol_tokens(
                 holding(&class),
                 vec![draw(0, 300)],
+                None,
                 fmt(&RETURN_TO),
                 SolNonceProof {
                     recipient_tokens_data: hex::encode(&data),
@@ -1556,6 +1665,7 @@ fn the_recipient_token_account_must_exist_for_the_mint_and_owner() {
         contract.claim_sol_tokens(
             holding(&class),
             vec![draw(0, 300)],
+            None,
             fmt(&RETURN_TO),
             SolNonceProof {
                 data: hex::encode(nonce_bytes([1u8; 32], NONCE_VALUE)),
@@ -1618,7 +1728,7 @@ fn a_redeem_waits_for_unconfirmed_payouts_and_pays_the_unwithdrawn_tokens() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(300))],
+        true,
         ts(4_200),
     ));
 
@@ -1658,8 +1768,8 @@ fn a_redeem_waits_for_unconfirmed_payouts_and_pays_the_unwithdrawn_tokens() {
     let keys = usize::from(message[3]);
     assert_eq!(
         message[4 + 32 * keys + 32],
-        2,
-        "AdvanceNonceAccount and transfer_recipient only"
+        3,
+        "AdvanceNonceAccount, transfer_recipient and the receipt's AdvanceNonceAccount only"
     );
 
     // Payouts never draw on a releasing stream.
@@ -1668,6 +1778,7 @@ fn a_redeem_waits_for_unconfirmed_payouts_and_pays_the_unwithdrawn_tokens() {
         contract.claim_sol_tokens(
             holding(&class),
             vec![draw(0, 100)],
+            None,
             fmt(&RETURN_TO),
             proof([16u8; 32]),
         )
@@ -1684,17 +1795,8 @@ fn a_redeem_waits_for_unconfirmed_payouts_and_pays_the_unwithdrawn_tokens() {
         "signed is not final on Solana"
     );
 
-    // The release executed: the stream left the vault.
-    assert!(confirm_redeem(
-        &mut contract,
-        0,
-        STREAM,
-        &StreamSpec {
-            amount_withdrawn: 300,
-            ..sol_spec(RETURN_TO)
-        },
-        ts(6_100),
-    ));
+    // The release executed: its receipt moved with the nonce.
+    assert!(confirm_redeem(&mut contract, 0, true, ts(6_100)));
     assert_eq!(
         contract.get_position(U64(0)).unwrap().position.state,
         PositionState::Released
@@ -1732,7 +1834,7 @@ fn a_redeem_needs_the_streams_unwithdrawn_tokens_in_claimable() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM_2, at_vault(300))],
+        true,
         ts(4_050),
     ));
     payout_env(&accounts(1), ts(4_100));
@@ -1783,11 +1885,11 @@ fn a_redeem_is_never_blocked_by_the_class_fractions_rounding_dust() {
         metadata_data: hex::encode(stream_bytes(STREAM, &spec)),
         mint_data: hex::encode(mint_bytes(0)),
     };
-    env(&accounts(1), RECORD_STORAGE_DEPOSIT, ts(500));
+    env(&accounts(1), RECORD_STORAGE_DEPOSIT, ts(300));
     contract.attribute_sol_deposit(args.clone()).detach();
     let path = contract.deposit_path_of(accounts(1), class_id.clone());
     env_with_results(
-        ts(501),
+        ts(301),
         vec![json(&format!("ed25519:{}", fmt(&deposit_address())))],
     );
     drop(contract.on_sol_deposit_key(args.clone(), accounts(1), path.clone()));
@@ -1795,7 +1897,7 @@ fn a_redeem_is_never_blocked_by_the_class_fractions_rounding_dust() {
         metadata_account(STREAM, &spec),
         (MINT, sol_account(TOKEN_PROGRAM, mint_bytes(0))),
     ]);
-    env_with_results(ts(508), vec![foreign_response(hash)]);
+    env_with_results(ts(308), vec![foreign_response(hash)]);
     assert!(contract.on_sol_deposit_attested(
         args.clone(),
         accounts(1),
@@ -1876,14 +1978,8 @@ fn a_release_that_did_not_execute_gives_back_the_units_and_the_claimable_tokens(
     assert!(sign(&mut contract, release, ts(4_010)));
     assert_eq!(claimable(&contract, ts(4_010)), 0);
 
-    // The nonce advanced but the stream is still at the vault, untouched: not executed.
-    assert!(!confirm_redeem(
-        &mut contract,
-        0,
-        STREAM,
-        &at_vault(0),
-        ts(5_000)
-    ));
+    // The nonce advanced but the receipt did not: not executed.
+    assert!(!confirm_redeem(&mut contract, 0, false, ts(5_000)));
     assert_eq!(
         contract.get_position(U64(0)).unwrap().position.state,
         PositionState::Held
@@ -1923,14 +2019,8 @@ fn a_release_that_executed_and_came_back_after_withdrawals_stays_final() {
     prove(&mut contract, release, NONCE_VALUE, ts(4_005));
     assert!(sign(&mut contract, release, ts(4_010)));
     // The new owner withdrew the unlocked tokens and transferred the stream back to the vault:
-    // its withdrawn amount moved, so the release executed.
-    assert!(confirm_redeem(
-        &mut contract,
-        0,
-        STREAM,
-        &at_vault(300),
-        ts(5_000)
-    ));
+    // the stream reads as registered again, but the receipt moved, so the release executed.
+    assert!(confirm_redeem(&mut contract, 0, true, ts(5_000)));
     assert_eq!(
         contract.get_position(U64(0)).unwrap().position.state,
         PositionState::Released
@@ -2172,7 +2262,7 @@ fn a_failed_authority_signature_cancels_the_payout_by_burning_its_nonce() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(0))],
+        false,
         ts(4_100),
     ));
     assert!(matches!(
@@ -2204,7 +2294,7 @@ fn a_late_signature_of_a_cancelled_payout_that_executed_is_counted_not_refunded(
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(300))],
+        true,
         ts(4_100),
     ));
     assert_eq!(
@@ -2228,12 +2318,13 @@ fn a_not_executed_verdict_needs_two_proofs_apart_and_a_landing_overrides_the_fir
         NONCE_VALUE,
         ts(4_000),
     );
-    // A first proof reads the stream as untouched (a lagging read could): nothing happens.
+    // A first proof reads the receipt behind the nonce (a lagging read of it could): nothing
+    // happens.
     assert!(!prove_payout_state(
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(0))],
+        RECEIPT_VALUE,
         ts(4_050),
     ));
     let delay = crate::custody::CONFIRM_FAILURE_DELAY_BLOCKS;
@@ -2241,7 +2332,7 @@ fn a_not_executed_verdict_needs_two_proofs_apart_and_a_landing_overrides_the_fir
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(0))],
+        RECEIPT_VALUE,
         ts(4_050 + delay - 10),
     ));
     assert_eq!(
@@ -2249,12 +2340,12 @@ fn a_not_executed_verdict_needs_two_proofs_apart_and_a_landing_overrides_the_fir
         PayoutStatus::Signed,
         "a second proof within the delay changes nothing"
     );
-    // The next read shows the withdrawal: the payout lands.
+    // The next read shows the receipt on the nonce's value: the payout lands.
     assert!(prove_payout_state(
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(300))],
+        NONCE_NEXT,
         ts(4_050 + delay),
     ));
     assert_eq!(
@@ -2273,6 +2364,7 @@ fn payouts_and_redeems_refuse_the_engines_own_keys_as_recipients() {
             contract.claim_sol_tokens(
                 holding(&class),
                 vec![draw(0, 300)],
+                None,
                 fmt(&owner),
                 proof(NONCE_VALUE),
             )
@@ -2320,8 +2412,8 @@ fn solana_records_fit_their_storage_deposits() {
         "an attribution",
     );
 
-    // A registration creates the replay key, the position, the stream accounts, the class and
-    // its stream list (the holding row is the holder's own storage).
+    // A registration creates the replay key, the position, the stream accounts, the class, its
+    // stream list and its swept balance (the holding row is the holder's own storage).
     let (contract, class) = solana_holder();
     let position = contract.positions.get(&0).unwrap().clone();
     let stored_class = contract.classes.get(&class).unwrap().clone();
@@ -2333,7 +2425,8 @@ fn solana_records_fit_their_storage_deposits() {
         ) + record_bytes(1 + 8, borsh_len(&position))
             + record_bytes(1 + 8, borsh_len(&stream))
             + record_bytes(1 + borsh_len(&class), borsh_len(&stored_class))
-            + record_bytes(1 + borsh_len(&class), 4 + 8),
+            + record_bytes(1 + borsh_len(&class), 4 + 8)
+            + record_bytes(1 + borsh_len(&class), borsh_len(&SolSwept::default())),
         RECORD_STORAGE_DEPOSIT,
         "a Solana registration",
     );
@@ -2350,7 +2443,13 @@ fn solana_records_fit_their_storage_deposits() {
         payout_env(&accounts(1), ts(8_000));
         let draws: Vec<SolDrawArgs> = streams[..count].iter().map(|id| draw(*id, 100)).collect();
         let fits = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            contract.claim_sol_tokens(holding(&class), draws, fmt(&RETURN_TO), proof(NONCE_VALUE))
+            contract.claim_sol_tokens(
+                holding(&class),
+                draws,
+                None,
+                fmt(&RETURN_TO),
+                proof(NONCE_VALUE),
+            )
         }));
         if let Ok(promise) = fits {
             promise.detach();
@@ -2378,7 +2477,7 @@ fn solana_records_fit_their_storage_deposits() {
         "one more draw would not fit"
     );
     assert_fits(
-        payout_bytes(&contract, id),
+        payout_bytes(&contract, id) + 2 * record_bytes(1 + borsh_len(&fmt(&nonce_account())), 8),
         PAYOUT_STORAGE_DEPOSIT,
         "the largest Solana payout",
     );
@@ -2400,10 +2499,12 @@ proptest! {
         for (advance, lands, wanted) in steps {
             now += advance;
             let held = claimable(&contract, ts(now));
-            let stream = contract.get_sol_stream(U64(0)).unwrap();
-            let available = contract.get_sol_streams(class.clone())[0].withdrawable.0;
+            let Some(stream) = contract.get_sol_streams(class.clone()).first().cloned() else {
+                break;
+            };
+            let available = stream.withdrawable.0;
             let amount = wanted.min(available).min(held);
-            if amount == 0 || (amount < 100 && stream.engine_withdrawn.0 + amount as u64 != 1_000) {
+            if amount == 0 || (amount < 100 && stream.stream.engine_withdrawn.0 + amount as u64 != 1_000) {
                 continue;
             }
             let value = [nonce; 32];
@@ -2415,9 +2516,8 @@ proptest! {
                 .unwrap()
                 .unlocked_amount(now);
             prop_assert!(u128::from(pending.engine_withdrawn.0 + pending.pending_withdraw.0) <= unlocked);
-            let withdrawn = if lands { stream.engine_withdrawn.0 + amount as u64 } else { stream.engine_withdrawn.0 };
             prop_assert_eq!(
-                confirm_payout(&mut contract, id, next, &[(STREAM, at_vault(withdrawn))], ts(now + 20)),
+                confirm_payout(&mut contract, id, next, lands, ts(now + 20)),
                 lands
             );
             if lands {
@@ -2446,7 +2546,7 @@ fn redeemed_after_a_landed_payout() -> (Contract, String, u64) {
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(300))],
+        true,
         ts(4_100),
     ));
     let nonce_3 = [15u8; 32];
@@ -2460,83 +2560,43 @@ fn redeemed_after_a_landed_payout() -> (Contract, String, u64) {
     (contract, class, release)
 }
 
-/// Requests a confirmation of the release of position 0 with the stream read as `spec`.
-fn confirm_release_with(contract: &mut Contract, spec: &StreamSpec, at: u64) {
-    env_at(&accounts(4), at);
-    contract
-        .confirm_sol_redeem(
-            U64(0),
-            anchor(),
-            hex::encode(nonce_bytes(vault(), NONCE_NEXT)),
-            hex::encode(stream_bytes(STREAM, spec)),
-        )
-        .detach();
-}
-
 #[test]
-fn a_stale_read_of_a_releasing_stream_never_finalizes_the_release() {
-    let (mut contract, class, release) = redeemed_after_a_landed_payout();
-    // A lagging read from before the payout landed (less withdrawn than proven) is refused,
-    // instead of passing for "the stream moved on".
-    panics_with("Stale stream read: it shows less withdrawn", || {
-        confirm_release_with(&mut contract, &at_vault(0), ts(5_000))
-    });
-    // So is a read from before the move to the vault (the stream at its deposit address).
-    let at_deposit = StreamSpec {
-        amount_withdrawn: 300,
-        ..sol_spec(deposit_address())
-    };
-    panics_with("at its deposit address", || {
-        confirm_release_with(&mut contract, &at_deposit, ts(5_000))
-    });
+fn a_release_is_settled_by_its_receipt_whatever_the_stream_shows() {
+    // Executed: the receipt moved with the nonce, the burn is final.
+    let (mut contract, _, release) = redeemed_after_a_landed_payout();
+    assert!(confirm_redeem(&mut contract, 0, true, ts(5_000)));
     assert_eq!(
         contract.get_payout(U64(release)).unwrap().status,
-        PayoutStatus::Signed
+        PayoutStatus::Landed
     );
-    // The stream exactly as registered, twice: the release did not execute, the position is
-    // held again and the units are back.
-    assert!(!confirm_redeem(
-        &mut contract,
-        0,
-        STREAM,
-        &at_vault(300),
-        ts(5_000)
+    assert_eq!(
+        contract.get_position(U64(0)).unwrap().position.state,
+        PositionState::Released
+    );
+    // Not executed: a first proof with the receipt behind changes nothing, the second one
+    // after the delay gives the units back and the position is held again.
+    let (mut contract, class, release) = redeemed_after_a_landed_payout();
+    assert!(!confirm_redeem(&mut contract, 0, false, ts(5_000)));
+    assert!(matches!(
+        contract.get_payout(U64(release)).unwrap().status,
+        PayoutStatus::Failed { .. }
     ));
     assert_eq!(
         contract.get_position(U64(0)).unwrap().position.state,
         PositionState::Held
     );
     assert_eq!(contract.mt_balance_of(accounts(1), class).0, 1_000);
-}
-
-#[test]
-fn a_release_is_final_only_on_evidence_a_stale_read_cannot_show() {
-    for (label, spec) in [
-        (
-            "new recipient",
-            StreamSpec {
-                amount_withdrawn: 300,
-                ..sol_spec(RETURN_TO)
-            },
-        ),
-        ("withdrawn by the new recipient", at_vault(301)),
-    ] {
-        let (mut contract, _, release) = redeemed_after_a_landed_payout();
-        assert!(
-            prove_release_state(&mut contract, 0, STREAM, &spec, ts(5_000)),
-            "{label}"
-        );
-        assert_eq!(
-            contract.get_payout(U64(release)).unwrap().status,
-            PayoutStatus::Landed,
-            "{label}"
-        );
-        assert_eq!(
-            contract.get_position(U64(0)).unwrap().position.state,
-            PositionState::Released,
-            "{label}"
-        );
-    }
+    // A receipt that is not a nonce account of the vault is refused.
+    let (mut contract, _, _) = redeemed_after_a_landed_payout();
+    env_at(&accounts(4), ts(5_000));
+    panics_with("Invalid receipt nonce account", || {
+        contract.confirm_sol_redeem(
+            U64(0),
+            anchor(),
+            hex::encode(nonce_bytes(vault(), NONCE_NEXT)),
+            hex::encode(stream_bytes(STREAM, &at_vault(300))),
+        )
+    });
 }
 
 #[test]
@@ -2549,14 +2609,13 @@ fn the_failure_delay_runs_from_the_first_answer_to_the_next_request() {
         NONCE_VALUE,
         ts(4_000),
     );
-    let untouched = [(STREAM, at_vault(0))];
     let delay = crate::custody::CONFIRM_FAILURE_DELAY_BLOCKS;
     // Two proofs requested in the same block read the chain at about the same moment.
-    let first = request_payout_proof(&mut contract, id, NONCE_NEXT, &untouched, ts(4_050));
-    let second = request_payout_proof(&mut contract, id, NONCE_NEXT, &untouched, ts(4_050));
-    assert!(!answer_payout_proof(&mut contract, id, &first, ts(4_057)));
+    let first = request_payout_proof(&mut contract, id, NONCE_NEXT, RECEIPT_VALUE, ts(4_050));
+    let second = request_payout_proof(&mut contract, id, NONCE_NEXT, RECEIPT_VALUE, ts(4_050));
+    assert!(!answer_proof(&mut contract, id, &first, ts(4_057)));
     // The second answer arrives past the delay, but its reads are not: nothing changes.
-    assert!(!answer_payout_proof(
+    assert!(!answer_proof(
         &mut contract,
         id,
         &second,
@@ -2571,7 +2630,7 @@ fn the_failure_delay_runs_from_the_first_answer_to_the_next_request() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &untouched,
+        RECEIPT_VALUE,
         ts(4_057 + delay - 1)
     ));
     assert_eq!(
@@ -2582,7 +2641,7 @@ fn the_failure_delay_runs_from_the_first_answer_to_the_next_request() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &untouched,
+        RECEIPT_VALUE,
         ts(4_057 + delay)
     ));
     assert!(matches!(
@@ -2593,7 +2652,7 @@ fn the_failure_delay_runs_from_the_first_answer_to_the_next_request() {
 }
 
 #[test]
-fn a_payout_proof_reads_each_stream_as_paid_or_unchanged_and_one_paid_stream_lands_it() {
+fn a_multi_stream_payout_lands_on_its_receipt_and_counts_every_draw() {
     let mut contract = bootstrapped();
     deposit_stream(&mut contract, STREAM, 0, ts(500));
     let args2 = attribute_stream(&mut contract, STREAM_2, &sol_spec(deposit_address()));
@@ -2607,43 +2666,19 @@ fn a_payout_proof_reads_each_stream_as_paid_or_unchanged_and_one_paid_stream_lan
         NONCE_VALUE,
         ts(4_000),
     );
-    let confirm = |contract: &mut Contract, first: StreamSpec, second: StreamSpec| {
-        env_at(&accounts(4), ts(4_100));
-        contract
-            .confirm_sol_payout(
-                U64(id),
-                anchor(),
-                hex::encode(nonce_bytes(vault(), NONCE_NEXT)),
-                vec![
-                    hex::encode(stream_bytes(STREAM, &first)),
-                    hex::encode(stream_bytes(STREAM_2, &second)),
-                ],
-            )
-            .detach();
-    };
-    // Withdrawn moved, but not to what the payout withdraws: Streamflow withdraws the exact
-    // amount or fails, so no execution explains it.
-    panics_with(
-        "Stream 0 shows a withdrawal this payout cannot explain",
-        || confirm(&mut contract, at_vault(100), at_vault(200)),
-    );
-    // Less than the engine proved at registration: a stale read.
-    panics_with("Stale read of stream 1", || {
-        confirm(&mut contract, at_vault(0), at_vault(150))
-    });
-    // One stream paid, the other read before the landing: the transaction is atomic, so it
-    // executed.
-    assert!(prove_payout_state(
+    let message = message_of(&contract, id);
+    let keys = usize::from(message[3]);
+    let account_keys: Vec<&[u8]> = (0..keys)
+        .map(|i| &message[4 + 32 * i..36 + 32 * i])
+        .collect();
+    assert!(account_keys.contains(&&receipt_account()[..]));
+    assert!(confirm_payout(
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM, at_vault(300)), (STREAM_2, at_vault(200))],
-        ts(4_100),
+        true,
+        ts(4_100)
     ));
-    assert_eq!(
-        contract.get_payout(U64(id)).unwrap().status,
-        PayoutStatus::Landed
-    );
     assert_eq!(
         contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
         U64(300)
@@ -2652,6 +2687,456 @@ fn a_payout_proof_reads_each_stream_as_paid_or_unchanged_and_one_paid_stream_lan
         contract.get_sol_stream(U64(1)).unwrap().engine_withdrawn,
         U64(300)
     );
+}
+
+#[test]
+fn nonce_accounts_stay_reserved_until_their_action_is_settled() {
+    let mut contract = bootstrapped();
+    deposit_stream(&mut contract, STREAM, 0, ts(500));
+    let args2 = attribute_stream(&mut contract, STREAM_2, &sol_spec(deposit_address()));
+    move_stream(&mut contract, &args2.metadata, ts(2_150));
+    register_stream(&mut contract, STREAM_2, 0, ts(2_200));
+    let class = stepped_class_id();
+    let id = claim(
+        &mut contract,
+        &class,
+        vec![draw(0, 300)],
+        NONCE_VALUE,
+        ts(4_000),
+    );
+    // Another payout on another stream cannot reuse either account while the first is
+    // unsettled: the claimant could otherwise move its nonce after a landing and make the
+    // receipt look behind (a refund of a paid claim).
+    let swapped = SolNonceProof {
+        account: fmt(&receipt_account()),
+        seed: receipt_seed(),
+        receipt_seed: format!("{}b", crate::custody::nonce_seed_prefix(&accounts(1))),
+        ..proof(NONCE_NEXT)
+    };
+    for nonce in [proof(NONCE_NEXT), swapped] {
+        payout_env(&accounts(1), ts(4_100));
+        panics_with("is reserved by action", || {
+            contract.claim_sol_tokens(
+                holding(&class),
+                vec![draw(1, 300)],
+                None,
+                fmt(&RETURN_TO),
+                nonce.clone(),
+            )
+        });
+    }
+    // The receipt must be another account than the nonce.
+    payout_env(&accounts(1), ts(4_100));
+    panics_with("another account than the nonce", || {
+        contract.claim_sol_tokens(
+            holding(&class),
+            vec![draw(1, 300)],
+            None,
+            fmt(&RETURN_TO),
+            SolNonceProof {
+                receipt_seed: nonce_seed(),
+                ..proof(NONCE_NEXT)
+            },
+        )
+    });
+    // Settled: both are free again.
+    assert!(confirm_payout(
+        &mut contract,
+        id,
+        NONCE_NEXT,
+        true,
+        ts(4_200)
+    ));
+    let next = claim(
+        &mut contract,
+        &class,
+        vec![draw(1, 300)],
+        NONCE_NEXT,
+        ts(4_300),
+    );
+    assert_eq!(
+        contract.get_payout(U64(next)).unwrap().status,
+        PayoutStatus::Signed
+    );
+}
+
+/// The holder of `solana_holder` once the stream ended and Streamflow's auto-claim emptied it
+/// into the vault's token account, after a landed payout of 300.
+fn swept_after_a_payout() -> (Contract, String) {
+    let (mut contract, class) = solana_holder();
+    let id = claim(
+        &mut contract,
+        &class,
+        vec![draw(0, 300)],
+        NONCE_VALUE,
+        ts(4_000),
+    );
+    assert!(confirm_payout(
+        &mut contract,
+        id,
+        NONCE_NEXT,
+        true,
+        ts(4_100)
+    ));
+    (contract, class)
+}
+
+#[test]
+fn streamflow_auto_claim_is_booked_by_sync_and_paid_from_the_swept_balance() {
+    let (mut contract, class) = swept_after_a_payout();
+    env_at(&accounts(4), ts(11_010));
+    assert_eq!(contract.get_sol_swept(class.clone()), SolSwept::default());
+    // A read of the stream still open shows nothing beyond the engine's accounting.
+    panics_with("Nothing to sync", || {
+        contract.sync_sol_stream(
+            U64(0),
+            anchor(),
+            hex::encode(stream_bytes(STREAM, &at_vault(300))),
+        )
+    });
+    // A lagging read books what it shows, a later one the rest: never more than withdrawn.
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &at_vault(700),
+        ts(11_010)
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()).balance, U64(400));
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        U64(700)
+    );
+    env_at(&accounts(4), ts(11_020));
+    panics_with("Nothing to sync", || {
+        contract.sync_sol_stream(
+            U64(0),
+            anchor(),
+            hex::encode(stream_bytes(STREAM, &at_vault(600))),
+        )
+    });
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_030)
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()).balance, U64(700));
+    assert!(contract.get_sol_streams(class.clone()).is_empty(), "pruned");
+    assert!(events("rose")
+        .iter()
+        .any(|e| e["event"] == "sol_stream_swept"));
+    // The holder's last 700 claimable tokens are paid from the swept balance alone.
+    assert_eq!(claimable(&contract, ts(11_040)), 700);
+    payout_env(&accounts(1), ts(11_040));
+    panics_with("swept balance can pay at most 700", || {
+        contract.claim_sol_tokens(
+            holding(&class),
+            vec![],
+            Some(U128(701)),
+            fmt(&RETURN_TO),
+            proof(NONCE_NEXT),
+        )
+    });
+    let id = claim_with(&mut contract, &class, vec![], 700, NONCE_NEXT, ts(11_040));
+    let payout = contract.get_payout(U64(id)).unwrap();
+    assert_eq!(payout.solana.as_ref().unwrap().swept, U64(700));
+    let message = payout.solana.unwrap().message.0;
+    assert!(
+        withdraw_amounts(&message).is_empty(),
+        "no Streamflow withdraw"
+    );
+    assert_eq!(
+        contract.get_sol_swept(class.clone()),
+        SolSwept {
+            balance: U64(700),
+            pending: U64(700)
+        }
+    );
+    assert!(confirm_payout(
+        &mut contract,
+        id,
+        [15u8; 32],
+        true,
+        ts(11_100)
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()), SolSwept::default());
+    assert_eq!(claimable(&contract, ts(11_200)), 0);
+}
+
+#[test]
+fn a_swept_payout_that_did_not_execute_gives_the_balance_back() {
+    let (mut contract, class) = swept_after_a_payout();
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_010)
+    ));
+    let id = claim_with(&mut contract, &class, vec![], 500, NONCE_NEXT, ts(11_040));
+    // A donation to the vault's token account or a move out of the recipient's own account
+    // changes neither nonce account: the verdict follows the receipt only.
+    assert!(!confirm_payout(
+        &mut contract,
+        id,
+        [15u8; 32],
+        false,
+        ts(11_100)
+    ));
+    assert_eq!(
+        contract.get_sol_swept(class.clone()),
+        SolSwept {
+            balance: U64(700),
+            pending: U64(0)
+        }
+    );
+    assert_eq!(claimable(&contract, ts(11_500)), 700);
+}
+
+#[test]
+fn a_payout_signed_before_the_end_and_broadcast_after_the_sweep_is_refunded_and_swept() {
+    let (mut contract, class) = solana_holder();
+    let id = claim(
+        &mut contract,
+        &class,
+        vec![draw(0, 900)],
+        NONCE_VALUE,
+        ts(10_600),
+    );
+    // Streamflow emptied the stream at 11,001; the payout broadcast later failed on chain (the
+    // escrow is closed), which advanced its nonce but not its receipt. Until the payout is
+    // settled nobody knows whether its withdrawal happened, so the stream is not synced.
+    env_at(&accounts(4), ts(11_010));
+    panics_with("not confirmed yet", || {
+        contract.sync_sol_stream(
+            U64(0),
+            anchor(),
+            hex::encode(stream_bytes(STREAM, &swept_spec())),
+        )
+    });
+    assert!(!confirm_payout(
+        &mut contract,
+        id,
+        NONCE_NEXT,
+        false,
+        ts(11_100)
+    ));
+    assert!(matches!(
+        contract.get_payout(U64(id)).unwrap().status,
+        PayoutStatus::Failed { .. }
+    ));
+    // The auto-claim took the whole stream, the failed draw's 900 included.
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_300)
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()).balance, U64(1_000));
+    assert_eq!(claimable(&contract, ts(11_300)), 1_000);
+    let paid = claim_with(&mut contract, &class, vec![], 1_000, NONCE_NEXT, ts(11_300));
+    assert!(confirm_payout(
+        &mut contract,
+        paid,
+        [15u8; 32],
+        true,
+        ts(11_400)
+    ));
+    assert_eq!(contract.get_sol_swept(class), SolSwept::default());
+}
+
+#[test]
+fn a_payout_that_landed_before_the_sweep_counts_once() {
+    let (mut contract, class) = solana_holder();
+    let id = claim(
+        &mut contract,
+        &class,
+        vec![draw(0, 900)],
+        NONCE_VALUE,
+        ts(10_600),
+    );
+    // It executed before the end, then the auto-claim took the rest; confirmed afterwards, the
+    // stream reads fully withdrawn either way, and only the receipt tells.
+    assert!(confirm_payout(
+        &mut contract,
+        id,
+        NONCE_NEXT,
+        true,
+        ts(11_100)
+    ));
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        U64(900)
+    );
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_200)
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()).balance, U64(100));
+    assert_eq!(claimable(&contract, ts(11_200)), 100);
+}
+
+#[test]
+fn a_cancellation_racing_the_sweep_is_settled_by_the_receipt() {
+    let (mut contract, class) = solana_holder();
+    let id = request_claim(
+        &mut contract,
+        &class,
+        vec![draw(0, 900)],
+        NONCE_VALUE,
+        ts(10_600),
+    );
+    prove(&mut contract, id, NONCE_VALUE, ts(10_605));
+    let original = message_of(&contract, id);
+    env_with_results(
+        ts(10_610),
+        vec![
+            PromiseResult::Failed,
+            ed_signature(&gas_sol_key(), &original),
+        ],
+    );
+    assert!(!contract.on_sol_signed(U64(id)));
+    env_at(&accounts(4), ts(10_620));
+    assert!(contract.retry_sol_payout(U64(id)).is_some());
+    let cancel = message_of(&contract, id);
+    env_with_results(
+        ts(10_625),
+        vec![
+            ed_signature(&vault_sol_key(), &cancel),
+            ed_signature(&gas_sol_key(), &cancel),
+        ],
+    );
+    assert!(contract.on_sol_signed(U64(id)));
+    // The cancellation executed after the sweep (or the original failed on the closed escrow):
+    // the receipt never moved, so the claim is refunded and the stream's tokens are swept.
+    assert!(!confirm_payout(
+        &mut contract,
+        id,
+        NONCE_NEXT,
+        false,
+        ts(11_100)
+    ));
+    assert_eq!(claimable(&contract, ts(11_400)), 1_000);
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_400)
+    ));
+    assert_eq!(contract.get_sol_swept(class).balance, U64(1_000));
+}
+
+#[test]
+fn a_redeem_near_the_end_is_refused_and_one_signed_before_settles_by_its_receipt() {
+    let (mut contract, class) = solana_holder();
+    payout_env(&accounts(1), ts(10_700));
+    panics_with("ends within five minutes", || {
+        contract.redeem(U64(0), fmt(&RETURN_TO), Some(proof(NONCE_VALUE)))
+    });
+    env_at(&accounts(1), ts(10_700));
+    assert_eq!(
+        contract.get_sol_streams(class.clone())[0].redeem_claimable,
+        U128(0)
+    );
+    // Signed before the cutoff, broadcast after the sweep: Streamflow refuses to transfer a
+    // closed stream (error 104), the receipt stays behind and the redeem is reverted.
+    payout_env(&accounts(1), ts(10_600));
+    contract
+        .redeem(U64(0), fmt(&RETURN_TO), Some(proof(NONCE_VALUE)))
+        .detach();
+    let release = contract.payouts_total().0 - 1;
+    prove(&mut contract, release, NONCE_VALUE, ts(10_605));
+    assert!(sign(&mut contract, release, ts(10_610)));
+    env_at(&accounts(4), ts(11_010));
+    panics_with("not held", || {
+        contract.sync_sol_stream(
+            U64(0),
+            anchor(),
+            hex::encode(stream_bytes(STREAM, &swept_spec())),
+        )
+    });
+    assert!(!confirm_redeem(&mut contract, 0, false, ts(11_100)));
+    assert_eq!(
+        contract.get_position(U64(0)).unwrap().position.state,
+        PositionState::Held
+    );
+    assert_eq!(contract.mt_balance_of(accounts(1), class.clone()).0, 1_000);
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_400)
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()).balance, U64(1_000));
+    assert_eq!(claimable(&contract, ts(11_400)), 1_000);
+}
+
+#[test]
+fn a_sync_rechecks_the_stream_in_its_callback() {
+    let (mut contract, class) = solana_holder();
+    // A read of a stream paying another token account, or a stream released meanwhile, books
+    // nothing.
+    let elsewhere = StreamSpec {
+        amount_withdrawn: 1_000,
+        closed: true,
+        ..sol_spec(RETURN_TO)
+    };
+    env_at(&accounts(4), ts(11_010));
+    panics_with("does not pay the vault's token account", || {
+        contract.sync_sol_stream(
+            U64(0),
+            anchor(),
+            hex::encode(stream_bytes(STREAM, &elsewhere)),
+        )
+    });
+    // A sync requested while the stream was free, answered once a payout draws on it, books
+    // nothing: its read may or may not include that payout's withdrawal.
+    env_at(&accounts(4), ts(5_000));
+    contract
+        .sync_sol_stream(
+            U64(0),
+            anchor(),
+            hex::encode(stream_bytes(STREAM, &at_vault(400))),
+        )
+        .detach();
+    let id = claim(
+        &mut contract,
+        &class,
+        vec![draw(0, 300)],
+        NONCE_VALUE,
+        ts(5_001),
+    );
+    let hash = sol_hash(vec![metadata_account(STREAM, &at_vault(400))]);
+    env_with_results(ts(5_007), vec![foreign_response(hash)]);
+    assert!(!contract.on_sol_stream_synced(
+        U64(0),
+        hex::encode(hash),
+        hex::encode(stream_bytes(STREAM, &at_vault(400)))
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()).balance, U64(0));
+    assert!(confirm_payout(
+        &mut contract,
+        id,
+        NONCE_NEXT,
+        true,
+        ts(5_100)
+    ));
+    // A mismatched attestation books nothing either.
+    env_with_results(ts(11_020), vec![foreign_response([7u8; 32])]);
+    assert!(!contract.on_sol_stream_synced(
+        U64(0),
+        hex::encode([8u8; 32]),
+        hex::encode(stream_bytes(STREAM, &swept_spec()))
+    ));
+    assert_eq!(contract.get_sol_swept(class).balance, U64(0));
 }
 
 #[test]
@@ -2710,6 +3195,7 @@ fn a_nonce_account_serves_only_the_near_account_its_seed_names() {
             contract.claim_sol_tokens(
                 holding(&class),
                 vec![draw(0, 300)],
+                None,
                 fmt(&RETURN_TO),
                 nonce.clone(),
             )
@@ -2791,7 +3277,7 @@ fn a_redeem_counts_the_pending_lien_excess_as_claimable() {
         &mut contract,
         id,
         NONCE_NEXT,
-        &[(STREAM_2, at_vault(300))],
+        true,
         ts(4_050),
     ));
     // Stream 0 owes 300; the holder has 100 claimable and a lien whose excess (300 at f = 0.3,
@@ -2951,7 +3437,6 @@ proptest! {
         let mut contract = bootstrapped();
         let class = deposit_schedule(&mut contract, STREAM, &spec, ts(1_500));
         let mut now = 2_200u64;
-        let mut withdrawn = 0u64;
         let mut nonce = 100u8;
         for (advance, share) in claims {
             now += advance;
@@ -2963,9 +3448,7 @@ proptest! {
                 continue;
             }
             let id = claim(&mut contract, &class, vec![draw(0, amount)], [nonce; 32], ts(now));
-            withdrawn += u64::try_from(amount).unwrap();
-            let paid = StreamSpec { amount_withdrawn: withdrawn, ..spec.clone() };
-            prop_assert!(confirm_payout(&mut contract, id, [nonce + 1; 32], &[(STREAM, paid)], ts(now + 20)));
+            prop_assert!(confirm_payout(&mut contract, id, [nonce + 1; 32], true, ts(now + 20)));
             nonce += 2;
             now += 20 + crate::custody::CONFIRM_FAILURE_DELAY_BLOCKS;
         }
@@ -2988,4 +3471,51 @@ proptest! {
         );
         prop_assert_eq!(contract.get_claimable(accounts(1), class).0, held - owed);
     }
+}
+
+#[test]
+fn a_stream_ending_within_an_hour_is_refused_at_its_deposit_address() {
+    // Streamflow's auto-claim would empty it at its end, before the deposit completes, into a
+    // token account no engine path reaches.
+    let mut contract = bootstrapped();
+    let spec = StreamSpec {
+        end_time: 5_000,
+        net_amount_deposited: 400,
+        ..sol_spec(deposit_address())
+    };
+    attribute_stream(&mut contract, STREAM, &spec);
+    let refused = contract.get_refused_deposit(stream_key(STREAM)).unwrap();
+    assert!(
+        refused.reason.contains("ends within an hour"),
+        "{}",
+        refused.reason
+    );
+    let spec = StreamSpec {
+        end_time: 6_000,
+        net_amount_deposited: 500,
+        ..sol_spec(deposit_address())
+    };
+    attribute_stream(&mut contract, STREAM_2, &spec);
+    assert_eq!(
+        contract.get_sol_deposit(fmt(&STREAM_2)).unwrap().stage,
+        SolDepositStage::Attributed
+    );
+}
+
+#[test]
+fn an_attribution_names_its_class_in_lowercase_hex() {
+    let mut contract = bootstrapped();
+    let spec = sol_spec(deposit_address());
+    let args = SolDepositArgs {
+        metadata: fmt(&STREAM),
+        class_id: sol_class_id(&contract, &spec).to_uppercase(),
+        return_to: fmt(&RETURN_TO),
+        anchor_tx: anchor(),
+        metadata_data: hex::encode(stream_bytes(STREAM, &spec)),
+        mint_data: hex::encode(mint_bytes(DECIMALS)),
+    };
+    env(&accounts(1), RECORD_STORAGE_DEPOSIT, ts(2_000));
+    panics_with("lowercase hex class id", || {
+        contract.attribute_sol_deposit(args)
+    });
 }

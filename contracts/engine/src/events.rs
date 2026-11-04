@@ -4,6 +4,12 @@
 //! buffer of the last [`EVENT_CAPACITY`] events, so the app needs no indexer. Unit movements log
 //! the NEP-245 event instead of a `rose` one (see `units.rs`) but are recorded in the history all
 //! the same.
+//!
+//! Nobody pays for a history entry, so the history is bounded in bytes, not only in entries:
+//! free texts are cut at [`EVENT_TEXT_MAX_BYTES`], every entry then fits
+//! [`EVENT_RECORD_MAX_BYTES`] (measured over every variant in `tests::events`), and `new`
+//! refuses to initialize an engine whose balance does not cover the full history
+//! ([`EVENT_HISTORY_RESERVE_BYTES`]) on top of its state and its MPC reserve.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::store::Vector;
@@ -21,6 +27,16 @@ pub const EVENT_STANDARD: &str = "rose";
 pub const EVENT_VERSION: &str = "1.0.0";
 /// Number of events kept in the on-chain history.
 pub const EVENT_CAPACITY: u32 = 1024;
+/// Longest free text an event keeps (an error, a refusal reason, a claim source), in bytes;
+/// a longer one is cut at a character boundary.
+pub const EVENT_TEXT_MAX_BYTES: usize = 192;
+/// Most bytes one history entry occupies (its key, its value and NEAR's 40-byte record
+/// overhead), for the largest variant with 64-character account ids and texts of
+/// [`EVENT_TEXT_MAX_BYTES`]; measured in `tests::events`.
+pub const EVENT_RECORD_MAX_BYTES: u64 = 448;
+/// Most bytes the full history occupies: what the engine's balance must cover at init, since
+/// no caller pays for history entries.
+pub const EVENT_HISTORY_RESERVE_BYTES: u64 = EVENT_CAPACITY as u64 * EVENT_RECORD_MAX_BYTES;
 
 /// An engine event. Serialized as `{"event": "<snake_case variant>", "data": {...}}`.
 #[near(serializers = [borsh, json])]
@@ -244,6 +260,13 @@ pub enum RoseEvent {
     PayoutCancelling {
         payout_id: U64,
     },
+    /// `sync_sol_stream` booked `amount` that Streamflow withdrew from a vault stream outside
+    /// any payout (its auto-claim of an ended stream) in the class's swept balance.
+    SolStreamSwept {
+        position_id: U64,
+        class_id: ClassId,
+        amount: U64,
+    },
 }
 
 /// An event with its position in the history and its block context.
@@ -283,6 +306,7 @@ pub(crate) fn log_event<T: Serialize>(standard: &str, version: &str, body: T) {
 impl Contract {
     /// Logs a `rose` event and records it in the history.
     pub(crate) fn emit(&mut self, event: RoseEvent) {
+        let event = event.bounded();
         log_event(EVENT_STANDARD, EVENT_VERSION, &event);
         self.record(event);
     }
@@ -294,7 +318,7 @@ impl Contract {
             block_height: U64(env::block_height()),
             timestamp: U64(env::block_timestamp()),
             predecessor: env::predecessor_account_id(),
-            event,
+            event: event.bounded(),
         };
         push_ring(&mut self.events, self.events_total, stored);
         self.events_total += 1;
@@ -312,6 +336,28 @@ impl Contract {
             .filter_map(|seq| self.events.get(slot(seq)).cloned())
             .collect();
         (events, oldest)
+    }
+}
+
+impl RoseEvent {
+    /// The event with its free texts cut at [`EVENT_TEXT_MAX_BYTES`].
+    pub(crate) fn bounded(mut self) -> Self {
+        match &mut self {
+            Self::ClearingFailed { error: text, .. }
+            | Self::ClaimableTaken { source: text, .. }
+            | Self::DepositRefused { reason: text, .. }
+            | Self::PayoutFailed { reason: text, .. }
+                if text.len() > EVENT_TEXT_MAX_BYTES =>
+            {
+                let mut end = EVENT_TEXT_MAX_BYTES;
+                while !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+                text.truncate(end);
+            }
+            _ => {}
+        }
+        self
     }
 }
 

@@ -120,28 +120,41 @@ pub struct SolDepositArgs {
 
 /// The accounts a Solana payout or redeem is built on, proven together with one ForeignTx
 /// `AccountState` request at `Finalized` before anything is signed: the durable nonce account
-/// (owner System, authority = vault) and the recipient's associated token account for the mint
-/// (owner SPL Token, initialized, owned by the recipient), which must already exist so that the
-/// engine's fee payer never pays rent for it.
+/// and the receipt nonce account (both owner System, authority = vault) and the recipient's
+/// associated token account for the mint (owner SPL Token, initialized, owned by the
+/// recipient), which must already exist so that the engine's fee payer never pays rent for it.
 ///
-/// The nonce account belongs to the calling NEAR account through its address: it must be
-/// `create_with_seed(base, seed, System program)` with a `seed` starting with the caller's
-/// prefix (`nonce_seed_prefix`), so nobody else can spend its nonce values.
+/// The transaction advances the durable nonce first and the receipt nonce last. A durable-nonce
+/// transaction that fails on chain still advances its durable nonce but rolls back every other
+/// instruction, the receipt's advance included, while one that executes leaves both accounts
+/// holding the same new value (both measured on devnet). So once the durable nonce moved, a
+/// receipt equal to it proves the transaction executed and a receipt behind it proves it did
+/// not, whatever happened to the streams, the vault's token account or the recipient's.
+///
+/// Both accounts belong to the calling NEAR account through their addresses: each must be
+/// `create_with_seed(base, seed, System program)` with a seed starting with the caller's prefix
+/// (`nonce_seed_prefix`), so nobody else can spend their nonce values.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct SolNonceProof {
     /// Nonce account (base58).
     pub account: String,
-    /// The key the nonce account was created from with a seed (base58; it signed the creation).
+    /// The key both accounts were created from with a seed (base58; it signed the creations).
     pub base: String,
-    /// The seed: the caller's 24-character prefix, then at most 8 characters of the caller's
-    /// choice (so one wallet can hold several nonce accounts for one NEAR account).
+    /// The seed of the nonce account: the caller's 24-character prefix, then at most 8
+    /// characters of the caller's choice (so one wallet can hold several nonce accounts for one
+    /// NEAR account).
     pub seed: String,
+    /// The seed of the receipt nonce account, from the same base and under the same rule; it
+    /// must name another account than `seed`.
+    pub receipt_seed: String,
     /// Anchor transaction (base58 signature): any successful finalized transaction not newer
     /// than the account reads.
     pub anchor_tx: String,
     /// The 80 nonce account bytes (hex), read at `finalized`.
     pub data: String,
+    /// The 80 receipt nonce account bytes (hex), read at `finalized`.
+    pub receipt_data: String,
     /// The 165 bytes of the recipient's associated token account (hex), read at `finalized`.
     pub recipient_tokens_data: String,
 }
@@ -259,8 +272,8 @@ pub enum PayoutKind {
         vested_to_recipient: bool,
     },
     /// Streamflow withdrawals from the drawn streams into the vault's token account, then SPL
-    /// `TransferChecked` of their sum, `amount`, of `mint` to `to_owner`'s associated token
-    /// account.
+    /// `TransferChecked` of `amount` of `mint` (their sum plus what the payout takes from the
+    /// class's swept balance) to `to_owner`'s associated token account.
     SolTransfer {
         mint: String,
         to_owner: String,
@@ -324,7 +337,7 @@ pub enum PayoutStatus {
     Requested,
     /// The authorization or transaction is stored; anyone can submit it. A Solana payout or
     /// redeem stays here until `confirm_sol_payout` / `confirm_sol_redeem` proves its durable
-    /// nonce advanced, then becomes `Landed` or `Failed`.
+    /// nonce advanced, then becomes `Landed` or `Failed` as its receipt nonce says.
     Signed,
     /// The vault signature exists but the fee payer's does not: `resign_sol_gas` (or
     /// `submit_sol_signature`) completes it.
@@ -365,12 +378,19 @@ pub struct SolTransaction {
     /// The compiled message every signer signs.
     pub message: Base64VecU8,
     /// Streamflow withdrawals inside the message (payouts only), feeding the vault's token
-    /// account with exactly what the message pays out of it.
+    /// account with what the message pays out of it besides `swept`.
     pub draws: Vec<SolDraw>,
+    /// What the payout takes from its class's swept balance (tokens Streamflow already moved
+    /// into the vault's token account, booked by `sync_sol_stream`); 0 for other actions.
+    pub swept: U64,
     /// Nonce account and the value the message uses as its blockhash, for durable-nonce
     /// transactions (`None` with a recent blockhash).
     pub nonce_account: Option<String>,
     pub nonce_value: Option<String>,
+    /// Receipt nonce account the message advances last (durable-nonce actions only; their
+    /// nonce-only cancellation does not advance it): equal to the nonce account once the nonce
+    /// moved, it proves the message executed (see [`SolNonceProof`]).
+    pub receipt_account: Option<String>,
     /// Derivation path of the authority that signs besides `gas/sol` (`vault/sol` or a deposit
     /// address path). The fee payer is always the first signature of the wire transaction.
     pub authority_path: String,
@@ -505,16 +525,18 @@ pub struct SolStreamInfo {
     pub amount_per_period: U64,
     pub net_amount_deposited: U64,
     pub end_time: u64,
-    /// Tokens withdrawn from the stream's escrow and proven: the attested `amount_withdrawn`
-    /// at registration plus every payout withdrawal proven landed since. Only the engine
-    /// withdraws vault streams (automatic withdrawal is refused at deposit).
+    /// Tokens withdrawn from the stream's escrow and accounted for: the attested
+    /// `amount_withdrawn` at registration, every payout withdrawal proven executed since, and
+    /// what `sync_sol_stream` proved Streamflow withdrew into the vault's token account outside
+    /// any payout (its auto-claim of an ended stream), booked in the class's swept balance.
     pub engine_withdrawn: U64,
     /// The attested `amount_withdrawn` at registration (paid to the depositor before).
     pub registered_withdrawn: U64,
     /// Accrual checkpoint the position's units were minted from.
     pub checkpoint: U128,
-    /// The one payout drawing on the stream that is not confirmed yet (at most one at a time, so
-    /// that the attested `amount_withdrawn` tells unambiguously whether it landed).
+    /// The one payout drawing on the stream that is not confirmed yet (at most one at a time:
+    /// until it is settled nobody knows whether its withdrawal happened, so the stream is not
+    /// synced, redeemed or drawn on again).
     pub drawing: Option<U64>,
     /// What that payout withdraws (0 when none).
     pub pending_withdraw: U64,
@@ -533,6 +555,25 @@ impl SolStreamInfo {
             end_time: self.end_time,
             ..StreamflowParams::default()
         }
+    }
+}
+
+/// Tokens of a Solana class that Streamflow moved into the vault's token account outside any
+/// engine payout (its auto-claim of an ended stream), as `sync_sol_stream` proved them, and the
+/// part of them taken by payouts not confirmed yet.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SolSwept {
+    /// Booked and not paid out yet.
+    pub balance: U64,
+    /// Taken by payouts not confirmed yet (included in `balance`).
+    pub pending: U64,
+}
+
+impl SolSwept {
+    /// What a new payout may take.
+    pub fn available(&self) -> u64 {
+        self.balance.0 - self.pending.0
     }
 }
 

@@ -20,6 +20,13 @@
 //! Only classic SPL Token mints without a freeze authority are supported: the mint account is
 //! attested as owned by the Token program, and every token account is its associated token
 //! account.
+//!
+//! Streamflow's auto-claim withdraws every ended stream into its recipient's token account one
+//! second after its end, whatever the stream's `automatic_withdrawal` flag says (measured on
+//! devnet). For a registered stream that is the vault's token account: `sync_sol_stream` proves
+//! the withdrawal and books it in the class's swept balance. A stream ending within
+//! [`DEPOSIT_END_MARGIN_SECS`] is refused at attribution, so a deposit never reaches its end
+//! while it sits at a deposit address or awaits its registration.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{env, near, require, AccountId, Gas, NearToken, Promise, PromiseOrValue};
@@ -42,12 +49,18 @@ use crate::foreign::solana::{
     streamflow_transfer_recipient, Mint, StreamflowMetadata, TOKEN_PROGRAM,
 };
 use crate::math::ONE;
+use crate::types::PositionId;
 use crate::types::{Chain, ClassId, Position, PositionSource, PositionState};
 use crate::unlock::{ClassSchedule, StreamflowStream};
 use crate::{class_id_of, Contract, ContractExt, RoseEvent};
 
 /// Tgas the `derived_public_key` view call gets.
 const TGAS_DERIVED_KEY: u64 = 10;
+/// A stream ending within this many seconds of its attribution is refused at the deposit
+/// address (and returnable at once): the deposit takes about a minute, and a stream still at a
+/// deposit address, or refused at the vault, at its end would be emptied by Streamflow's
+/// auto-claim into that address's token account, where no engine path reaches it.
+pub const DEPOSIT_END_MARGIN_SECS: u64 = 3_600;
 /// Static gas of the deposit key callback: the proof it requests and its own work.
 const GAS_FOR_KEY_CALLBACK: Gas = Gas::from_tgas(TGAS_PROOF + TGAS_CALLBACK_WORK);
 
@@ -77,8 +90,12 @@ impl Contract {
         Self::require_mpc_reserve();
         let caller = env::predecessor_account_id();
         require!(
-            args.class_id.len() == 64 && args.class_id.bytes().all(|b| b.is_ascii_hexdigit()),
-            "class_id must be the 64-hex class id (compute_sol_class_id)"
+            args.class_id.len() == 64
+                && args
+                    .class_id
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "class_id must be the 64-character lowercase hex class id (compute_sol_class_id)"
         );
         sol::parse_pubkey(&args.metadata)
             .unwrap_or_else(|_| env::panic_str("metadata must be a base58 key"));
@@ -228,6 +245,9 @@ impl Contract {
             .and_then(|metadata| {
                 if token.freeze_authority.is_some() {
                     return Err(FREEZABLE_MINT.to_string());
+                }
+                if metadata.end_time <= crate::now_secs().saturating_add(DEPOSIT_END_MARGIN_SECS) {
+                    return Err(ENDS_TOO_SOON.to_string());
                 }
                 eligible_stream(&metadata, decimals)
             });
@@ -493,6 +513,103 @@ impl Contract {
         }
     }
 
+    /// Books what Streamflow withdrew from a held vault stream outside any engine payout: its
+    /// auto-claim, which one second after a stream's end moves the remainder into the
+    /// recipient's token account and closes the escrow, whatever `automatic_withdrawal` says
+    /// (measured on devnet). One ForeignTx `AccountState` proof at `Finalized` of the metadata
+    /// (`metadata_data`, read at `finalized`) showing the stream at the vault, paying the
+    /// vault's token account, with `amount_withdrawn` above the engine's accounting: the
+    /// difference is added to the class's swept balance (`get_sol_swept`), which payouts then
+    /// pay out of the vault's token account, and `engine_withdrawn` catches up. A fully
+    /// withdrawn stream is no longer drawn on. Refused while a payout drawing on the stream or
+    /// its release is unsettled (nobody knows yet whether their transaction moved tokens), and
+    /// re-checked in the callback. A lagging read shows less withdrawn, never more, so it books
+    /// less or nothing and a later sync books the rest. Anyone; attach 80 Tgas.
+    pub fn sync_sol_stream(
+        &mut self,
+        position_id: U64,
+        anchor_tx: String,
+        metadata_data: String,
+    ) -> Promise {
+        let stream = self.sol_stream(position_id.0);
+        let data = parse_hex(&metadata_data, "metadata_data");
+        let metadata = StreamflowMetadata::parse(&data)
+            .unwrap_or_else(|e| env::panic_str(&format!("Invalid stream metadata: {e:?}")));
+        if let Err(reason) = self.sync_blocker(position_id.0, &stream, &metadata) {
+            env::panic_str(reason);
+        }
+        Self::require_mpc_reserve();
+        let account = SvmAccount {
+            owner: Bytes32(self.streamflow_program()),
+            data,
+        };
+        let request = ForeignChainRpcRequest::Solana(SvmRpcRequest {
+            tx_id: Bytes64(parse_anchor(&anchor_tx)),
+            finality: SvmFinality::Finalized,
+            extractors: vec![SvmExtractor::AccountState {
+                pubkey: Bytes32(sol::parse_pubkey(&stream.metadata).expect("stored base58")),
+            }],
+        });
+        let hash = payload_hash(request.clone(), vec![ExtractedValue::account(account)]);
+        require_gas_left(TGAS_PROOF);
+        self.verify_foreign_promise(request).then(
+            Self::ext(env::current_account_id())
+                .with_static_gas(GAS_FOR_RECORD_CALLBACK)
+                .on_sol_stream_synced(position_id, hex::encode(hash), metadata_data),
+        )
+    }
+
+    /// Sync callback: books the withdrawal when the attestation matches and the stream is still
+    /// free to sync. Called by the contract itself.
+    #[private]
+    pub fn on_sol_stream_synced(
+        &mut self,
+        position_id: U64,
+        expected_hash: String,
+        metadata_data: String,
+    ) -> bool {
+        if !Self::attestation_matches(&expected_hash) {
+            return false;
+        }
+        let Some(stream) = self.custody.sol_streams.get(&position_id.0).cloned() else {
+            return false;
+        };
+        let Ok(metadata) = StreamflowMetadata::parse(&parse_hex(&metadata_data, "metadata_data"))
+        else {
+            return false;
+        };
+        if self
+            .sync_blocker(position_id.0, &stream, &metadata)
+            .is_err()
+        {
+            return false;
+        }
+        let withdrawn = metadata.amount_withdrawn.min(stream.net_amount_deposited.0);
+        let amount = withdrawn - stream.engine_withdrawn.0;
+        let class_id = self
+            .positions
+            .get(&position_id.0)
+            .expect("registered")
+            .class_id
+            .clone();
+        let balance = self.custody.swept.entry(class_id.clone()).or_default();
+        balance.balance = U64(balance.balance.0 + amount);
+        self.custody
+            .sol_streams
+            .get_mut(&position_id.0)
+            .expect("registered")
+            .engine_withdrawn = U64(withdrawn);
+        if withdrawn >= stream.net_amount_deposited.0 {
+            self.prune_stream(&class_id, position_id.0);
+        }
+        self.emit(RoseEvent::SolStreamSwept {
+            position_id,
+            class_id,
+            amount: U64(amount),
+        });
+        true
+    }
+
     /// A Solana deposit record.
     pub fn get_sol_deposit(&self, metadata: String) -> Option<SolDeposit> {
         self.custody.sol_deposits.get(&metadata).cloned()
@@ -510,6 +627,38 @@ impl Contract {
 }
 
 impl Contract {
+    /// Why `stream` (position `position_id`) cannot be synced from `metadata` now, if anything.
+    fn sync_blocker(
+        &self,
+        position_id: PositionId,
+        stream: &SolStreamInfo,
+        metadata: &StreamflowMetadata,
+    ) -> Result<(), &'static str> {
+        let held = self
+            .positions
+            .get(&position_id)
+            .is_some_and(|position| position.state == PositionState::Held);
+        if !held {
+            return Err("The position is not held: its release is in flight or done");
+        }
+        if stream.drawing.is_some() {
+            return Err("A payout drawing on this stream is not confirmed yet: confirm it first (confirm_sol_payout)");
+        }
+        let (vault, _) = self.sol_keys();
+        let mint = sol::parse_pubkey(&stream.mint).expect("stored base58 mint");
+        if metadata.recipient != vault
+            || Ok(metadata.recipient_tokens) != associated_token_address(&vault, &mint)
+        {
+            return Err("The stream does not pay the vault's token account");
+        }
+        if metadata.amount_withdrawn <= stream.engine_withdrawn.0 {
+            return Err(
+                "Nothing to sync: the stream shows no withdrawal beyond the engine's accounting",
+            );
+        }
+        Ok(())
+    }
+
     pub(super) fn sol_deposit(&self, metadata: &str) -> SolDeposit {
         self.custody
             .sol_deposits
@@ -614,6 +763,11 @@ impl Contract {
             .entry(class_id.clone())
             .or_default()
             .push(position_id);
+        if !self.custody.swept.contains_key(&class_id) {
+            self.custody
+                .swept
+                .insert(class_id.clone(), super::SolSwept::default());
+        }
         self.custody
             .sol_deposits
             .get_mut(&deposit.metadata)
@@ -693,6 +847,8 @@ impl Contract {
     }
 }
 
+/// Refusal reason of a stream ending within [`DEPOSIT_END_MARGIN_SECS`] of its attribution.
+const ENDS_TOO_SOON: &str = "the stream ends within an hour: Streamflow's auto-claim would empty it at its end before the deposit completes";
 /// Refusal reason of a stream whose mint has a freeze authority.
 const FREEZABLE_MINT: &str = "the mint has a freeze authority: its holder could freeze the vault's token account and block every payout of the class";
 
