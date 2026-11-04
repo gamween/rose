@@ -805,7 +805,10 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
         payout["solana"]["draws"][0]["expected_withdrawn"],
         drawn.to_string()
     );
-    assert_eq!(engine.claimable(holder.id(), &class).await?, claimable - drawn);
+    assert_eq!(
+        engine.claimable(holder.id(), &class).await?,
+        claimable - drawn
+    );
     let info: Value = engine
         .view("get_sol_stream", json!({ "position_id": "0" }))
         .await?;
@@ -880,7 +883,10 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     // The rest of the claim is paid from the swept balance: TransferChecked alone.
     let swept_nonce = [17u8; 32];
     engine
-        .prime_accounts(&nonce_anchor, &payout_accounts(advanced_nonce, advanced_nonce))
+        .prime_accounts(
+            &nonce_anchor,
+            &payout_accounts(advanced_nonce, advanced_nonce),
+        )
         .await?;
     let rest = claimable - drawn;
     let result = holder
