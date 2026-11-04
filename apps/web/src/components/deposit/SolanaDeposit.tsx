@@ -279,7 +279,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
       <Card>
         <CardHeader
           title="Your Streamflow streams"
-          description={`Streams whose recipient is ${owner}, read from the Streamflow program.`}
+          description={`Streams whose recipient is ${owner}, read from the Streamflow program. A stream ending within an hour is refused: one second after its end, Streamflow's auto-claim empties it into whichever address holds it, and a deposit takes a few minutes. In the vault, a stream pays claims until 5 minutes before its end; after the end its remainder is synced into the class's swept balance, which claims pay from.`}
           action={
             <Button size="sm" variant="secondary" onClick={() => void listing.refresh()} loading={listing.refreshing && state.status === "ok"} loadingLabel="Refreshing">
               Refresh
