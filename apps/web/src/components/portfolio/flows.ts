@@ -102,6 +102,16 @@ function mpcWait(deps: FlowDeps, holder: PayoutHolder, label = "MPC signature (a
   };
 }
 
+/**
+ * The payout as the next step needs it, signed: the views come from several RPC nodes, and one
+ * that lags behind the node that answered the signature wait can still show it `Requested`
+ * (seen live: a broadcast read the payout without its transaction right after "signed by the
+ * MPC"), so this polls until the view catches up instead of failing.
+ */
+async function signedPayout(deps: FlowDeps, payoutId: bigint, context: StepContext): Promise<PayoutView> {
+  return waitForPayout(deps.views, payoutId, { signal: context.signal, onPoll: (elapsed) => context.setDetail(`Waiting for the RPC to show the signed payout… ${String(Math.round(elapsed / 1000))} s`) });
+}
+
 function requestStep(deps: FlowDeps, id: string, label: string, build: () => FunctionCall, holder: PayoutHolder): StepDefinition {
   return {
     id,
@@ -127,8 +137,7 @@ function submitBaseStep(deps: FlowDeps, holder: PayoutHolder, label: string): St
       if (!vault) throw new RoseActionError("not_deployed", "RoseVault not deployed", "The RoseVault address is not configured on this deployment.");
       if (holder.payoutId === null) throw new RoseActionError("contract", "No payout", "Request the authorization first.");
       if (await isAuthorizationUsed(deps.base, vault, holder.payoutId)) return { message: `Authorization #${holder.payoutId.toString()} already executed on Base` };
-      const payout = await deps.views.getPayout(holder.payoutId);
-      if (!payout) throw new RoseActionError("contract", "Unknown payout", `Payout #${holder.payoutId.toString()} does not exist.`);
+      const payout = await signedPayout(deps, holder.payoutId, context);
       const wallet = await deps.getEvmWalletClient();
       context.setDetail("Confirm in your EVM wallet; you pay the Base Sepolia gas.");
       const hash = await submitBasePayout(wallet, vault, payout);
@@ -148,8 +157,8 @@ function broadcastSolStep(deps: FlowDeps, holder: PayoutHolder, label: string): 
     label,
     run: async (context) => {
       if (holder.payoutId === null) throw new RoseActionError("contract", "No payout", "Request the payout first.");
-      const payout = await deps.views.getPayout(holder.payoutId, { signal: context.signal });
-      if (!payout?.solana?.transaction) throw new RoseActionError("contract", "Not signed", "The stored transaction is incomplete.");
+      const payout = await signedPayout(deps, holder.payoutId, context);
+      if (!payout.solana?.transaction) throw new RoseActionError("contract", "Not signed", "The stored transaction is incomplete.");
       if (payout.status === "Landed") return { message: `Payout #${payout.id} already confirmed` };
       if (isBlockhashAction(payout)) {
         const signature = await broadcastBlockhashAction(deps.solana, payout, { signal: context.signal, onProgress: context.setDetail });

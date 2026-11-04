@@ -131,6 +131,24 @@ describe("Solana confirmation", () => {
     expect(ctx.details.some((text) => text.includes("second proof requested at least 150 blocks later") && text.includes("blocks left"))).toBe(true);
   });
 
+  it("waits for a lagging view to show the signed transaction instead of failing the broadcast", async () => {
+    const chain = new FakeSolana();
+    const payout = solTransferPayout();
+    const signature = solPayoutSignature(payout)!;
+    chain.setAccount(NONCE_ACCOUNT, nonceAccountData(SIGNED_NONCE));
+    chain.onSend = () => {
+      chain.statuses.set(signature, status("finalized"));
+      chain.setAccount(NONCE_ACCOUNT, nonceAccountData(ADVANCED_NONCE));
+    };
+    let reads = 0;
+    const lagging: PayoutView = { ...payout, status: "Requested", solana: { ...payout.solana!, transaction: null } };
+    const flow = deps({ solana: chain.connection(), payouts: () => (++reads < 3 ? lagging : payout) });
+    const [broadcast] = finishPayoutSteps(flow, payout);
+    const { message, ctx } = await run(broadcast!);
+    expect(message).toBe("Landed and finalized on Solana devnet; the nonce advanced");
+    expect(ctx.details.some((text) => text.startsWith("Waiting for the RPC to show the signed payout"))).toBe(true);
+  });
+
   it("broadcasts a stored payout without preflight, then confirms it", async () => {
     const chain = new FakeSolana();
     const payout = solTransferPayout();
