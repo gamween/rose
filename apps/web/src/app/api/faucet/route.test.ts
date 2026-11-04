@@ -13,6 +13,7 @@ function config(overrides: Partial<FaucetConfig> = {}): FaucetConfig {
     base: { configured: true, rpcUrl: "https://sepolia.base.org", amountWei: 2_000_000_000_000_000n },
     solana: { configured: true, rpcUrl: "https://api.devnet.solana.com", lamports: 50_000_000n },
     near: { configured: true, helperUrl: "https://helper.nearprotocol.com/account", rpcUrl: "https://rpc.testnet.near.org", funderAccountId: null, funderYocto: 500_000_000_000_000_000_000_000n },
+    "solana-demo-token": { configured: true, rpcUrl: "https://api.devnet.solana.com", mint: "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv", wholeTokens: 1_000n },
     cookieSecret: SECRET,
     ...overrides,
   };
@@ -33,6 +34,10 @@ function senders(overrides: Partial<FaucetSenders> = {}): FaucetSenders & { call
     createNearAccount: async (accountId) => {
       calls.push(`near:${accountId}`);
       return { txHash: "8PRxQzVKKEiiAtvA3XTcC1NEbWiQUtNddyrARMdwEuoK", amount: "10 NEAR" };
+    },
+    sendSolanaDemoTokens: async (address) => {
+      calls.push(`solana-demo-token:${address}`);
+      return { signature: "3tok", amount: "1000000000000", decimals: 9, mint: "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv" };
     },
     ...overrides,
   };
@@ -67,6 +72,7 @@ describe("GET /api/faucet", () => {
         base: { configured: true, amount: "2000000000000000", unit: "wei" },
         solana: { configured: false, amount: "1", unit: "lamports" },
         near: { configured: true, amount: "10 NEAR", unit: "NEAR" },
+        "solana-demo-token": { configured: true, amount: "1000", unit: "tokens" },
       },
     });
     expect(JSON.stringify(body)).not.toContain(SECRET);
@@ -98,6 +104,27 @@ describe("POST /api/faucet", () => {
       amount: "10 NEAR",
       explorerUrl: "https://testnet.near.rocks/tx/8PRxQzVKKEiiAtvA3XTcC1NEbWiQUtNddyrARMdwEuoK",
     });
+  });
+
+  it("sends the demo SPL tokens a Streamflow demo position locks, under the same per-address, per-browser and per-ip limits", async () => {
+    const mocks = senders();
+    const h = handler({ senders: mocks });
+    const first = await h.POST(post({ chain: "solana-demo-token", address: SOL_ADDRESS }));
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ chain: "solana-demo-token", signature: "3tok", amount: "1000000000000", decimals: 9, mint: "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv", explorerUrl: "https://explorer.solana.com/tx/3tok?cluster=devnet" });
+    const cookie = decodeURIComponent((first.headers.get("set-cookie") ?? "").split(";")[0]!.split("=")[1]!);
+    expect(cookie).toBe(signCookie({ "solana-demo-token": T0 / 1000 }, SECRET));
+    const again = await h.POST(post({ chain: "solana-demo-token", address: SOL_ADDRESS }, { "x-forwarded-for": "2.2.2.2" }));
+    expect(again.status).toBe(429);
+    const sameBrowser = await handler({ senders: mocks }).POST(post({ chain: "solana-demo-token", address: "Hzy2sXySh2BBhMqZzeMJM1XN9rCoy5btqXVFhKBn3BbC" }, { cookie: `rose_faucet=${encodeURIComponent(cookie)}` }));
+    expect(sameBrowser.status).toBe(429);
+    expect(await sameBrowser.json()).toMatchObject({ message: expect.stringContaining("browser") });
+    const solStillOpen = await h.POST(post({ chain: "solana", address: SOL_ADDRESS }));
+    expect(solStillOpen.status).toBe(200);
+    expect(mocks.calls).toEqual([`solana-demo-token:${SOL_ADDRESS}`, `solana:${SOL_ADDRESS}`]);
+    const off = await handler({ config: config({ "solana-demo-token": { configured: false, rpcUrl: "x", mint: null, wholeTokens: 1n } }) }).POST(post({ chain: "solana-demo-token", address: SOL_ADDRESS }));
+    expect(off.status).toBe(503);
+    expect(await off.json()).toMatchObject({ error: "not_configured", message: expect.stringContaining("Solana demo token") });
   });
 
   it("rejects invalid JSON and invalid fields with 400 before touching the senders", async () => {

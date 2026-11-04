@@ -1,6 +1,6 @@
 import { ONE, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type StoredEvent } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { accountEvents, actionablePayouts, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, planSolDraws, tokenClaims } from "./transforms";
+import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolDraws, redeemBlocker, settledPayout, tokenClaims } from "./transforms";
 
 const NOW = 1_762_200_000n;
 const DAY = 86_400n;
@@ -68,23 +68,36 @@ function payout(overrides: Partial<PayoutView>): PayoutView {
 
 describe("payoutState", () => {
   it("distinguishes signed, submitted, awaiting gas, stale and failed payouts", () => {
-    expect(payoutState(payout({}), false, 1000n)).toBe("signed");
-    expect(payoutState(payout({}), true, 1000n)).toBe("submitted");
+    expect(payoutState(payout({}), "pending", 1000n)).toBe("signed");
+    expect(payoutState(payout({}), null, 1000n)).toBe("signed");
+    expect(payoutState(payout({}), "executed", 1000n)).toBe("submitted");
     expect(payoutState(payout({ status: "AwaitingGasSignature" }), null, 1000n)).toBe("awaiting_gas");
     expect(payoutState(payout({ status: "Requested" }), null, 500n)).toBe("requested");
     expect(payoutState(payout({ status: "Requested" }), null, 700n)).toBe("stale");
     expect(payoutState(payout({ status: { Failed: { reason: "no signature" } } }), null, 700n)).toBe("failed");
     expect(payoutState(payout({ status: "Landed" }), null, 700n)).toBe("submitted");
     const solTransfer = payout({ chain: "Solana", kind: { SolTransfer: { mint: "m", to_owner: "o", amount: "1" } } });
-    expect(payoutState(solTransfer, true, 700n)).toBe("unconfirmed");
-    expect(payoutState(solTransfer, false, 700n)).toBe("signed");
-    expect(payoutState(payout({ chain: "Solana", kind: { SolMove: { metadata: "m", from: "f", to_owner: "o" } } }), true, 700n)).toBe("submitted");
-    const entries = [
-      { payout: payout({ id: "1" }), state: "signed" as const },
-      { payout: payout({ id: "2" }), state: "submitted" as const },
-      { payout: payout({ id: "3" }), state: "stale" as const },
-    ];
-    expect(actionablePayouts(entries).map((entry) => entry.payout.id)).toEqual(["1", "3"]);
+    expect(payoutState(solTransfer, "executed", 700n)).toBe("unconfirmed");
+    expect(payoutState(solTransfer, "pending", 700n)).toBe("signed");
+  });
+
+  it("settles deposit moves and returns from the chain: executed, or lapsed once their blockhash expired (never a broadcast button)", () => {
+    const move = payout({ chain: "Solana", kind: { SolMove: { metadata: "m", from: "f", to_owner: "o" } } });
+    const ret = payout({ chain: "Solana", kind: { SolReturn: { metadata: "m", from: "f", to_owner: "o" } } });
+    expect(payoutState(move, "executed", 700n)).toBe("submitted");
+    expect(payoutState(ret, "executed", 700n)).toBe("submitted");
+    expect(payoutState(move, "lapsed", 700n)).toBe("lapsed");
+    expect(payoutState(ret, "pending", 700n)).toBe("signed");
+    expect(["submitted", "failed", "lapsed"].every((state) => settledPayout(state as "submitted"))).toBe(true);
+    expect(["requested", "stale", "signed", "unconfirmed", "awaiting_gas"].some((state) => settledPayout(state as "signed"))).toBe(false);
+  });
+
+  it("explains when a pending payout's next action opens", () => {
+    expect(pendingHint(payout({ status: "Requested", requested_block: "1000" }), "requested", 1100n)).toContain('"Retry signature" opens at block 1600 (in about 5 min)');
+    const solTransfer = payout({ chain: "Solana", kind: { SolTransfer: { mint: "m", to_owner: "o", amount: "1" } }, solana: { message: "", draws: [], authority_path: "vault/sol", authority: "v", cancel: false, not_executed_seen_at: "5000" } });
+    expect(pendingHint(solTransfer, "unconfirmed", 5010n)).toContain("A second proof requested from block 5150 settles it");
+    expect(pendingHint({ ...solTransfer, solana: { ...solTransfer.solana!, not_executed_seen_at: null } }, "unconfirmed", 5010n)).toContain("Confirm asks the MPC");
+    expect(pendingHint(payout({}), "signed", 1n)).toBeNull();
   });
 });
 
@@ -116,6 +129,15 @@ describe("orders, liens and history", () => {
   });
 });
 
+describe("redeemBlocker", () => {
+  it("needs the allocation in free units, and on Solana the stream's owed share in claimable tokens", () => {
+    expect(redeemBlocker({ allocation: 10n }, 9n, null)).toBe("Your free units do not cover this position's allocation");
+    expect(redeemBlocker({ allocation: 10n }, 10n, null)).toBeUndefined();
+    expect(redeemBlocker({ allocation: 10n }, 10n, { owed: 6n, claimable: 5n })).toBe("Your claimable tokens do not cover what the stream owes the unit holders");
+    expect(redeemBlocker({ allocation: 10n }, 10n, { owed: 5n, claimable: 5n })).toBeUndefined();
+  });
+});
+
 describe("planSolDraws", () => {
   const entry = (position_id: string, withdrawable: string, net = 1_000, withdrawn = 0) => ({ position_id, withdrawable, stream: { net_amount_deposited: String(net), engine_withdrawn: String(withdrawn) } });
   const streams = [entry("1", "40"), entry("2", "100"), entry("3", "0")];
@@ -129,6 +151,12 @@ describe("planSolDraws", () => {
   it("never draws less than one whole token unless the draw empties the stream", () => {
     expect(() => planSolDraws([entry("1", "5")], 5n, 1)).toThrow("at least one whole token");
     expect(planSolDraws([entry("1", "5", 1_000, 995)], 5n, 1)).toEqual([{ position_id: "1", amount: "5" }]);
+  });
+  it("leaves a whole token for the next stream instead of refusing a feasible split", () => {
+    expect(planSolDraws([entry("A", "120"), entry("B", "50")], 123n, 1)).toEqual([
+      { position_id: "A", amount: "113" },
+      { position_id: "B", amount: "10" },
+    ]);
   });
   it("refuses an amount the streams cannot pay now", () => {
     expect(() => planSolDraws(streams, 141n, 1)).toThrow("cannot pay this amount right now");

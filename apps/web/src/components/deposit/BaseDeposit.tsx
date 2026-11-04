@@ -40,7 +40,7 @@ import { ClassNote, Reasons, Row, VerdictBadge, WalletPrompt } from "./shared";
 /** Extra wei above `calculateMinFeeWei` (0 today, oracle-based, admin-controlled); the vault refunds the unused part. */
 const FEE_MARGIN_WEI = 1_000_000_000_000n;
 
-type Context = { log?: StreamDepositedLog; classId?: string; balanceBefore?: bigint; registerSent?: boolean };
+type Context = { log?: StreamDepositedLog; classId?: string; balanceBefore?: bigint };
 
 function StreamRow({ row, symbol, onDeposit, busy, disabledReason }: { row: BaseStreamRow; symbol: string | null; onDeposit: () => void; busy: boolean; disabledReason: string | null }) {
   const stream = row.stream;
@@ -156,17 +156,18 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
           });
           context.balanceBefore ??= await holdingBalance(views, nearAccount, context.classId);
           const state = await views.raw.getReplay(key);
-          if (state === null) {
+          const sentNow = state === null;
+          if (sentNow) {
             const registration = await views.registrationDepositFor(nearAccount, context.classId);
             step.setDetail(`Sending register_base_deposit with ${formatAmount(registration, 24, 5)} NEAR of storage for ${nearAccount}…`);
             const outcome = await wallets.sendNearCall(calls.registerBaseDeposit(args.location, { ...args.fields }, registration));
             step.addLinks(txLinks("near", outcome.transaction.hash));
-            context.registerSent = true;
           } else if (state !== "Consumed") {
             step.setDetail("A verification of this log is already in flight; waiting for the MPC callback…");
           }
           const outcome = await waitForReplay(views, key, {
             signal: step.signal,
+            sentNow,
             onPoll: (elapsed) => step.setDetail(`MPC nodes verifying the Base log (${String(Math.round(elapsed / 1000))} s; usually 6 to 9 s)…`),
           });
           if (outcome === "cleared") {

@@ -13,7 +13,7 @@ import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
 import { CHAIN_LABEL, txLinks, type ChainId } from "@/lib/explorer";
 import { formatUnits } from "@/lib/format";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
-import { createSolanaDemoPosition } from "@/lib/wallet/solana-stream";
+import { createSolanaDemoPosition, demoPositionLinks } from "@/lib/wallet/solana-stream";
 import { LearnMore } from "./LearnMore";
 
 const NEAR_TUSDC_MINT = 1_000_000_000n;
@@ -330,14 +330,14 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
             />
             <ActionRow
               title="Create a demo Streamflow position"
-              description="Creates a non-cancelable, transferable Streamflow stream of the demo token to your own address (needs demo tokens in your wallet and about 0.02 SOL)."
+              description="Creates a non-cancelable, transferable Streamflow stream of 1,000 demo tokens to your own address. The faucet sends the demo tokens when your wallet has none; your wallet pays about 0.012 SOL of rent and fees (send SOL first)."
               state={solPosition}
               disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : null}
               onRun={() =>
                 void runSolPosition("Creating a Streamflow position", async () => {
                   const signer = wallets.getSolanaSigner();
                   const result = await createSolanaDemoPosition(signer);
-                  return { message: `Streamflow stream ${result.metadataId.slice(0, 8)}… created`, links: txLinks("solana", result.txId) };
+                  return { message: `Streamflow stream ${result.metadataId.slice(0, 8)}… created`, links: demoPositionLinks(result) };
                 })
               }
             />

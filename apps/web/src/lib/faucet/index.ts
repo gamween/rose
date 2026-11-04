@@ -27,7 +27,8 @@ export type FaucetErrorCode = "invalid_request" | "rate_limited" | "not_configur
 export type FaucetSuccess =
   | { chain: "base"; txHash: string; amount: string; explorerUrl: string }
   | { chain: "solana"; signature: string; amount: string; explorerUrl: string }
-  | { chain: "near"; accountId: string; txHash: string; amount: string; explorerUrl: string };
+  | { chain: "near"; accountId: string; txHash: string; amount: string; explorerUrl: string }
+  | { chain: "solana-demo-token"; signature: string; amount: string; decimals: number; mint: string; explorerUrl: string };
 
 export type FaucetFailure = { error: FaucetErrorCode; message: string; retryAfterSeconds?: number };
 
@@ -68,6 +69,7 @@ export function faucetInfo(config: FaucetConfig): FaucetInfo {
       base: { configured: config.base.configured, amount: config.base.amountWei.toString(), unit: "wei" },
       solana: { configured: config.solana.configured, amount: config.solana.lamports.toString(), unit: "lamports" },
       near: { configured: config.near.configured, amount: NEAR_HELPER_FUNDING, unit: "NEAR" },
+      "solana-demo-token": { configured: config["solana-demo-token"].configured, amount: config["solana-demo-token"].wholeTokens.toString(), unit: "tokens" },
     },
   };
 }
@@ -86,8 +88,14 @@ async function send(senders: FaucetSenders, request: FaucetRequest): Promise<Fau
       const { txHash, amount } = await senders.createNearAccount(request.accountId, request.publicKey);
       return { chain: "near", accountId: request.accountId, txHash, amount, explorerUrl: `${NEAR_TX_URL}${txHash}` };
     }
+    case "solana-demo-token": {
+      const { signature, amount, decimals, mint } = await senders.sendSolanaDemoTokens(request.address);
+      return { chain: "solana-demo-token", signature, amount, decimals, mint, explorerUrl: `${SOLANA_TX_URL}${signature}?cluster=devnet` };
+    }
   }
 }
+
+const CHAIN_LABEL: Record<FaucetChain, string> = { base: "Base Sepolia", solana: "Solana devnet", near: "NEAR testnet", "solana-demo-token": "Solana demo token" };
 
 /**
  * Builds the `GET` and `POST` handlers of `/api/faucet` from injected senders, so tests run the
@@ -107,7 +115,7 @@ export function createFaucetHandler({ senders, config, limiter = new MemoryRateL
     if (!parsed.ok) return failure("invalid_request", parsed.message);
     const { chain } = parsed.request;
     if (!config[chain].configured) {
-      return failure("not_configured", `The ${chain === "base" ? "Base Sepolia" : chain === "solana" ? "Solana devnet" : "NEAR testnet"} faucet is not configured on this deployment.`);
+      return failure("not_configured", `The ${CHAIN_LABEL[chain]} faucet is not configured on this deployment.`);
     }
     if (!config.cookieSecret) return failure("not_configured", "FAUCET_COOKIE_SECRET is not set on this deployment.");
 

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { amountToText, formatAmount, isEvmAddress, isSolanaAddress, parseAmount } from "@/lib/amounts";
+import { redeemBlocker } from "./transforms";
 
 export type ClaimPrompt = {
   title: string;
@@ -14,8 +15,11 @@ export type ClaimPrompt = {
   amount?: { max: bigint; decimals: number; unit: string };
   /** Destination field on the foreign chain; `fixed` shows it read-only (a retired lot's `retire_to`). */
   destination?: { chain: "base" | "solana"; initial: string; fixed?: boolean };
-  /** Position picker for an in-kind redeem. */
-  positions?: { candidates: Position[]; decimals: number; freeUnits: bigint };
+  /**
+   * Position picker for an in-kind redeem. `owed` (Solana) is what the stream still owes the unit
+   * holders, paid from the redeemer's claimable tokens (`get_sol_streams` `redeem_claimable`).
+   */
+  positions?: { candidates: Position[]; decimals: number; freeUnits: bigint; owed?: { byPosition: ReadonlyMap<string, bigint>; claimable: bigint; unit: string } };
   confirmLabel: string;
   onConfirm: (values: { amount: bigint; destination: string; position: Position | null }) => void;
 };
@@ -30,7 +34,9 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
   const positions = prompt.positions;
   const [amount, setAmount] = useState(() => (prompt.amount ? amountToText(prompt.amount.max, prompt.amount.decimals) : ""));
   const [destination, setDestination] = useState(() => prompt.destination?.initial ?? "");
-  const [positionId, setPositionId] = useState<string>(() => positions?.candidates.find((position) => position.allocation <= positions.freeUnits)?.positionId.toString() ?? "");
+  const [positionId, setPositionId] = useState<string>(
+    () => positions?.candidates.find((candidate) => redeemBlocker(candidate, positions.freeUnits, positions.owed ? { owed: positions.owed.byPosition.get(candidate.positionId.toString()) ?? 0n, claimable: positions.owed.claimable } : null) === undefined)?.positionId.toString() ?? "",
+  );
 
   const parsedAmount = prompt.amount ? parseAmount(amount, prompt.amount.decimals) : 0n;
   const amountError = prompt.amount
@@ -52,7 +58,8 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
         : "Enter a Solana address (base58)"
     : undefined;
   const position = positions?.candidates.find((candidate) => candidate.positionId.toString() === positionId) ?? null;
-  const positionError = positions ? (position ? (position.allocation > positions.freeUnits ? "Your free units do not cover this position's allocation" : undefined) : "Choose a position") : undefined;
+  const owedFor = (candidate: Position): bigint => positions?.owed?.byPosition.get(candidate.positionId.toString()) ?? 0n;
+  const positionError = positions ? (position ? redeemBlocker(position, positions.freeUnits, positions.owed ? { owed: owedFor(position), claimable: positions.owed.claimable } : null) : "Choose a position") : undefined;
   const valid = !amountError && !destinationError && !positionError;
 
   return (
@@ -74,7 +81,15 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
     >
       <div className="flex flex-col gap-4">
         {positions ? (
-          <Field label="Position to redeem" error={positionError} hint={`You hold ${formatAmount(positions.freeUnits, positions.decimals)} free units; the position's full allocation is burned.`}>
+          <Field
+            label="Position to redeem"
+            error={positionError}
+            hint={
+              positions.owed
+                ? `You hold ${formatAmount(positions.freeUnits, positions.decimals)} free units and ${formatAmount(positions.owed.claimable, positions.decimals)} claimable ${positions.owed.unit}. The allocation is burned, and the stream's owed share${position ? ` (${formatAmount(owedFor(position), positions.decimals)} ${positions.owed.unit})` : ""} is paid from your claimable tokens.`
+                : `You hold ${formatAmount(positions.freeUnits, positions.decimals)} free units; the position's full allocation is burned.`
+            }
+          >
             {({ inputId, describedBy, invalid }) => (
               <select
                 id={inputId}
@@ -85,12 +100,16 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
                 className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 focus:border-ember-500 focus:outline-none"
               >
                 <option value="">Choose…</option>
-                {positions.candidates.map((candidate) => (
-                  <option key={candidate.positionId.toString()} value={candidate.positionId.toString()} disabled={candidate.allocation > positions.freeUnits}>
-                    #{candidate.positionId.toString()} · {candidate.source.kind === "BaseStream" ? `Sablier stream ${candidate.source.streamId.toString()}` : `Streamflow ${candidate.source.metadata.slice(0, 8)}…`} · {formatAmount(candidate.allocation, positions.decimals)} units
-                    {candidate.allocation > positions.freeUnits ? " (not enough free units)" : ""}
-                  </option>
-                ))}
+                {positions.candidates.map((candidate) => {
+                  const blocker = redeemBlocker(candidate, positions.freeUnits, positions.owed ? { owed: owedFor(candidate), claimable: positions.owed.claimable } : null);
+                  return (
+                    <option key={candidate.positionId.toString()} value={candidate.positionId.toString()} disabled={blocker !== undefined}>
+                      #{candidate.positionId.toString()} · {candidate.source.kind === "BaseStream" ? `Sablier stream ${candidate.source.streamId.toString()}` : `Streamflow ${candidate.source.metadata.slice(0, 8)}…`} · {formatAmount(candidate.allocation, positions.decimals)} units
+                      {positions.owed ? ` · owes ${formatAmount(owedFor(candidate), positions.decimals)}` : ""}
+                      {blocker ? ` (${blocker.toLowerCase()})` : ""}
+                    </option>
+                  );
+                })}
               </select>
             )}
           </Field>

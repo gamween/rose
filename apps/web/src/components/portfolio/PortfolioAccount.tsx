@@ -13,10 +13,12 @@ import { Stat } from "@/components/ui/Stat";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatUsdc, venueLabel } from "@/lib/amounts";
 import { deployed } from "@/lib/deployment";
-import { requireEngine } from "@/lib/engine-client";
+import { nearRpc, requireEngine } from "@/lib/engine-client";
 import { txLinks } from "@/lib/explorer";
 import { classLabel } from "@/lib/token-symbols";
 import { useAction } from "@/lib/use-action";
+import { basePublicClient } from "@/lib/wallet/evm-demo";
+import { solanaConnection } from "@/lib/wallet/solana-demo";
 import type { ClaimPrompt } from "./ClaimDialog";
 import { ClaimsSection } from "./ClaimsSection";
 import type { PortfolioData } from "./data";
@@ -52,6 +54,9 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
       getEvmWalletClient: wallets.getEvmWalletClient,
       getSolanaSigner: wallets.getSolanaSigner,
       vaultSol: data.config.derived_addresses?.vault_sol ?? deployed("solanaVault"),
+      base: basePublicClient(),
+      solana: solanaConnection(),
+      finalBlockHeight: async (signal) => BigInt((await nearRpc().block("final", signal)).header.height),
     };
   };
 
@@ -103,7 +108,7 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
         setFlow({
           title: `Claim ${formatAmount(amount, claim.info.decimals)} ${symbol}`,
           summary: `${claim.source.label} → ${destination}`,
-          steps: () => (chain === "base" ? claimBaseTokensSteps(deps(), source, claim.info.token, claim.info.decimals, data.positions, destination.toLowerCase()) : claimSolTokensSteps(deps(), source, claim.info.token, claim.info.decimals, destination)),
+          steps: () => (chain === "base" ? claimBaseTokensSteps(deps(), source, claim.info.token, claim.info.decimals, destination.toLowerCase()) : claimSolTokensSteps(deps(), source, claim.info.token, claim.info.decimals, destination)),
         });
       },
     });
@@ -112,13 +117,20 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
   const redeem = (row: HoldingRow) => {
     const chain = row.info.chain === "Base" ? "base" : "solana";
     const candidates = data.positions.filter((position) => position.classId === row.info.classId);
+    const pendingExcess = data.portfolio.liensHeld.filter((lien) => lien.classId === row.info.classId && !lien.released).reduce((sum, lien) => sum + lien.pendingExcess, 0n);
+    const symbol = classLabel(row.info, data.symbols);
     setPrompt({
-      title: `Redeem a ${classLabel(row.info, data.symbols)} position in kind`,
+      title: `Redeem a ${symbol} position in kind`,
       description:
         chain === "base"
           ? "Burns the position's allocation from your free units and authorizes a RoseVault Release: the vault withdraws the vested balance to itself first, then the stream NFT is transferred to you."
-          : "Burns the position's allocation from your free units; the engine withdraws the stream's unlocked balance into the vault (it belongs to the other unit holders), then transfer_recipient moves the stream to you.",
-      positions: { candidates, decimals: row.info.decimals, freeUnits: row.holding.balance },
+          : "Burns the position's allocation from your free units and pays, from your claimable tokens of the class, what the stream still owes the unit holders (you take its unlocked balance with it). The engine then signs transfer_recipient, which moves the stream to you; nothing is withdrawn into the vault.",
+      positions: {
+        candidates,
+        decimals: row.info.decimals,
+        freeUnits: row.holding.balance,
+        owed: chain === "solana" ? { byPosition: data.redeemOwed, claimable: row.holding.claimable + pendingExcess, unit: symbol } : undefined,
+      },
       destination: { chain, initial: chain === "base" ? (wallets.evm.address ?? "") : (wallets.solana.publicKey ?? "") },
       confirmLabel: "Redeem",
       onConfirm: ({ destination, position }) => {

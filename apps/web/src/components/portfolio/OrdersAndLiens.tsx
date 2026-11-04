@@ -9,15 +9,16 @@ import { formatAmount, formatUsdc, formatDate, nsToMs } from "@/lib/amounts";
 import { ROUTES } from "@/lib/routes";
 import { classLabel } from "@/lib/token-symbols";
 import type { PortfolioData } from "./data";
+import { CARD_CELL, CARD_ROW, CARD_WIDE } from "./HoldingsSection";
 import type { LienProgress, OrderRow } from "./transforms";
 
 const STATUS_TONE: Record<string, BadgeTone> = { Sealed: "ember", Opened: "info", Void: "danger", Settled: "success" };
 
-/** The account's sealed bids and asks with links into the round detail. */
+/** The account's sealed bids and asks (live ones first, then settled and void) with links into the round detail. */
 export function OrdersSection({ rows, data }: { rows: OrderRow[]; data: PortfolioData }) {
   return (
     <Card data-orders>
-      <CardHeader title="Open bids and asks" description="Sealed orders you placed. Prices and quantities stay encrypted until the round closes; the engine shows only your public collateral." />
+      <CardHeader title="Bids and asks" description="Sealed orders you placed, live ones first, then settled and void ones. Prices and quantities stay encrypted until the round closes; the engine shows only your public collateral." />
       {rows.length === 0 ? (
         <CardBody className="text-[13px] text-ink-400">
           No sealed orders. Place a bid or an ask from a round page.{" "}
@@ -26,8 +27,8 @@ export function OrdersSection({ rows, data }: { rows: OrderRow[]; data: Portfoli
           </Link>
         </CardBody>
       ) : (
-        <Table>
-          <THead>
+        <Table className="max-md:block">
+          <THead className="max-md:hidden">
             <TR>
               <TH>Round</TH>
               <TH>Side</TH>
@@ -38,27 +39,37 @@ export function OrdersSection({ rows, data }: { rows: OrderRow[]; data: Portfoli
               <TH numeric>Fill</TH>
             </TR>
           </THead>
-          <TBody>
+          <TBody className="max-md:block">
             {rows.map(({ bid }) => {
               const round = data.rounds.get(bid.roundId.toString());
               const info = round ? data.classes.get(round.classId) : undefined;
               return (
-                <TR key={`${bid.roundId.toString()}-${String(bid.bidId)}`} data-order={bid.roundId.toString()}>
-                  <TD>
+                <TR key={`${bid.roundId.toString()}-${String(bid.bidId)}`} data-order={bid.roundId.toString()} className={CARD_ROW}>
+                  <TD className={CARD_WIDE}>
                     <Link href={`${ROUTES.rounds}/${bid.roundId.toString()}`} className="text-ink-50 underline-offset-2 hover:underline">
                       #{bid.roundId.toString()} {round ? `${round.kind}` : ""} {info ? `· ${classLabel(info, data.symbols)}` : ""}
                     </Link>
                     {round ? <p className="text-[11px] text-ink-400">closes {formatDate(nsToMs(round.closesAt))}</p> : null}
                   </TD>
-                  <TD>{bid.side === "Buy" ? "Bid" : "Ask"}</TD>
-                  <TD>
+                  <TD className={CARD_CELL} data-label="Side">
+                    {bid.side === "Buy" ? "Bid" : "Ask"}
+                  </TD>
+                  <TD className={CARD_CELL} data-label="Status">
                     <Badge tone={STATUS_TONE[bid.status] ?? "neutral"}>{bid.status}</Badge>
                     {bid.void ? <span className="ml-1 text-[11px] text-danger-400">{bid.void}</span> : null}
                   </TD>
-                  <TD numeric>{formatUsdc(bid.escrow)}</TD>
-                  <TD numeric>{info ? formatAmount(bid.lockedUnits, info.decimals) : bid.lockedUnits.toString()}</TD>
-                  <TD numeric>{formatUsdc(bid.bond)}</TD>
-                  <TD numeric>{bid.status === "Settled" ? (info ? formatAmount(bid.fillQuantity, info.decimals) : bid.fillQuantity.toString()) : "—"}</TD>
+                  <TD numeric className={CARD_CELL} data-label="Escrow">
+                    {formatUsdc(bid.escrow)}
+                  </TD>
+                  <TD numeric className={CARD_CELL} data-label="Locked units">
+                    {info ? formatAmount(bid.lockedUnits, info.decimals) : bid.lockedUnits.toString()}
+                  </TD>
+                  <TD numeric className={CARD_CELL} data-label="Bond">
+                    {formatUsdc(bid.bond)}
+                  </TD>
+                  <TD numeric className={CARD_CELL} data-label="Fill">
+                    {bid.status === "Settled" ? (info ? formatAmount(bid.fillQuantity, info.decimals) : bid.fillQuantity.toString()) : "—"}
+                  </TD>
                 </TR>
               );
             })}

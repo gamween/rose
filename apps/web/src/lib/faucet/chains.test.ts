@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createFaucetSenders, DEFAULT_NEAR_FUNDER_YOCTO, FaucetError, nearAmountLabel, readFaucetConfig } from "./chains";
+import { MINT_SIZE, MintLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
+import { createFaucetSenders, DEFAULT_NEAR_FUNDER_YOCTO, DEFAULT_SOLANA_DEMO_TOKENS, FaucetError, nearAmountLabel, readFaucetConfig, sendDemoTokens } from "./chains";
 
 function env(values: Record<string, string>): NodeJS.ProcessEnv {
   return values as unknown as NodeJS.ProcessEnv;
@@ -25,6 +27,37 @@ describe("NEAR faucet configuration", () => {
     expect(nearAmountLabel(500_000_000_000_000_000_000_000n)).toBe("0.5 NEAR");
     expect(nearAmountLabel(10n ** 24n)).toBe("1 NEAR");
     expect(nearAmountLabel(1_250_000_000_000_000_000_000_000n)).toBe("1.25 NEAR");
+  });
+});
+
+describe("Solana demo tokens", () => {
+  const mint = Keypair.generate().publicKey;
+  const payer = Keypair.generate();
+
+  function connection(treasury: bigint, lamports: number): Connection {
+    const data = Buffer.alloc(MINT_SIZE);
+    MintLayout.encode({ mintAuthorityOption: 1, mintAuthority: Keypair.generate().publicKey, supply: 10n ** 15n, decimals: 9, isInitialized: true, freezeAuthorityOption: 0, freezeAuthority: PublicKey.default }, data);
+    return {
+      getAccountInfo: () => Promise.resolve({ data, owner: TOKEN_PROGRAM_ID, lamports: 1, executable: false }),
+      getTokenAccountBalance: () => (treasury < 0n ? Promise.reject(new Error("could not find account")) : Promise.resolve({ value: { amount: treasury.toString() } })),
+      getBalance: () => Promise.resolve(lamports),
+    } as unknown as Connection;
+  }
+
+  it("is configured only with the hot wallet key and the demo mint, 1,000 tokens by default", () => {
+    expect(readFaucetConfig(env({ SOLANA_FAUCET_SECRET_KEY: "k" }))["solana-demo-token"].configured).toBe(false);
+    const config = readFaucetConfig(env({ SOLANA_FAUCET_SECRET_KEY: "k", NEXT_PUBLIC_SOLANA_DEMO_MINT: " 2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv " }))["solana-demo-token"];
+    expect(config).toMatchObject({ configured: true, mint: "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv", wholeTokens: DEFAULT_SOLANA_DEMO_TOKENS });
+    expect(DEFAULT_SOLANA_DEMO_TOKENS).toBe(1_000n);
+  });
+
+  it("refuses a program-derived address and reports an empty treasury or an empty SOL balance as dry", async () => {
+    const pda = PublicKey.findProgramAddressSync([Buffer.from("x")], TOKEN_PROGRAM_ID)[0];
+    await expect(sendDemoTokens(connection(10n ** 13n, 10 ** 9), payer, mint, pda, 1_000n)).rejects.toMatchObject({ code: "invalid_request" });
+    const wallet = Keypair.generate().publicKey;
+    await expect(sendDemoTokens(connection(999n * 10n ** 9n, 10 ** 9), payer, mint, wallet, 1_000n)).rejects.toMatchObject({ code: "faucet_dry", message: expect.stringContaining("demo token treasury") });
+    await expect(sendDemoTokens(connection(-1n, 10 ** 9), payer, mint, wallet, 1_000n)).rejects.toMatchObject({ code: "faucet_dry" });
+    await expect(sendDemoTokens(connection(10n ** 13n, 1_000_000), payer, mint, wallet, 1_000n)).rejects.toMatchObject({ code: "faucet_dry", message: expect.stringContaining("faucet wallet is empty") });
   });
 });
 

@@ -89,29 +89,62 @@ export function cashIn(cash: readonly Cash[], venue: Venue): bigint {
   return cash.find((entry) => sameVenue(entry.venue, venue))?.amount ?? 0n;
 }
 
-export type PayoutState = "requested" | "stale" | "signed" | "unconfirmed" | "submitted" | "awaiting_gas" | "failed";
+export type PayoutState = "requested" | "stale" | "signed" | "unconfirmed" | "submitted" | "awaiting_gas" | "failed" | "lapsed";
 
 /**
- * Where a payout stands from the claimant's point of view. `submitted` comes from the foreign
- * chain (RoseVault's replay bitmap or the advanced nonce); `stale` means the signature request
+ * A signed payout on its own chain: `executed` (RoseVault used the id, the durable nonce
+ * advanced, or the blockhash-signed transaction succeeded), `pending` (it can still be
+ * submitted), `lapsed` (a blockhash-signed transaction that failed or expired: it can never
+ * execute), or null when the chain could not be read.
+ */
+export type ForeignState = "executed" | "pending" | "lapsed" | null;
+
+/**
+ * Where a payout stands from the claimant's point of view. `stale` means the signature request
  * is older than the engine's pending expiry and can be re-requested; `unconfirmed` is a Solana
  * transfer or release whose nonce advanced but which the engine has not proven landed yet
- * (`confirm_sol_payout` / `confirm_sol_redeem`).
+ * (`confirm_sol_payout` / `confirm_sol_redeem`); `lapsed` is a deposit move or a return whose
+ * transaction failed or whose blockhash expired (nothing was debited; the deposit page asks for
+ * a new one).
  */
-export function payoutState(payout: PayoutView, submitted: boolean | null, currentBlock: bigint | null, pendingExpiryBlocks = 600n): PayoutState {
+export function payoutState(payout: PayoutView, foreign: ForeignState, currentBlock: bigint | null, pendingExpiryBlocks = 600n): PayoutState {
   if (typeof payout.status === "object") return "failed";
   if (payout.status === "Landed") return "submitted";
   if (payout.status === "AwaitingGasSignature") return "awaiting_gas";
   if (payout.status === "Requested") {
     return currentBlock !== null && BigInt(payout.requested_block) + pendingExpiryBlocks <= currentBlock ? "stale" : "requested";
   }
-  if (!submitted) return "signed";
+  if (foreign === "lapsed") return "lapsed";
+  if (foreign !== "executed") return "signed";
   return payout.chain === "Solana" && ("SolTransfer" in payout.kind || "SolRelease" in payout.kind) ? "unconfirmed" : "submitted";
 }
 
-/** Payouts that still need something from the claimant (submission, broadcast, a re-signature). */
-export function actionablePayouts(payouts: readonly { payout: PayoutView; state: PayoutState }[]): { payout: PayoutView; state: PayoutState }[] {
-  return payouts.filter((entry) => entry.state === "signed" || entry.state === "unconfirmed" || entry.state === "awaiting_gas" || entry.state === "stale");
+/** Payouts that are settled one way or another: they belong to the history, not to the pending list. */
+export function settledPayout(state: PayoutState): boolean {
+  return state === "submitted" || state === "failed" || state === "lapsed";
+}
+
+/** Blocks after which a signature request that never answered can be retried (the engine's `PENDING_EXPIRY_BLOCKS`). */
+const PENDING_EXPIRY_BLOCKS = 600n;
+/** Blocks between a first "did not execute" proof's answer and the second proof (the engine's `CONFIRM_FAILURE_DELAY_BLOCKS`). */
+const CONFIRM_FAILURE_DELAY_BLOCKS = 150n;
+/** About 0.6 s per NEAR testnet block (spec 7.1: 200 blocks take about 2 min). */
+const NEAR_BLOCK_MS = 600;
+
+/** The line under a pending payout: what it waits for, and from which block the next action opens. */
+export function pendingHint(payout: PayoutView, state: PayoutState, blockHeight: bigint): string | null {
+  if (state === "requested") {
+    const retryAt = BigInt(payout.requested_block) + PENDING_EXPIRY_BLOCKS;
+    const left = retryAt > blockHeight ? retryAt - blockHeight : 0n;
+    const minutes = Math.ceil((Number(left) * NEAR_BLOCK_MS) / 60_000);
+    return `The MPC callback has not run yet: about 5 s, up to 2 min when a provider lags. If it never answers, "Retry signature" opens at block ${retryAt.toString()} (in about ${String(minutes)} min).`;
+  }
+  if (state === "unconfirmed") {
+    const seen = payout.solana?.not_executed_seen_at;
+    if (seen === undefined || seen === null) return "The nonce advanced on Solana; Confirm asks the MPC to prove the accounts so the engine settles the payout.";
+    return `A first proof read the transaction as not executed. A second proof requested from block ${(BigInt(seen) + CONFIRM_FAILURE_DELAY_BLOCKS).toString()} settles it: landed, or refunded if it did not execute.`;
+  }
+  return null;
 }
 
 export type OrderRow = { bid: Bid; open: boolean };
@@ -156,29 +189,53 @@ export function eventTimeMs(event: StoredEvent): number {
   return nsToMs(event.timestamp);
 }
 
+/**
+ * Why a position cannot be redeemed in kind now, or undefined: the redeem burns its whole
+ * allocation from free units, and on Solana also takes what the stream still owes the unit
+ * holders from the redeemer's claimable tokens (pending lien excess included; spec 7.3).
+ */
+export function redeemBlocker(position: { allocation: bigint }, freeUnits: bigint, solana: { owed: bigint; claimable: bigint } | null): string | undefined {
+  if (position.allocation > freeUnits) return "Your free units do not cover this position's allocation";
+  if (solana && solana.owed > solana.claimable) return "Your claimable tokens do not cover what the stream owes the unit holders";
+  return undefined;
+}
+
 /** What `planSolDraws` reads of a `get_sol_streams` entry. */
 export type DrawableStream = { position_id: string; withdrawable: string; stream: { net_amount_deposited: string; engine_withdrawn: string } };
 
 /**
- * The streams a Solana claim of `amount` draws on: largest withdrawable first, as `get_sol_streams`
- * reports them now. The engine re-checks every draw: at most the stream's withdrawable amount, and
- * at least one whole token unless the draw empties the stream.
+ * The streams a Solana claim of `amount` draws on, as `get_sol_streams` reports them now, with
+ * the fewest streams (the 1,232-byte packet bounds the draws of one payout). The engine re-checks
+ * every draw: at most the stream's withdrawable amount, and at least one whole token unless the
+ * draw empties the stream. So each stream offers a range `[low, withdrawable]` (`low` = one token,
+ * or the whole remainder of a stream it empties): the `k` largest streams can pay any amount
+ * between the sum of their lows and the sum of their withdrawables; each draw starts at its low
+ * and the rest is filled largest first.
  */
 export function planSolDraws(streams: readonly DrawableStream[], amount: bigint, decimals: number): SolDrawArgs[] {
   const oneToken = 10n ** BigInt(decimals);
-  const draws: SolDrawArgs[] = [];
-  let left = amount;
-  for (const entry of [...streams].sort((a, b) => (BigInt(b.withdrawable) > BigInt(a.withdrawable) ? 1 : -1))) {
-    if (left === 0n) break;
-    const withdrawable = BigInt(entry.withdrawable);
-    const take = withdrawable < left ? withdrawable : left;
-    const empties = BigInt(entry.stream.engine_withdrawn) + take === BigInt(entry.stream.net_amount_deposited);
-    if (take === 0n || (take < oneToken && !empties)) continue;
-    draws.push({ position_id: entry.position_id, amount: take.toString() });
-    left -= take;
+  const options = streams
+    .map((entry) => {
+      const withdrawable = BigInt(entry.withdrawable);
+      const empties = BigInt(entry.stream.engine_withdrawn) + withdrawable === BigInt(entry.stream.net_amount_deposited);
+      const low = withdrawable >= oneToken ? oneToken : empties ? withdrawable : null;
+      return { positionId: entry.position_id, withdrawable, low };
+    })
+    .filter((option): option is { positionId: string; withdrawable: bigint; low: bigint } => option.low !== null && option.withdrawable > 0n)
+    .sort((a, b) => (b.withdrawable > a.withdrawable ? 1 : b.withdrawable < a.withdrawable ? -1 : 0));
+  let lows = 0n;
+  let highs = 0n;
+  for (let k = 0; k < options.length; k += 1) {
+    lows += options[k]!.low;
+    highs += options[k]!.withdrawable;
+    if (lows > amount) break;
+    if (highs < amount) continue;
+    let extra = amount - lows;
+    return options.slice(0, k + 1).map((option) => {
+      const add = extra < option.withdrawable - option.low ? extra : option.withdrawable - option.low;
+      extra -= add;
+      return { position_id: option.positionId, amount: (option.low + add).toString() };
+    });
   }
-  if (left > 0n) {
-    throw new RoseActionError("contract", "Not withdrawable yet", "The class streams cannot pay this amount right now: each stream must give at least one whole token. Claim less or wait for the next unlock.");
-  }
-  return draws;
+  throw new RoseActionError("contract", "Not withdrawable yet", "The class streams cannot pay this amount right now: each stream must give at least one whole token. Claim less or wait for the next unlock.");
 }
