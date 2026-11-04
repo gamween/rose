@@ -11,6 +11,28 @@ contract MockERC20 is ERC20 {
     }
 }
 
+/// @notice Answers every call, `decimals()` included, with the configured raw bytes, to exercise RoseVault's
+/// decimals validation (missing function, malformed return, value above 255).
+contract RawDecimalsToken {
+    bytes private _answer;
+    bool private _reverts;
+
+    function setAnswer(bytes memory answer, bool reverts) external {
+        _answer = answer;
+        _reverts = reverts;
+    }
+
+    fallback() external {
+        if (_reverts) {
+            revert();
+        }
+        bytes memory answer = _answer;
+        assembly {
+            return(add(answer, 32), mload(answer))
+        }
+    }
+}
+
 /// @notice Burns 1% of every transfer, to exercise RoseVault's exact-amount check.
 contract FeeOnTransferToken is ERC20 {
     constructor() ERC20("Fee Token", "FEE") {}

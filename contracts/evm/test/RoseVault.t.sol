@@ -2,12 +2,13 @@
 pragma solidity ^0.8.29;
 
 import {Test, Vm} from "forge-std/Test.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {RoseVault} from "../src/RoseVault.sol";
 import {ISablierLockup, Lockup, LockupLinear} from "../src/interfaces/ISablierLockup.sol";
 import {MockLockup} from "./mocks/MockLockup.sol";
-import {FeeOnTransferToken, MockERC20} from "./mocks/MockTokens.sol";
+import {FeeOnTransferToken, MockERC20, RawDecimalsToken} from "./mocks/MockTokens.sol";
 import {MpcSignature} from "./utils/MpcSignature.sol";
 
 contract RoseVaultTest is Test {
@@ -343,6 +344,7 @@ contract RoseVaultTest is Test {
             lockup: address(lockup),
             streamId: streamId,
             token: address(token),
+            decimals: 18,
             deposited: DEPOSIT,
             withdrawn: 0,
             start: NOW - 30 days,
@@ -388,6 +390,7 @@ contract RoseVaultTest is Test {
             lockup: address(lockup),
             streamId: streamId,
             token: address(token),
+            decimals: 18,
             deposited: DEPOSIT,
             withdrawn: vested,
             start: NOW - 100 days,
@@ -549,31 +552,131 @@ contract RoseVaultTest is Test {
         assertEq(
             log.topics[0],
             keccak256(
-                "StreamDeposited(address,string,address,uint256,address,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)"
+                "StreamDeposited(address,string,address,uint256,address,uint8,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)"
             )
         );
+        assertEq(log.topics[0], 0x588ce8ddd1a55c330cac56a02ed1423586edfcc762edb1db1b1f253dade6a599);
         assertEq(log.topics[1], bytes32(uint256(uint160(alice))));
         assertEq(log.topics[2], bytes32(streamId));
 
         bytes memory nearAccount = bytes(NEAR_ACCOUNT);
-        assertEq(log.data.length, 15 * 32 + 32);
-        assertEq(_word(log.data, 0), 14 * 32);
+        assertEq(log.data.length, 16 * 32 + 32);
+        assertEq(_word(log.data, 0), 15 * 32);
         assertEq(_word(log.data, 1), uint256(uint160(address(lockup))));
         assertEq(_word(log.data, 2), uint256(uint160(address(token))));
+        assertEq(_word(log.data, 3), 18);
+        assertEq(_word(log.data, 4), DEPOSIT);
+        assertEq(_word(log.data, 5), 0);
+        assertEq(_word(log.data, 6), NOW - 30 days);
+        assertEq(_word(log.data, 7), NOW + 30 days);
+        assertEq(_word(log.data, 8), NOW + 365 days);
+        assertEq(_word(log.data, 9), 1);
+        assertEq(_word(log.data, 10), 0);
+        assertEq(_word(log.data, 11), DEPOSIT / 10);
+        assertEq(_word(log.data, 12), 0);
+        assertEq(_word(log.data, 13), 1);
+        assertEq(_word(log.data, 14), NOW);
+        assertEq(_word(log.data, 15), nearAccount.length);
+        bytes32 expectedTail = "alice.rose-app.testnet";
+        assertEq(_word(log.data, 16), uint256(expectedTail));
+    }
+
+    /// @dev Pins the static layout of the attestation the engine refreshes from.
+    function test_attest_rawLogLayout() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        vm.warp(NOW + 60 days);
+        uint128 withdrawable = lockup.withdrawableAmountOf(streamId);
+        vm.recordLogs();
+        vault.attest(streamId);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        Vm.Log memory log = logs[logs.length - 1];
+
+        assertEq(log.emitter, address(vault));
+        assertEq(log.topics.length, 2);
+        assertEq(
+            log.topics[0],
+            keccak256(
+                "StreamAttested(uint256,address,address,uint8,uint128,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,bool,uint40)"
+            )
+        );
+        assertEq(log.topics[0], 0x72b596f8267d8e09b6a0efe69ebfaf52164aabafa9d62fb0bcb001c25394d626);
+        assertEq(log.topics[1], bytes32(streamId));
+        assertEq(log.data.length, 16 * 32);
+        assertEq(_word(log.data, 0), uint256(uint160(address(lockup))));
+        assertEq(_word(log.data, 1), uint256(uint160(address(token))));
+        assertEq(_word(log.data, 2), 18);
         assertEq(_word(log.data, 3), DEPOSIT);
         assertEq(_word(log.data, 4), 0);
-        assertEq(_word(log.data, 5), NOW - 30 days);
-        assertEq(_word(log.data, 6), NOW + 30 days);
-        assertEq(_word(log.data, 7), NOW + 365 days);
-        assertEq(_word(log.data, 8), 1);
-        assertEq(_word(log.data, 9), 0);
-        assertEq(_word(log.data, 10), DEPOSIT / 10);
-        assertEq(_word(log.data, 11), 0);
-        assertEq(_word(log.data, 12), 1);
-        assertEq(_word(log.data, 13), NOW);
-        assertEq(_word(log.data, 14), nearAccount.length);
-        bytes32 expectedTail = "alice.rose-app.testnet";
-        assertEq(_word(log.data, 15), uint256(expectedTail));
+        assertEq(_word(log.data, 5), withdrawable);
+        assertEq(_word(log.data, 6), NOW - 30 days);
+        assertEq(_word(log.data, 7), NOW + 30 days);
+        assertEq(_word(log.data, 8), NOW + 365 days);
+        assertEq(_word(log.data, 9), 1);
+        assertEq(_word(log.data, 10), 0);
+        assertEq(_word(log.data, 11), DEPOSIT / 10);
+        assertEq(_word(log.data, 12), 0);
+        assertEq(_word(log.data, 13), 1);
+        assertEq(_word(log.data, 14), 0);
+        assertEq(_word(log.data, 15), NOW + 60 days);
+    }
+
+    function test_depositStream_rejectsDepositBelowOneToken() public {
+        uint256 streamId = _createWithDeposit(alice, 5e17, NOW - 30 days, NOW + 30 days);
+        _expectDepositRevert(streamId, abi.encodeWithSelector(RoseVault.AmountBelowMinimum.selector, 5e17, 1e18));
+    }
+
+    /// @dev Half of 1.5 tokens has vested: the deposit would leave 0.75 token locked, which the engine refuses.
+    function test_depositStream_rejectsRemainderBelowOneToken() public {
+        uint256 streamId = _createWithDeposit(alice, 15e17, NOW - 50 days, NOW + 50 days);
+        assertEq(lockup.withdrawableAmountOf(streamId), 75e16);
+        _expectDepositRevert(streamId, abi.encodeWithSelector(RoseVault.AmountBelowMinimum.selector, 75e16, 1e18));
+        assertEq(lockup.ownerOf(streamId), alice);
+        assertEq(token.balanceOf(alice), 0);
+        assertEq(lockup.getWithdrawnAmount(streamId), 0);
+    }
+
+    function test_depositStream_rejectsTokenWithoutDecimals() public {
+        RawDecimalsToken raw = new RawDecimalsToken();
+        raw.setAnswer(abi.encode(uint256(1)), false);
+        uint256 streamId = lockupMock.createWithTimestampsLL(
+            Lockup.CreateWithTimestamps({
+                sender: address(this),
+                recipient: alice,
+                depositAmount: DEPOSIT,
+                token: IERC20(address(raw)),
+                cancelable: false,
+                transferable: true,
+                timestamps: Lockup.Timestamps({start: NOW - 30 days, end: NOW + 365 days}),
+                shape: ""
+            }),
+            LockupLinear.UnlockAmounts({start: 0, cliff: 0}),
+            1,
+            0
+        );
+        raw.setAnswer("", true);
+        _expectDepositRevert(streamId, abi.encodeWithSelector(RoseVault.NoDecimals.selector, address(raw)));
+    }
+
+    function _createWithDeposit(address recipient, uint128 amount, uint40 start, uint40 end)
+        internal
+        returns (uint256)
+    {
+        return lockup.createWithTimestampsLL(
+            Lockup.CreateWithTimestamps({
+                sender: address(this),
+                recipient: recipient,
+                depositAmount: amount,
+                token: IERC20(address(token)),
+                cancelable: false,
+                transferable: true,
+                timestamps: Lockup.Timestamps({start: start, end: end}),
+                shape: ""
+            }),
+            LockupLinear.UnlockAmounts({start: 0, cliff: 0}),
+            1,
+            0
+        );
     }
 
     function _word(bytes memory data, uint256 index) internal pure returns (uint256 value) {
@@ -817,6 +920,7 @@ contract RoseVaultTest is Test {
                 lockup: address(lockup),
                 streamId: firstId + i,
                 token: address(token),
+                decimals: 18,
                 deposited: list[i].amount,
                 withdrawn: 0,
                 start: NOW - 30 days,
@@ -860,9 +964,9 @@ contract RoseVaultTest is Test {
             unitStartUnlock: 0,
             unitCliffUnlock: 0
         });
-        _fundIssuer(7);
+        _fundIssuer(7e18);
         vm.prank(alice);
-        uint256[] memory ids = vault.createStreams(IERC20(address(token)), schedule, _allocations(1, 7));
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), schedule, _allocations(1, 7e18));
         assertEq(lockup.ownerOf(ids[0]), address(vault));
         assertEq(lockup.getCliffTime(ids[0]), 0);
         assertEq(lockup.getGranularity(ids[0]), 1 days);
@@ -894,7 +998,8 @@ contract RoseVaultTest is Test {
         assertEq(cohortLog.topics[2], bytes32(ids[0]));
         assertEq(depositLog.topics[2], bytes32(streamId));
         assertEq(cohortLog.data, depositLog.data);
-        assertEq(_word(cohortLog.data, 4), 0);
+        assertEq(_word(cohortLog.data, 3), 18);
+        assertEq(_word(cohortLog.data, 5), 0);
     }
 
     function test_createStreams_rejectsEmptyList() public {
@@ -912,9 +1017,9 @@ contract RoseVaultTest is Test {
 
     function test_createStreams_acceptsMaxAllocations() public {
         uint256 count = vault.MAX_ALLOCATIONS();
-        _fundIssuer(count * 10);
+        _fundIssuer(count * 10e18);
         vm.prank(alice);
-        uint256[] memory ids = vault.createStreams(IERC20(address(token)), _cohort(), _allocations(count, 10));
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), _cohort(), _allocations(count, 10e18));
         assertEq(ids.length, count);
         assertEq(lockup.ownerOf(ids[count - 1]), address(vault));
     }
@@ -922,17 +1027,205 @@ contract RoseVaultTest is Test {
     function test_createStreams_rejectsZeroAmount() public {
         RoseVault.Allocation[] memory list = _allocations(2, DEPOSIT);
         list[1].amount = 0;
-        vm.expectRevert(RoseVault.ZeroAmount.selector);
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.AmountBelowMinimum.selector, 0, 1e18));
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), _cohort(), list);
+    }
+
+    function test_createStreams_rejectsAmountBelowOneToken() public {
+        RoseVault.Allocation[] memory list = _allocations(2, DEPOSIT);
+        list[1].amount = 1e18 - 10;
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.AmountBelowMinimum.selector, 1e18 - 10, 1e18));
         vm.prank(alice);
         vault.createStreams(IERC20(address(token)), _cohort(), list);
     }
 
     function test_createStreams_rejectsAmountNotMultipleOfUnit() public {
         RoseVault.Allocation[] memory list = _allocations(2, DEPOSIT);
-        list[1].amount = 15;
-        vm.expectRevert(abi.encodeWithSelector(RoseVault.AmountNotMultiple.selector, 1, 15, 10));
+        list[1].amount = 1e18 + 5;
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.AmountNotMultiple.selector, 1, 1e18 + 5, 10));
         vm.prank(alice);
         vault.createStreams(IERC20(address(token)), _cohort(), list);
+    }
+
+    function test_createStreams_rejectsLockupAsToken() public {
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.InvalidToken.selector, address(lockup)));
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(lockup)), _cohort(), _allocations(1, DEPOSIT));
+    }
+
+    function test_createStreams_rejectsUnlockSumOverflow() public {
+        RoseVault.CohortSchedule memory s = _cohort();
+        s.unitStartUnlock = type(uint128).max;
+        s.unitCliffUnlock = 1;
+        _expectInvalidSchedule(s);
+    }
+
+    function test_createStreams_rejectsTokenWithoutDecimals() public {
+        RawDecimalsToken raw = new RawDecimalsToken();
+        bytes memory expected = abi.encodeWithSelector(RoseVault.NoDecimals.selector, address(raw));
+        raw.setAnswer("", true);
+        _expectCreateRevert(raw, expected);
+        raw.setAnswer("", false);
+        _expectCreateRevert(raw, expected);
+        raw.setAnswer(abi.encode(uint256(18), uint256(0)), false);
+        _expectCreateRevert(raw, expected);
+        raw.setAnswer(abi.encode(uint256(256)), false);
+        _expectCreateRevert(raw, expected);
+        raw.setAnswer(abi.encode(uint256(39)), false);
+        _expectCreateRevert(raw, abi.encodeWithSelector(RoseVault.UnsupportedDecimals.selector, 39));
+        raw.setAnswer(abi.encode(uint256(38)), false);
+        _expectCreateRevert(raw, abi.encodeWithSelector(RoseVault.AmountBelowMinimum.selector, DEPOSIT, 1e38));
+    }
+
+    function _expectCreateRevert(RawDecimalsToken raw, bytes memory reason) internal {
+        vm.expectRevert(reason);
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(raw)), _cohort(), _allocations(1, DEPOSIT));
+    }
+
+    /// @dev A token that burns 1% per transfer, with the vault already holding some of it: the shortfall of the pull
+    /// would otherwise be covered by that prior balance when Sablier pulls the full deposits.
+    function test_createStreams_rejectsFeeOnTransferToken() public {
+        FeeOnTransferToken feeToken = new FeeOnTransferToken();
+        feeToken.mint(address(vault), 100e18);
+        feeToken.mint(alice, 100e18);
+        vm.startPrank(alice);
+        feeToken.approve(address(vault), 100e18);
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.AmountMismatch.selector, 100e18, 99e18));
+        vault.createStreams(IERC20(address(feeToken)), _cohort(), _allocations(1, 100e18));
+        vm.stopPrank();
+        assertEq(feeToken.balanceOf(address(vault)), 100e18);
+    }
+
+    /// @dev Started schedule with a start unlock: each stream's vested balance goes to the issuer at creation, one
+    /// Sablier fee per stream is forwarded and the excess value is refunded.
+    function test_createStreams_startedScheduleWithdrawsVestedToIssuer() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: NOW - 10 days,
+            cliff: 0,
+            end: NOW + 355 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 1,
+            unitCliffUnlock: 0
+        });
+        RoseVault.Allocation[] memory list = _allocations(2, DEPOSIT);
+        list[1].amount = 2 * DEPOSIT;
+        _fundIssuer(3 * DEPOSIT);
+        uint256 ethBefore = alice.balance;
+
+        vm.recordLogs();
+        vm.prank(alice);
+        uint256[] memory ids = vault.createStreams{value: 3 * FEE}(IERC20(address(token)), schedule, list);
+
+        uint256 totalVested;
+        for (uint256 i; i < 2; ++i) {
+            uint128 startUnlock = list[i].amount / 10;
+            uint128 linear = uint128(uint256(list[i].amount - startUnlock) * 10 days / 365 days);
+            uint128 vested = startUnlock + linear;
+            assertGt(linear, 0);
+            assertEq(lockup.getWithdrawnAmount(ids[i]), vested);
+            assertEq(lockup.withdrawableAmountOf(ids[i]), 0);
+            assertEq(lockup.ownerOf(ids[i]), address(vault));
+            totalVested += vested;
+        }
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(vault)) {
+                continue;
+            }
+            assertEq(logs[i].topics[2], bytes32(ids[found]));
+            assertEq(_word(logs[i].data, 5), lockup.getWithdrawnAmount(ids[found]));
+            ++found;
+        }
+        assertEq(found, 2);
+        assertEq(token.balanceOf(alice), totalVested);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(alice.balance, ethBefore - 2 * FEE);
+        assertEq(address(lockup).balance, 2 * FEE);
+        assertEq(address(vault).balance, 0);
+    }
+
+    function test_createStreams_passedCliffWithdrawsCliffUnlockToIssuer() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: NOW - 100 days,
+            cliff: NOW - 10 days,
+            end: NOW + 265 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 0,
+            unitCliffUnlock: 1
+        });
+        _fundIssuer(DEPOSIT);
+        vm.prank(alice);
+        uint256[] memory ids =
+            vault.createStreams{value: FEE}(IERC20(address(token)), schedule, _allocations(1, DEPOSIT));
+        uint128 withdrawn = lockup.getWithdrawnAmount(ids[0]);
+        assertGt(withdrawn, DEPOSIT / 10);
+        assertEq(token.balanceOf(alice), withdrawn);
+        assertEq(lockup.withdrawableAmountOf(ids[0]), 0);
+        assertEq(address(lockup).balance, FEE);
+    }
+
+    /// @dev Unit unlocks equal to the unit amount with a past start: the stream would be withdrawn in full at birth.
+    function test_createStreams_rejectsStreamDepletedAtCreation() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: NOW - 1,
+            cliff: 0,
+            end: NOW + 100 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 10,
+            unitCliffUnlock: 0
+        });
+        _fundIssuer(DEPOSIT);
+        uint256 streamId = lockupMock.nextStreamId();
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.StreamDepleted.selector, streamId));
+        vm.prank(alice);
+        vault.createStreams{value: FEE}(IERC20(address(token)), schedule, _allocations(1, DEPOSIT));
+    }
+
+    function test_createStreams_rejectsRemainderBelowOneToken() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: NOW,
+            cliff: 0,
+            end: NOW + 100 days,
+            granularity: 1,
+            unitAmount: 2e18,
+            unitStartUnlock: 15e17,
+            unitCliffUnlock: 0
+        });
+        _fundIssuer(2e18);
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.AmountBelowMinimum.selector, 5e17, 1e18));
+        vm.prank(alice);
+        vault.createStreams{value: FEE}(IERC20(address(token)), schedule, _allocations(1, 2e18));
+    }
+
+    function test_createStreams_rejectsInsufficientFeeForSecondStream() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: NOW - 10 days,
+            cliff: 0,
+            end: NOW + 355 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 1,
+            unitCliffUnlock: 0
+        });
+        _fundIssuer(2 * DEPOSIT);
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.InsufficientFee.selector, 0, FEE));
+        vm.prank(alice);
+        vault.createStreams{value: FEE}(IERC20(address(token)), schedule, _allocations(2, DEPOSIT));
+    }
+
+    function test_createStreams_notStarted_refundsWholeValue() public {
+        _fundIssuer(DEPOSIT);
+        uint256 ethBefore = alice.balance;
+        vm.prank(alice);
+        vault.createStreams{value: 0.5 ether}(IERC20(address(token)), _cohort(), _allocations(1, DEPOSIT));
+        assertEq(alice.balance, ethBefore);
+        assertEq(address(vault).balance, 0);
     }
 
     function test_createStreams_rejectsInvalidNearAccount() public {
@@ -986,7 +1279,9 @@ contract RoseVaultTest is Test {
 
     function test_createStreams_revertsWithoutFundsAndMintsNothing() public {
         uint256 nextBefore = lockupMock.nextStreamId();
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(vault), 0, 2 * DEPOSIT)
+        );
         vm.prank(alice);
         vault.createStreams(IERC20(address(token)), _cohort(), _allocations(2, DEPOSIT));
         assertEq(lockupMock.nextStreamId(), nextBefore);
@@ -1094,6 +1389,7 @@ contract RoseVaultTest is Test {
             streamId: streamId,
             lockup: address(lockup),
             token: address(token),
+            decimals: 18,
             deposited: DEPOSIT,
             withdrawn: 0,
             withdrawable: withdrawable,

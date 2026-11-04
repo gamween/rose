@@ -5,8 +5,9 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /// @title TestUSDC
 /// @notice "Test USDC" (tUSDC): a valueless 6-decimal test token for rose on Base Sepolia, mintable by anyone.
-/// @dev Each address can mint at most `MINT_CAP` (10,000 tUSDC) per rolling window of `MINT_WINDOW` (24 hours),
-/// in one or several calls. The window starts at an address's first mint after the previous window expired.
+/// @dev Each address can mint at most `MINT_CAP` (10,000 tUSDC) per fixed window of `MINT_WINDOW` (24 hours), in
+/// one or several calls. The window is not rolling: it starts at the address's first mint after the previous window
+/// expired and ends `MINT_WINDOW` later, whatever is minted in between.
 contract TestUSDC is ERC20 {
     uint256 public constant MINT_CAP = 10_000e6;
     uint256 public constant MINT_WINDOW = 1 days;

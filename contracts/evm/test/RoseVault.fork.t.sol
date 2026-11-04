@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.29;
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {Test, Vm, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {DemoStreamFaucet} from "../src/DemoStreamFaucet.sol";
@@ -68,6 +68,9 @@ contract RoseVaultForkTest is Test {
         vm.deal(claimant, 1 ether);
     }
 
+    /// @dev The test contract is the issuer in the cohort tests and must be able to take the vault's fee refunds.
+    receive() external payable {}
+
     function _mintAndDeposit(DemoStreamFaucet.Class class, uint256 value) internal returns (uint256 streamId) {
         vm.startPrank(holder);
         streamId = faucet.mintPosition(class);
@@ -90,6 +93,7 @@ contract RoseVaultForkTest is Test {
             lockup: address(SABLIER),
             streamId: streamId,
             token: address(token),
+            decimals: 18,
             deposited: 100_000e18,
             withdrawn: 0,
             start: t0 - 180 days,
@@ -242,30 +246,32 @@ contract RoseVaultForkTest is Test {
             assertEq(
                 log.topics[0],
                 keccak256(
-                    "StreamDeposited(address,string,address,uint256,address,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)"
+                    "StreamDeposited(address,string,address,uint256,address,uint8,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)"
                 )
             );
+            assertEq(log.topics[0], 0x588ce8ddd1a55c330cac56a02ed1423586edfcc762edb1db1b1f253dade6a599);
             assertEq(log.topics[1], bytes32(uint256(uint160(address(this)))));
             assertEq(log.topics[2], bytes32(streamId));
-            assertEq(log.data.length, 15 * 32 + 32);
-            assertEq(_word(log.data, 0), 14 * 32);
+            assertEq(log.data.length, 16 * 32 + 32);
+            assertEq(_word(log.data, 0), 15 * 32);
             assertEq(_word(log.data, 1), uint256(uint160(address(SABLIER))));
             assertEq(_word(log.data, 2), uint256(uint160(address(token))));
-            assertEq(_word(log.data, 3), list[found].amount);
-            assertEq(_word(log.data, 4), 0);
-            assertEq(_word(log.data, 5), t0 - 180 days);
-            assertEq(_word(log.data, 6), t0 + 185 days);
-            assertEq(_word(log.data, 7), t0 + 915 days);
-            assertEq(_word(log.data, 8), 1);
-            assertEq(_word(log.data, 9), 0);
-            assertEq(_word(log.data, 10), list[found].amount / 4);
-            assertEq(_word(log.data, 11), 0);
-            assertEq(_word(log.data, 12), 1);
-            assertEq(_word(log.data, 13), t0);
-            assertEq(_word(log.data, 14), nearAccount.length);
+            assertEq(_word(log.data, 3), 18);
+            assertEq(_word(log.data, 4), list[found].amount);
+            assertEq(_word(log.data, 5), 0);
+            assertEq(_word(log.data, 6), t0 - 180 days);
+            assertEq(_word(log.data, 7), t0 + 185 days);
+            assertEq(_word(log.data, 8), t0 + 915 days);
+            assertEq(_word(log.data, 9), 1);
+            assertEq(_word(log.data, 10), 0);
+            assertEq(_word(log.data, 11), list[found].amount / 4);
+            assertEq(_word(log.data, 12), 0);
+            assertEq(_word(log.data, 13), 1);
+            assertEq(_word(log.data, 14), t0);
+            assertEq(_word(log.data, 15), nearAccount.length);
             assertLe(nearAccount.length, 32);
             // forge-lint: disable-next-line(unsafe-typecast)
-            assertEq(_word(log.data, 15), uint256(bytes32(nearAccount)));
+            assertEq(_word(log.data, 16), uint256(bytes32(nearAccount)));
             ++found;
         }
         assertEq(found, 3);
@@ -286,6 +292,139 @@ contract RoseVaultForkTest is Test {
         assertEq(token.balanceOf(address(this)), issuerBefore - total);
         assertEq(token.balanceOf(address(vault)), 0);
         assertEq(token.allowance(address(vault), address(SABLIER)), 0);
+    }
+
+    /// @dev A cohort stream leaves the vault exactly like a deposited one: vested balance to the vault, NFT to the
+    /// authorized recipient.
+    function test_fork_releaseCreatedStream() public {
+        uint256 streamId = _createCohort(1, 100_000e18)[0];
+        vm.warp(t0 + 200 days);
+        uint128 vested = SABLIER.withdrawableAmountOf(streamId);
+        assertGt(vested, 25_000e18);
+        uint256 fee = SABLIER.calculateMinFeeWei(streamId);
+
+        RoseVault.Release memory release = RoseVault.Release(address(SABLIER), streamId, claimant, 3);
+        (uint8 v, bytes32 r, bytes32 s) = MpcSignature.sign(SIGNER_KEY, vault.hashRelease(release));
+        vm.prank(claimant);
+        vault.executeRelease{value: fee}(release, v, r, s);
+
+        assertEq(SABLIER.ownerOf(streamId), claimant);
+        assertEq(token.balanceOf(address(vault)), vested);
+        assertEq(SABLIER.withdrawableAmountOf(streamId), 0);
+        assertTrue(vault.isAuthorizationUsed(3));
+    }
+
+    /// @dev Started schedule against the real Lockup with a non-zero fee: every stream's start unlock plus linear
+    /// part goes to the issuer at creation, one fee per stream is forwarded and the excess value comes back.
+    function test_fork_createStreamsStartedSchedulePaysRealFee() public {
+        vm.prank(COMPTROLLER.admin());
+        COMPTROLLER.setMinFeeUSD(PROTOCOL_LOCKUP, 1e8);
+        uint256 probe = _createCohort(1, 10_000e18)[0];
+        uint256 fee = SABLIER.calculateMinFeeWei(probe);
+        assertGt(fee, 0);
+
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: t0 - 30 days,
+            cliff: 0,
+            end: t0 + 335 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 1,
+            unitCliffUnlock: 0
+        });
+        RoseVault.Allocation[] memory list = new RoseVault.Allocation[](2);
+        list[0] = RoseVault.Allocation({nearAccount: "holder1.rose-app.testnet", amount: 20_000e18});
+        list[1] = RoseVault.Allocation({nearAccount: "holder2.rose-app.testnet", amount: 50_000e18});
+        token.approve(address(vault), 70_000e18);
+        uint256 tokensBefore = token.balanceOf(address(this));
+        uint256 ethBefore = address(this).balance;
+
+        uint256[] memory ids = vault.createStreams{value: fee * 3}(IERC20(address(token)), schedule, list);
+
+        uint256 withdrawnTotal;
+        for (uint256 i; i < 2; ++i) {
+            uint128 withdrawn = SABLIER.getWithdrawnAmount(ids[i]);
+            assertGt(withdrawn, list[i].amount / 10);
+            assertEq(SABLIER.withdrawableAmountOf(ids[i]), 0);
+            assertEq(SABLIER.ownerOf(ids[i]), address(vault));
+            withdrawnTotal += withdrawn;
+        }
+        assertEq(token.balanceOf(address(this)), tokensBefore - 70_000e18 + withdrawnTotal);
+        assertEq(address(this).balance, ethBefore - 2 * fee);
+        assertEq(address(vault).balance, 0);
+        assertEq(token.balanceOf(address(vault)), 0);
+    }
+
+    /// @dev EIP-7825 caps a transaction at 2^24 gas; a full cohort must fit under it on the real Lockup, both when
+    /// nothing has vested and in the worst case where every stream also pays a fee-bearing `withdrawMax`.
+    function test_fork_createStreamsMaxCohortFitsTransactionGasCap() public {
+        vm.prank(COMPTROLLER.admin());
+        COMPTROLLER.setMinFeeUSD(PROTOCOL_LOCKUP, 1e8);
+        uint256 count = vault.MAX_ALLOCATIONS();
+        RoseVault.Allocation[] memory list = new RoseVault.Allocation[](count);
+        for (uint256 i; i < count; ++i) {
+            list[i] = RoseVault.Allocation({
+                nearAccount: string.concat("holder", vm.toString(i), ".rose-app.testnet"), amount: 1_000e18
+            });
+        }
+        token.approve(address(vault), 2 * count * 1_000e18);
+
+        RoseVault.CohortSchedule memory locked = RoseVault.CohortSchedule({
+            start: t0 - 180 days,
+            cliff: t0 + 185 days,
+            end: t0 + 915 days,
+            granularity: 1,
+            unitAmount: 4,
+            unitStartUnlock: 0,
+            unitCliffUnlock: 1
+        });
+        uint256 gasBefore = gasleft();
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), locked, list);
+        uint256 lockedGas = gasBefore - gasleft();
+        console2.log("createStreams gas at MAX_ALLOCATIONS, nothing vested", lockedGas);
+        assertEq(ids.length, count);
+        assertEq(SABLIER.ownerOf(ids[count - 1]), address(vault));
+
+        uint256 fee = SABLIER.calculateMinFeeWei(ids[0]);
+        assertGt(fee, 0);
+        RoseVault.CohortSchedule memory started = RoseVault.CohortSchedule({
+            start: t0 - 30 days,
+            cliff: 0,
+            end: t0 + 335 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 1,
+            unitCliffUnlock: 0
+        });
+        gasBefore = gasleft();
+        ids = vault.createStreams{value: count * fee}(IERC20(address(token)), started, list);
+        uint256 startedGas = gasBefore - gasleft();
+        console2.log("createStreams gas at MAX_ALLOCATIONS, vested withdrawals with fee", startedGas);
+        assertEq(ids.length, count);
+        assertGt(SABLIER.getWithdrawnAmount(ids[count - 1]), 100e18);
+
+        // Execution gas plus the 21,000 intrinsic cost and a 200,000 allowance for calldata (about 8 KB at
+        // 16 gas per non-zero byte) must stay under the EIP-7825 cap of 2^24.
+        assertLt(lockedGas + 21_000 + 200_000, 16_777_216);
+        assertLt(startedGas + 21_000 + 200_000, 16_777_216);
+    }
+
+    function _createCohort(uint256 count, uint128 amount) internal returns (uint256[] memory ids) {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: t0 - 180 days,
+            cliff: t0 + 185 days,
+            end: t0 + 915 days,
+            granularity: 1,
+            unitAmount: 4,
+            unitStartUnlock: 0,
+            unitCliffUnlock: 1
+        });
+        RoseVault.Allocation[] memory list = new RoseVault.Allocation[](count);
+        for (uint256 i; i < count; ++i) {
+            list[i] = RoseVault.Allocation({nearAccount: NEAR_ACCOUNT, amount: amount});
+        }
+        token.approve(address(vault), count * amount);
+        ids = vault.createStreams(IERC20(address(token)), schedule, list);
     }
 
     function _word(bytes memory data, uint256 index) internal pure returns (uint256 value) {

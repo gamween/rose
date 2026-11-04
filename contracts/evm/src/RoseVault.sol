@@ -2,6 +2,7 @@
 pragma solidity ^0.8.29;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -28,9 +29,14 @@ import {NearAccountId} from "./libraries/NearAccountId.sol";
 ///
 /// Sablier's Lockup withdrawal fee is controlled by its admin and a price oracle through the comptroller
 /// (0x0000008ABbFf7a84a2fE09f9A9b74D3BC2072399 on Base Sepolia, where the fee is currently zero). Callers of
-/// `depositStream` and `executeRelease` must attach `LOCKUP.calculateMinFeeWei(streamId)` as read at submit time
-/// plus a margin, because the fee can move between the read and the inclusion of the transaction; the vault refunds
-/// whatever it does not forward.
+/// `depositStream`, `createStreams` (once per stream with a vested balance) and `executeRelease` must attach
+/// `LOCKUP.calculateMinFeeWei(streamId)` as read at submit time plus a margin, because the fee can move between the
+/// read and the inclusion of the transaction; the vault refunds whatever it does not forward.
+///
+/// Engine rule mirrored here: for every registered stream the engine mints `deposited` units (the full allocation)
+/// with checkpoint `f(timestamp)`, and refuses a stream whose `deposited` is below one whole token
+/// (`10 ** decimals`). The vault reads `decimals()` on-chain, refuses tokens without it, applies the same minimum to
+/// `deposited` and to what remains locked after the vested withdrawal, and reports `decimals` in every stream log.
 contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     using SafeERC20 for IERC20;
 
@@ -110,18 +116,19 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
 
     /// @notice A Sablier stream entered the vault.
     /// @dev ABI layout of the log (all words are 32 bytes, big-endian, left-padded unless noted):
-    /// topics[0] = keccak256("StreamDeposited(address,string,address,uint256,address,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)")
+    /// topics[0] = keccak256("StreamDeposited(address,string,address,uint256,address,uint8,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)")
     /// topics[1] = sender, topics[2] = streamId.
-    /// data word 0 = offset of nearAccount (always 0x1c0 = 14 * 32), words 1..13 = lockup, token, deposited,
-    /// withdrawn, start, cliff, end, granularity, startUnlock, cliffUnlock, cancelable, transferable, timestamp,
-    /// word 14 = byte length of nearAccount, then nearAccount's UTF-8 bytes right-padded with zeros to a multiple of 32.
-    /// `withdrawn` already includes the vested balance this deposit withdrew to `sender`.
+    /// data word 0 = offset of nearAccount (always 0x1e0 = 15 * 32), words 1..14 = lockup, token, decimals,
+    /// deposited, withdrawn, start, cliff, end, granularity, startUnlock, cliffUnlock, cancelable, transferable,
+    /// timestamp, word 15 = byte length of nearAccount, then nearAccount's UTF-8 bytes right-padded with zeros to a
+    /// multiple of 32. `withdrawn` already includes the vested balance this deposit withdrew to `sender`.
     event StreamDeposited(
         address indexed sender,
         string nearAccount,
         address lockup,
         uint256 indexed streamId,
         address token,
+        uint8 decimals,
         uint128 deposited,
         uint128 withdrawn,
         uint40 start,
@@ -136,12 +143,15 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     );
 
     /// @notice Current state of a stream held by the vault.
-    /// @dev Static layout: topics[1] = streamId; data words 0..14 = lockup, token, deposited, withdrawn, withdrawable,
-    /// start, cliff, end, granularity, startUnlock, cliffUnlock, cancelable, transferable, depleted, timestamp.
+    /// @dev Static layout:
+    /// topics[0] = keccak256("StreamAttested(uint256,address,address,uint8,uint128,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,bool,uint40)")
+    /// topics[1] = streamId; data words 0..15 = lockup, token, decimals, deposited, withdrawn, withdrawable, start,
+    /// cliff, end, granularity, startUnlock, cliffUnlock, cancelable, transferable, depleted, timestamp.
     event StreamAttested(
         uint256 indexed streamId,
         address lockup,
         address token,
+        uint8 decimals,
         uint128 deposited,
         uint128 withdrawn,
         uint128 withdrawable,
@@ -196,8 +206,12 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     error RefundFailed();
     error ZeroAmount();
     error AmountMismatch(uint256 expected, uint256 received);
+    error NoDecimals(address token);
+    error UnsupportedDecimals(uint8 decimals);
+    error AmountBelowMinimum(uint128 amount, uint128 minimum);
     error NoAllocations();
     error TooManyAllocations(uint256 count);
+    error InvalidToken(address token);
     error InvalidSchedule();
     error AmountNotMultiple(uint256 index, uint128 amount, uint128 unitAmount);
     error AuthorizationUsed(uint256 id);
@@ -221,7 +235,8 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     /// @dev The caller must own the stream and have approved this vault for it. Any vested balance is first withdrawn
     /// to the caller, paying Sablier's minimum withdrawal fee out of `msg.value`; the unused part of `msg.value` is
     /// refunded. Refuses streams of another contract, non-LL streams, cancelable, non-transferable, canceled or
-    /// depleted streams, and streams that would be depleted by the withdrawal (nothing left to lock).
+    /// depleted streams, streams below one whole token, and streams that the withdrawal would leave with less than
+    /// one whole token locked (the engine would refuse them too).
     function depositStream(ISablierLockup lockup, uint256 streamId, string calldata nearAccount)
         external
         payable
@@ -252,11 +267,14 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         if (LOCKUP.isDepleted(streamId)) {
             revert StreamDepleted(streamId);
         }
-
-        (, uint256 feePaid) = _withdrawVested(streamId, msg.sender);
-        if (LOCKUP.isDepleted(streamId)) {
-            revert StreamDepleted(streamId);
+        uint128 minimum = _minimumDeposit(_decimalsOf(LOCKUP.getUnderlyingToken(streamId)));
+        uint128 deposited = LOCKUP.getDepositedAmount(streamId);
+        if (deposited < minimum) {
+            revert AmountBelowMinimum(deposited, minimum);
         }
+
+        (, uint256 feePaid) = _withdrawVested(streamId, msg.sender, msg.value);
+        _checkRemaining(streamId, minimum);
 
         _pendingStreamId = streamId;
         LOCKUP.safeTransferFrom(msg.sender, address(this), streamId);
@@ -269,16 +287,22 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     /// @notice Issuer path: creates one Lockup Linear stream per allocation, owned by the vault from birth and
     /// attributed to the allocation's NEAR account. Anyone holding the tokens can call it.
     /// @dev Pulls the cohort total from the caller, approves `LOCKUP` for exactly that total and lets Sablier pull it
-    /// stream by stream, so no allowance survives the call. Every stream has sender = vault, recipient = vault,
-    /// cancelable = false and transferable = true, so nobody can cancel it and it can leave only through a `Release`
-    /// authorization. Sablier mints the NFT with `_mint`, not `_safeMint` (`SablierLockup._create`, tag lockup v4.0.1), so
-    /// `onERC721Received` and the pending-id guard of `depositStream` are not involved, and stream creation charges no
-    /// fee. Each stream emits the same `StreamDeposited` log as `depositStream` (sender = caller, withdrawn = 0,
-    /// timestamp = now), so the NEAR engine registers it through the same code path. The engine additionally refuses
-    /// streams below one whole token of `token`.
+    /// stream by stream, so no allowance survives the call; the vault's balance of `token` must be the same before
+    /// and after, which refuses fee-on-transfer and rebasing tokens instead of letting them consume other holders'
+    /// cash. Every stream has sender = vault, recipient = vault, cancelable = false and transferable = true, so
+    /// nobody can cancel it and it can leave only through a `Release` authorization. Sablier mints the NFT with
+    /// `_mint`, not `_safeMint` (`SablierLockup._create`, tag lockup v4.0.1), so `onERC721Received` and the
+    /// pending-id guard of `depositStream` are not involved, and stream creation charges no fee. When the schedule
+    /// has already started, whatever a new stream has vested (start unlock, cliff unlock, linear part) is withdrawn
+    /// to the caller right away, exactly as `depositStream` does for the holder, paying Sablier's withdrawal fee out
+    /// of `msg.value` once per such stream; the unused value is refunded. Each stream emits the same
+    /// `StreamDeposited` log as `depositStream` (sender = caller, `withdrawn` = what was just withdrawn), so the NEAR
+    /// engine registers it through the same code path. Every allocation must be at least one whole token and must
+    /// keep at least one whole token locked after the withdrawal.
     /// @return streamIds The created stream ids, in allocation order.
     function createStreams(IERC20 token, CohortSchedule calldata schedule, Allocation[] calldata allocations)
         external
+        payable
         nonReentrant
         returns (uint256[] memory streamIds)
     {
@@ -289,7 +313,11 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         if (count > MAX_ALLOCATIONS) {
             revert TooManyAllocations(count);
         }
+        if (address(token) == address(LOCKUP)) {
+            revert InvalidToken(address(token));
+        }
         _checkSchedule(schedule);
+        uint128 minimum = _minimumDeposit(_decimalsOf(token));
 
         uint256 total;
         for (uint256 i; i < count; ++i) {
@@ -297,18 +325,20 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             if (!NearAccountId.isValid(allocation.nearAccount)) {
                 revert InvalidNearAccount();
             }
-            if (allocation.amount == 0) {
-                revert ZeroAmount();
+            if (allocation.amount < minimum) {
+                revert AmountBelowMinimum(allocation.amount, minimum);
             }
             if (allocation.amount % schedule.unitAmount != 0) {
                 revert AmountNotMultiple(i, allocation.amount, schedule.unitAmount);
             }
             total += allocation.amount;
         }
+        uint256 balanceBefore = token.balanceOf(address(this));
         token.safeTransferFrom(msg.sender, address(this), total);
         token.forceApprove(address(LOCKUP), total);
 
         streamIds = new uint256[](count);
+        uint256 feesPaid;
         for (uint256 i; i < count; ++i) {
             Allocation calldata allocation = allocations[i];
             // At most `amount` because the unit unlocks sum to at most `unitAmount`: no uint128 overflow.
@@ -330,9 +360,17 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
                 schedule.granularity,
                 schedule.cliff
             );
+            (, uint256 feePaid) = _withdrawVested(streamId, msg.sender, msg.value - feesPaid);
+            feesPaid += feePaid;
+            _checkRemaining(streamId, minimum);
             streamIds[i] = streamId;
             _emitStreamDeposited(streamId, allocation.nearAccount);
         }
+        uint256 balanceAfter = token.balanceOf(address(this));
+        if (balanceAfter != balanceBefore) {
+            revert AmountMismatch(balanceBefore, balanceAfter);
+        }
+        _refund(msg.value - feesPaid);
     }
 
     /// @notice Deposits `amount` of an ERC-20 cash token for `nearAccount`, earmarked for round `roundId`.
@@ -363,10 +401,12 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             revert StreamNotHeld(streamId);
         }
         LockupLinear.UnlockAmounts memory unlockAmounts = LOCKUP.getUnlockAmounts(streamId);
+        IERC20 token = LOCKUP.getUnderlyingToken(streamId);
         emit StreamAttested({
             streamId: streamId,
             lockup: address(LOCKUP),
-            token: address(LOCKUP.getUnderlyingToken(streamId)),
+            token: address(token),
+            decimals: _decimalsOf(token),
             deposited: LOCKUP.getDepositedAmount(streamId),
             withdrawn: LOCKUP.getWithdrawnAmount(streamId),
             withdrawable: LOCKUP.withdrawableAmountOf(streamId),
@@ -426,7 +466,7 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         }
         _useAuthorization(authorization.id, hashRelease(authorization), v, r, s);
 
-        (uint128 withdrawn, uint256 feePaid) = _withdrawVested(authorization.streamId, address(this));
+        (uint128 withdrawn, uint256 feePaid) = _withdrawVested(authorization.streamId, address(this), msg.value);
         LOCKUP.transferFrom(address(this), authorization.to, authorization.streamId);
 
         emit ReleaseExecuted(authorization.id, authorization.streamId, authorization.to, address(LOCKUP), withdrawn);
@@ -501,16 +541,57 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     }
 
     /// @dev Withdraws the whole withdrawable balance of `streamId` to `to` when it is not zero (Sablier reverts on a
-    /// zero withdrawal). Returns the amount withdrawn and the fee forwarded to Sablier.
-    function _withdrawVested(uint256 streamId, address to) private returns (uint128 withdrawn, uint256 feePaid) {
+    /// zero withdrawal), paying Sablier's minimum fee out of `budget` (the part of `msg.value` not yet forwarded).
+    /// Returns the amount withdrawn and the fee forwarded to Sablier.
+    function _withdrawVested(uint256 streamId, address to, uint256 budget)
+        private
+        returns (uint128 withdrawn, uint256 feePaid)
+    {
         if (LOCKUP.withdrawableAmountOf(streamId) == 0) {
             return (0, 0);
         }
         feePaid = LOCKUP.calculateMinFeeWei(streamId);
-        if (msg.value < feePaid) {
-            revert InsufficientFee(msg.value, feePaid);
+        if (budget < feePaid) {
+            revert InsufficientFee(budget, feePaid);
         }
         withdrawn = LOCKUP.withdrawMax{value: feePaid}(streamId, to);
+    }
+
+    /// @dev After the vested withdrawal, `streamId` must still hold at least `minimum` locked: the engine refuses
+    /// smaller remainders, and a depleted stream has nothing left to custody.
+    function _checkRemaining(uint256 streamId, uint128 minimum) private view {
+        if (LOCKUP.isDepleted(streamId)) {
+            revert StreamDepleted(streamId);
+        }
+        uint128 remaining = LOCKUP.getDepositedAmount(streamId) - LOCKUP.getWithdrawnAmount(streamId);
+        if (remaining < minimum) {
+            revert AmountBelowMinimum(remaining, minimum);
+        }
+    }
+
+    /// @dev Reads `decimals()` of `token`. Refuses tokens that do not answer with exactly one word holding a value
+    /// of at most 255 (no code, no such function, malformed return).
+    function _decimalsOf(IERC20 token) private view returns (uint8) {
+        (bool ok, bytes memory data) = address(token).staticcall(abi.encodeCall(IERC20Metadata.decimals, ()));
+        if (!ok || data.length != 32) {
+            revert NoDecimals(address(token));
+        }
+        uint256 value = abi.decode(data, (uint256));
+        if (value > type(uint8).max) {
+            revert NoDecimals(address(token));
+        }
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint8(value);
+    }
+
+    /// @dev One whole token, the engine's minimum deposit (`LinearClass::new`). The engine holds amounts in u128, so
+    /// `10 ** decimals` must fit, which bounds decimals to 38.
+    function _minimumDeposit(uint8 decimals) private pure returns (uint128) {
+        if (decimals > 38) {
+            revert UnsupportedDecimals(decimals);
+        }
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint128(10 ** uint256(decimals));
     }
 
     /// @dev Mirrors Sablier's LL creation checks (`LockupHelpers.checkCreateLL`, tag lockup v4.0.1) so a bad cohort
@@ -522,7 +603,7 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             && (schedule.cliff == 0 || (schedule.start < schedule.cliff && schedule.cliff < schedule.end))
             && schedule.granularity > 0 && schedule.granularity <= schedule.end - streamableFrom;
         bool validAmounts = schedule.unitAmount > 0
-            && schedule.unitStartUnlock + schedule.unitCliffUnlock <= schedule.unitAmount
+            && uint256(schedule.unitStartUnlock) + schedule.unitCliffUnlock <= schedule.unitAmount
             && (schedule.cliff != 0 || schedule.unitCliffUnlock == 0);
         if (!validTimes || !validAmounts) {
             revert InvalidSchedule();
@@ -531,12 +612,14 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
 
     function _emitStreamDeposited(uint256 streamId, string calldata nearAccount) private {
         LockupLinear.UnlockAmounts memory unlockAmounts = LOCKUP.getUnlockAmounts(streamId);
+        IERC20 token = LOCKUP.getUnderlyingToken(streamId);
         emit StreamDeposited({
             sender: msg.sender,
             nearAccount: nearAccount,
             lockup: address(LOCKUP),
             streamId: streamId,
-            token: address(LOCKUP.getUnderlyingToken(streamId)),
+            token: address(token),
+            decimals: _decimalsOf(token),
             deposited: LOCKUP.getDepositedAmount(streamId),
             withdrawn: LOCKUP.getWithdrawnAmount(streamId),
             start: LOCKUP.getStartTime(streamId),
