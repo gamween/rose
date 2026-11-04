@@ -13,7 +13,7 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatDay, formatDuration, secondsToMs, shortHex } from "@/lib/amounts";
 import { deployed } from "@/lib/deployment";
 import { useTokenSymbol } from "@/lib/token-symbols";
-import { requireEngine } from "@/lib/engine-client";
+import { nearRpc, requireEngine } from "@/lib/engine-client";
 import { RoseActionError } from "@/lib/errors";
 import { txLinks, type ChainId } from "@/lib/explorer";
 import { blockhashActionState, broadcastBlockhashAction, latestSuccessfulSignature, payoutIdFromOutcome, sleep, waitForPayout } from "@/lib/payouts";
@@ -92,7 +92,8 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
     async (signal: AbortSignal) => {
       const { views } = requireEngine();
       if (!owner) throw new RoseActionError("no_wallet", "No Solana wallet", "Connect a Solana devnet wallet first.");
-      return listSolanaStreams(solanaConnection("confirmed"), views, new PublicKey(owner), signal);
+      const block = await nearRpc().block("final", signal);
+      return listSolanaStreams(solanaConnection("confirmed"), views, new PublicKey(owner), BigInt(block.header.timestamp_nanosec) / 1_000_000_000n, signal);
     },
     [owner],
   );

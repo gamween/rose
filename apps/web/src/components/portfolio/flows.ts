@@ -348,14 +348,13 @@ export function claimBaseTokensSteps(deps: FlowDeps, source: ClaimSource, token:
         context.setDetail("Listing the class's streams held by RoseVault…");
         const streams = await classBaseStreams(deps.views, source.classId, context.signal);
         if (streams.length === 0) throw new RoseActionError("contract", "No stream to withdraw from", "RoseVault holds less than the claim and the engine holds no Base stream of this class.");
-        let wallet: SignerClient | null = null;
+        const wallet = await deps.getEvmWalletClient();
         for (const position of streams) {
           if (position.source.kind !== "BaseStream") continue;
           const lockup = position.source.lockup as Address;
           const stream = await readStream(deps.base, position.source.streamId, lockup);
           if (stream.withdrawable === 0n) continue;
           const fee = await calculateMinFeeWei(deps.base, position.source.streamId, lockup);
-          wallet ??= await deps.getEvmWalletClient();
           context.setDetail(`withdrawMax(#${position.source.streamId.toString()}): ${formatAmount(stream.withdrawable, decimals)} withdrawable${fee > 0n ? `, Sablier fee ${formatAmount(fee, 18)} ETH` : ""}…`);
           const hash = await withdrawMax(wallet, position.source.streamId, vault, { lockup, value: fee });
           context.addLinks(txLinks("base", hash));

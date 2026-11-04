@@ -39,8 +39,8 @@ export type SolanaStreamRow = {
   classExists: boolean | null;
 };
 
-/** The wallet's Streamflow streams with eligibility and the class each would join. */
-export async function listSolanaStreams(connection: Connection, views: EngineViews, recipient: PublicKey, signal?: AbortSignal): Promise<SolanaStreamRow[]> {
+/** The wallet's Streamflow streams with eligibility (valued at `nowSec`, the NEAR block time the engine checks against) and the class each would join. */
+export async function listSolanaStreams(connection: Connection, views: EngineViews, recipient: PublicKey, nowSec: bigint, signal?: AbortSignal): Promise<SolanaStreamRow[]> {
   const listing = await listStreamflowStreamsForRecipient(connection, recipient);
   const mints = new Map<string, MintAccount | null>();
   const rows: SolanaStreamRow[] = [];
@@ -48,7 +48,7 @@ export async function listSolanaStreams(connection: Connection, views: EngineVie
     const mintKey = entry.metadata.mint.toBase58();
     if (!mints.has(mintKey)) mints.set(mintKey, await readMintAccount(connection, entry.metadata.mint));
     const mint = mints.get(mintKey) ?? null;
-    const verdict = solanaVerdict(entry.metadata, mint, entry.raw, BigInt(Math.floor(Date.now() / 1000)));
+    const verdict = solanaVerdict(entry.metadata, mint, entry.raw, nowSec);
     let classId: string | null = null;
     let classExists: boolean | null = null;
     if (verdict.eligible && mint) {
