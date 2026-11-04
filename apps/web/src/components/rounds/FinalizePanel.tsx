@@ -64,8 +64,12 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
 
   const setStep = useCallback((bidId: number, step: Step) => setSteps((current) => new Map(current).set(bidId, step)), []);
 
+  /** Set synchronously: the auto-start and a click in the same frame both see `running === false`, and must not open every order twice. */
+  const runningRef = useRef(false);
+
   const runAll = useCallback(async () => {
-    if (!key || running) return;
+    if (!key || running || runningRef.current) return;
+    runningRef.current = true;
     stopRef.current = false;
     setPausing(false);
     setRunning(true);
@@ -105,6 +109,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
         }
       }
     }
+    runningRef.current = false;
     setRunning(false);
     setPausing(false);
     onChanged();

@@ -616,6 +616,7 @@ function apply(state: RoundsMockState, method: string, args: Record<string, unkn
       const r = roundOf();
       const b = r.bids[Number(args.bid_id)];
       if (!b) throw new Error("no such bid");
+      if (b.opened !== null) throw new Error("Bid already opened");
       const plaintext = String(args.plaintext_hex);
       b.opened = { quantity: leU128(plaintext.slice(0, 32)), price: leU128(plaintext.slice(32, 64)) };
       b.status = "Opened";

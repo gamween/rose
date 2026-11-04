@@ -52,7 +52,7 @@ test.describe("rounds with a mocked engine", () => {
     await expect(cards.last()).toHaveAttribute("data-round-card", "1");
     await expect(page.locator("[data-load-more]")).toHaveCount(0);
     await expect(page.locator("[data-round-card='1']")).toContainText("Closes in");
-    await expect(page.locator("[data-round-card='1'] [data-round-book]")).toHaveText("500.00 USDC escrowed · 100 units locked");
+    await expect(page.locator("[data-round-card='1'] [data-round-book] dd")).toHaveText("500.00 USDC escrowed · 100 units locked");
     await expect(page.locator("[data-round-card='2']")).toContainText("Cleared at");
     await expect(page.locator("[data-round-card='3']")).toContainText("No crossing");
     await expect(page.locator("[data-round-card='3']")).not.toContainText("Cleared at");
