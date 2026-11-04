@@ -465,6 +465,9 @@ pub struct Config {
     pub base_cash_tokens: Vec<String>,
     /// RoseVault address on Base (lowercase `0x`).
     pub rose_vault: String,
+    /// EVM chain id of the RoseVault deployment, the `chainId` of its EIP-712 domain (84532 on
+    /// Base Sepolia).
+    pub base_chain_id: u64,
     /// Canonical Sablier Lockup address on Base (lowercase `0x`).
     pub sablier_lockup: String,
     /// Streamflow program id on Solana.
@@ -503,6 +506,8 @@ pub struct InitArgs {
     pub near_cash_token: AccountId,
     pub base_cash_tokens: Vec<String>,
     pub rose_vault: String,
+    /// EVM chain id of the RoseVault deployment (84532 on Base Sepolia).
+    pub base_chain_id: u64,
     pub sablier_lockup: String,
     pub streamflow_program: String,
     /// Defaults to one hour.

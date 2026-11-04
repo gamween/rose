@@ -1,0 +1,173 @@
+{
+  "networks": {
+    "near": "testnet",
+    "base": {
+      "name": "Base Sepolia",
+      "chain_id": 84532
+    },
+    "solana": "devnet"
+  },
+  "explorers": {
+    "near": "https://testnet.near.rocks/tx/<hash>",
+    "base": "https://sepolia.basescan.org/tx/<hash>",
+    "solana": "https://explorer.solana.com/tx/<sig>?cluster=devnet"
+  },
+  "deployments": {
+    "engine-s1.rose-app.testnet": {
+      "role": "staging",
+      "base": {
+        "chain_id": 84532,
+        "deployer": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+        "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+        "test_usdc": {
+          "contract": "TestUSDC",
+          "address": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "tx": "0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9",
+          "block": 54195713
+        },
+        "demo_token": {
+          "contract": "DemoToken",
+          "address": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+          "tx": "0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954",
+          "block": 54195713
+        },
+        "demo_stream_faucet": {
+          "contract": "DemoStreamFaucet",
+          "address": "0xf7b1302c20faab06ad5121981b3e949da24fd98d",
+          "tx": "0xb9c69f8c83640e28e40e9be9036e2afa9b2275fc5b7da90434663abc27b397e5",
+          "block": 54195713
+        },
+        "rose_vault": {
+          "contract": "RoseVault",
+          "address": "0xc8db15e81bba899f375b20724553dbd3b446da0f",
+          "tx": "0x7f21fcb666f14383194d5fd4fdd160db38ffff48170dd8fd23b71d8bcfa4ed1f",
+          "block": 54195739,
+          "signer": "0x80ce2541602e7be22664f23931fe1118e86e1f09"
+        },
+        "accepted_cash_tokens": [
+          "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+        ]
+      },
+      "near": {
+        "engine": {
+          "account": "engine-s1.rose-app.testnet",
+          "wasm": {
+            "sha256": "ce1c0838815cd246a6609ff86ea2f4aab143a90e3ed407860a24f9df50d26ed1",
+            "bytes": 962494
+          },
+          "init_args": {
+            "mpc_account": "v1.signer-prod.testnet",
+            "sign_secp256k1_domain": 0,
+            "sign_ed25519_domain": 1,
+            "ckd_domain": 2,
+            "foreign_tx_domain": 3,
+            "ckd_public_key": "bls12381g2:xeYho48G2Sr9oJz4gw9sLGZGspeeKpHZvMDAwWvoNTRnVMFJH96GxX98TT2MRhTtsot1wcGR1Ti2Xh8PCsbYJ2enbLNdJXDvTYSK8aTE3nJ5NZXU7Kt1F6mFtReWs5pR4kj",
+            "fee_recipient": "rose-app.testnet",
+            "near_cash_token": "tusdc.rose-app.testnet",
+            "base_cash_tokens": [
+              "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+            ],
+            "rose_vault": "0xc8db15e81bba899f375b20724553dbd3b446da0f",
+            "base_chain_id": 84532,
+            "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+            "streamflow_program": "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ",
+            "default_key_timeout": null,
+            "default_reveal_window": null
+          },
+          "deploy_tx": "E6b48iN8nVx1XHRzh2VspPXAYepXkv5aAEfqDXvY5jRa",
+          "bootstrap_tx": "8U2uUEzZs8ebKhDj3wZuNraeFr885SiKrmGf3jXexEFz",
+          "keyless": false,
+          "create_tx": "5M7Ni2My7FKbEpBrUWB9bPtpAvCnHPbndA6s2vkzUqZU"
+        },
+        "derived": {
+          "vault_base": "0x80ce2541602e7be22664f23931fe1118e86e1f09",
+          "vault_sol": "77DPmxotR35D3zAWGSCJ1UxN6T4KYVkSkkEkZS59AHad",
+          "gas_sol": "36jQEj7ZbZsS1huRPZCZiKW4kijMJJWeDJdDoAJg5PRH"
+        }
+      },
+      "solana": {
+        "demo_mint": "3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w",
+        "streamflow_program": "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ",
+        "vault": "77DPmxotR35D3zAWGSCJ1UxN6T4KYVkSkkEkZS59AHad",
+        "gas_payer": "36jQEj7ZbZsS1huRPZCZiKW4kijMJJWeDJdDoAJg5PRH"
+      }
+    },
+    "engine-s2.rose-app.testnet": {
+      "role": "staging",
+      "base": {
+        "chain_id": 84532,
+        "deployer": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+        "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+        "test_usdc": {
+          "contract": "TestUSDC",
+          "address": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "tx": "0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9",
+          "block": 54195713
+        },
+        "demo_token": {
+          "contract": "DemoToken",
+          "address": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+          "tx": "0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954",
+          "block": 54195713
+        },
+        "demo_stream_faucet": {
+          "contract": "DemoStreamFaucet",
+          "address": "0xf7b1302c20faab06ad5121981b3e949da24fd98d",
+          "tx": "0xb9c69f8c83640e28e40e9be9036e2afa9b2275fc5b7da90434663abc27b397e5",
+          "block": 54195713
+        },
+        "rose_vault": {
+          "contract": "RoseVault",
+          "address": "0x650691ee1f6e8c1a4fc3547351fd50de7b1ffb14",
+          "tx": "0xb37abc21e651de600dd18ae12c68a13a9159989377cef559148145b61241d0a0",
+          "block": 54229617,
+          "signer": "0xfe0a38fb2c5da2414d4570417488de4fd1a24af8"
+        },
+        "accepted_cash_tokens": [
+          "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+        ]
+      },
+      "near": {
+        "engine": {
+          "account": "engine-s2.rose-app.testnet",
+          "wasm": {
+            "sha256": "c377a1250b6f6568161b40c9ce57a66ee1f6de778aed4dd730c09e2e169bd0cf",
+            "bytes": 966845
+          },
+          "init_args": {
+            "mpc_account": "v1.signer-prod.testnet",
+            "sign_secp256k1_domain": 0,
+            "sign_ed25519_domain": 1,
+            "ckd_domain": 2,
+            "foreign_tx_domain": 3,
+            "ckd_public_key": "bls12381g2:xeYho48G2Sr9oJz4gw9sLGZGspeeKpHZvMDAwWvoNTRnVMFJH96GxX98TT2MRhTtsot1wcGR1Ti2Xh8PCsbYJ2enbLNdJXDvTYSK8aTE3nJ5NZXU7Kt1F6mFtReWs5pR4kj",
+            "fee_recipient": "rose-app.testnet",
+            "near_cash_token": "tusdc.rose-app.testnet",
+            "base_cash_tokens": [
+              "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+            ],
+            "rose_vault": "0x650691ee1f6e8c1a4fc3547351fd50de7b1ffb14",
+            "base_chain_id": 84532,
+            "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+            "streamflow_program": "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ",
+            "default_key_timeout": null,
+            "default_reveal_window": null
+          },
+          "create_tx": "CDrc6cdhJaqefstejQvrhMdMP7GyPUGSezoZ4T5gfwLo",
+          "deploy_tx": "4T9yfFkrof7c8jKTkGSyG7S1fPDFaJGMgkmbFQ1BPJji",
+          "bootstrap_tx": "79ivVUCyyxqABeeUkYWpJC9vh48GrnnsnvVMHjFwLAsm",
+          "keyless": false
+        },
+        "derived": {
+          "vault_base": "0xfe0a38fb2c5da2414d4570417488de4fd1a24af8",
+          "vault_sol": "ABYoHK9e8G9qBCbBnZWY9rYvThZFDJammrCRSnbGENJq",
+          "gas_sol": "37z2tEB2jC8gjFrXSBEft4bAhQPsUCrXUx7qqArYx8GS"
+        }
+      }
+    }
+  }
+}

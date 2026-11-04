@@ -12,6 +12,17 @@ fn holding_claims_include_the_pending_lien_excess() {
     let class = stepped_class(&mut contract, 6);
     let (holder, funder) = (accounts(1), accounts(2));
     mint(&mut contract, &class, &holder, 4_000_000, ts(1_000));
+    let other = stepped_class(&mut contract, 9);
+    env(
+        &holder,
+        near_sdk::NearToken::from_yoctonear(
+            u128::from(crate::HOLDING_ROW_BYTES)
+                * near_sdk::env::storage_byte_cost().as_yoctonear(),
+        ),
+        ts(1_000),
+    );
+    contract.storage_deposit(None, None);
+    mint(&mut contract, &other, &holder, 1_000, ts(1_000));
     fund(&mut contract, &holder, USDC, ts(1_000));
     fund(&mut contract, &funder, 3_000_000, ts(1_000));
     // X = 4M units, K = 1M tokens, one funder bids the whole claim.
@@ -62,6 +73,25 @@ fn holding_claims_include_the_pending_lien_excess() {
     // 4M units from 0 to 0.1 at creation, then the lock from 0.1 to 0.5.
     let lock_accrual = 4_000_000 / 10 + 4_000_000 * 4 / 10;
     assert_eq!(contract.claimable_of(&source), lock_accrual + 600_000);
+    assert_eq!(
+        contract.get_lien(U64(0)).unwrap().pending_excess,
+        U128(600_000)
+    );
+    // A claim on another class leaves this class's lien untouched.
+    env_at(&engine(), ts(10_000));
+    let checkpoint = contract.liens.get(&0).unwrap().lien.checkpoint;
+    let other_source = ClaimSource::Holding {
+        account: holder.clone(),
+        class_id: other.clone(),
+    };
+    let other_claimable = contract.claimable_of(&other_source);
+    assert!(other_claimable > 0);
+    contract.take_claimable(&other_source, other_claimable);
+    assert_eq!(
+        contract.liens.get(&0).unwrap().lien.checkpoint,
+        checkpoint,
+        "a class B claim does not accrue the class A lien"
+    );
     assert_eq!(
         contract.get_lien(U64(0)).unwrap().pending_excess,
         U128(600_000)

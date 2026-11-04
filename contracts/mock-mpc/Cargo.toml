@@ -1,0 +1,17 @@
+[package]
+name = "rose-mock-mpc"
+version = "0.1.0"
+description = "Mock of the NEAR MPC contract for the rose engine sandbox tests: replays recorded responses"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5.30"
+
+[dev-dependencies]
+near-sdk = { version = "5.30", features = ["unit-testing"] }

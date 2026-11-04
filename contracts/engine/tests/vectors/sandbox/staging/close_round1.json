@@ -1,0 +1,137 @@
+{
+  "source": "https://testnet.near.rocks/tx/DXA7PZRHWeUtDFf1VHZ2rdyjKLA4J5FjiXHc7dEMzhvo",
+  "near_tx": "DXA7PZRHWeUtDFf1VHZ2rdyjKLA4J5FjiXHc7dEMzhvo",
+  "engine": "engine-s1.rose-app.testnet",
+  "method": "close",
+  "args": {
+    "round_id": "1"
+  },
+  "receipts": [
+    {
+      "executor": "engine-s1.rose-app.testnet",
+      "gas_burnt": 7099810734859,
+      "value": null,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"key_requested\",\"data\":{\"round_id\":\"1\"}}"
+      ]
+    },
+    {
+      "executor": "v1.signer-prod.testnet",
+      "gas_burnt": 11613383299996,
+      "value": null,
+      "logs": [
+        "request_app_private_key: predecessor=AccountId(\"engine-s1.rose-app.testnet\"), request=CKDRequestArgs { derivation_path: \"round/1\", app_public_key: AppPublicKeyPV(CKDAppPublicKeyPV { pk1: Bls12381G1PublicKey([133, 36, 12, 128, 98, 207, 226, 236, 135, 42, 8, 175, 130, 227, 60, 86, 92, 196, 63, 184, 135, 5, 79, 189, 108, 118, 145, 188, 206, 241, 118, 33, 231, 47, 136, 14, 255, 102, 234, 172, 44, 26, 89, 99, 223, 227, 228, 227]), pk2: Bls12381G2PublicKey([166, 213, 233, 182, 210, 9, 113, 38, 122, 98, 18, 82, 186, 191, 181, 234, 52, 52, 235, 34, 129, 115, 82, 175, 192, 195, 59, 242, 194, 187, 81, 78, 187, 202, 237, 20, 13, 95, 24, 218, 227, 185, 168, 15, 133, 167, 152, 169, 4, 238, 202, 152, 111, 114, 28, 46, 160, 200, 208, 253, 60, 184, 42, 223, 254, 12, 19, 212, 251, 25, 40, 75, 245, 128, 24, 86, 156, 123, 106, 177, 214, 78, 216, 44, 4, 9, 90, 26, 59, 189, 97, 53, 176, 157, 59, 103]) }), domain_id: DomainId(2) }"
+      ]
+    },
+    {
+      "executor": "v1.signer-prod.testnet",
+      "gas_burnt": 3790650024699,
+      "value": {
+        "big_y": "bls12381g1:7TQ56CAy3L79KTrECLjZG52x1eyvJeJcdsV3BtvNgAHUd8yDXHZqD8yTbvVzk2xoNx",
+        "big_c": "bls12381g1:63qPnV21jmHfKCrw1ZZh9WeV5UunxWz6acg237XQq2rWjrvcpSXwpE9dSvxXZ4CvV4"
+      },
+      "logs": []
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "engine-s1.rose-app.testnet",
+      "gas_burnt": 13604974407610,
+      "value": true,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"key_received\",\"data\":{\"round_id\":\"1\",\"source\":\"Callback\",\"key\":\"bls12381g1:7a7AJSCyvi33tpNQoWW2TGQF3xyzb1yC4rifTbJGWemL5jabDL8u9fwPA3KMPMHh1f\"}}"
+      ]
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    }
+  ],
+  "mpc_calls": [
+    {
+      "method": "request_app_private_key",
+      "args": {
+        "request": {
+          "derivation_path": "round/1",
+          "app_public_key": {
+            "AppPublicKeyPV": {
+              "pk1": "bls12381g1:5tGZby4k9bKfqUSQbr9wGcUNqxqbVhwUNMpfUtojXQ8JV1YbiHZP7EbK6TLGSTRNHG",
+              "pk2": "bls12381g2:zUJLRN9j1XsfsRKf8dWJ7wNdtwE1ASxgej4cymk9jHjx9DPA8AJWFyPkBTFrGWoLze45m4DtCx2rx4THAgcaZhirDqMuKUKhokbAmV6iQfug6JxMiX1RGqCuxdNgyKinRjk"
+            }
+          },
+          "domain_id": 2
+        }
+      },
+      "gas": 25000000000000,
+      "deposit": "1"
+    },
+    {
+      "method": "return_ck_and_clean_state_on_success",
+      "args": [
+        {
+          "app_public_key": {
+            "AppPublicKeyPV": {
+              "pk1": "bls12381g1:5tGZby4k9bKfqUSQbr9wGcUNqxqbVhwUNMpfUtojXQ8JV1YbiHZP7EbK6TLGSTRNHG",
+              "pk2": "bls12381g2:zUJLRN9j1XsfsRKf8dWJ7wNdtwE1ASxgej4cymk9jHjx9DPA8AJWFyPkBTFrGWoLze45m4DtCx2rx4THAgcaZhirDqMuKUKhokbAmV6iQfug6JxMiX1RGqCuxdNgyKinRjk"
+            }
+          },
+          "app_id": [
+            66,
+            31,
+            204,
+            143,
+            20,
+            5,
+            196,
+            214,
+            93,
+            227,
+            240,
+            125,
+            234,
+            123,
+            91,
+            21,
+            30,
+            111,
+            241,
+            14,
+            20,
+            229,
+            166,
+            231,
+            111,
+            87,
+            240,
+            11,
+            22,
+            158,
+            135,
+            33
+          ],
+          "domain_id": 2
+        }
+      ],
+      "gas": 7000000000000,
+      "deposit": "0"
+    }
+  ]
+}

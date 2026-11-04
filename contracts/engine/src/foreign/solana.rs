@@ -723,6 +723,11 @@ pub enum StreamflowError {
     CanUpdateRate,
     /// The stream may be topped up, which would change the registered schedule.
     CanTopup,
+    /// The recipient may not transfer the stream: the vault could never release it.
+    NotTransferableByRecipient,
+    /// Streamflow's automatic withdrawals would move unlocked tokens without the engine's
+    /// accounting.
+    AutomaticWithdrawal,
     /// The stream carries pause or rate-change history, so the plain unlock formula no longer
     /// describes it.
     Modified,
@@ -928,8 +933,10 @@ impl StreamflowMetadata {
     }
 
     /// Parses an attested account state and requires a stream the engine may register: owned by
-    /// `program`, recipient `vault`, open, not canceled, and with none of the sender-side or
-    /// schedule-changing permissions (`cancelable_by_sender`, `transferable_by_sender`,
+    /// `program`, recipient `vault`, open, not canceled, transferable by its recipient (so the
+    /// vault can release or return it), without automatic withdrawals (only the engine withdraws
+    /// vault streams, so its per-stream accounting stays exact) and with none of the sender-side
+    /// or schedule-changing permissions (`cancelable_by_sender`, `transferable_by_sender`,
     /// `pausable`, `can_update_rate`, `can_topup`), so that the registered schedule stays exact.
     pub fn check_deposit(
         account: &SvmAccount,
@@ -954,6 +961,12 @@ impl StreamflowMetadata {
         }
         if metadata.transferable_by_sender {
             return Err(StreamflowError::TransferableBySender);
+        }
+        if !metadata.transferable_by_recipient {
+            return Err(StreamflowError::NotTransferableByRecipient);
+        }
+        if metadata.automatic_withdrawal {
+            return Err(StreamflowError::AutomaticWithdrawal);
         }
         if metadata.pausable {
             return Err(StreamflowError::Pausable);

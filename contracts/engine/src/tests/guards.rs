@@ -305,6 +305,7 @@ fn init_validates_its_arguments() {
         near_cash_token: cash_token(),
         base_cash_tokens: vec![],
         rose_vault: "0x1111111111111111111111111111111111111111".to_string(),
+        base_chain_id: 84532,
         sablier_lockup: "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e".to_string(),
         streamflow_program: "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ".to_string(),
         default_key_timeout: Some(U64(1)),
@@ -312,6 +313,12 @@ fn init_validates_its_arguments() {
     };
     panics_with("Invalid CKD public key", || {
         Contract::new(args("ed25519:abc"));
+    });
+    panics_with("Base chain id is required", || {
+        Contract::new(InitArgs {
+            base_chain_id: 0,
+            ..args(&rose_ibe::format_near_g2(&mpk()))
+        });
     });
     panics_with("Invalid RoseVault address", || {
         Contract::new(InitArgs {

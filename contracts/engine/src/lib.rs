@@ -40,7 +40,7 @@ use near_sdk::store::{IterableMap, LookupMap, Vector};
 use near_sdk::{env, near, require, AccountId, BorshStorageKey, NearToken, PanicOnDefault};
 
 pub use cash::FungibleToken;
-pub use custody::{CustodyEvent, CustodyState, PAYOUT_STORAGE_DEPOSIT, PENDING_EXPIRY_BLOCKS};
+pub use custody::{CustodyState, PAYOUT_STORAGE_DEPOSIT, PENDING_EXPIRY_BLOCKS};
 pub use events::{RoseEvent, StoredEvent, EVENT_CAPACITY, EVENT_STANDARD, EVENT_VERSION};
 pub use storage::{StorageBalance, StorageBalanceBounds, HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
 pub use types::*;
@@ -139,6 +139,7 @@ impl Contract {
             is_evm_address(&args.sablier_lockup),
             "Invalid Sablier Lockup address"
         );
+        require!(args.base_chain_id != 0, "Base chain id is required");
         require!(
             !args.streamflow_program.is_empty(),
             "Streamflow program id is required"
@@ -155,6 +156,7 @@ impl Contract {
                 near_cash_token: args.near_cash_token,
                 base_cash_tokens: args.base_cash_tokens,
                 rose_vault: args.rose_vault,
+                base_chain_id: args.base_chain_id,
                 sablier_lockup: args.sablier_lockup,
                 streamflow_program: args.streamflow_program,
                 default_key_timeout: args

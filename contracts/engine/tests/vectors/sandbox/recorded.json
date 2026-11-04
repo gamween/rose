@@ -1,0 +1,236 @@
+{
+  "description": "Real NEAR MPC responses (v1.signer-prod.testnet 3.18.0) replayed by contracts/mock-mpc in the sandbox tests. Every entry names the NEAR transaction it was read from; docs/verification.md has the commands.",
+  "mpc_public_keys": {
+    "2": {
+      "key": "bls12381g2:xeYho48G2Sr9oJz4gw9sLGZGspeeKpHZvMDAwWvoNTRnVMFJH96GxX98TT2MRhTtsot1wcGR1Ti2Xh8PCsbYJ2enbLNdJXDvTYSK8aTE3nJ5NZXU7Kt1F6mFtReWs5pR4kj",
+      "source": "view v1.signer-prod.testnet public_key '{\"domain_id\":2}' (2026-11-04)"
+    },
+    "3": {
+      "key": "secp256k1:2KGCoy2pZt7n85QfJnQzCT1eHySuNpquUfNc8ySpRbr15F5kqU7agJYjfo5RkrzNd4tZimDFv2wAZri7RRZ32qj1",
+      "source": "view v1.signer-prod.testnet public_key '{\"domain_id\":3}' (2026-11-04)"
+    }
+  },
+  "derived_keys": [
+    {
+      "predecessor": "c.rose-sign-1793752785.testnet",
+      "path": "vault/base",
+      "domain_id": 0,
+      "key": "secp256k1:4D8Exx2unEhfBkEa3EcjMKYrEUJgfMbecYd4nG9zE6T49hepuCvMrFEVofBWUVnFkYbjJs2MgaeD7hp72gLAjP65",
+      "evm_address": "0x556e29bce7c6ab74a8b36b3c754d3ac2842223b5",
+      "source": "docs/verification.md, NEAR MPC sign section (derived_public_key view, 2026-11-04)"
+    },
+    {
+      "predecessor": "c.rose-sign-1793752785.testnet",
+      "path": "vault/sol",
+      "domain_id": 1,
+      "key": "ed25519:ERKmrj6yveQaKExLsfuiJZW19MYnwFhUUwdLBPniG6GL",
+      "source": "same"
+    },
+    {
+      "predecessor": "c.rose-sign-1793752785.testnet",
+      "path": "gas/sol",
+      "domain_id": 1,
+      "key": "ed25519:CBx96X3pThHzNJYjfXBKjdKktZxVApRaiNS8Ej6G7Qwz",
+      "source": "same"
+    }
+  ],
+  "ckd": [
+    {
+      "engine": "rose-ckd-1793753433.testnet",
+      "path": "round/1",
+      "near_tx": "2hL3YiPRnVyw7thp6CjwJjT8187bUpV9F25WXpdoa7yM",
+      "big_y": "bls12381g1:6JsKyncUXqmVX4RcTD83LCcSL25iVYoi1ShPZxFE2hBoo27Lh2nXDNHu3JnA3Paara",
+      "big_c": "bls12381g1:5jQ5mhW68mDqLQGxgnDiFShQy87sFxrDrQ1QLoYibyyZWDUsaJ19nVCaYr38FnqBbF",
+      "key": "bls12381g1:6znYwWzn6SVgzXFKy7zEmZA6CR2aS317nJXuWKAmmeEdnrc3Qp6dX7EfE26GZBA889",
+      "source": "docs/verification.md, CKD and IBE section: round 1 of the IBE spike contract"
+    }
+  ],
+  "sign": [
+    {
+      "domain_id": 0,
+      "path": "vault/base",
+      "near_tx": "57TzcvbHbkBrZioL6Dg2jLnTxGGbYEYBY7oACbXv87MT",
+      "predecessor": "c.rose-sign-1793752785.testnet",
+      "digest": "0x50082754a6fac1ef5903aa07f91c8db9b1d180a6ff13ecf22469889b07c71921",
+      "response": {
+        "scheme": "Secp256k1",
+        "big_r": {
+          "affine_point": "026df93ecb5f24b0743b4fbe61c20facf62f86e008e5ff8db7d4604b781d89e50e"
+        },
+        "s": {
+          "scalar": "67807abd08d31ba24158b3afad7414de13b6a58e3f0a7949cab3b9e26a082bea"
+        },
+        "recovery_id": 0
+      },
+      "r": "0x6df93ecb5f24b0743b4fbe61c20facf62f86e008e5ff8db7d4604b781d89e50e",
+      "s": "0x67807abd08d31ba24158b3afad7414de13b6a58e3f0a7949cab3b9e26a082bea",
+      "v": 27,
+      "source": "tests/vectors/foreign/evm_mpc_sign_fixture.json"
+    },
+    {
+      "domain_id": 1,
+      "path": "gas/sol",
+      "near_tx": "2EnjBoZADxx2GoBng8XHRq4LDbagHjKwB1exhasZtgxH",
+      "response": {
+        "scheme": "Ed25519",
+        "signature": [
+          160,
+          69,
+          220,
+          70,
+          215,
+          34,
+          191,
+          135,
+          234,
+          30,
+          253,
+          17,
+          161,
+          208,
+          128,
+          1,
+          122,
+          64,
+          249,
+          141,
+          200,
+          169,
+          36,
+          0,
+          185,
+          130,
+          110,
+          30,
+          43,
+          156,
+          151,
+          8,
+          143,
+          74,
+          251,
+          193,
+          202,
+          0,
+          82,
+          77,
+          237,
+          121,
+          203,
+          151,
+          223,
+          149,
+          32,
+          109,
+          136,
+          220,
+          14,
+          57,
+          223,
+          190,
+          22,
+          75,
+          44,
+          153,
+          4,
+          173,
+          227,
+          5,
+          75,
+          2
+        ]
+      },
+      "source": "first signature of devnet transaction 4CrVjw75paRmX7Uopaoeyfv1D83oLKpyJBLM6AbNziMkuPGQ4ykxgUBGT3TZ8vxZeajR7XqsAvnEMtutNBuTL9Wy (getTransaction, encoding base64, slot 518404964), the fee payer gas/sol"
+    },
+    {
+      "domain_id": 1,
+      "path": "vault/sol",
+      "near_tx": "2EnjBoZADxx2GoBng8XHRq4LDbagHjKwB1exhasZtgxH",
+      "response": {
+        "scheme": "Ed25519",
+        "signature": [
+          13,
+          246,
+          100,
+          86,
+          228,
+          224,
+          125,
+          252,
+          225,
+          136,
+          164,
+          134,
+          143,
+          185,
+          140,
+          92,
+          216,
+          193,
+          138,
+          249,
+          126,
+          247,
+          112,
+          178,
+          120,
+          4,
+          36,
+          81,
+          125,
+          69,
+          247,
+          31,
+          242,
+          189,
+          122,
+          155,
+          10,
+          237,
+          2,
+          231,
+          244,
+          163,
+          176,
+          129,
+          241,
+          28,
+          90,
+          99,
+          162,
+          99,
+          0,
+          152,
+          154,
+          21,
+          248,
+          46,
+          52,
+          88,
+          251,
+          231,
+          253,
+          196,
+          161,
+          3
+        ]
+      },
+      "source": "second signature of the same devnet transaction, the nonce authority vault/sol"
+    }
+  ],
+  "foreign_signature": {
+    "near_tx": "76jtgVnU9MP96MJq7M4xaUu3daSdQqRfhGPgMSUHT2t",
+    "label": "base_after_final_Finalized",
+    "signature": {
+      "scheme": "Secp256k1",
+      "big_r": {
+        "affine_point": "023b2e2a6592565a2ed37343f923cb222933576465b3a61ddd7c59b0e9b20cfbdc"
+      },
+      "s": {
+        "scalar": "56cae30bce0ba868c79157aaf159ec3a513414019e1d668683c9323abf7ff662"
+      },
+      "recovery_id": 0
+    },
+    "source": "tests/vectors/foreign/mpc_live_vectors.json: a real domain 3 signature, reused over computed payload hashes (the engine checks the hash, the MPC contract checks the signature)"
+  }
+}

@@ -13,14 +13,12 @@
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{env, near, require, AccountId, Gas, NearToken, Promise};
 
-use super::events::{emit, CustodyEvent};
 use super::types::{
     BaseLogLocation, CashDepositedFields, PayoutDebit, PayoutKind, RefusedAsset, RefusedDeposit,
     ReplayKey, StreamDepositedFields,
 };
 use crate::foreign::evm::{
     self, CashDeposited, Eip712Domain, LogLocation, ReleaseAuthorization, StreamDeposited,
-    BASE_SEPOLIA_CHAIN_ID,
 };
 use crate::foreign::mpc::{
     payload_hash, Bytes32, EvmExtractor, EvmFinality, EvmRpcRequest, ExtractedValue,
@@ -35,8 +33,9 @@ use crate::{Contract, ContractExt, RoseEvent};
 const GAS_FOR_DEPOSIT_CALLBACK: Gas = Gas::from_tgas(15);
 /// Prepaid gas a registration needs: the request, 15 Tgas to the MPC and the callback.
 const GAS_FOR_REGISTRATION: Gas = Gas::from_tgas(50);
-/// Static gas of the signature callback of a Base authorization.
-pub(super) const GAS_FOR_BASE_SIGN_CALLBACK: Gas = Gas::from_tgas(5);
+/// Static gas of the signature callback of a Base authorization (1.5 Tgas measured; the margin
+/// keeps a signed authorization from being lost to a starved callback).
+pub(super) const GAS_FOR_BASE_SIGN_CALLBACK: Gas = Gas::from_tgas(10);
 /// Prepaid gas a Base authorization request needs.
 pub(super) const GAS_FOR_BASE_AUTHORIZATION: Gas = Gas::from_tgas(30);
 
@@ -70,10 +69,11 @@ impl Contract {
                     >= self.holder_storage_needed(&account, &class_id),
                 format!("Attach the storage deposit for {account} (registration_deposit_for)")
             );
+            self.hold(&account);
         }
         let (key, request, hash) = self.base_log_request(&location, event.topics(), &event.data());
         self.mark_pending(&key);
-        emit(CustodyEvent::DepositVerificationRequested { key: key.clone() });
+        self.emit(RoseEvent::DepositVerificationRequested { key: key.clone() });
         self.verify_foreign_promise(request).then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_FOR_DEPOSIT_CALLBACK)
@@ -100,6 +100,9 @@ impl Contract {
         attached: U128,
     ) -> bool {
         let attached = NearToken::from_yoctonear(attached.0);
+        if let Some((account, _)) = self.base_deposit_target(&fields) {
+            self.release_hold(&account);
+        }
         if !self.attested(&key, &expected_hash) {
             Self::refund_registration_deposit(&caller, attached);
             return false;
@@ -148,7 +151,7 @@ impl Contract {
         let event = cash_deposited(&fields);
         let (key, request, hash) = self.base_log_request(&location, event.topics(), &event.data());
         self.mark_pending(&key);
-        emit(CustodyEvent::DepositVerificationRequested { key: key.clone() });
+        self.emit(RoseEvent::DepositVerificationRequested { key: key.clone() });
         self.verify_foreign_promise(request).then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_FOR_DEPOSIT_CALLBACK)
@@ -187,12 +190,12 @@ impl Contract {
             venue,
             amount: fields.amount,
         });
-        emit(CustodyEvent::BaseCashRegistered {
+        self.emit(RoseEvent::BaseCashRegistered {
             key: key.clone(),
             account,
             token,
             amount: fields.amount,
-            round_id: fields.round_id,
+            round_id: U64(fields.round_id),
             accepted,
         });
         true
@@ -239,12 +242,12 @@ impl Contract {
     pub(super) fn attested(&mut self, key: &ReplayKey, expected_hash: &str) -> bool {
         let Ok(response) = Self::foreign_result(0) else {
             self.clear_pending(key);
-            emit(CustodyEvent::DepositVerificationFailed { key: key.clone() });
+            self.emit(RoseEvent::DepositVerificationFailed { key: key.clone() });
             return false;
         };
         if hex::encode(response.payload_hash.0) != expected_hash {
             self.clear_pending(key);
-            emit(CustodyEvent::DepositMismatch { key: key.clone() });
+            self.emit(RoseEvent::DepositMismatch { key: key.clone() });
             return false;
         }
         self.consume(key)
@@ -252,7 +255,7 @@ impl Contract {
 
     /// Records a refused deposit.
     pub(super) fn refuse(&mut self, key: &ReplayKey, refused: RefusedDeposit) {
-        emit(CustodyEvent::DepositRefused {
+        self.emit(RoseEvent::DepositRefused {
             key: key.clone(),
             reason: refused.reason.clone(),
         });
@@ -260,7 +263,7 @@ impl Contract {
     }
 
     fn refuse_cash(&mut self, key: &ReplayKey, reason: &str) {
-        emit(CustodyEvent::DepositRefused {
+        self.emit(RoseEvent::DepositRefused {
             key: key.clone(),
             reason: reason.to_string(),
         });
@@ -330,8 +333,8 @@ impl Contract {
             deposited_at: U64(env::block_timestamp()),
             state: PositionState::Held,
         });
-        self.mint_units(&class_id, &account, units, checkpoint);
-        emit(CustodyEvent::DepositRegistered {
+        self.mint_units_owed(&class_id, &account, units, checkpoint);
+        self.emit(RoseEvent::DepositRegistered {
             key: key.clone(),
             chain: Chain::Base,
             position_id: U64(position_id),
@@ -398,18 +401,20 @@ impl Contract {
     /// The EIP-712 domain of the configured RoseVault.
     pub(super) fn eip712_domain(&self) -> Eip712Domain {
         Eip712Domain {
-            chain_id: BASE_SEPOLIA_CHAIN_ID,
+            chain_id: self.config.base_chain_id,
             verifying_contract: evm::parse_address(&self.config.rose_vault)
                 .expect("validated at init"),
         }
     }
 
-    /// Requests the `vault/base` signature of `digest` for payout `id` (the digest must be a
-    /// canonical secp256k1 scalar, which a keccak digest fails with probability about 2^-128).
+    /// Requests the `vault/base` signature of `digest` for payout `id`. The digest must be a
+    /// canonical secp256k1 scalar, which a keccak digest fails with probability about 2^-128;
+    /// the panic reverts the whole call (the payout record and its id included), so the next
+    /// request simply gets the next id and a different digest.
     pub(super) fn request_base_signature(&mut self, id: u64, digest: [u8; 32]) -> Promise {
         require!(
             evm::is_valid_ecdsa_payload(&digest),
-            "Digest is not a valid ECDSA payload: retry with the next authorization id"
+            "Digest is not a valid ECDSA payload: the call is reverted, request again"
         );
         self.payout_mut(id).digest = Some(hex::encode(digest));
         self.sign_ecdsa_promise(super::PATH_VAULT_BASE, digest)

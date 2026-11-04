@@ -7,7 +7,7 @@ use near_sdk::NearToken;
 
 use super::*;
 use crate::types::Holder;
-use crate::{HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
+use crate::{StorageBalance, HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
 
 fn byte_cost() -> u128 {
     near_sdk::env::storage_byte_cost().as_yoctonear()
@@ -32,7 +32,8 @@ fn registration_covers_the_record_and_one_holding_row() {
     assert_eq!(balance.total, U128(min));
     assert_eq!(
         balance.available,
-        U128(u128::from(HOLDING_ROW_BYTES) * byte_cost())
+        U128(0),
+        "the registration minimum is never withdrawable"
     );
     assert_eq!(transferred_to(&alice), 5);
     // A registered account with registration_only gets everything back.
@@ -201,16 +202,15 @@ fn settlement_creates_rows_only_for_registered_buyers_and_refunds_net_of_kept_by
     open(&mut contract, round, ask, &ask_sealed, received + NS);
     open(&mut contract, round, bid, &bid_sealed, received + NS);
     clear(&mut contract, round, received + REVEAL_WINDOW);
-    // The buyer withdrew its storage deposit before settlement: its units cannot land yet.
+    // The buyer cannot take its storage deposit away while its bid is live: the units the
+    // engine owes it at settlement always have a funded row to land on.
     env(&buyer, one_yocto(), ts(7_000));
-    contract.storage_unregister(None);
-    env_at(&accounts(5), ts(7_000));
-    panics_with(
-        "Account charlie is not registered: call storage_deposit first",
-        || contract.settle_bid(U64(round), bid),
-    );
-    register(&mut contract, &buyer, ts(7_000));
+    panics_with("live bids", || contract.storage_unregister(None));
+    env(&buyer, one_yocto(), ts(7_000));
+    panics_with("live bids", || contract.storage_withdraw(None));
     settle(&mut contract, round, bid, ts(7_000));
+    env(&buyer, one_yocto(), ts(7_001));
+    panics_with("still holds units", || contract.storage_unregister(None));
     assert_eq!(
         contract.mt_balance_of(buyer.clone(), class.clone()).0,
         2_000_000
@@ -218,10 +218,107 @@ fn settlement_creates_rows_only_for_registered_buyers_and_refunds_net_of_kept_by
     let refund = bid_refund(&contract, round, bid);
     assert!(refund < BID_STORAGE_DEPOSIT.as_yoctonear());
     assert!(refund > BID_STORAGE_DEPOSIT.as_yoctonear() * 9 / 10);
-    let min = contract.storage_balance_bounds().min.0;
+    assert_eq!(transferred_to(&buyer), refund);
+}
+
+#[test]
+fn owed_credits_never_depend_on_the_storage_deposit() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let stranger = accounts(4);
+    env_at(&accounts(5), ts(1_000));
+    assert!(contract.storage_balance_of(stranger.clone()).is_none());
+    panics_with("is not registered", || {
+        contract.mint_units(&class, &stranger, 10, 0);
+    });
+    let f_now = contract.fraction_now(&class);
+    contract.credit_holding(&Holder::Account(stranger.clone()), &class, 10, f_now, f_now);
+    contract.add_claimable(&Holder::Account(stranger.clone()), &class, 5);
     assert_eq!(
-        transferred_to(&buyer),
-        refund + min,
-        "plus the unregister refund"
+        contract.mt_balance_of(stranger.clone(), class.clone()).0,
+        10
+    );
+    assert_eq!(contract.get_claimable(stranger.clone(), class.clone()).0, 5);
+    assert_eq!(
+        contract.storage_balance_of(stranger.clone()),
+        Some(StorageBalance {
+            total: U128(0),
+            available: U128(0),
+        }),
+        "the engine paid the row and keeps it accounted for"
+    );
+    env(&stranger, one_yocto(), ts(1_100));
+    panics_with("still holds units", || contract.storage_unregister(None));
+}
+
+#[test]
+fn storage_withdraw_keeps_the_registration_minimum() {
+    let mut contract = init();
+    let alice = accounts(1);
+    let min = contract.storage_balance_bounds().min.0;
+    env(&alice, NearToken::from_yoctonear(min + 700), ts(1_000));
+    contract.storage_deposit(None, None);
+    assert_eq!(
+        contract
+            .storage_balance_of(alice.clone())
+            .unwrap()
+            .available,
+        U128(700)
+    );
+    env(&alice, one_yocto(), ts(1_000));
+    let balance = contract.storage_withdraw(None);
+    assert_eq!(transferred_to(&alice), 700);
+    assert_eq!(balance.total, U128(min), "a registered account keeps min");
+    assert_eq!(balance.available, U128(0));
+    env(&alice, one_yocto(), ts(1_000));
+    panics_with("Amount exceeds the available storage balance", || {
+        contract.storage_withdraw(Some(U128(1)))
+    });
+    env(&alice, one_yocto(), ts(1_000));
+    assert!(contract.storage_unregister(None));
+    assert_eq!(
+        transferred_to(&alice),
+        700 + min,
+        "min comes back at unregistration"
+    );
+}
+
+#[test]
+fn mt_transfer_call_refund_lands_on_a_sender_that_unregistered_meanwhile() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let (sender, receiver) = (accounts(1), accounts(2));
+    mint(&mut contract, &class, &sender, 1_000, ts(1_000));
+    register(&mut contract, &receiver, ts(1_000));
+    env(&sender, one_yocto(), ts(1_100));
+    drop(contract.mt_transfer_call(
+        receiver.clone(),
+        class.clone(),
+        U128(1_000),
+        None,
+        None,
+        String::new(),
+    ));
+    assert_eq!(contract.mt_balance_of(sender.clone(), class.clone()).0, 0);
+    env(&sender, one_yocto(), ts(1_101));
+    assert!(contract.storage_unregister(None));
+    env_with_result(
+        ts(1_102),
+        near_sdk::PromiseResult::Successful(b"[\"400\"]".to_vec()),
+    );
+    let used = contract.mt_resolve_transfer(
+        vec![sender.clone()],
+        receiver.clone(),
+        vec![class.clone()],
+        vec![U128(1_000)],
+        None,
+    );
+    assert_eq!(used, vec![U128(600)]);
+    assert_eq!(contract.mt_balance_of(sender.clone(), class.clone()).0, 400);
+    assert_eq!(contract.mt_balance_of(receiver, class).0, 600);
+    assert_eq!(
+        contract.storage_balance_of(sender).unwrap().total,
+        U128(0),
+        "re-registered by the refund with the engine paying its row"
     );
 }

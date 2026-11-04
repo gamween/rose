@@ -1,14 +1,18 @@
 //! NEP-297 events (standard `rose`, version `1.0.0`) and the bounded on-chain event history.
 //!
-//! Every state change emits an `EVENT_JSON:` log and is appended to a ring buffer of the last
-//! [`EVENT_CAPACITY`] events, so the app needs no indexer. Unit movements log the NEP-245 event
-//! instead of a `rose` one (see `units.rs`) but are recorded in the history all the same.
+//! Every state change, custody included, emits an `EVENT_JSON:` log and is appended to a ring
+//! buffer of the last [`EVENT_CAPACITY`] events, so the app needs no indexer. Unit movements log
+//! the NEP-245 event instead of a `rose` one (see `units.rs`) but are recorded in the history all
+//! the same.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::store::Vector;
 use near_sdk::{env, near, serde::Serialize, AccountId};
 
-use crate::types::{BidId, CancelReason, ClassId, KeySource, RoundKind, Side, Venue, VoidReason};
+use crate::custody::ReplayKey;
+use crate::types::{
+    BidId, CancelReason, Chain, ClassId, KeySource, RoundKind, Side, Venue, VoidReason,
+};
 use crate::Contract;
 
 /// NEP-297 `standard` of the engine's events.
@@ -165,6 +169,71 @@ pub enum RoseEvent {
         class_id: ClassId,
         source: String,
         amount: U128,
+    },
+    BootstrapRequested,
+    Bootstrapped {
+        vault_base: String,
+        vault_sol: String,
+        gas_sol: String,
+    },
+    BootstrapFailed,
+    DepositVerificationRequested {
+        key: ReplayKey,
+    },
+    DepositVerificationFailed {
+        key: ReplayKey,
+    },
+    /// The attested payload hash differs from the engine's recomputation.
+    DepositMismatch {
+        key: ReplayKey,
+    },
+    /// A genuine deposit the engine refused (returnable with `return_refused_deposit`).
+    DepositRefused {
+        key: ReplayKey,
+        reason: String,
+    },
+    DepositRegistered {
+        key: ReplayKey,
+        chain: Chain,
+        position_id: U64,
+        class_id: ClassId,
+        account: AccountId,
+        units: U128,
+        checkpoint: U128,
+    },
+    BaseCashRegistered {
+        key: ReplayKey,
+        account: AccountId,
+        token: String,
+        amount: U128,
+        round_id: U64,
+        accepted: bool,
+    },
+    SolDepositAttributed {
+        metadata: String,
+        account: AccountId,
+        class_id: ClassId,
+        deposit_address: String,
+    },
+    PayoutRequested {
+        payout_id: U64,
+        chain: Chain,
+        requester: AccountId,
+    },
+    PayoutSigned {
+        payout_id: U64,
+    },
+    PayoutAwaitingGasSignature {
+        payout_id: U64,
+    },
+    PayoutFailed {
+        payout_id: U64,
+        reason: String,
+    },
+    PositionReleaseRequested {
+        position_id: U64,
+        payout_id: U64,
+        account: AccountId,
     },
 }
 

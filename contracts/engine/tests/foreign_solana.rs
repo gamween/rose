@@ -442,11 +442,13 @@ fn deposit_eligibility_checks_every_flag() {
         StreamflowMetadata::check_deposit(&eligible, &SYSTEM_PROGRAM, &vault),
         Err(StreamflowError::Owner)
     );
-    let cases: [(usize, u8, StreamflowError); 11] = [
+    let cases: [(usize, u8, StreamflowError); 13] = [
         (671, 1, StreamflowError::Closed),
         (25, 1, StreamflowError::Canceled),
         (457, 1, StreamflowError::CancelableBySender),
         (460, 1, StreamflowError::TransferableBySender),
+        (461, 0, StreamflowError::NotTransferableByRecipient),
+        (459, 1, StreamflowError::AutomaticWithdrawal),
         (539, 1, StreamflowError::Pausable),
         (540, 1, StreamflowError::CanUpdateRate),
         (462, 1, StreamflowError::CanTopup),

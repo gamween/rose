@@ -409,3 +409,124 @@ fn lien_at_the_maximum_claim_is_satisfied_on_chain_after_many_touches() {
         "at most one unit of dust per cut"
     );
 }
+
+/// The reviewer's scenario: a holder encumbers every unit (its holding row disappears), then
+/// tries to take its storage deposit away before the round settles.
+fn all_units_advance() -> (Contract, String, AccountId, AccountId, u64) {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let (holder, funder) = (accounts(1), accounts(2));
+    mint(&mut contract, &class, &holder, 10_000_000, ts(1_000));
+    fund(&mut contract, &holder, USDC, ts(1_000));
+    fund(&mut contract, &funder, 3_000_000, ts(1_000));
+    let round = create_advance(
+        &mut contract,
+        &holder,
+        &class,
+        AdvanceSpec {
+            units: 10_000_000,
+            claim: 1_500_000,
+            min_fill: 500_000,
+            max_price: 2_000_000,
+        },
+        ts(1_500),
+        ts(6_000),
+    );
+    assert_eq!(contract.mt_balance_of(holder.clone(), class.clone()).0, 0);
+    assert_eq!(
+        contract
+            .storage_balance_of(holder.clone())
+            .unwrap()
+            .available,
+        U128(0),
+        "the empty row is gone but the registration minimum stays"
+    );
+    env(&holder, one_yocto(), ts(2_600));
+    panics_with("locked units", || contract.storage_unregister(None));
+    env(&holder, one_yocto(), ts(2_600));
+    panics_with("locked units", || contract.storage_withdraw(None));
+    (contract, class, holder, funder, round)
+}
+
+#[test]
+fn advance_holder_cannot_strand_the_funders_by_withdrawing_its_storage_before_clearing() {
+    let (mut contract, class, holder, funder, round) = all_units_advance();
+    let (ask, ask_sealed) = place_ask(
+        &mut contract,
+        round,
+        &holder,
+        1_500_000,
+        900_000,
+        1_500_000,
+        ts(3_000),
+    );
+    let (bid, sealed) = place_bid(
+        &mut contract,
+        round,
+        &funder,
+        1_500_000,
+        1_000_000,
+        2_000_000,
+        ts(3_500),
+    );
+    env(&holder, one_yocto(), ts(3_600));
+    panics_with("live bids", || contract.storage_unregister(None));
+    let received = close_and_release(&mut contract, round, ts(6_000));
+    open(&mut contract, round, ask, &ask_sealed, received + NS);
+    open(&mut contract, round, bid, &sealed, received + NS);
+    clear(&mut contract, round, received + REVEAL_WINDOW);
+    assert_eq!(
+        contract.get_round(U64(round)).unwrap().lien_id,
+        Some(U64(0))
+    );
+    assert_eq!(
+        contract
+            .get_holding(holder.clone(), class.clone())
+            .encumbered,
+        U128(10_000_000)
+    );
+    settle(&mut contract, round, ask, received + REVEAL_WINDOW + NS);
+    settle(&mut contract, round, bid, received + REVEAL_WINDOW + NS);
+    assert!(cash(&contract, &holder) > 0, "the holder was paid");
+    env(&holder, one_yocto(), ts(20_000));
+    panics_with("liens", || contract.storage_unregister(None));
+}
+
+#[test]
+fn advance_cancelled_for_lack_of_key_returns_the_units_whatever_the_holder_did_to_its_storage() {
+    let (mut contract, class, holder, funder, round) = all_units_advance();
+    place_ask(
+        &mut contract,
+        round,
+        &holder,
+        1_500_000,
+        900_000,
+        1_500_000,
+        ts(3_000),
+    );
+    let (bid, _) = place_bid(
+        &mut contract,
+        round,
+        &funder,
+        1_500_000,
+        1_000_000,
+        2_000_000,
+        ts(3_500),
+    );
+    env_at(&accounts(5), ts(6_000) + KEY_TIMEOUT);
+    contract.cancel_no_key(U64(round));
+    assert_eq!(
+        contract.mt_balance_of(holder.clone(), class.clone()).0,
+        10_000_000,
+        "the encumbered units are back"
+    );
+    settle(&mut contract, round, bid, ts(6_001) + KEY_TIMEOUT);
+    assert_eq!(
+        cash(&contract, &funder),
+        3_000_000,
+        "the funder's escrow and bond are back"
+    );
+    settle(&mut contract, round, 0, ts(6_001) + KEY_TIMEOUT);
+    env(&holder, one_yocto(), ts(7_000) + KEY_TIMEOUT);
+    panics_with("still holds units", || contract.storage_unregister(None));
+}

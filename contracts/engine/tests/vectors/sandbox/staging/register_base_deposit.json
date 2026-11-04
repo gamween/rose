@@ -1,0 +1,156 @@
+{
+  "source": "https://testnet.near.rocks/tx/D6i2aCSEK3Y5t3hiQYDdSrj7v38uihx6ii7bBQEyhYoB",
+  "near_tx": "D6i2aCSEK3Y5t3hiQYDdSrj7v38uihx6ii7bBQEyhYoB",
+  "engine": "engine-s1.rose-app.testnet",
+  "method": "register_base_deposit",
+  "args": {
+    "fields": {
+      "cancelable": false,
+      "cliff": 0,
+      "cliff_unlock": "0",
+      "decimals": 18,
+      "deposited": "20000000000000000000000",
+      "end": 1822705008,
+      "granularity": 1,
+      "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+      "near_account": "b1.rose-ckd-1793753433.testnet",
+      "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+      "start": 1791169008,
+      "start_unlock": "2000000000000000000000",
+      "stream_id": 84,
+      "timestamp": 1793761170,
+      "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+      "transferable": true,
+      "withdrawn": "3479544520547945205479"
+    },
+    "location": {
+      "block_hash": "0xbea63bcd619d6dc68e2a30b2a5a9575265dc811b727f26ebc08c33cf7c52192d",
+      "block_number": 54196506,
+      "log_index": 20,
+      "transaction_index": 3,
+      "tx_hash": "0x80cc90496275f0907e64f5c8082ad615453ff4413ce748c876f2bbc9d60895e2"
+    }
+  },
+  "receipts": [
+    {
+      "executor": "engine-s1.rose-app.testnet",
+      "gas_burnt": 4291932801213,
+      "value": null,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"deposit_verification_requested\",\"data\":{\"key\":{\"BaseLog\":{\"tx_hash\":\"80cc90496275f0907e64f5c8082ad615453ff4413ce748c876f2bbc9d60895e2\",\"log_index\":20}}}}"
+      ]
+    },
+    {
+      "executor": "v1.signer-prod.testnet",
+      "gas_burnt": 4415652795535,
+      "value": null,
+      "logs": [
+        "verify_foreign_transaction: predecessor=AccountId(\"engine-s1.rose-app.testnet\"), request=VerifyForeignTransactionRequestArgs { request: Base(EvmRpcRequest { tx_id: EvmTxId([128, 204, 144, 73, 98, 117, 240, 144, 126, 100, 245, 200, 8, 42, 214, 21, 69, 63, 244, 65, 60, 231, 72, 200, 118, 242, 187, 201, 214, 8, 149, 226]), extractors: BoundedVec { inner: [Log { log_index: 20 }], witness: PossiblyEmpty(()) }, finality: Safe }), domain_id: DomainId(3), payload_version: V1, expected_payload_hash: None }"
+      ]
+    },
+    {
+      "executor": "v1.signer-prod.testnet",
+      "gas_burnt": 3489560585402,
+      "value": {
+        "payload_hash": "70336aed85bfe066312136f0e806bbd2e109e5f34c18ef77106cbe4e6f0e9598",
+        "signature": {
+          "scheme": "Secp256k1",
+          "big_r": {
+            "affine_point": "038f199a8327d1f37f822de5d7312a74a1d1fe041d8b5d96cd4c87879e7bd54c6b"
+          },
+          "s": {
+            "scalar": "2193954aaf1a7ae11b79b33dcc26b39f20ce3ecec05b769689b2de9f71dffde3"
+          },
+          "recovery_id": 0
+        }
+      },
+      "logs": []
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "engine-s1.rose-app.testnet",
+      "gas_burnt": 5167456445284,
+      "value": true,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"class_created\",\"data\":{\"class_id\":\"c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba\"}}",
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"storage_deposited\",\"data\":{\"account\":\"b1.rose-ckd-1793753433.testnet\",\"amount\":\"2160000000000000000000\",\"total\":\"2160000000000000000000\"}}",
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"position_registered\",\"data\":{\"position_id\":\"0\",\"class_id\":\"c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba\",\"depositor\":\"b1.rose-ckd-1793753433.testnet\",\"allocation\":\"20000000000000000000000\"}}",
+        "EVENT_JSON:{\"standard\":\"nep245\",\"version\":\"1.0.0\",\"event\":\"mt_mint\",\"data\":[{\"owner_id\":\"b1.rose-ckd-1793753433.testnet\",\"token_ids\":[\"c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba\"],\"amounts\":[\"20000000000000000000000\"]}]}",
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"deposit_registered\",\"data\":{\"key\":{\"BaseLog\":{\"tx_hash\":\"80cc90496275f0907e64f5c8082ad615453ff4413ce748c876f2bbc9d60895e2\",\"log_index\":20}},\"chain\":\"Base\",\"position_id\":\"0\",\"class_id\":\"c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba\",\"account\":\"b1.rose-ckd-1793753433.testnet\",\"units\":\"20000000000000000000000\",\"checkpoint\":\"173977226027397261\"}}"
+      ]
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "rose-app.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    }
+  ],
+  "mpc_calls": [
+    {
+      "method": "verify_foreign_transaction",
+      "args": {
+        "request": {
+          "request": {
+            "Base": {
+              "tx_id": "80cc90496275f0907e64f5c8082ad615453ff4413ce748c876f2bbc9d60895e2",
+              "extractors": [
+                {
+                  "Log": {
+                    "log_index": 20
+                  }
+                }
+              ],
+              "finality": "Safe"
+            }
+          },
+          "domain_id": 3,
+          "payload_version": 1
+        }
+      },
+      "gas": 15000000000000,
+      "deposit": "1"
+    },
+    {
+      "method": "return_verify_foreign_tx_and_clean_state_on_success",
+      "args": [
+        {
+          "request": {
+            "Base": {
+              "tx_id": "80cc90496275f0907e64f5c8082ad615453ff4413ce748c876f2bbc9d60895e2",
+              "extractors": [
+                {
+                  "Log": {
+                    "log_index": 20
+                  }
+                }
+              ],
+              "finality": "Safe"
+            }
+          },
+          "domain_id": 3,
+          "payload_version": 1
+        }
+      ],
+      "gas": 7000000000000,
+      "deposit": "0"
+    }
+  ]
+}

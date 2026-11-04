@@ -21,18 +21,16 @@
 //! paid by the engine (bounded by real foreign deposits); every signed action record is paid by
 //! an attached [`PAYOUT_STORAGE_DEPOSIT`].
 //!
-//! Base Sepolia is the only EVM chain: its chain id is the compile-time
-//! [`crate::foreign::evm::BASE_SEPOLIA_CHAIN_ID`] (the configured RoseVault is a Base Sepolia
-//! deployment).
+//! Base Sepolia is the only EVM chain: the chain id of the EIP-712 domain is `Config.base_chain_id`
+//! (84532 on Base Sepolia), fixed at init together with the RoseVault address.
 
 mod base;
-mod events;
 mod payouts;
 mod solana;
 mod types;
 
 use near_sdk::json_types::{U128, U64};
-use near_sdk::store::LookupMap;
+use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{
     env, near, require, AccountId, BorshStorageKey, Gas, NearToken, Promise, PromiseError,
 };
@@ -44,10 +42,9 @@ use crate::foreign::mpc::{
 use crate::foreign::{evm, solana as sol};
 use crate::types::{Chain, ClassId, DerivedAddresses, PositionId};
 use crate::unlock::{ClassSchedule, SablierLinearStream, StreamflowParams, StreamflowStream};
-use crate::{class_id_of, Contract, ContractExt};
+use crate::{class_id_of, Contract, ContractExt, RoseEvent};
 
 pub use base::deposit_units_of;
-pub use events::CustodyEvent;
 pub use types::*;
 
 /// Storage deposit attached to every method that stores a signed action record (about 1.5 KB
@@ -83,9 +80,14 @@ enum StorageKey {
     Refused,
     Payouts,
     AccountPayouts,
+    AccountPayoutList { account: AccountId },
     SolDeposits,
     SolStreams,
     Releasing,
+    Pending,
+    ClassStreams,
+    VaultPool,
+    Drawing,
 }
 
 /// Custody state, one field of the contract.
@@ -95,11 +97,24 @@ pub struct CustodyState {
     refused: LookupMap<ReplayKey, RefusedDeposit>,
     payouts: LookupMap<PayoutId, Payout>,
     next_payout_id: PayoutId,
-    account_payouts: LookupMap<AccountId, Vec<PayoutId>>,
+    account_payouts: LookupMap<AccountId, Vector<PayoutId>>,
     sol_deposits: LookupMap<String, SolDeposit>,
     sol_streams: LookupMap<PositionId, SolStreamInfo>,
     /// Positions with an in-kind release in flight.
     releasing: LookupMap<PositionId, PayoutId>,
+    /// Per account, the number of custody actions in flight that will credit it (payouts not
+    /// yet signed or failed, deposit registrations not yet resolved): while it is positive the
+    /// account cannot withdraw its storage deposit.
+    pending: LookupMap<AccountId, u32>,
+    /// Registered Solana positions per class, the streams a payout may withdraw from.
+    class_streams: LookupMap<ClassId, Vec<PositionId>>,
+    /// Per mint, tokens an in-kind redeem withdrew into the vault's token account that no
+    /// payout has used yet (the only balance of that account a payout may rely on).
+    vault_pool: LookupMap<String, u64>,
+    /// Per Solana position, the payouts awaiting their signature whose plan withdraws from the
+    /// stream: an in-kind redeem of the stream waits until they resolve, so a failed payout
+    /// never gives back withdraw accounting on a stream that already left the vault.
+    drawing: LookupMap<PositionId, u32>,
 }
 
 impl CustodyState {
@@ -114,6 +129,10 @@ impl CustodyState {
             sol_deposits: LookupMap::new(StorageKey::SolDeposits),
             sol_streams: LookupMap::new(StorageKey::SolStreams),
             releasing: LookupMap::new(StorageKey::Releasing),
+            pending: LookupMap::new(StorageKey::Pending),
+            class_streams: LookupMap::new(StorageKey::ClassStreams),
+            vault_pool: LookupMap::new(StorageKey::VaultPool),
+            drawing: LookupMap::new(StorageKey::Drawing),
         }
     }
 }
@@ -136,20 +155,21 @@ impl Contract {
             "Already bootstrapped"
         );
         let engine = env::current_account_id();
+        let mpc_account = self.config.mpc_account.clone();
         let derive = |path: &str, domain_id: u64| {
             let args = near_sdk::serde_json::json!({
                 "path": path,
                 "predecessor": engine,
                 "domain_id": domain_id,
             });
-            Promise::new(self.config.mpc_account.clone()).function_call(
+            Promise::new(mpc_account.clone()).function_call(
                 "derived_public_key".to_string(),
                 near_sdk::serde_json::to_vec(&args).expect("args serialize"),
                 NearToken::from_yoctonear(0),
                 GAS_FOR_DERIVED_KEY,
             )
         };
-        events::emit(CustodyEvent::BootstrapRequested);
+        self.emit(RoseEvent::BootstrapRequested);
         derive(PATH_VAULT_BASE, self.config.sign_secp256k1_domain)
             .and(derive(PATH_VAULT_SOL, self.config.sign_ed25519_domain))
             .and(derive(PATH_GAS_SOL, self.config.sign_ed25519_domain))
@@ -184,7 +204,7 @@ impl Contract {
                     vault_sol: sol::format_pubkey(&vault_sol),
                     gas_sol: sol::format_pubkey(&gas_sol),
                 };
-                events::emit(CustodyEvent::Bootstrapped {
+                self.emit(RoseEvent::Bootstrapped {
                     vault_base: derived.vault_base.clone(),
                     vault_sol: derived.vault_sol.clone(),
                     gas_sol: derived.gas_sol.clone(),
@@ -193,7 +213,7 @@ impl Contract {
                 true
             }
             None => {
-                events::emit(CustodyEvent::BootstrapFailed);
+                self.emit(RoseEvent::BootstrapFailed);
                 false
             }
         }
@@ -285,21 +305,21 @@ impl Contract {
     }
 
     /// Registers `account` and tops up its deposit for a row of `class_id` out of `budget`,
-    /// returning the remainder. Panics when the budget is short.
+    /// returning the remainder. Runs in deposit callbacks, so it never panics: the request
+    /// phase required the budget and refuses storage withdrawals while the deposit is pending,
+    /// and if the budget is short all the same the engine pays the missing bytes (an owed
+    /// credit, see `credit_holding`).
     pub(crate) fn cover_holder_storage(
         &mut self,
         account: &AccountId,
         class_id: &ClassId,
         budget: u128,
     ) -> u128 {
-        let budget = self.ensure_registered(account, budget);
+        let budget = self.register_with_budget(account, budget);
         let shortfall = self.storage_shortfall(account, self.holding_row_bytes(account, class_id));
-        require!(
-            budget >= shortfall,
-            format!("Attach the storage deposit for {account}: {shortfall} yoctoNEAR more")
-        );
-        self.top_up_storage(account, shortfall);
-        budget - shortfall
+        let top_up = shortfall.min(budget);
+        self.top_up_storage(account, top_up);
+        budget - top_up
     }
 
     fn holding_row_bytes(&self, account: &AccountId, class_id: &ClassId) -> u64 {
@@ -311,6 +331,27 @@ impl Contract {
         } else {
             crate::HOLDING_ROW_BYTES
         }
+    }
+
+    /// Counts one more custody action in flight for `account` (see `CustodyState::pending`).
+    pub(crate) fn hold(&mut self, account: &AccountId) {
+        let count = self.custody.pending.entry(account.clone()).or_insert(0);
+        *count = count.saturating_add(1);
+    }
+
+    /// Counts one custody action of `account` as resolved.
+    pub(crate) fn release_hold(&mut self, account: &AccountId) {
+        if let Some(count) = self.custody.pending.get_mut(account) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.custody.pending.remove(account);
+            }
+        }
+    }
+
+    /// True while `account` has a custody action in flight.
+    pub(crate) fn has_pending_custody(&self, account: &AccountId) -> bool {
+        self.custody.pending.get(account).is_some_and(|c| *c > 0)
     }
 
     /// Marks `key` pending, or panics when the fact is consumed or a request is in flight.
@@ -424,6 +465,7 @@ impl Contract {
                 kind,
                 debit,
                 requester: requester.clone(),
+                requested_block: U64(env::block_height()),
                 position_id: position_id.map(U64),
                 status: PayoutStatus::Requested,
                 digest: None,
@@ -436,9 +478,14 @@ impl Contract {
         self.custody
             .account_payouts
             .entry(requester.clone())
-            .or_default()
+            .or_insert_with(|| {
+                Vector::new(StorageKey::AccountPayoutList {
+                    account: requester.clone(),
+                })
+            })
             .push(id);
-        events::emit(CustodyEvent::PayoutRequested {
+        self.hold(requester);
+        self.emit(RoseEvent::PayoutRequested {
             payout_id: U64(id),
             chain,
             requester: requester.clone(),

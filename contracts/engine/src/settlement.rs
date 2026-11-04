@@ -334,7 +334,13 @@ impl Contract {
         let restricted_to = match source {
             ClaimSource::Holding { account, class_id } => {
                 for lien_id in self.liens_held_by(account) {
-                    self.touch_lien(lien_id);
+                    if self
+                        .liens
+                        .get(&lien_id)
+                        .is_some_and(|l| &l.class_id == class_id)
+                    {
+                        self.touch_lien(lien_id);
+                    }
                 }
                 self.take_from_holding(&Holder::Account(account.clone()), class_id, f_now, amount);
                 None
@@ -469,7 +475,7 @@ impl Contract {
             .unwrap_or_default()
     }
 
-    fn claim_class(&self, source: &ClaimSource) -> crate::types::ClassId {
+    pub(crate) fn claim_class(&self, source: &ClaimSource) -> crate::types::ClassId {
         match source {
             ClaimSource::Holding { class_id, .. } => class_id.clone(),
             ClaimSource::Retired { round_id } => self.round(*round_id).class_id.clone(),

@@ -347,9 +347,161 @@ The demo issuer is the fictional **Cindral Foundation**, token **Cindral (CINDR)
 | Stream creation mints without a receiver hook and charges no fee | `gh api -H "Accept: application/vnd.github.raw" "repos/sablier-labs/evm-monorepo/contents/lockup/src/SablierLockup.sol?ref=lockup@v4.0.1"` | `_create` (509-550) calls `_mint` at line 538, not `_safeMint`; the only `msg.value` read is in the withdrawal path (line 682) |
 | Creation checks | `lockup/src/libraries/LockupHelpers.sol` at `lockup@v4.0.1` | `_checkCreateStream` (254-289) and `_checkTimestampsAndUnlockAmounts` (182-240): sender != 0, deposit > 0, start > 0, strict ordering, cliff unlock only with a cliff, granularity <= streamable range; no rule that the end is in the future (RoseVault adds one) |
 
+## MPC derived keys, Sablier live triples, SPL mint layout
+
+| Fact | Command | Result (2026-11-04) |
+|---|---|---|
+| `derived_public_key` argument shape | `near/mpc` tag `3.18.0`, `crates/contract/src/api/keys.rs:29` (`#[handle_result]`, `DerivedPublicKeyArgs { path, predecessor, domain_id }`); `view v1.signer-prod.testnet derived_public_key '{"path":"vault/base","predecessor":"engine-s1.rose-app.testnet","domain_id":0}'` | a JSON string: `"secp256k1:5yxTg4vNDMTiFmfGtzdxKASHS79uPSTMVSs7MMGjZpDKPQtLr2A2iiCeT1wmgbQzPq7EVAXYb9rbDME7j4ga7sTN"` for domain 0, `"ed25519:…"` for domain 1; the predecessor does not need to exist, so the vault signer is known before the engine account is created |
+| secp256k1 key to EVM address | `scripts/derive-vault-signer.sh c.rose-sign-1793752785.testnet` (base58 decode of the 64 uncompressed bytes, `cast keccak`, last 20 bytes) | `0x556e29bce7c6ab74a8b36b3c754d3ac2842223b5`, equal to the spike's recovered signer; for `engine-s1.rose-app.testnet`: `0x80ce2541602e7be22664f23931fe1118e86e1f09`, `vault/sol` `77DPmxotR35D3zAWGSCJ1UxN6T4KYVkSkkEkZS59AHad`, `gas/sol` `36jQEj7ZbZsS1huRPZCZiKW4kijMJJWeDJdDoAJg5PRH`; the engine's own `bootstrap` stored the same three values (tx [8U2uUEzZ…](https://testnet.near.rocks/tx/8U2uUEzZs8ebKhDj3wZuNraeFr885SiKrmGf3jXexEFz)) |
+| Sablier live triples | for 12 LL streams at block 54,178,044 (timestamp 1,793,757,477): `cast call 0xA65A…532e "getStartTime(uint256)" / getCliffTime / getEndTime / getGranularity / getUnlockAmounts / getDepositedAmount / "streamedAmountOf(uint256)(uint128)" <id> --block 54178044 --rpc-url https://sepolia.base.org` (commands inside `contracts/engine/tests/vectors/sablier_live.json`) | `cargo test -p rose-engine --test sablier_live`: 12 of 12 `streamedAmountOf` values reproduced exactly by `SablierLinearStream::streamed_amount` (9 strictly mid-stream, one before its cliff, one fully streamed); the collection over all 67 eligible LL streams at that block also matched 67 of 67 |
+| SPL Token mint account layout | `spl-token` `Mint::LEN` (`state.rs`): `mint_authority: COption<Pubkey>` (4 + 32), `supply: u64` (8), `decimals: u8`, `is_initialized: bool`, `freeze_authority: COption<Pubkey>` (4 + 32); checked on the devnet mint `3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w` (`getAccountInfo`, 82 bytes, byte 44 = 6 = `decimals` of `getParsedAccountInfo`) | 82 bytes, `decimals` at offset 44, owner `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`; Token-2022 mints are refused (different owner) |
+
+## Staging deployment (2026-11-04, engine `engine-s1.rose-app.testnet`, keeps its key)
+
+Scripts: `scripts/deploy-base.sh --engine engine-s1.rose-app.testnet --role staging`, `scripts/deploy-engine.sh engine-s1.rose-app.testnet --role staging --balance "13 NEAR"`, then `scripts/e2e-base-tender.sh engine-s1.rose-app.testnet <step>` and `node scripts/e2e-solana-stream.mjs engine-s1.rose-app.testnet <step>`. Records: `deployments/testnet.json`, `deployments/e2e/engine-s1.rose-app.testnet.json`, `deployments/e2e/engine-s1.rose-app.testnet.solana.json` (every MPC response is stored there as `mpc_responses`). The first engine deployed under this name (wasm `d6a62b8b…`, 947,089 bytes) was deleted ([EX1yoMsP…](https://testnet.near.rocks/tx/EX1yoMsPvJWrBkwmmy3trurXU3427DynaVauR1vWBH84), balance back to the parent) and the account recreated with the review-fixed engine: the derived addresses only depend on the account name, so the RoseVault deployed for it stayed valid.
+
+### Base Sepolia (deployer `0x7d4777cfC6ed48061B0BcCae558D29919b412042`)
+
+| Contract | Address | Transaction | Block |
+|---|---|---|---|
+| TestUSDC | `0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01` | [0xb7dfe548…](https://sepolia.basescan.org/tx/0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9) | 54,195,713 |
+| DemoToken "Cindral" (CINDR) | `0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b` | [0x9f02fedb…](https://sepolia.basescan.org/tx/0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954) | 54,195,713 |
+| DemoStreamFaucet | `0xf7b1302c20faab06ad5121981b3e949da24fd98d` | [0xb9c69f8c…](https://sepolia.basescan.org/tx/0xb9c69f8c83640e28e40e9be9036e2afa9b2275fc5b7da90434663abc27b397e5) | 54,195,713 |
+| RoseVault (signer `0x80ce2541602e7be22664f23931fe1118e86e1f09`, checked against `derive-vault-signer.sh` before broadcast and `SIGNER()` after) | `0xc8db15e81bba899f375b20724553dbd3b446da0f` | [0x7f21fcb6…](https://sepolia.basescan.org/tx/0x7f21fcb666f14383194d5fd4fdd160db38ffff48170dd8fd23b71d8bcfa4ed1f) | 54,195,739 |
+
+### NEAR testnet
+
+| Step | Transaction | Gas |
+|---|---|---|
+| Account created with 13 NEAR | [5M7Ni2My…](https://testnet.near.rocks/tx/5M7Ni2My7FKbEpBrUWB9bPtpAvCnHPbndA6s2vkzUqZU) | |
+| Deploy + `new` (wasm 962,494 bytes, sha256 recorded in `deployments/testnet.json`) | [E6b48iN8…](https://testnet.near.rocks/tx/E6b48iN8nVx1XHRzh2VspPXAYepXkv5aAEfqDXvY5jRa) | 70.9 Tgas (first deployment) |
+| `bootstrap` (three `derived_public_key` calls + callback) | [8U2uUEzZ…](https://testnet.near.rocks/tx/8U2uUEzZs8ebKhDj3wZuNraeFr885SiKrmGf3jXexEFz) | 24.1 Tgas |
+
+### Base stream deposit, Tender round, payout (`e2e-base-tender.sh`)
+
+Holder `b1.rose-ckd-1793753433.testnet` (EVM holder = the deployer EOA), issuer `rose-app.testnet`, class `c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba` (CINDR, 18 decimals, KOL schedule).
+
+| Step | Transaction | Gas | Note |
+|---|---|---|---|
+| `DemoStreamFaucet.mintPosition(Kol)` creates stream 84 | [0xca915151…](https://sepolia.basescan.org/tx/0xca915151f47603d8032699e33a29d44b198cf5a24b0bdc2a986770d9813d047a) | 302,947 | 20,000 CINDR, start 1791169008, end 1822705008, startUnlock 2,000, granularity 1 |
+| `approve` + `depositStream(84, "b1.rose-ckd-1793753433.testnet")` | [0x80cc9049…](https://sepolia.basescan.org/tx/0x80cc90496275f0907e64f5c8082ad615453ff4413ce748c876f2bbc9d60895e2) | 222,558 | block 54,196,506, tx index 3, block-level `logIndex` 20; 3,479.54 CINDR vested were withdrawn to the holder first |
+| `register_base_deposit` (real `verify_foreign_transaction`, `Log` at `Safe`, after the safe head passed the block) | [D6i2aCSE…](https://testnet.near.rocks/tx/D6i2aCSEK3Y5t3hiQYDdSrj7v38uihx6ii7bBQEyhYoB) | 18.6 Tgas | attested `payload_hash` `70336aed…9598` equal to the engine's recomputation; class created, 20,000e18 units minted (full allocation, checkpoint `f(timestamp)`), key `BaseLog` consumed |
+| tUSDC `ft_transfer_call` (issuer 20, holder 2) | [3FuRrwCY…](https://testnet.near.rocks/tx/3FuRrwCY84DGj46bi73EWKmgp8HcThw6ahuY1vnXCVcb), [2e1erDSd…](https://testnet.near.rocks/tx/2e1erDSdhriRCmTYdpf4fWRqBN5NGjQQ5LVyxPvyViKN) | 7.6 Tgas | NEAR venue cash |
+| Round 0: `create_tender` (budget 10 tUSDC, max 0.01 tUSDC per locked token) | [2KunbTYg…](https://testnet.near.rocks/tx/2KunbTYgyt1jya9X6jzSXmyD9u25w6A2Utsfu45Y6ypc) | 3.7 Tgas | escrow 10.03 tUSDC |
+| Round 0: `place_ask` (1,000 CINDR at 0.005 tUSDC, sealed with the wasm build) | [8siTNLse…](https://testnet.near.rocks/tx/8siTNLse8hDfWA96zxxubAPiETkjrf5VoQs9qmKxS6zb) | 4.6 Tgas | bond 1 tUSDC |
+| Round 0: `close` (real CKD) | [CZ2T4KGf…](https://testnet.near.rocks/tx/CZ2T4KGf9RzsjUR1VxLayfH51NR7dUUSykb6B6QYzyhm) | 37.3 Tgas | key `bls12381g1:76ge4d68…Gp9` stored by the callback, equal to the offline unwrap of the recorded `(big_y, big_c)` |
+| Round 0: `clear` with the ask unopened (a script bug lost the ciphertext), `settle_bid` | [ESekGAKm…](https://testnet.near.rocks/tx/ESekGAKm2bkCjVdTmcyjTV1HX3ERYkmuhtHzPvS244uK), [5iz1ngr7…](https://testnet.near.rocks/tx/5iz1ngr7DUBEcd4pg3hchTE94f2hJm2X74jPFdshYVac) | 3.6, 5.2 Tgas | `Cancelled(NoCrossing)`; the unopened ask is void and its 1 tUSDC bond slashed, the 1,000 units unlocked, the issuer's 10.03 tUSDC escrow refunded: the no-crossing path exercised live |
+| Round 1: `create_tender`, `place_ask` | [3Dm4cJn3…](https://testnet.near.rocks/tx/3Dm4cJn3tvQgkE8J4YN7JEGToXrjZtY2WLYqH13iC3Mf), [HAoS879U…](https://testnet.near.rocks/tx/HAoS879Uc7TjrBzrrGEqQD88Bb7cAwjm2XoPCDCPJaKW) | 3.7, 4.5 Tgas | same terms |
+| Round 1: `close` (real CKD) | [DXA7PZRH…](https://testnet.near.rocks/tx/DXA7PZRHWeUtDFf1VHZ2rdyjKLA4J5FjiXHc7dEMzhvo) | 37.3 Tgas | key `bls12381g1:7a7AJSCy…Hh1f`, 8 blocks after the request |
+| Round 1: `open_bid` by the issuer (third party) with the holder's `(plaintext, sigma)` decrypted off chain with the public key | [DioKGz7d…](https://testnet.near.rocks/tx/DioKGz7diMoQhe86KJKzNEEhxp33CXbFGZEaNZr71hKE) | 132.0 Tgas | fully verified opening: quantity 1,000e18, price 5,000 |
+| Round 1: `clear` | [J2y5znVC…](https://testnet.near.rocks/tx/J2y5znVCqNVpFUMr3TRh8o9bc1LVMjsNE45ve1w4VWih) | 4.0 Tgas | price 5,000 per locked token, volume 1,000e18 units, notional 4,129,857 (per-unit price `5000 * (1 - f(ts))`), fee 12,390, issuer charged 4,129,857, refund 5,887,753 |
+| Round 1: `settle_bid` | [8mBkK7rx…](https://testnet.near.rocks/tx/8mBkK7rxK8ncuLxMrXCdqPYUwDBqX1hXStbEWPxRQqpj) | 5.4 Tgas | holder paid 4.129857 tUSDC + bond back; 1,000 units retired to the Tender's lot |
+| `claim_base_tokens(Holding, 1.102254566210002 CINDR, deployer EOA)` (real domain-0 `sign`) | [CsqsDdQR…](https://testnet.near.rocks/tx/CsqsDdQRNKyix3sizYjcMEgkE3VCthuRvTfGyCZyBaed) | 16.6 Tgas | digest `d7ed4be1…3b67`, signature r `3dbb3ffe…fed0`, s `0606f9c8…9836`, v 27 stored in payout 0 |
+| Sablier `withdrawMax(84, vault)` by the claimant | [0xbe033d54…](https://sepolia.basescan.org/tx/0xbe033d54665c4af5809a2405832a2316e2186e9efe28e59d4abee4f872279080) | 102,530 | the vested balance moves to RoseVault |
+| `RoseVault.executeTransfer(Transfer(CINDR, EOA, 1102254566210002000, 0), 27, r, s)` | [0x4e3741e8…](https://sepolia.basescan.org/tx/0x4e3741e8ffbe6555a8e8eab0bde502566f331c5d825f965d57d90db8211de7ab) | 68,853 | status 1, `isAuthorizationUsed(0) = true`, the MPC-signed authorization accepted by the immutable vault |
+
+### Solana stream deposit and payout (`e2e-solana-stream.mjs`)
+
+Devnet test token: mint `3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w` (6 decimals, ops key as mint authority); holder key generated into `~/.config/rose/solana-holder.json`; NEAR account `b1.rose-ckd-1793753433.testnet`; `gas/sol` funded with 0.2 SOL ([PmVd8vPG…](https://explorer.solana.com/tx/PmVd8vPGUXvNhJoRtnSyA1a5pp1oQeNoCmqZiYmkS3VKUL46YefrGqv98QeyUAdF97vdfAfxtTMo6v9N2CDuN3a?cluster=devnet)). Total devnet spend about 0.3 SOL.
+
+| Step | Transaction | Gas | Note |
+|---|---|---|---|
+| Streamflow stream `EhaUNf8fKGHdvWjRVsypT4tnmWaXMtpm9QpRety6tQXU` created (3,600 tokens, 60 per minute over an hour from 1793763759, no cliff, transferable by recipient only, no top-up, pause, rate update or automatic withdrawal) | [5jRXaJ2P…](https://explorer.solana.com/tx/5jRXaJ2PqLWuqjrRhvViPrk1ZrSpHYiEcSJaWzvDYEfxN3oEuHA4ggkd7WtgJBQLkvnbS65fQWTXYyczbfkTSErn?cluster=devnet) | | `@streamflow/stream` 13.4.0 |
+| holder `transfer_recipient` to the deposit address `HB7JyaT9w7HzRGQaQ5aRhRdgYbSgCvWFYam1QjkGh2HC` (`dep/b1.rose-ckd-1793753433.testnet/a13aada1…2fa36`) | [3Ewu1h7g…](https://explorer.solana.com/tx/3Ewu1h7gcozC617kf5igUMzt6FkBGsfiHSaa7HPNPfmvwmVCiwSfjeZ9EMXDYBq9k5ioLrgrB88rP5CfnU1mZtDc?cluster=devnet) | | class id computed before the class existed (`compute_sol_class_id`) |
+| `attribute_sol_deposit` (`derived_public_key` + real `AccountState` proof of the metadata and mint accounts at `Finalized`) | [B3GqeGyW…](https://testnet.near.rocks/tx/B3GqeGyWvVh3mwaCc5s8taeD4KfhSdHiYrsgARj5zheS) | 26.7 Tgas | stage `Attributed`; the first deposit of its class |
+| `move_sol_deposit` (two joined `sign` on domain 1: deposit key and `gas/sol`) and broadcast | [HfkExkn8…](https://testnet.near.rocks/tx/HfkExkn8hCRt2Hj2kRXHJzDrwKAnZentdmGcfT3B5mnd), Solana [63ubPyCh…](https://explorer.solana.com/tx/63ubPyChP7Ri7hjqrVfepQGQwhsjbVu5Q6teHxzduiz3bfvhDobCEa2Sgoq13MDgK92BuZ5omvJvHjhzbvTerCmB?cluster=devnet) | 28.3 Tgas | fee 10,000 lamports paid by `gas/sol`, 24,097 CU; the stream's recipient is now the vault `77DPmxot…AHad` (an earlier move signed for the same stream, [DJmgAAsQ…](https://testnet.near.rocks/tx/DJmgAAsQ6bTYypAeubQUWRCEBiBS8U32MSYK73xbYLwh), was superseded by a second attribution and never broadcast) |
+| `register_sol_deposit` (real `AccountState` proof of the metadata at the vault) | [GhFTEzaA…](https://testnet.near.rocks/tx/GhFTEzaAQrdvHBdoJ6idTZKGhtossEryPDEz7JG1DVS3) | 20.8 Tgas | position 1, 3,600,000,000 units minted, `engine_withdrawn` 0 |
+| nonce account `GP2FeaDQ9oH2NAFXWc7jPKLP8iWGNLyWgwKqHvB5UTZZ` created by the claimant (authority = vault) | [2vUspHXz…](https://explorer.solana.com/tx/2vUspHXzAfmWMpYHJPfeTnsXB7U43mB2NXmYXukqM7Q9JVi2KSxaPLhjavPQDyN8D82npNZvrHxRXZVCWXM1ZrRw?cluster=devnet) | | rent 1,056,640 lamports; nonce value `J5XmxYRQ…hCWu` proven and consumed as the replay key |
+| `claim_sol_tokens(Holding, 360 tokens, ops wallet, nonce proof)` (real `AccountState` proof of the nonce, two joined `sign`) and broadcast | [5vZt2Mkk…](https://testnet.near.rocks/tx/5vZt2MkkcyodLhyppLgyKvGRqRoFp9tW4UjiQMRxa6nW), Solana [5QM6Gd65…](https://explorer.solana.com/tx/5QM6Gd65UYU2qkiJqt2bVVSok71RCju7Pzj7QRoi3FN1w6ybPn4TyvewNwKZjwasGP3BWrCSndi9t3HhS72sd6qT?cluster=devnet) | 45.4 Tgas | the engine-built transaction: `AdvanceNonceAccount`, Streamflow `withdraw(360000000)`, `create_associated_token_account_idempotent`, `TransferChecked(360000000)`; 39,737 CU; recipient balance 6,400,000,000 to 6,760,000,000; stream `amount_withdrawn` 360,000,000 = `engine_withdrawn` |
+
+## Staging deployment 2 (2026-11-04, engine `engine-s2.rose-app.testnet`, keeps its key)
+
+`engine-s1` runs the engine before the takeover fixes (storage floor, owed-row registration, guarded Base retry callbacks, Solana redeem waiting for in-flight draws), so staging was redeployed under a new name with the fixed wasm (sha256 `c377a1250b6f6568161b40c9ce57a66ee1f6de778aed4dd730c09e2e169bd0cf`, 966,845 bytes, on-chain code hash `EA2JWqr868rL1z8yzh9rHSxHncy76gASNuTGLVjqnJai` checked with `view_account`). `engine-s1` stays as it is. Commands: `scripts/derive-vault-signer.sh engine-s2.rose-app.testnet --all`, `scripts/deploy-base.sh --engine engine-s2.rose-app.testnet --role staging --demo-assets-from engine-s1.rose-app.testnet`, `scripts/deploy-engine.sh engine-s2.rose-app.testnet --role staging --balance "12 NEAR"`, `scripts/e2e-base-tender.sh engine-s2.rose-app.testnet all --evm-env evm-holder` (a fresh EVM holder funded with 0.01 ETH by the deployer, [0xb7d28bae…](https://sepolia.basescan.org/tx/0xb7d28bae1c23474b3372abf50e30621d0c8e4e0d2b84f1b77c30dbe449264ce2), because DemoStreamFaucet allows one KOL mint per address per day), `node scripts/e2e-solana-stream.mjs engine-s2.rose-app.testnet <step> --holder b2.rose-ckd-1793753433.testnet`. Records: `deployments/testnet.json`, `deployments/e2e/engine-s2.rose-app.testnet.json`, `deployments/e2e/engine-s2.rose-app.testnet.solana.json`.
+
+| Step | Transaction | Gas | Note |
+|---|---|---|---|
+| Derived addresses (before any deployment) | | | `vault/base` `0xfe0a38fb2c5da2414d4570417488de4fd1a24af8`, `vault/sol` `ABYoHK9e8G9qBCbBnZWY9rYvThZFDJammrCRSnbGENJq`, `gas/sol` `37z2tEB2jC8gjFrXSBEft4bAhQPsUCrXUx7qqArYx8GS` |
+| RoseVault `0x650691ee1f6e8c1a4fc3547351fd50de7b1ffb14` (signer = derived `vault/base`, checked before broadcast and with `SIGNER()` after); TestUSDC, DemoToken and DemoStreamFaucet reused from `engine-s1` | [0xb37abc21…](https://sepolia.basescan.org/tx/0xb37abc21e651de600dd18ae12c68a13a9159989377cef559148145b61241d0a0) | | block 54,229,617 |
+| Account created with 12 NEAR | [CDrc6cdh…](https://testnet.near.rocks/tx/CDrc6cdhJaqefstejQvrhMdMP7GyPUGSezoZ4T5gfwLo) | | |
+| Deploy + `new` | [4T9yfFkr…](https://testnet.near.rocks/tx/4T9yfFkrof7c8jKTkGSyG7S1fPDFaJGMgkmbFQ1BPJji) | 72.3 Tgas | |
+| `bootstrap` | [79ivVUCy…](https://testnet.near.rocks/tx/79ivVUCyyxqABeeUkYWpJC9vh48GrnnsnvVMHjFwLAsm) | 24.2 Tgas | stored addresses equal to the MPC view |
+| `mintPosition(Kol)` stream 85, `depositStream(85, "b1.rose-ckd-1793753433.testnet")` | [0xd1767b66…](https://sepolia.basescan.org/tx/0xd1767b66e5fc539b907f2d523c7bc49212285c45e8f197bc8def11435b058794), [0xb5131567…](https://sepolia.basescan.org/tx/0xb51315675c4a5ea83509dad212f0e1127b03b4a381b1ac7303188d20e11045d6) | 239,658 | block 54,230,005, tx index 2, log index 5 |
+| `register_base_deposit` (real ForeignTx `Log` at `Safe`) | [BVMEhgae…](https://testnet.near.rocks/tx/BVMEhgaecy3BRCZcgwphLk3fnMx6w1L9YaceL5RGy5p) | 18.7 Tgas | class `c5b14256…bba` (first deposit of the class on this engine), 20,000e18 units |
+| tUSDC funding (issuer 20, holder 2) | [4ydQbGQZ…](https://testnet.near.rocks/tx/4ydQbGQZah6rkZREH1X4zsB6nZX8T4KoXpTHo4D4MSxd), [92UDwPUL…](https://testnet.near.rocks/tx/92UDwPULn2tQajABiHjJbqQBPWnzUTrdr7PWuh5oRGFz) | 7.6 Tgas | |
+| `create_tender`, sealed `place_ask` (1,000 CINDR at 0.005 tUSDC) | [3dsxCR81…](https://testnet.near.rocks/tx/3dsxCR81RdUHwK3kYXcE5swrcaTKBQC5tKWbjY1UymXf), [FZYDLi7D…](https://testnet.near.rocks/tx/FZYDLi7DNmqffjLwje1QbV6wsxgPkRY5DYtND46bYHa7) | 3.7, 4.6 Tgas | round 0 |
+| `close` (real CKD) | [4okkJgcN…](https://testnet.near.rocks/tx/4okkJgcNGXaDBnznHnR9wz4cPHtLd3PJSPupXHaLPfwa) | 37.4 Tgas | key `bls12381g1:7HX3rZBm…XPwJ`, equal to the offline unwrap of the recorded response |
+| `open_bid` by the issuer | [BMCNNit5…](https://testnet.near.rocks/tx/BMCNNit5znofi5nFQPtG4uu8RS9GTPdvHaVaRJRUhwUH) | 132.1 Tgas | |
+| `clear` | [4PBLEE4B…](https://testnet.near.rocks/tx/4PBLEE4BeZRZFwJipytvYiZyJB9VdDASQfCkLe6KkH31) | 4.1 Tgas | price 5,000, volume 1,000e18, notional 4,129,119, fee 12,388, issuer refund 5,888,493 |
+| `settle_bid` | [CWVp4J2R…](https://testnet.near.rocks/tx/CWVp4J2R3KzB6qFBzkxuD6XiPdLv8LgDQjtLLho3xaec) | 5.5 Tgas | |
+| `claim_base_tokens(Holding, 0.238356164383522 CINDR)` (real domain-0 `sign`) | [CsL4u6Kj…](https://testnet.near.rocks/tx/CsL4u6KjQupzRcz1NjzrpiFJLfSyBtkDUJKNtQgG2Cdb) | 16.8 Tgas | payout 2, digest `f634d0ba…d4ff`, v 27; a first attempt never reached the chain (near-cli "Transaction has expired", `payouts_total` unchanged) and was re-run |
+| `withdrawMax(85, vault)`, `executeTransfer` | [0x0214151c…](https://sepolia.basescan.org/tx/0x0214151cbf6aca110d3616a98638717e653ca59c4ce79d376977564e3af69d0c), [0xbbf9bd97…](https://sepolia.basescan.org/tx/0xbbf9bd9795afc6f4192c1fea630a0f29f0f9e935fb7fc7ea264e34dcd966d109) | 119,630, 68,865 | status 1, `isAuthorizationUsed(2) = true` |
+| Solana: `gas/sol` funded with 0.2 SOL, holder with 0.05 SOL | [5AdcMEbg…](https://explorer.solana.com/tx/5AdcMEbgKyd1w8icZxRr5bw89KKwbNoM4NK4bYLjDXVq4jQN6vHxwP4bHJuRTcoco2GafUAWpQPo4N1uMQsLHoq6?cluster=devnet) | | devnet spend of the whole run 0.26 SOL |
+| Streamflow stream `5PQ4pdPNb339LZT5PBV8psn9XqVMudH3hmPbUzeKWRXC` of the new mint `xr59kT7UE5F3CyE9f2G2F7YSjLJVBBtLfj8TUaUwwK5` (3,600 tokens, 60 per minute) | [57wJdj3x…](https://explorer.solana.com/tx/57wJdj3xVq5eCVQJR9MKXPkdxzkRYyKxyqcduum1Cdw1K1KJmrZbcEi2VuQwxAuH8jwUsmaqi9CdPjV4JxeeipL8?cluster=devnet) | | |
+| `transfer_recipient` to the deposit address `Ggj3mrr57qr6msojCZpMvBmEtz2dfWLnoqErU5AQYRtT` | [66ER1NQg…](https://explorer.solana.com/tx/66ER1NQgxjiHFUmGVZQK8o9HGaG5a497NVLQtXtMqEMR8jtVC3HvUX2AnQUBoKhCB9Nfvw2za2RpvWZxoygMFNda?cluster=devnet) | | |
+| `attribute_sol_deposit` (class `b988d342…ed03` did not exist yet) | [9gmYANby…](https://testnet.near.rocks/tx/9gmYANbyrbNLQbDr9evXfwfnNHG216C1rnPSLqyEtYAm) | 26.7 Tgas | stage `Attributed` |
+| `move_sol_deposit` and broadcast | [6wHz9cAJ…](https://testnet.near.rocks/tx/6wHz9cAJ5cwT6uEp7ovhbjUYNXBGJ5jiqh1vmqpHuSGE), [2mF5Lnkd…](https://explorer.solana.com/tx/2mF5Lnkd1Etum7cBd7Tmc4TxFggdsKZzvBG9XQrXMpj6U3T6bBr86tzrTEMFYbwkgqgASkucemWLrW6CS7xoWzvt?cluster=devnet) | 28.7 Tgas | 27,097 CU; recipient now the vault |
+| `register_sol_deposit` | [6bxxqu69…](https://testnet.near.rocks/tx/6bxxqu6919sUK4RLyJFjRrAZNTpNcN527nR2F356Bhyn) | 20.2 Tgas | position 0, 3,600e6 units, `engine_withdrawn` 0 |
+| nonce account `J1jt3nSQkM4vvGKGiSrPXE5c3tPx4svyHunRoJbfaUaw` (authority = vault) | [299y57L5…](https://explorer.solana.com/tx/299y57L5fjefA3KeounsnuCU4rMJTwUA9rWLQ8Lh9Ck4sUeRhtXodTEPrNVaWWxpcyYetqR4xLRqbzXJEjYp6pi5?cluster=devnet) | | |
+| `claim_sol_tokens(Holding, 180 tokens)` and broadcast | [Hi1yBYj6…](https://testnet.near.rocks/tx/Hi1yBYj6q4isz5pae2yKDm16pnKB7PzQNqinDGyLxZc2), [4kZgCJAf…](https://explorer.solana.com/tx/4kZgCJAfxG2kXDtncEnKWcoPtkiNArZjHMHDRVRieeNuHXrgofGfkQ4HsuDGd94h32eBxBhafbZXPa4TVKodKqNw?cluster=devnet) | 46.3 Tgas | engine-built `AdvanceNonceAccount` + Streamflow `withdraw(180000000)` + ATA + `TransferChecked(180000000)`, 39,722 CU; recipient 6,400e6 to 6,580e6; stream `amount_withdrawn` 180e6 = `engine_withdrawn` |
+
+Live gas per user-facing transaction (Tgas): `open_bid` 132.1, `claim_sol_tokens` 46.3, `close` 37.4, `move_sol_deposit` 28.7, `attribute_sol_deposit` 26.7, `bootstrap` 24.2, `register_sol_deposit` 20.2, `register_base_deposit` 18.7, `claim_base_tokens` 16.8, `ft_transfer_call` 7.6, `settle_bid` 5.5, `place_ask` 4.6, `clear` 4.1, `create_tender` 3.7: all below 300 Tgas.
+
+## Sandbox integration tests and gas (2026-11-04)
+
+Commands: `ROSE_SANDBOX=1 cargo test -p rose-engine --test sandbox_lifecycle -- --nocapture --test-threads=1`, then `--test sandbox_recorded` and `--test sandbox_staging` (near-workspaces 0.24.0, near-sandbox 0.4.0, `neard` 2.14.0 protocol 88; `contracts/mock-mpc` replays recorded live MPC responses; wasm `c377a125…0cf`, 966,845 bytes). Results: lifecycle 6/6 (247.8 s, including `clear_at_the_bid_cap` with 64 opened orders), recorded 1/1 (31.1 s), staging replay 1/1 (36.5 s); `ps aux | grep near-sandbox` counts 0 processes after each suite (every test owns its sandbox, killed on drop). Every measured user-facing call is asserted under 300 Tgas by `GasTable::ok`.
+
+Per-method gas burnt per transaction (`total_gas_burnt`, all receipts), Tgas, over all scenarios:
+
+| Method | Tgas (min - max) | n |
+|---|---|---|
+| `open_bid` | 131.69 - 131.87 | 71 |
+| `claim_sol_tokens` | 24.97 | 1 |
+| `close` | 22.69 - 22.76 | 7 |
+| `attribute_sol_deposit` | 15.35 | 1 |
+| `move_sol_deposit` | 14.16 | 1 |
+| `register_sol_deposit` | 12.53 | 1 |
+| `bootstrap` | 11.73 - 11.78 | 8 |
+| `close (late callback)` | 11.76 | 1 |
+| `close (MPC failure)` | 11.75 | 1 |
+| `register_base_deposit` | 11.21 - 11.38 | 9 |
+| `clear` | 3.59 - 11.08 | 4 |
+| `redeem` | 10.76 | 1 |
+| `claim_base_tokens` | 9.66 | 2 |
+| `mt_transfer_call` | 9.29 | 1 |
+| `withdraw_near_cash` | 8.29 | 1 |
+| `ft_transfer_call (tUSDC -> ft_on_transfer)` | 7.18 - 7.29 | 72 |
+| `settle_bid` | 4.68 - 6.96 | 71 |
+| `distribute_units` | 5.06 | 1 |
+| `place_ask` | 3.87 - 4.17 | 9 |
+| `place_bid` | 3.85 - 3.90 | 65 |
+| `storage_withdraw` | 3.80 | 1 |
+| `storage_unregister` | 3.78 | 1 |
+| `create_advance` | 3.63 | 1 |
+| `mt_transfer` | 3.55 | 1 |
+| `release_lien` | 3.55 | 1 |
+| `create_tender` | 3.42 | 1 |
+| `create_exit` | 3.18 - 3.20 | 8 |
+| `cancel_no_key` | 3.08 | 1 |
+| `cancel_no_key (key in flight)` | 3.04 | 1 |
+| `storage_deposit` | 2.96 - 2.99 | 74 |
+| `storage_deposit (for another account)` | 2.98 | 1 |
+
+The mock's MPC receipts cost about 1 Tgas where the live MPC request and yield resume cost 8 to 15 Tgas, so the MPC-backed methods measure lower in the sandbox than live: compare the live column of the staging tables (`register_base_deposit`, `close`, `claim_base_tokens`, `attribute_sol_deposit`, `move_sol_deposit`, `register_sol_deposit`, `claim_sol_tokens`). The highest user-facing call live and in the sandbox is `open_bid` at about 132 Tgas (the in-contract IBE opening), below the 300 Tgas cap.
+
 ## Build notes
 
 | Fact | Command | Result (2026-11-04) |
 |---|---|---|
 | tUSDC deployed wasm vs current build | `cargo near build non-reproducible-wasm` in `contracts/tusdc` | deployed wasm (bs58 `7JHPYMQ1o7QVhVyMwmzzxS3vVhyqEkcWQrGJUcmubizP`) was built with rustc 1.91.1 before the toolchain pin; builds under 1.95.0 give `HgPQd1QJ1rncPS2E8tYawonseJhJpM3RPfyF81QwFpaH`; the only source change between them is rustfmt and the removal of an unverified reproducible-build image tag |
 | SDK toolchain | `npm view <pkg> version` and `peerDependencies` | typescript 6.0.3 (typescript-eslint 8.72.1 peers `<6.1.0`), typescript-eslint 8.72.1, eslint 10.14.0 for the SDK (9.39.5 in the web app, pinned by eslint-config-next peers), vitest 5.1.0, fast-check 4.10.2, @types/node 22.20.5; SDK built with plain `tsc` |
+
+## Issuer console: Sputnik DAO v2 and Trezu (2026-11-04)
+
+| Fact | Command | Result |
+|---|---|---|
+| Sputnik DAO v2 factories on testnet | `curl -s -X POST https://rpc.testnet.near.org -d '{"jsonrpc":"2.0","id":"1","method":"query","params":{"request_type":"view_account","finality":"final","account_id":"<factory>"}}'` for `sputnik-v2.testnet` and `sputnikv2.testnet` | Both exist with code (`sputnikv2.testnet` code hash `77dkUJRC…`, 6.6 MB of storage; `sputnik-v2.testnet` code hash `D7dxhAZv…`). `get_dao_list` on `sputnikv2.testnet` lists `genesis.`, `test.`, `franklindao.`, … `.sputnikv2.testnet`; on `sputnik-v2.testnet` it lists `genesis.`, `dao.`, `simodao.`, … `.sputnik-v2.testnet`. `get_default_version` on `sputnikv2.testnet` returns `[3, 31]` |
+| A live DAO's policy and version | `view test.sputnikv2.testnet get_policy '{}'`, `version '{}'`, `get_last_proposal_id '{}'` (same `call_function` query, args base64) | `version` = `"2.0.0"`, `proposal_bond` = `1000000000000000000000000` (1 NEAR), `proposal_period` 604800 s, roles `all` (`*:AddProposal`) and `council`; last proposal id 15 |
+| `add_proposal` FunctionCall shape as stored on chain | `view test.sputnikv2.testnet get_proposals '{"from_index":0,"limit":200}'` | 5 FunctionCall proposals, e.g. id 0: `{"kind":{"FunctionCall":{"receiver_id":"hellovirtualworld.mintspace2.testnet","actions":[{"method_name":"mint_tokens","args":"<base64 JSON>","deposit":"1000000000000000000000000","gas":"150000000000000"}]}},"description":"I test mint",...}`. The console builds exactly `{"proposal":{"description","kind":{"FunctionCall":{"receiver_id":<engine>,"actions":[{"method_name":"create_tender","args":<base64 of the create_tender JSON args>,"deposit":"50000000000000000000000","gas":"30000000000000"}]}}}}` |
+| `add_proposal` signature and bond rule | `https://raw.githubusercontent.com/near-daos/sputnik-dao-contract/main/sputnikdao2/src/proposals.rs` (fetched live) | `#[payable] pub fn add_proposal(&mut self, proposal: ProposalInput) -> u64` with `ProposalInput { description: String, kind: ProposalKind }`, `ProposalKind::FunctionCall { receiver_id: AccountId, actions: Vec<ActionCall> }`, `ActionCall { method_name: String, args: Base64VecU8, deposit: NearToken, gas: Gas }`; the attached deposit must equal `policy.proposal_bond` exactly (`assert_eq!`, "ERR_MIN_BOND"), so the console reads `get_policy().proposal_bond` from the DAO entered and attaches it |
+| Sputnik / AstroDAO testnet web UIs | `curl -s -o /dev/null -m 12 -w "%{http_code}" -A Mozilla/5.0 <url>` for `https://testnet-v2.sputnik.fund/`, `https://testnet.app.astrodao.com/`, `https://app.astrodao.com/` | All three fail to resolve (curl exit 6 / HTTP 000) on 2026-11-04, so the console offers no deep link: the proposal is filed from the connected NEAR wallet (`add_proposal` with the bond) or with the generated near-cli-rs command |
+| Trezu custom proposal templates | `gh api repos/NEAR-DevHub/trezu/commits/main` and `curl -s https://raw.githubusercontent.com/NEAR-DevHub/trezu/main/docs/CUSTOM_PROPOSAL_TEMPLATES.md` | Repository `NEAR-DevHub/trezu` ("Frontend and back-end for Trezu"), default branch `main` at `7b063ddbddc7b8202ab680b44cc8f461504aa869` (2026-10-30). The doc defines manifest DSL version `1`: `{ version: 1, id (slug [A-Za-z0-9_-]), title, description?, summary?, binding { receiver_id, method_name, deposit (yocto string), gas (string) }, fields [{ name, label, type: account\|token\|uint\|amount\|number\|text\|select\|bool\|json, required?, default?, help?, options?, validation? }], args { ... "{{placeholder}}" inside string values only } }`; filing produces one `FunctionCall` proposal with `description = "<title>\n\n[trezu-tmpl:<id>]"`; templates are pasted in the Code tab of `/<dao>/custom-templates/create`. `trezu.xyz` answers HTTP 200 only on `www.trezu.xyz`; the app runs on mainnet, so the generated manifest is verified against the DSL doc, not filed |

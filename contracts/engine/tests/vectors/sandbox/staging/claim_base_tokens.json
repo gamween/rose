@@ -1,0 +1,144 @@
+{
+  "source": "https://testnet.near.rocks/tx/CsqsDdQRNKyix3sizYjcMEgkE3VCthuRvTfGyCZyBaed",
+  "near_tx": "CsqsDdQRNKyix3sizYjcMEgkE3VCthuRvTfGyCZyBaed",
+  "engine": "engine-s1.rose-app.testnet",
+  "method": "claim_base_tokens",
+  "args": {
+    "amount": "1102254566210002000",
+    "source": {
+      "Holding": {
+        "class_id": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba"
+      }
+    },
+    "to": "0x7d4777cfc6ed48061b0bccae558d29919b412042"
+  },
+  "receipts": [
+    {
+      "executor": "engine-s1.rose-app.testnet",
+      "gas_burnt": 4662271311954,
+      "value": null,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"claimable_taken\",\"data\":{\"class_id\":\"c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba\",\"source\":\"holding:b1.rose-ckd-1793753433.testnet\",\"amount\":\"1102254566210002000\"}}",
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"payout_requested\",\"data\":{\"payout_id\":\"0\",\"chain\":\"Base\",\"requester\":\"b1.rose-ckd-1793753433.testnet\"}}"
+      ]
+    },
+    {
+      "executor": "v1.signer-prod.testnet",
+      "gas_burnt": 4273469917688,
+      "value": null,
+      "logs": [
+        "sign: predecessor=AccountId(\"engine-s1.rose-app.testnet\"), request=SignRequestArgs { path: \"vault/base\", payload: Ecdsa(BoundedVec { inner: [215, 237, 75, 225, 208, 7, 0, 123, 148, 176, 95, 90, 175, 205, 193, 79, 118, 34, 93, 32, 34, 59, 32, 14, 136, 29, 170, 127, 101, 157, 59, 103], witness: NonEmpty(()) }), domain_id: DomainId(0) }"
+      ]
+    },
+    {
+      "executor": "v1.signer-prod.testnet",
+      "gas_burnt": 3466805776338,
+      "value": {
+        "scheme": "Secp256k1",
+        "big_r": {
+          "affine_point": "033dbb3ffe124ddd9c93bf37760e27fb3f4240563b1a7d26ba40410a57ac3ffed0"
+        },
+        "s": {
+          "scalar": "0606f9c874966618b05226da21db69a8772c64a06d85ea160634a0ce4d4b9836"
+        },
+        "recovery_id": 0
+      },
+      "logs": []
+    },
+    {
+      "executor": "b1.rose-ckd-1793753433.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "b1.rose-ckd-1793753433.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "engine-s1.rose-app.testnet",
+      "gas_burnt": 3006014132695,
+      "value": true,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"rose\",\"version\":\"1.0.0\",\"event\":\"payout_signed\",\"data\":{\"payout_id\":\"0\"}}"
+      ]
+    },
+    {
+      "executor": "b1.rose-ckd-1793753433.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    },
+    {
+      "executor": "b1.rose-ckd-1793753433.testnet",
+      "gas_burnt": 223182562500,
+      "value": null,
+      "logs": []
+    }
+  ],
+  "mpc_calls": [
+    {
+      "method": "sign",
+      "args": {
+        "request": {
+          "path": "vault/base",
+          "payload_v2": {
+            "Ecdsa": "d7ed4be1d007007b94b05f5aafcdc14f76225d20223b200e881daa7f659d3b67"
+          },
+          "domain_id": 0
+        }
+      },
+      "gas": 15000000000000,
+      "deposit": "1"
+    },
+    {
+      "method": "return_signature_and_clean_state_on_success",
+      "args": [
+        {
+          "tweak": [
+            185,
+            130,
+            68,
+            210,
+            149,
+            13,
+            66,
+            183,
+            147,
+            177,
+            45,
+            0,
+            133,
+            68,
+            65,
+            82,
+            132,
+            229,
+            103,
+            92,
+            225,
+            23,
+            48,
+            58,
+            118,
+            3,
+            23,
+            62,
+            216,
+            229,
+            75,
+            159
+          ],
+          "payload": {
+            "Ecdsa": "d7ed4be1d007007b94b05f5aafcdc14f76225d20223b200e881daa7f659d3b67"
+          },
+          "domain_id": 0
+        }
+      ],
+      "gas": 7000000000000,
+      "deposit": "0"
+    }
+  ]
+}

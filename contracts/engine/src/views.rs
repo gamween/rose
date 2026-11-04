@@ -13,6 +13,16 @@ use crate::types::{
 use crate::unlock::ClassSchedule;
 use crate::{Contract, ContractExt};
 
+/// Token risk the engine cannot check on chain, shown on every class: unit accounting assumes
+/// the stream token delivers exactly what the stream pays out. RoseVault refuses fee-on-transfer
+/// tokens at `createStreams` and `depositCash`, but a stream of a fee-on-transfer or rebasing
+/// token deposited with `depositStream` would pay the vault less (or more) than the attested
+/// schedule, and the shortfall would fall on the last claimants. The app's token list is the
+/// place to flag such tokens.
+pub const TOKEN_RISK_NOTE: &str = "Transfer semantics of the stream token are not verified on \
+chain: fee-on-transfer or rebasing tokens pay out less than the attested schedule and are not \
+supported";
+
 /// Protocol statistics for the landing page.
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +74,8 @@ pub struct ClassView {
     /// `f(now)`, 1e18 fixed point.
     pub fraction_now: U128,
     pub created_at: U64,
+    /// What the engine cannot verify about the stream token ([`TOKEN_RISK_NOTE`]).
+    pub token_risk: String,
 }
 
 /// A position with its id.
@@ -634,6 +646,7 @@ pub struct RetiredLotView {
 impl Contract {
     fn class_view(&self, class_id: &ClassId, class: &crate::types::Class) -> ClassView {
         ClassView {
+            token_risk: TOKEN_RISK_NOTE.to_string(),
             class_id: class_id.clone(),
             chain: class.chain,
             token: class.token.clone(),

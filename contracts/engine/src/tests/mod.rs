@@ -226,6 +226,7 @@ pub fn init() -> Contract {
         near_cash_token: cash_token(),
         base_cash_tokens: vec!["0x036cbd53842c5426634e7929541ec2318f3dcf7e".to_string()],
         rose_vault: "0x1111111111111111111111111111111111111111".to_string(),
+        base_chain_id: crate::foreign::evm::BASE_SEPOLIA_CHAIN_ID,
         sablier_lockup: "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e".to_string(),
         streamflow_program: "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ".to_string(),
         default_key_timeout: None,

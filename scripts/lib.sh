@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# Shared helpers of the rose deployment scripts. Sourced, never executed. Testnet only.
+#
+# Conventions: every script is bash + near-cli-rs (NEAR), forge/cast (Base) and jq; python3 is used
+# only to decode base58. Keys are read from ~/.config/rose/*.env and ~/.near-credentials and never
+# printed. Every deployment is recorded in deployments/testnet.json (addresses, transaction hashes,
+# block numbers: no secrets).
+
+set -euo pipefail
+
+ROSE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROSE_CONFIG_DIR="${ROSE_CONFIG_DIR:-$HOME/.config/rose}"
+DEPLOYMENTS_FILE="$ROSE_ROOT/deployments/testnet.json"
+
+NEAR_NETWORK="testnet"
+NEAR_RPC_URL="${NEAR_RPC_URL:-https://test.rpc.fastnear.com}"
+NEAR_EXPLORER_TX="https://testnet.near.rocks/tx"
+BASE_RPC_URL="${BASE_SEPOLIA_RPC_URL:-https://sepolia.base.org}"
+BASE_CHAIN_ID=84532
+BASE_EXPLORER_TX="https://sepolia.basescan.org/tx"
+
+MPC_ACCOUNT="v1.signer-prod.testnet"
+MPC_DOMAIN_SECP256K1=0
+MPC_DOMAIN_ED25519=1
+MPC_DOMAIN_CKD=2
+MPC_DOMAIN_FOREIGN_TX=3
+
+SABLIER_LOCKUP="0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e"
+CIRCLE_USDC_BASE_SEPOLIA="0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+STREAMFLOW_PROGRAM="HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ"
+NEAR_CASH_TOKEN="tusdc.rose-app.testnet"
+
+log() { printf '%s\n' "$*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+require_tools() {
+  local tool
+  for tool in "$@"; do
+    command -v "$tool" >/dev/null 2>&1 || die "$tool is required (see scripts/README.md)"
+  done
+}
+
+# Loads KEY=value lines of ~/.config/rose/<name>.env into the environment without echoing them.
+load_env() {
+  local file="$ROSE_CONFIG_DIR/$1.env"
+  [[ -f "$file" ]] || die "missing $file"
+  set -a
+  # shellcheck disable=SC1090
+  source "$file"
+  set +a
+}
+
+# near_view <account> <method> [json args]: a view call through the RPC, printing the JSON result.
+near_view() {
+  local account="$1" method="$2" args="${3:-{\}}"
+  local args_b64
+  args_b64="$(printf '%s' "$args" | base64 | tr -d '\n')"
+  curl -sS "$NEAR_RPC_URL" -H 'content-type: application/json' -d "$(jq -cn \
+    --arg account "$account" --arg method "$method" --arg args "$args_b64" \
+    '{jsonrpc:"2.0",id:1,method:"query",params:{request_type:"call_function",finality:"final",account_id:$account,method_name:$method,args_base64:$args}}')" \
+    | jq 'if .result.result then (.result.result | implode | fromjson) else error(.result.error // .error | tostring) end'
+}
+
+# near_account_exists <account>: exit 0 when the account exists on testnet.
+near_account_exists() {
+  curl -sS "$NEAR_RPC_URL" -H 'content-type: application/json' -d "$(jq -cn --arg account "$1" \
+    '{jsonrpc:"2.0",id:1,method:"query",params:{request_type:"view_account",finality:"final",account_id:$account}}')" \
+    | jq -e '.result.amount' >/dev/null 2>&1
+}
+
+# near_access_keys <account>: the account's access key list as JSON.
+near_access_keys() {
+  curl -sS "$NEAR_RPC_URL" -H 'content-type: application/json' -d "$(jq -cn --arg account "$1" \
+    '{jsonrpc:"2.0",id:1,method:"query",params:{request_type:"view_access_key_list",finality:"final",account_id:$account}}')" \
+    | jq -e '.result.keys'
+}
+
+# near_tx_hash <near-cli output>: the transaction id printed by near-cli-rs.
+near_tx_hash() {
+  { grep -oE 'Transaction ID: [1-9A-HJ-NP-Za-km-z]+' <<<"$1" || true; } | head -1 | awk '{print $3}'
+}
+
+# near_tx_status <hash> <sender>: the final execution outcome (EXPERIMENTAL_tx_status) as JSON.
+near_tx_status() {
+  curl -sS "$NEAR_RPC_URL" -H 'content-type: application/json' -d "$(jq -cn --arg hash "$1" --arg sender "$2" \
+    '{jsonrpc:"2.0",id:1,method:"EXPERIMENTAL_tx_status",params:{tx_hash:$hash,sender_account_id:$sender,wait_until:"FINAL"}}')" \
+    | jq -e '.result'
+}
+
+# near_tx_gas <tx status json>: total gas burnt by the transaction and all its receipts, in Tgas.
+near_tx_gas() {
+  jq -r '([.transaction_outcome.outcome.gas_burnt] + [.receipts_outcome[].outcome.gas_burnt]) | add / 1e12 | . * 100 | round / 100' <<<"$1"
+}
+
+# near_tx_logs <tx status json>: every log line of the transaction's receipts.
+near_tx_logs() {
+  jq -r '.receipts_outcome[].outcome.logs[]' <<<"$1"
+}
+
+# near_call <signer> <contract> <method> <json args> <gas, e.g. "50 Tgas"> <deposit, e.g. "0.02 NEAR">:
+# sends a function call with the signer's legacy keychain key and prints the transaction hash.
+near_call() {
+  local signer="$1" contract="$2" method="$3" args="$4" gas="$5" deposit="$6" out
+  out="$(near contract call-function as-transaction "$contract" "$method" json-args "$args" \
+    prepaid-gas "$gas" attached-deposit "$deposit" sign-as "$signer" \
+    network-config "$NEAR_NETWORK" sign-with-legacy-keychain send 2>&1)" || {
+    log "$out"
+    die "near call $contract.$method failed"
+  }
+  local hash
+  hash="$(near_tx_hash "$out")"
+  [[ -n "$hash" ]] || { log "$out"; die "no transaction id in the near-cli output"; }
+  printf '%s\n' "$hash"
+}
+
+# b58_to_hex <base58>: hex of the decoded bytes (NEAR public keys, Solana addresses).
+b58_to_hex() {
+  python3 -c '
+import sys
+A = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+s = sys.argv[1]
+n = 0
+for c in s:
+    n = n * 58 + A.index(c)
+raw = n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b""
+pad = len(s) - len(s.lstrip("1"))
+print((b"\x00" * pad + raw).hex())
+' "$1"
+}
+
+# evm_address_of_near_secp256k1 <secp256k1:...>: lowercase 0x address of a NEAR secp256k1 public
+# key (64 uncompressed bytes, keccak-256, last 20 bytes), as the engine computes it.
+evm_address_of_near_secp256k1() {
+  local key="${1#secp256k1:}" raw
+  raw="$(b58_to_hex "$key")"
+  [[ ${#raw} -eq 128 ]] || die "unexpected secp256k1 key length: ${#raw} hex characters"
+  local digest
+  digest="$(cast keccak "0x$raw")"
+  printf '0x%s\n' "${digest: -40}"
+}
+
+# mpc_derived_key <path> <predecessor> <domain id>: the MPC contract's derived_public_key view.
+mpc_derived_key() {
+  near_view "$MPC_ACCOUNT" derived_public_key "$(jq -cn --arg p "$1" --arg a "$2" --argjson d "$3" \
+    '{path:$p,predecessor:$a,domain_id:$d}')" | jq -r .
+}
+
+# deployments_init: creates deployments/testnet.json when missing.
+deployments_init() {
+  mkdir -p "$(dirname "$DEPLOYMENTS_FILE")"
+  if [[ ! -f "$DEPLOYMENTS_FILE" ]]; then
+    jq -n '{networks:{near:"testnet",base:{name:"Base Sepolia",chain_id:84532},solana:"devnet"},explorers:{near:"https://testnet.near.rocks/tx/<hash>",base:"https://sepolia.basescan.org/tx/<hash>",solana:"https://explorer.solana.com/tx/<sig>?cluster=devnet"},deployments:{}}' \
+      >"$DEPLOYMENTS_FILE"
+  fi
+}
+
+# deployments_set <engine account> <jq path under the deployment, e.g. .base.rose_vault> <json value>
+deployments_set() {
+  deployments_init
+  local tmp
+  tmp="$(mktemp)"
+  jq --arg engine "$1" --argjson value "$3" ".deployments[\$engine]$2 = \$value" "$DEPLOYMENTS_FILE" >"$tmp"
+  mv "$tmp" "$DEPLOYMENTS_FILE"
+}
+
+# deployments_get <engine account> <jq path under the deployment>
+deployments_get() {
+  [[ -f "$DEPLOYMENTS_FILE" ]] || return 1
+  jq -e --arg engine "$1" ".deployments[\$engine]$2" "$DEPLOYMENTS_FILE"
+}
+
+# env_snippet <engine account>: NEXT_PUBLIC_* lines for the web app from the deployments file.
+env_snippet() {
+  local engine="$1"
+  jq -r --arg engine "$engine" '.deployments[$engine] |
+    "NEXT_PUBLIC_ENGINE_ACCOUNT=\($engine)",
+    "NEXT_PUBLIC_ROSE_VAULT_ADDRESS=\(.base.rose_vault.address // "")",
+    "NEXT_PUBLIC_BASE_TUSDC_ADDRESS=\(.base.test_usdc.address // "")",
+    "NEXT_PUBLIC_DEMO_TOKEN_ADDRESS=\(.base.demo_token.address // "")",
+    "NEXT_PUBLIC_DEMO_STREAM_FAUCET_ADDRESS=\(.base.demo_stream_faucet.address // "")",
+    "NEXT_PUBLIC_SOLANA_VAULT_ADDRESS=\(.near.derived.vault_sol // "")",
+    "NEXT_PUBLIC_SOLANA_GAS_PAYER_ADDRESS=\(.near.derived.gas_sol // "")",
+    "NEXT_PUBLIC_SOLANA_DEMO_MINT=\(.solana.demo_mint // "")"' "$DEPLOYMENTS_FILE"
+}

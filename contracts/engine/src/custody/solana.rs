@@ -17,7 +17,6 @@
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{env, near, require, AccountId, Gas, NearToken, Promise, PromiseOrValue};
 
-use super::events::{emit, CustodyEvent};
 use super::payouts::{parse_anchor, parse_hex, GAS_FOR_SOL_ACTION};
 use super::types::{
     PayoutDebit, PayoutKind, RefusedAsset, RefusedDeposit, ReplayKey, SolDeposit, SolDepositArgs,
@@ -30,13 +29,13 @@ use crate::foreign::mpc::{
 };
 use crate::foreign::solana::{
     self as sol, associated_token_address, create_associated_token_account_idempotent,
-    streamflow_transfer_recipient, streamflow_withdraw, StreamflowMetadata,
-    StreamflowWithdrawAccounts, STREAMFLOW_WITHDRAW_ALL, TOKEN_PROGRAM,
+    streamflow_transfer_recipient, Pubkey, StreamflowMetadata, StreamflowWithdrawAccounts,
+    TOKEN_PROGRAM,
 };
 use crate::math::ONE;
 use crate::types::{Chain, ClassId, Position, PositionSource, PositionState};
 use crate::unlock::{ClassSchedule, StreamflowStream};
-use crate::{class_id_of, Contract, ContractExt};
+use crate::{class_id_of, Contract, ContractExt, RoseEvent};
 
 /// Static gas of the deposit key callback (parses the key, builds the request).
 const GAS_FOR_KEY_CALLBACK: Gas = Gas::from_tgas(20);
@@ -57,11 +56,14 @@ impl Contract {
     /// Attributes a Streamflow stream sitting at the caller's deposit address
     /// `dep/<caller>/<class_id>` to the caller: derives the address from the MPC contract, then
     /// proves the stream metadata and its mint with one ForeignTx `AccountState` request at
-    /// `Finalized`. The stream must already have the vault-compatible flags (non-cancelable,
-    /// non-transferable by the sender, not pausable, no rate update, no top-up); otherwise it is
-    /// recorded as refused at the deposit address and returnable to `return_to`. Anyone owning a
-    /// NEAR account; at least 80 Tgas. The app passes the account bytes it read at `finalized`
-    /// right before the call.
+    /// `Finalized`. The class need not exist yet (the first deposit of a class creates it at
+    /// registration): `class_id` only selects the derivation path, and the class the stream
+    /// lands in is recomputed from the attested metadata. The stream must already have the
+    /// vault-compatible flags (non-cancelable, non-transferable by the sender, transferable by
+    /// the recipient, no automatic withdrawal, not pausable, no rate update, no top-up);
+    /// otherwise it is recorded as refused at the deposit address and returnable to
+    /// `return_to`. Anyone owning a NEAR account; at least 80 Tgas. The app passes the account
+    /// bytes it read at `finalized` right before the call.
     pub fn attribute_sol_deposit(&mut self, args: SolDepositArgs) -> Promise {
         require!(
             env::prepaid_gas() >= GAS_FOR_ATTRIBUTION,
@@ -69,8 +71,8 @@ impl Contract {
         );
         let caller = env::predecessor_account_id();
         require!(
-            self.classes.contains_key(&args.class_id),
-            "Unknown class: compute it with compute_sol_class_id"
+            args.class_id.len() == 64 && args.class_id.bytes().all(|b| b.is_ascii_hexdigit()),
+            "class_id must be the 64-hex class id (compute_sol_class_id)"
         );
         sol::parse_pubkey(&args.metadata)
             .unwrap_or_else(|_| env::panic_str("metadata must be a base58 key"));
@@ -194,7 +196,7 @@ impl Contract {
             .map(|response| hex::encode(response.payload_hash.0) == expected_hash)
             .unwrap_or(false);
         if !matches {
-            emit(CustodyEvent::DepositVerificationFailed { key });
+            self.emit(RoseEvent::DepositVerificationFailed { key });
             return false;
         }
         let metadata_bytes = parse_hex(&args.metadata_data, "metadata_data");
@@ -253,7 +255,8 @@ impl Contract {
         self.custody.replays.remove(&key);
         let attributed = stage == SolDepositStage::Attributed;
         if attributed {
-            emit(CustodyEvent::SolDepositAttributed {
+            self.custody.refused.remove(&key);
+            self.emit(RoseEvent::SolDepositAttributed {
                 metadata: args.metadata.clone(),
                 account: caller.clone(),
                 class_id: class_id.clone(),
@@ -315,7 +318,7 @@ impl Contract {
         ];
         let id = self.new_payout(
             Chain::Solana,
-            PayoutKind::SolReturn {
+            PayoutKind::SolMove {
                 metadata: metadata.clone(),
                 from: deposit.deposit_address.clone(),
                 to_owner: sol::format_pubkey(&vault),
@@ -377,6 +380,7 @@ impl Contract {
             metadata: metadata.clone(),
         };
         self.mark_pending(&key);
+        self.hold(&deposit.account);
         let account = SvmAccount {
             owner: Bytes32(self.streamflow_program()),
             data: parse_hex(&metadata_data, "metadata_data"),
@@ -389,7 +393,7 @@ impl Contract {
             }],
         });
         let hash = payload_hash(request.clone(), vec![ExtractedValue::account(account)]);
-        emit(CustodyEvent::DepositVerificationRequested { key: key.clone() });
+        self.emit(RoseEvent::DepositVerificationRequested { key: key.clone() });
         self.verify_foreign_promise(request).then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_FOR_ATTESTATION_CALLBACK)
@@ -415,14 +419,15 @@ impl Contract {
         attached: U128,
     ) -> bool {
         let attached = NearToken::from_yoctonear(attached.0);
-        if !self.attested(&key, &expected_hash) {
-            Self::refund_registration_deposit(&caller, attached);
-            return false;
-        }
         let ReplayKey::SolStream { metadata } = &key else {
             env::panic_str("Internal custody error: not a Solana stream key");
         };
         let deposit = self.sol_deposit(metadata);
+        self.release_hold(&deposit.account);
+        if !self.attested(&key, &expected_hash) {
+            Self::refund_registration_deposit(&caller, attached);
+            return false;
+        }
         let data = parse_hex(&metadata_data, "metadata_data");
         match self.admit_sol_stream(&key, &deposit, data, attached.as_yoctonear()) {
             Ok(remainder) => {
@@ -457,72 +462,6 @@ impl Contract {
         true
     }
 
-    /// Signs a Streamflow `withdraw` of everything unlocked from a registered stream into the
-    /// vault's token account, by `vault/sol` with `gas/sol` as fee payer and the caller's recent
-    /// blockhash. Nothing is debited: the tokens stay in custody and back the unit holders'
-    /// claims. Anyone; attach the payout storage deposit and at least 50 Tgas. The app calls it
-    /// before a Solana claim or redeem when the stream has a withdrawable balance.
-    #[payable]
-    pub fn withdraw_sol_stream(&mut self, position_id: U64, recent_blockhash: String) -> Promise {
-        Self::assert_payout_deposit();
-        require!(
-            env::prepaid_gas() >= GAS_FOR_SOL_ACTION,
-            "At least 50 Tgas are required for a Solana action"
-        );
-        let position = self
-            .positions
-            .get(&position_id.0)
-            .cloned()
-            .unwrap_or_else(|| env::panic_str("Unknown position"));
-        require!(
-            position.state == PositionState::Held,
-            "Position already released"
-        );
-        let stream = self.sol_stream(position_id.0);
-        let (vault, gas) = self.sol_keys();
-        let mint = sol::parse_pubkey(&stream.mint).expect("stored base58");
-        let accounts = StreamflowWithdrawAccounts {
-            authority: vault,
-            recipient: vault,
-            recipient_tokens: associated_token_address(&vault, &mint).expect("valid seeds"),
-            metadata: sol::parse_pubkey(&stream.metadata).expect("stored base58"),
-            escrow_tokens: sol::parse_pubkey(&stream.escrow_tokens).expect("stored base58"),
-            streamflow_treasury: sol::STREAMFLOW_TREASURY,
-            streamflow_treasury_tokens: associated_token_address(&sol::STREAMFLOW_TREASURY, &mint)
-                .expect("valid seeds"),
-            partner: sol::parse_pubkey(&stream.partner).expect("stored base58"),
-            partner_tokens: associated_token_address(
-                &sol::parse_pubkey(&stream.partner).expect("stored base58"),
-                &mint,
-            )
-            .expect("valid seeds"),
-            mint,
-        };
-        let instructions = vec![streamflow_withdraw(
-            self.streamflow_program(),
-            &accounts,
-            STREAMFLOW_WITHDRAW_ALL,
-        )];
-        let id = self.new_payout(
-            Chain::Solana,
-            PayoutKind::SolWithdraw {
-                metadata: stream.metadata.clone(),
-            },
-            PayoutDebit::None,
-            &env::predecessor_account_id(),
-            Some(position_id.0),
-        );
-        let message = self.store_sol_message(
-            id,
-            &gas,
-            &instructions,
-            parse_blockhash(&recent_blockhash),
-            None,
-            PATH_VAULT_SOL,
-        );
-        self.sign_sol_pair(id, PATH_VAULT_SOL, message)
-    }
-
     /// A Solana deposit record.
     pub fn get_sol_deposit(&self, metadata: String) -> Option<SolDeposit> {
         self.custody.sol_deposits.get(&metadata).cloned()
@@ -531,6 +470,14 @@ impl Contract {
     /// The registered stream accounts of a Solana position.
     pub fn get_sol_stream(&self, position_id: U64) -> Option<SolStreamInfo> {
         self.custody.sol_streams.get(&position_id.0).cloned()
+    }
+
+    /// Tokens of `mint` in the vault's token account that in-kind redeems withdrew and no
+    /// payout has used yet (the pool later payouts draw on before any stream withdrawal).
+    pub fn get_vault_pool(&self, mint: String) -> U128 {
+        U128(u128::from(
+            self.custody.vault_pool.get(&mint).copied().unwrap_or(0),
+        ))
     }
 
     /// The deposit address derivation path of `account` for `class_id`.
@@ -616,8 +563,14 @@ impl Contract {
                 amount_per_period: metadata.amount_per_period,
                 net_amount_deposited: metadata.net_amount_deposited,
                 end_time: metadata.end_time,
+                engine_withdrawn: metadata.amount_withdrawn,
             },
         );
+        self.custody
+            .class_streams
+            .entry(class_id.clone())
+            .or_default()
+            .push(position_id);
         self.custody
             .sol_deposits
             .get_mut(&deposit.metadata)
@@ -625,8 +578,8 @@ impl Contract {
             .stage = SolDepositStage::Registered {
             position_id: U64(position_id),
         };
-        self.mint_units(&class_id, &deposit.account, units, checkpoint);
-        emit(CustodyEvent::DepositRegistered {
+        self.mint_units_owed(&class_id, &deposit.account, units, checkpoint);
+        self.emit(RoseEvent::DepositRegistered {
             key: key.clone(),
             chain: Chain::Solana,
             position_id: U64(position_id),
@@ -690,6 +643,30 @@ impl Contract {
             held_by_path,
         );
         self.sign_sol_pair(id, held_by_path, message)
+    }
+}
+
+impl Contract {
+    /// The accounts of a Streamflow `withdraw` by the vault of a registered stream.
+    pub(super) fn withdraw_accounts(
+        stream: &super::types::SolStreamInfo,
+        vault: Pubkey,
+    ) -> StreamflowWithdrawAccounts {
+        let mint = sol::parse_pubkey(&stream.mint).expect("stored base58");
+        let partner = sol::parse_pubkey(&stream.partner).expect("stored base58");
+        StreamflowWithdrawAccounts {
+            authority: vault,
+            recipient: vault,
+            recipient_tokens: associated_token_address(&vault, &mint).expect("valid seeds"),
+            metadata: sol::parse_pubkey(&stream.metadata).expect("stored base58"),
+            escrow_tokens: sol::parse_pubkey(&stream.escrow_tokens).expect("stored base58"),
+            streamflow_treasury: sol::STREAMFLOW_TREASURY,
+            streamflow_treasury_tokens: associated_token_address(&sol::STREAMFLOW_TREASURY, &mint)
+                .expect("valid seeds"),
+            partner,
+            partner_tokens: associated_token_address(&partner, &mint).expect("valid seeds"),
+            mint,
+        }
     }
 }
 

@@ -11,7 +11,7 @@ use super::*;
 use crate::custody::{
     BaseLogLocation, CashDepositedFields, ClaimSourceArgs, PayoutDebit, PayoutKind, PayoutStatus,
     RefusedAsset, ReplayKey, ReplayState, SolDepositArgs, SolDepositStage, SolNonceProof,
-    StreamDepositedFields, PATH_VAULT_SOL, PAYOUT_STORAGE_DEPOSIT,
+    StreamDepositedFields, StreamWithdraw, PAYOUT_STORAGE_DEPOSIT,
 };
 use crate::foreign::evm::{
     self, Eip712Domain, LogLocation, ReleaseAuthorization, StreamDeposited, TransferAuthorization,
@@ -278,6 +278,28 @@ fn base_deposit_mints_the_allocation_once() {
     assert!(events("rose")
         .iter()
         .any(|e| e["event"] == "deposit_registered"));
+    let history = contract.get_events(None, Some(64)).events;
+    let recorded: Vec<String> = history
+        .iter()
+        .map(|e| {
+            near_sdk::serde_json::to_value(e).unwrap()["event"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    for event in [
+        "bootstrap_requested",
+        "bootstrapped",
+        "deposit_verification_requested",
+        "deposit_registered",
+    ] {
+        assert!(
+            recorded.contains(&event.to_string()),
+            "{event} is in the on-chain history"
+        );
+    }
+    assert_eq!(class_view.token_risk, crate::views::TOKEN_RISK_NOTE);
 
     env(
         &accounts(5),
@@ -655,6 +677,208 @@ fn claim_base_tokens_debits_then_signs_and_refunds_only_without_signature() {
     });
 }
 
+/// The midstream Base deposit of `claim_base_tokens_debits_then_signs_and_refunds_only_without_signature`.
+fn midstream_holder() -> (Contract, String) {
+    let mut contract = bootstrapped();
+    let fields = midstream_fields();
+    let deposit = registration_deposit(&contract, &accounts(1));
+    env(&accounts(5), deposit, ts(6_010));
+    contract
+        .register_base_deposit(base_location(), fields.clone())
+        .detach();
+    let hash = stream_hash(&contract, &base_location(), &fields);
+    env_with_results(ts(6_015), vec![foreign_response(hash)]);
+    assert!(contract.on_base_deposit_verified(
+        base_key(),
+        hex::encode(hash),
+        fields,
+        accounts(5),
+        U128(deposit.as_yoctonear()),
+    ));
+    let class = contract.get_position(U64(0)).unwrap().position.class_id;
+    (contract, class)
+}
+
+#[test]
+fn retried_base_signature_completes_once_and_a_late_callback_changes_nothing() {
+    let (mut contract, class) = midstream_holder();
+    env_at(&accounts(1), ts(8_000));
+    let claimable = contract.get_claimable(accounts(1), class.clone()).0;
+    payout_env(&accounts(1), ts(8_000));
+    contract
+        .claim_base_tokens(
+            ClaimSourceArgs::Holding {
+                class_id: class.clone(),
+            },
+            U128(claimable),
+            RECIPIENT.into(),
+        )
+        .detach();
+    let first = contract.get_payout(U64(0)).unwrap();
+
+    // The account owed a refund cannot take its storage deposit away meanwhile.
+    env(&accounts(1), one_yocto(), ts(8_001));
+    panics_with("custody actions in flight", || {
+        contract.storage_unregister(None)
+    });
+    env(&accounts(1), one_yocto(), ts(8_001));
+    panics_with("custody actions in flight", || {
+        contract.storage_withdraw(None)
+    });
+
+    env_at(&accounts(4), ts(8_000 + crate::PENDING_EXPIRY_BLOCKS - 1));
+    panics_with("still in flight", || contract.retry_base_signature(U64(0)));
+    env_at(&accounts(4), ts(8_000 + crate::PENDING_EXPIRY_BLOCKS));
+    contract.retry_base_signature(U64(0)).detach();
+    let retried = contract.get_payout(U64(0)).unwrap();
+    assert_eq!(retried.digest, first.digest, "the same digest and id");
+    assert_eq!(
+        retried.requested_block,
+        U64(8_000 + crate::PENDING_EXPIRY_BLOCKS)
+    );
+    assert_eq!(
+        contract.get_claimable(accounts(1), class.clone()).0,
+        crate::PENDING_EXPIRY_BLOCKS as u128 * 100_000_000,
+        "nothing debited twice: only the accrual since the claim"
+    );
+
+    env_with_results(ts(8_700), vec![json(&secp_signature())]);
+    assert!(contract.on_base_signed(U64(0)));
+    assert_eq!(
+        contract.get_payout(U64(0)).unwrap().status,
+        PayoutStatus::Signed
+    );
+    env_with_results(ts(8_701), vec![PromiseResult::Failed]);
+    assert!(
+        !contract.on_base_signed(U64(0)),
+        "the first request's late failure is ignored"
+    );
+    env_with_results(ts(8_702), vec![json(&secp_signature())]);
+    assert!(
+        !contract.on_base_signed(U64(0)),
+        "and so is a second signature"
+    );
+    let payout = contract.get_payout(U64(0)).unwrap();
+    assert_eq!(payout.status, PayoutStatus::Signed);
+    env_at(&accounts(1), ts(8_702));
+    assert_eq!(
+        contract.get_claimable(accounts(1), class.clone()).0,
+        contract.claimable_of(&crate::types::ClaimSource::Holding {
+            account: accounts(1),
+            class_id: class.clone(),
+        }),
+    );
+    assert!(
+        contract.get_claimable(accounts(1), class.clone()).0 < claimable,
+        "no refund of the signed claim: only the accrual since"
+    );
+    env_at(&accounts(4), ts(9_400));
+    panics_with("not awaiting its signature", || {
+        contract.retry_base_signature(U64(0))
+    });
+
+    // The hold is gone once the payout resolved; a failed payout refunds the account even
+    // though it tried to leave meanwhile.
+    payout_env(&accounts(1), ts(9_500));
+    let later = contract.get_claimable(accounts(1), class.clone()).0;
+    contract
+        .claim_base_tokens(
+            ClaimSourceArgs::Holding {
+                class_id: class.clone(),
+            },
+            U128(later),
+            RECIPIENT.into(),
+        )
+        .detach();
+    env(&accounts(1), one_yocto(), ts(9_501));
+    panics_with("custody actions in flight", || {
+        contract.storage_unregister(None)
+    });
+    env_with_results(ts(9_505), vec![PromiseResult::Failed]);
+    assert!(!contract.on_base_signed(U64(1)));
+    env_at(&accounts(1), ts(9_505));
+    assert_eq!(
+        contract.get_claimable(accounts(1), class.clone()).0,
+        later + 500_000_000,
+        "refunded, plus five seconds of accrual"
+    );
+    env(&accounts(1), one_yocto(), ts(9_506));
+    contract.storage_withdraw(None);
+    env(&accounts(1), one_yocto(), ts(9_506));
+    panics_with("still holds units", || contract.storage_unregister(None));
+}
+
+#[test]
+fn deposit_callback_credits_a_holder_that_tried_to_withdraw_its_storage_meanwhile() {
+    let mut contract = bootstrapped();
+    let holder = accounts(1);
+    register(&mut contract, &holder, ts(BASE_NOW - 10));
+    let needed = registration_deposit(&contract, &holder);
+    assert_eq!(
+        needed.as_yoctonear(),
+        0,
+        "the registration covers the first row"
+    );
+    env(&accounts(5), needed, ts(BASE_NOW));
+    contract
+        .register_base_deposit(base_location(), base_fields())
+        .detach();
+    env(&holder, one_yocto(), ts(BASE_NOW + 1));
+    panics_with("custody actions in flight", || {
+        contract.storage_withdraw(None)
+    });
+    env(&holder, one_yocto(), ts(BASE_NOW + 1));
+    panics_with("custody actions in flight", || {
+        contract.storage_unregister(None)
+    });
+
+    // A failed verification releases the hold: nothing was credited.
+    env_with_results(ts(BASE_NOW + 7), vec![PromiseResult::Failed]);
+    assert!(!contract.on_base_deposit_verified(
+        base_key(),
+        hex::encode([0u8; 32]),
+        base_fields(),
+        accounts(5),
+        U128(0),
+    ));
+    env(&holder, one_yocto(), ts(BASE_NOW + 8));
+    contract.storage_withdraw(None);
+
+    // The retried registration lands while the holder is again refused its withdrawal.
+    env(&accounts(5), needed, ts(BASE_NOW + 9));
+    contract
+        .register_base_deposit(base_location(), base_fields())
+        .detach();
+    env(&holder, one_yocto(), ts(BASE_NOW + 10));
+    panics_with("custody actions in flight", || {
+        contract.storage_withdraw(None)
+    });
+    let hash = stream_hash(&contract, &base_location(), &base_fields());
+    env_with_results(ts(BASE_NOW + 16), vec![foreign_response(hash)]);
+    assert!(contract.on_base_deposit_verified(
+        base_key(),
+        hex::encode(hash),
+        base_fields(),
+        accounts(5),
+        U128(0),
+    ));
+    let class = contract.get_position(U64(0)).unwrap().position.class_id;
+    assert_eq!(
+        contract.mt_balance_of(holder.clone(), class).0,
+        base_fields().deposited.0
+    );
+    let min = contract.storage_balance_bounds().min;
+    assert_eq!(
+        contract.storage_balance_of(holder.clone()).unwrap(),
+        crate::StorageBalance {
+            total: min,
+            available: U128(0),
+        }
+    );
+    env(&holder, one_yocto(), ts(BASE_NOW + 20));
+    panics_with("still holds units", || contract.storage_unregister(None));
+}
+
 #[test]
 fn redeem_burns_exactly_the_allocation_and_refuses_locked_units() {
     let mut contract = bootstrapped();
@@ -665,7 +889,7 @@ fn redeem_burns_exactly_the_allocation_and_refuses_locked_units() {
     contract.mt_transfer(accounts(2), class.clone(), U128(1), None, None);
     payout_env(&accounts(1), ts(BASE_NOW + 11));
     panics_with("not enough units", || {
-        contract.redeem(U64(0), RECIPIENT.into(), None, None)
+        contract.redeem(U64(0), RECIPIENT.into(), None)
     });
     env(&accounts(2), one_yocto(), ts(BASE_NOW + 12));
     contract.mt_transfer(accounts(1), class.clone(), U128(1), None, None);
@@ -690,7 +914,7 @@ fn redeem_burns_exactly_the_allocation_and_refuses_locked_units() {
     );
     payout_env(&accounts(1), ts(BASE_NOW + 15));
     panics_with("not enough units", || {
-        contract.redeem(U64(0), RECIPIENT.into(), None, None)
+        contract.redeem(U64(0), RECIPIENT.into(), None)
     });
     env_at(&accounts(3), ts(BASE_NOW + 1_000 + KEY_TIMEOUT / NS));
     contract.cancel_no_key(U64(round));
@@ -706,15 +930,13 @@ fn redeem_burns_exactly_the_allocation_and_refuses_locked_units() {
     );
 
     payout_env(&accounts(1), ts(BASE_NOW + 20));
-    contract
-        .redeem(U64(0), RECIPIENT.into(), None, None)
-        .detach();
+    contract.redeem(U64(0), RECIPIENT.into(), None).detach();
     assert_eq!(contract.mt_balance_of(accounts(1), class.clone()).0, 0);
     assert_eq!(contract.mt_supply(class.clone()).unwrap().0, 0);
     assert_eq!(contract.get_pending_release(U64(0)), Some(U64(0)));
     payout_env(&accounts(1), ts(BASE_NOW + 21));
     panics_with("in flight", || {
-        contract.redeem(U64(0), RECIPIENT.into(), None, None)
+        contract.redeem(U64(0), RECIPIENT.into(), None)
     });
 
     env_with_results(ts(BASE_NOW + 25), vec![PromiseResult::Failed]);
@@ -730,9 +952,7 @@ fn redeem_burns_exactly_the_allocation_and_refuses_locked_units() {
     );
 
     payout_env(&accounts(1), ts(BASE_NOW + 30));
-    contract
-        .redeem(U64(0), RECIPIENT.into(), None, None)
-        .detach();
+    contract.redeem(U64(0), RECIPIENT.into(), None).detach();
     let payout = contract.get_payout(U64(1)).unwrap();
     assert_eq!(
         payout.kind,
@@ -751,11 +971,12 @@ fn redeem_burns_exactly_the_allocation_and_refuses_locked_units() {
     assert_eq!(contract.mt_balance_of(accounts(1), class), 0.into());
     payout_env(&accounts(1), ts(BASE_NOW + 40));
     panics_with("already released", || {
-        contract.redeem(U64(0), RECIPIENT.into(), None, None)
+        contract.redeem(U64(0), RECIPIENT.into(), None)
     });
 }
 
-/// Streamflow metadata bytes with the given fields (every flag zero unless set).
+/// Streamflow metadata bytes with the given fields (every flag zero unless set, except
+/// `transferable_by_recipient`, which the engine requires).
 struct StreamSpec {
     recipient: [u8; 32],
     mint: [u8; 32],
@@ -766,6 +987,8 @@ struct StreamSpec {
     end_time: u64,
     amount_withdrawn: u64,
     can_topup: bool,
+    transferable_by_recipient: bool,
+    automatic_withdrawal: bool,
 }
 
 fn stream_bytes(spec: &StreamSpec) -> Vec<u8> {
@@ -786,6 +1009,8 @@ fn stream_bytes(spec: &StreamSpec) -> Vec<u8> {
     put(&mut data, 417, spec.net_amount_deposited);
     put(&mut data, 425, spec.period);
     put(&mut data, 433, spec.amount_per_period);
+    data[459] = u8::from(spec.automatic_withdrawal);
+    data[461] = u8::from(spec.transferable_by_recipient);
     data[462] = u8::from(spec.can_topup);
     data
 }
@@ -800,6 +1025,7 @@ fn mint_bytes(decimals: u8) -> Vec<u8> {
 const DEPOSIT_KEY: [u8; 32] = [7u8; 32];
 const MINT: [u8; 32] = [9u8; 32];
 const STREAM: [u8; 32] = [3u8; 32];
+const STREAM_2: [u8; 32] = [33u8; 32];
 const RETURN_TO: [u8; 32] = [4u8; 32];
 
 fn anchor() -> String {
@@ -817,6 +1043,8 @@ fn sol_spec(recipient: [u8; 32]) -> StreamSpec {
         end_time: 11_000,
         amount_withdrawn: 0,
         can_topup: false,
+        transferable_by_recipient: true,
+        automatic_withdrawal: false,
     }
 }
 
@@ -853,35 +1081,40 @@ fn streamflow_program() -> [u8; 32] {
     sol::parse_pubkey("HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ").unwrap()
 }
 
-/// Attributes the test stream at the deposit address of `accounts(1)`; returns the class id.
-fn attribute(contract: &mut Contract, spec: &StreamSpec) -> (String, SolDepositArgs) {
-    env_at(&engine(), ts(100));
-    let class = contract.ensure_class(
-        Chain::Solana,
-        sol::format_pubkey(&MINT),
-        6,
-        stepped_schedule(),
-    );
+/// The class id of the test schedule, as the app computes it before any deposit exists.
+fn sol_class_id(contract: &Contract, spec: &StreamSpec) -> String {
+    contract
+        .compute_sol_class_id(
+            sol::format_pubkey(&MINT),
+            6,
+            crate::custody::StreamflowScheduleArgs {
+                start_time: spec.start_time,
+                cliff: 0,
+                cliff_amount: 0,
+                period: spec.period,
+                amount_per_period: spec.amount_per_period,
+                net_amount_deposited: spec.net_amount_deposited,
+                end_time: spec.end_time,
+            },
+        )
+        .unwrap()
+}
+
+/// Attributes `stream` (at the deposit address of `accounts(1)`) through the public methods
+/// only: the class does not exist before the first registration. Returns the class id.
+fn attribute_stream(
+    contract: &mut Contract,
+    stream: [u8; 32],
+    spec: &StreamSpec,
+) -> (String, SolDepositArgs) {
+    let class = sol_class_id(contract, spec);
     assert_eq!(
-        contract
-            .compute_sol_class_id(
-                sol::format_pubkey(&MINT),
-                6,
-                crate::custody::StreamflowScheduleArgs {
-                    start_time: spec.start_time,
-                    cliff: 0,
-                    cliff_amount: 0,
-                    period: spec.period,
-                    amount_per_period: spec.amount_per_period,
-                    net_amount_deposited: spec.net_amount_deposited,
-                    end_time: spec.end_time,
-                },
-            )
-            .unwrap(),
-        class
+        class,
+        stepped_class_id(),
+        "the test schedule is the stepped class"
     );
     let args = SolDepositArgs {
-        metadata: sol::format_pubkey(&STREAM),
+        metadata: sol::format_pubkey(&stream),
         class_id: class.clone(),
         return_to: sol::format_pubkey(&RETURN_TO),
         anchor_tx: anchor(),
@@ -903,7 +1136,7 @@ fn attribute(contract: &mut Contract, spec: &StreamSpec) -> (String, SolDepositA
         &anchor(),
         vec![
             (
-                STREAM,
+                stream,
                 sol_account(streamflow_program(), stream_bytes(spec)),
             ),
             (MINT, sol_account(TOKEN_PROGRAM, mint_bytes(6))),
@@ -920,6 +1153,69 @@ fn attribute(contract: &mut Contract, spec: &StreamSpec) -> (String, SolDepositA
     (class, args)
 }
 
+fn attribute(contract: &mut Contract, spec: &StreamSpec) -> (String, SolDepositArgs) {
+    attribute_stream(contract, STREAM, spec)
+}
+
+/// The id the stepped schedule of `sol_spec` maps to (a Solana class of `MINT`, 6 decimals).
+fn stepped_class_id() -> String {
+    crate::class_id_of(
+        Chain::Solana,
+        &sol::format_pubkey(&MINT),
+        6,
+        &stepped_schedule(),
+    )
+}
+
+/// Registers an attributed stream now sitting at the vault with `withdrawn` already withdrawn,
+/// at time `at`; returns the position id.
+fn register_stream(
+    contract: &mut Contract,
+    stream: [u8; 32],
+    args: &SolDepositArgs,
+    withdrawn: u64,
+    at: u64,
+) -> u64 {
+    let vault = sol::parse_pubkey(VAULT_SOL).unwrap();
+    let at_vault = StreamSpec {
+        amount_withdrawn: withdrawn,
+        ..sol_spec(vault)
+    };
+    let class = stepped_class_id();
+    let deposit = NearToken::from_yoctonear(
+        contract
+            .registration_deposit_for(accounts(1), class.clone())
+            .0,
+    );
+    env(&accounts(5), deposit, at);
+    contract
+        .register_sol_deposit(
+            args.metadata.clone(),
+            anchor(),
+            hex::encode(stream_bytes(&at_vault)),
+        )
+        .detach();
+    let key = ReplayKey::SolStream {
+        metadata: args.metadata.clone(),
+    };
+    let hash = sol_hash(
+        &anchor(),
+        vec![(
+            stream,
+            sol_account(streamflow_program(), stream_bytes(&at_vault)),
+        )],
+    );
+    env_with_results(at + 7 * NS, vec![foreign_response(hash)]);
+    assert!(contract.on_sol_deposit_verified(
+        key,
+        hex::encode(hash),
+        hex::encode(stream_bytes(&at_vault)),
+        accounts(5),
+        U128(deposit.as_yoctonear()),
+    ));
+    contract.next_position_id - 1
+}
+
 fn stream_key() -> ReplayKey {
     ReplayKey::SolStream {
         metadata: sol::format_pubkey(&STREAM),
@@ -929,6 +1225,10 @@ fn stream_key() -> ReplayKey {
 #[test]
 fn solana_deposit_is_attributed_moved_and_registered() {
     let mut contract = bootstrapped();
+    assert!(
+        contract.get_class(stepped_class_id()).is_none(),
+        "the first deposit of a class is attributed before the class exists"
+    );
     let (class, args) = attribute(&mut contract, &sol_spec(DEPOSIT_KEY));
     let record = contract.get_sol_deposit(args.metadata.clone()).unwrap();
     assert_eq!(record.stage, SolDepositStage::Attributed);
@@ -945,6 +1245,14 @@ fn solana_deposit_is_attributed_moved_and_registered() {
         .move_sol_deposit(args.metadata.clone(), sol::format_pubkey(&[1u8; 32]))
         .detach();
     let payout = contract.get_payout(U64(0)).unwrap();
+    assert_eq!(
+        payout.kind,
+        PayoutKind::SolMove {
+            metadata: args.metadata.clone(),
+            from: sol::format_pubkey(&DEPOSIT_KEY),
+            to_owner: VAULT_SOL.to_string(),
+        }
+    );
     let solana = payout.solana.clone().unwrap();
     assert_eq!(solana.authority_path, record.path);
     assert!(solana.nonce_account.is_none());
@@ -973,43 +1281,10 @@ fn solana_deposit_is_attributed_moved_and_registered() {
         SolDepositStage::MoveSigned { .. }
     ));
 
-    let vault = sol::parse_pubkey(VAULT_SOL).unwrap();
-    let at_vault = StreamSpec {
-        amount_withdrawn: 200,
-        ..sol_spec(vault)
-    };
-    let deposit = NearToken::from_yoctonear(
-        contract
-            .registration_deposit_for(accounts(1), class.clone())
-            .0,
-    );
-    env(&accounts(5), deposit, ts(4_000));
-    contract
-        .register_sol_deposit(
-            args.metadata.clone(),
-            anchor(),
-            hex::encode(stream_bytes(&at_vault)),
-        )
-        .detach();
-    assert!(matches!(
-        contract.get_replay(stream_key()),
-        Some(ReplayState::Pending { .. })
-    ));
-    let hash = sol_hash(
-        &anchor(),
-        vec![(
-            STREAM,
-            sol_account(streamflow_program(), stream_bytes(&at_vault)),
-        )],
-    );
-    env_with_results(ts(4_007), vec![foreign_response(hash)]);
-    assert!(contract.on_sol_deposit_verified(
-        stream_key(),
-        hex::encode(hash),
-        hex::encode(stream_bytes(&at_vault)),
-        accounts(5),
-        U128(deposit.as_yoctonear()),
-    ));
+    env_at(&accounts(5), ts(3_000));
+    assert!(contract.get_replay(stream_key()).is_none());
+    let position_id = register_stream(&mut contract, STREAM, &args, 200, ts(4_000));
+    assert_eq!(position_id, 0);
     assert_eq!(
         contract.get_replay(stream_key()),
         Some(ReplayState::Consumed)
@@ -1036,6 +1311,10 @@ fn solana_deposit_is_attributed_moved_and_registered() {
     let stream = contract.get_sol_stream(U64(0)).unwrap();
     assert_eq!(stream.mint, sol::format_pubkey(&MINT));
     assert_eq!(stream.escrow_tokens, sol::format_pubkey(&[6u8; 32]));
+    assert_eq!(
+        stream.engine_withdrawn, 200,
+        "the attested withdrawn amount seeds the engine's accounting"
+    );
     assert!(matches!(
         contract
             .get_sol_deposit(args.metadata.clone())
@@ -1048,19 +1327,6 @@ fn solana_deposit_is_attributed_moved_and_registered() {
     panics_with("not awaiting registration", || {
         contract.register_sol_deposit(args.metadata.clone(), anchor(), String::new())
     });
-
-    payout_env(&accounts(5), ts(4_020));
-    contract
-        .withdraw_sol_stream(U64(0), sol::format_pubkey(&[1u8; 32]))
-        .detach();
-    let payout = contract.get_payout(U64(1)).unwrap();
-    assert_eq!(
-        payout.kind,
-        PayoutKind::SolWithdraw {
-            metadata: args.metadata.clone()
-        }
-    );
-    assert_eq!(payout.solana.unwrap().authority_path, PATH_VAULT_SOL);
 }
 
 #[test]
@@ -1117,6 +1383,43 @@ fn solana_stream_refused_at_the_deposit_address_is_returnable() {
     panics_with("not awaiting its move", || {
         contract.move_sol_deposit(args.metadata.clone(), sol::format_pubkey(&[1u8; 32]))
     });
+
+    for (spec, reason) in [
+        (
+            StreamSpec {
+                transferable_by_recipient: false,
+                ..sol_spec(DEPOSIT_KEY)
+            },
+            "NotTransferableByRecipient",
+        ),
+        (
+            StreamSpec {
+                automatic_withdrawal: true,
+                ..sol_spec(DEPOSIT_KEY)
+            },
+            "AutomaticWithdrawal",
+        ),
+    ] {
+        let mut contract = bootstrapped();
+        let (_, args) = attribute(&mut contract, &spec);
+        assert_eq!(
+            contract.get_sol_deposit(args.metadata).unwrap().stage,
+            SolDepositStage::Refused
+        );
+        assert_eq!(
+            contract.get_refused_deposit(stream_key()).unwrap().reason,
+            reason
+        );
+    }
+
+    let mut contract = bootstrapped();
+    let (_, _) = attribute(&mut contract, &spec);
+    assert!(contract.get_refused_deposit(stream_key()).is_some());
+    let (_, _) = attribute(&mut contract, &sol_spec(DEPOSIT_KEY));
+    assert!(
+        contract.get_refused_deposit(stream_key()).is_none(),
+        "a later attribution of the (now eligible) stream drops the stale refusal"
+    );
 }
 
 fn nonce_bytes(authority: [u8; 32], value: [u8; 32]) -> Vec<u8> {
@@ -1147,18 +1450,36 @@ fn nonce_key() -> ReplayKey {
     }
 }
 
-/// A Solana class with 1,000 units minted to `accounts(1)` at `f = 0`.
+/// A Solana class with one registered stream of 1,000 units minted to `accounts(1)` at
+/// `f = 0` (nothing withdrawn), through the public deposit path.
 fn solana_holder() -> (Contract, String) {
     let mut contract = bootstrapped();
-    let class = contract.ensure_class(
-        Chain::Solana,
-        sol::format_pubkey(&MINT),
-        6,
-        stepped_schedule(),
-    );
-    register(&mut contract, &accounts(1), ts(500));
-    mint(&mut contract, &class, &accounts(1), 1_000, ts(500));
+    let (class, args) = attribute(&mut contract, &sol_spec(DEPOSIT_KEY));
+    register_stream(&mut contract, STREAM, &args, 0, ts(500));
     (contract, class)
+}
+
+/// The Streamflow `withdraw` amounts inside a compiled message, in instruction order.
+fn withdraw_amounts(message_hex: &str) -> Vec<u64> {
+    let message = hex::decode(message_hex).unwrap();
+    let keys = usize::from(message[3]);
+    let mut cursor = 4 + 32 * keys + 32;
+    let count = usize::from(message[cursor]);
+    cursor += 1;
+    let mut amounts = Vec::new();
+    for _ in 0..count {
+        cursor += 1;
+        let account_count = usize::from(message[cursor]);
+        cursor += 1 + account_count;
+        let data_len = usize::from(message[cursor]);
+        cursor += 1;
+        let data = &message[cursor..cursor + data_len];
+        if data.len() == 26 && data[..8] == sol::STREAMFLOW_WITHDRAW_DISCRIMINATOR {
+            amounts.push(u64::from_le_bytes(data[8..16].try_into().unwrap()));
+        }
+        cursor += data_len;
+    }
+    amounts
 }
 
 #[test]
@@ -1210,6 +1531,19 @@ fn claim_sol_tokens_proves_the_nonce_then_signs_and_completes_a_missing_gas_sign
         Some(sol::format_pubkey(&NONCE_ACCOUNT))
     );
     assert_eq!(solana.nonce_value, Some(sol::format_pubkey(&NONCE_VALUE)));
+    assert_eq!(
+        solana.withdraws,
+        vec![StreamWithdraw {
+            position_id: U64(0),
+            amount: U128(300)
+        }],
+        "the payout withdraws exactly what it transfers"
+    );
+    assert_eq!(withdraw_amounts(&solana.message), vec![300]);
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        300
+    );
     let message = hex::decode(&solana.message).unwrap();
     let keys = usize::from(message[3]);
     assert_eq!(
@@ -1217,6 +1551,10 @@ fn claim_sol_tokens_proves_the_nonce_then_signs_and_completes_a_missing_gas_sign
         &NONCE_VALUE,
         "durable nonce as blockhash"
     );
+    env(&accounts(1), one_yocto(), ts(4_001));
+    panics_with("custody actions in flight", || {
+        contract.storage_withdraw(None)
+    });
 
     let hash = sol_hash(
         &anchor(),
@@ -1247,6 +1585,10 @@ fn claim_sol_tokens_proves_the_nonce_then_signs_and_completes_a_missing_gas_sign
         contract.get_claimable(accounts(1), class.clone()).0,
         0,
         "never refunded"
+    );
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        300
     );
 
     env_at(&accounts(5), ts(4_020));
@@ -1290,6 +1632,10 @@ fn solana_payout_refunds_on_nonce_mismatch_and_on_a_missing_authority_signature(
             nonce_proof(vault),
         )
         .detach();
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        300
+    );
     env_with_results(ts(4_007), vec![foreign_response([1u8; 32])]);
     assert!(matches!(
         contract.on_sol_nonce_verified(U64(0), hex::encode([2u8; 32]), nonce_key()),
@@ -1297,6 +1643,11 @@ fn solana_payout_refunds_on_nonce_mismatch_and_on_a_missing_authority_signature(
     ));
     assert_eq!(contract.get_replay(nonce_key()), None);
     assert_eq!(contract.get_claimable(accounts(1), class.clone()).0, 300);
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        0,
+        "the withdraw accounting is reverted with the debit"
+    );
     assert!(matches!(
         contract.get_payout(U64(0)).unwrap().status,
         PayoutStatus::Failed { .. }
@@ -1328,6 +1679,7 @@ fn solana_payout_refunds_on_nonce_mismatch_and_on_a_missing_authority_signature(
     );
     assert!(!contract.on_sol_signed(U64(1)));
     assert_eq!(contract.get_claimable(accounts(1), class.clone()).0, 300);
+    assert_eq!(contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn, 0);
     assert_eq!(
         contract.get_replay(nonce_key()),
         None,
@@ -1336,64 +1688,204 @@ fn solana_payout_refunds_on_nonce_mismatch_and_on_a_missing_authority_signature(
 }
 
 #[test]
-fn solana_redeem_requires_the_withdrawn_stream_and_burns_the_allocation() {
+fn solana_payouts_draw_on_several_streams_and_never_beyond_their_unlocked_tokens() {
     let mut contract = bootstrapped();
     let (class, args) = attribute(&mut contract, &sol_spec(DEPOSIT_KEY));
+    register_stream(&mut contract, STREAM, &args, 0, ts(500));
+    let (_, args2) = attribute_stream(&mut contract, STREAM_2, &sol_spec(DEPOSIT_KEY));
+    register_stream(&mut contract, STREAM_2, &args2, 150, ts(4_000));
     let vault = sol::parse_pubkey(VAULT_SOL).unwrap();
-    let at_vault = sol_spec(vault);
-    let deposit = NearToken::from_yoctonear(
-        contract
-            .registration_deposit_for(accounts(1), class.clone())
-            .0,
+    env_at(&accounts(1), ts(6_000));
+    assert_eq!(
+        contract.get_claimable(accounts(1), class.clone()).0,
+        500 + 350,
+        "stream 1 accrued from f = 0, stream 2 from the withdrawn fraction 0.15"
     );
-    env(&accounts(5), deposit, ts(500));
+    payout_env(&accounts(1), ts(6_000));
     contract
-        .register_sol_deposit(
-            args.metadata.clone(),
-            anchor(),
-            hex::encode(stream_bytes(&at_vault)),
+        .claim_sol_tokens(
+            ClaimSourceArgs::Holding {
+                class_id: class.clone(),
+            },
+            U128(600),
+            sol::format_pubkey(&RETURN_TO),
+            nonce_proof(vault),
         )
         .detach();
+    let solana = contract.get_payout(U64(0)).unwrap().solana.unwrap();
+    assert_eq!(
+        solana.withdraws,
+        vec![
+            StreamWithdraw {
+                position_id: U64(0),
+                amount: U128(500)
+            },
+            StreamWithdraw {
+                position_id: U64(1),
+                amount: U128(100)
+            },
+        ]
+    );
+    assert_eq!(withdraw_amounts(&solana.message), vec![500, 100]);
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        500
+    );
+    assert_eq!(
+        contract.get_sol_stream(U64(1)).unwrap().engine_withdrawn,
+        250
+    );
+    assert_eq!(contract.get_claimable(accounts(1), class.clone()).0, 250);
+
+    // A stream a payout is drawing on cannot be redeemed before that payout resolves: a failed
+    // payout would otherwise give back withdraw accounting on a stream gone from the vault.
+    let redeem_nonce = SolNonceProof {
+        account: sol::format_pubkey(&[20u8; 32]),
+        anchor_tx: anchor(),
+        data: hex::encode(nonce_bytes(vault, [21u8; 32])),
+    };
+    payout_env(&accounts(1), ts(6_001));
+    panics_with("awaiting its signature", || {
+        contract.redeem(
+            U64(1),
+            sol::format_pubkey(&RETURN_TO),
+            Some(redeem_nonce.clone()),
+        )
+    });
     let hash = sol_hash(
         &anchor(),
         vec![(
-            STREAM,
-            sol_account(streamflow_program(), stream_bytes(&at_vault)),
+            NONCE_ACCOUNT,
+            sol_account(SYSTEM_PROGRAM, nonce_bytes(vault, NONCE_VALUE)),
         )],
     );
-    env_with_results(ts(507), vec![foreign_response(hash)]);
-    assert!(contract.on_sol_deposit_verified(
-        stream_key(),
-        hex::encode(hash),
-        hex::encode(stream_bytes(&at_vault)),
-        accounts(5),
-        U128(deposit.as_yoctonear()),
-    ));
+    env_with_results(ts(6_001), vec![foreign_response(hash)]);
+    drop(contract.on_sol_nonce_verified(U64(0), hex::encode(hash), nonce_key()));
+    env_with_results(
+        ts(6_001),
+        vec![
+            json(&ed25519_signature(0xaa)),
+            json(&ed25519_signature(0xbb)),
+        ],
+    );
+    assert!(contract.on_sol_signed(U64(0)));
 
-    payout_env(&accounts(1), ts(4_000));
-    panics_with("Withdraw the stream", || {
-        contract.redeem(
-            U64(0),
+    // A stream whose release is in flight is not drawn on: the claim names what fits.
+    payout_env(&accounts(1), ts(6_001));
+    contract
+        .redeem(U64(1), sol::format_pubkey(&RETURN_TO), Some(redeem_nonce))
+        .detach();
+    assert_eq!(
+        withdraw_amounts(&contract.get_payout(U64(1)).unwrap().solana.unwrap().message),
+        vec![250],
+        "the release withdraws stream 2's unlocked remainder (500 unlocked, 250 withdrawn)"
+    );
+    env_at(&accounts(1), ts(6_002));
+    assert_eq!(contract.get_claimable(accounts(1), class.clone()).0, 250);
+    payout_env(&accounts(1), ts(6_002));
+    panics_with("Only 0 tokens can be paid in one payout now", || {
+        contract.claim_sol_tokens(
+            ClaimSourceArgs::Holding {
+                class_id: class.clone(),
+            },
+            U128(250),
             sol::format_pubkey(&RETURN_TO),
-            Some(nonce_proof(vault)),
-            Some(hex::encode(stream_bytes(&at_vault))),
+            SolNonceProof {
+                account: sol::format_pubkey(&[22u8; 32]),
+                anchor_tx: anchor(),
+                data: hex::encode(nonce_bytes(vault, [23u8; 32])),
+            },
         )
     });
-    let withdrawn = StreamSpec {
-        amount_withdrawn: 300,
-        ..sol_spec(vault)
-    };
+    assert_eq!(
+        contract.get_claimable(accounts(1), class.clone()).0,
+        250,
+        "a refused claim debits nothing"
+    );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
+    /// However payouts are sequenced, the engine never withdraws more from a stream than it
+    /// has unlocked at the time of the request.
+    #[test]
+    fn solana_withdraw_accounting_never_exceeds_the_unlocked_amount(
+        withdrawn in 0u64..=300,
+        claims in proptest::collection::vec((1u64..600, 1u64..1_200), 1..8),
+    ) {
+        let mut contract = bootstrapped();
+        let (class, args) = attribute(&mut contract, &sol_spec(DEPOSIT_KEY));
+        register_stream(&mut contract, STREAM, &args, withdrawn, ts(4_000));
+        let (_, args2) = attribute_stream(&mut contract, STREAM_2, &sol_spec(DEPOSIT_KEY));
+        register_stream(&mut contract, STREAM_2, &args2, 0, ts(4_000));
+        let vault = sol::parse_pubkey(VAULT_SOL).unwrap();
+        let mut at = 4_000;
+        let mut requested = 0;
+        for (amount, delay) in claims {
+            at += delay;
+            payout_env(&accounts(1), ts(at));
+            let claimable = contract.get_claimable(accounts(1), class.clone()).0;
+            let amount = u128::from(amount).min(claimable);
+            if amount == 0 {
+                continue;
+            }
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                contract
+                    .claim_sol_tokens(
+                        ClaimSourceArgs::Holding { class_id: class.clone() },
+                        U128(amount),
+                        sol::format_pubkey(&RETURN_TO),
+                        SolNonceProof {
+                            account: sol::format_pubkey(&[requested as u8; 32]),
+                            anchor_tx: anchor(),
+                            data: hex::encode(nonce_bytes(vault, [requested as u8; 32])),
+                        },
+                    )
+                    .detach();
+            }));
+            requested += 1;
+            let now = at;
+            for position_id in 0..2 {
+                let stream = contract.get_sol_stream(U64(position_id)).unwrap();
+                let unlocked = crate::unlock::StreamflowStream::new(stream.params())
+                    .unwrap()
+                    .unlocked_amount(now);
+                prop_assert!(u128::from(stream.engine_withdrawn) <= unlocked,
+                    "stream {position_id}: withdrawn {} > unlocked {unlocked}", stream.engine_withdrawn);
+            }
+            if result.is_err() {
+                prop_assert_eq!(contract.get_claimable(accounts(1), class.clone()).0, claimable,
+                    "a refused claim changes nothing");
+            }
+        }
+    }
+}
+
+#[test]
+fn solana_redeem_withdraws_the_unlocked_remainder_into_the_pool_and_burns_the_allocation() {
+    let mut contract = bootstrapped();
+    let (class, args) = attribute(&mut contract, &sol_spec(DEPOSIT_KEY));
+    register_stream(&mut contract, STREAM, &args, 0, ts(500));
+    let vault = sol::parse_pubkey(VAULT_SOL).unwrap();
+
+    payout_env(&accounts(1), ts(4_000));
+    panics_with("nonce account proof is required", || {
+        contract.redeem(U64(0), sol::format_pubkey(&RETURN_TO), None)
+    });
     payout_env(&accounts(1), ts(4_000));
     contract
         .redeem(
             U64(0),
             sol::format_pubkey(&RETURN_TO),
             Some(nonce_proof(vault)),
-            Some(hex::encode(stream_bytes(&withdrawn))),
         )
         .detach();
     assert_eq!(contract.mt_balance_of(accounts(1), class.clone()).0, 0);
-    assert_eq!(contract.get_claimable(accounts(1), class.clone()).0, 300);
+    assert_eq!(
+        contract.get_claimable(accounts(1), class.clone()).0,
+        300,
+        "the accrued claimable stays with the redeemer"
+    );
     let payout = contract.get_payout(U64(0)).unwrap();
     assert_eq!(
         payout.kind,
@@ -1402,18 +1894,23 @@ fn solana_redeem_requires_the_withdrawn_stream_and_burns_the_allocation() {
             to_owner: sol::format_pubkey(&RETURN_TO)
         }
     );
+    let solana = payout.solana.unwrap();
+    assert_eq!(
+        withdraw_amounts(&solana.message),
+        vec![300],
+        "the unlocked, not yet withdrawn 300 go to the vault before the release"
+    );
+    assert_eq!(solana.pool_credit, U128(300));
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        300
+    );
     let hash = sol_hash(
         &anchor(),
-        vec![
-            (
-                NONCE_ACCOUNT,
-                sol_account(SYSTEM_PROGRAM, nonce_bytes(vault, NONCE_VALUE)),
-            ),
-            (
-                STREAM,
-                sol_account(streamflow_program(), stream_bytes(&withdrawn)),
-            ),
-        ],
+        vec![(
+            NONCE_ACCOUNT,
+            sol_account(SYSTEM_PROGRAM, nonce_bytes(vault, NONCE_VALUE)),
+        )],
     );
     env_with_results(ts(4_007), vec![foreign_response(hash)]);
     drop(contract.on_sol_nonce_verified(U64(0), hex::encode(hash), nonce_key()));
@@ -1424,12 +1921,55 @@ fn solana_redeem_requires_the_withdrawn_stream_and_burns_the_allocation() {
             json(&ed25519_signature(0xbb)),
         ],
     );
+    assert_eq!(contract.get_vault_pool(sol::format_pubkey(&MINT)), U128(0));
     assert!(contract.on_sol_signed(U64(0)));
     assert_eq!(
         contract.get_position(U64(0)).unwrap().position.state,
         PositionState::Released
     );
-    assert_eq!(contract.mt_supply(class).unwrap().0, 0);
+    assert_eq!(contract.mt_supply(class.clone()).unwrap().0, 0);
+    assert_eq!(
+        contract.get_vault_pool(sol::format_pubkey(&MINT)),
+        U128(300),
+        "the signed release feeds the pool"
+    );
+
+    // The redeemer's claimable is paid from the pool the redeem fed, without any withdraw.
+    payout_env(&accounts(1), ts(4_100));
+    contract
+        .claim_sol_tokens(
+            ClaimSourceArgs::Holding {
+                class_id: class.clone(),
+            },
+            U128(300),
+            sol::format_pubkey(&RETURN_TO),
+            SolNonceProof {
+                account: sol::format_pubkey(&[14u8; 32]),
+                anchor_tx: anchor(),
+                data: hex::encode(nonce_bytes(vault, [15u8; 32])),
+            },
+        )
+        .detach();
+    let solana = contract.get_payout(U64(1)).unwrap().solana.unwrap();
+    assert!(solana.withdraws.is_empty());
+    assert_eq!(solana.pool_used, U128(300));
+    assert!(withdraw_amounts(&solana.message).is_empty());
+    assert_eq!(contract.get_vault_pool(sol::format_pubkey(&MINT)), U128(0));
+    env_with_results(ts(4_107), vec![foreign_response([9u8; 32])]);
+    drop(contract.on_sol_nonce_verified(
+        U64(1),
+        hex::encode([8u8; 32]),
+        ReplayKey::SolNonce {
+            account: sol::format_pubkey(&[14u8; 32]),
+            value: sol::format_pubkey(&[15u8; 32]),
+        },
+    ));
+    assert_eq!(
+        contract.get_vault_pool(sol::format_pubkey(&MINT)),
+        U128(300),
+        "a failed payout gives the pool back"
+    );
+    assert_eq!(contract.get_claimable(accounts(1), class).0, 300);
 }
 
 proptest! {

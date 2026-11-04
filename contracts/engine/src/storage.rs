@@ -97,17 +97,22 @@ impl Contract {
     }
 
     /// NEP-145: withdraws `amount` (default: everything available) of the caller's unused
-    /// storage deposit. Requires exactly 1 yoctoNEAR.
+    /// storage deposit; the registration minimum always stays (see `storage_balance_of`).
+    /// Requires exactly 1 yoctoNEAR.
     #[payable]
     pub fn storage_withdraw(&mut self, amount: Option<U128>) -> StorageBalance {
         assert_one_yocto();
         let account = env::predecessor_account_id();
+        require!(
+            !self.has_obligations(&account),
+            "Storage cannot be withdrawn while the account has live bids, locked units, liens or custody actions in flight"
+        );
         let mut record = self
             .storage_accounts
             .get(&account)
             .copied()
             .unwrap_or_else(|| env::panic_str("Account is not registered"));
-        let available = available_of(&record);
+        let available = available_of(&record, self.min_storage_deposit());
         let amount = amount.map_or(available, |a| a.0);
         require!(
             amount <= available,
@@ -137,6 +142,10 @@ impl Contract {
         let Some(record) = self.storage_accounts.get(&account).copied() else {
             return false;
         };
+        require!(
+            !self.has_obligations(&account),
+            "Storage cannot be withdrawn while the account has live bids, locked units, liens or custody actions in flight"
+        );
         require!(
             record.used_bytes <= STORAGE_ACCOUNT_BYTES,
             if force.unwrap_or(false) {
@@ -168,11 +177,12 @@ impl Contract {
 
     /// NEP-145 balance of `account_id`, or `None` when not registered.
     pub fn storage_balance_of(&self, account_id: AccountId) -> Option<StorageBalance> {
+        let min = self.min_storage_deposit();
         self.storage_accounts
             .get(&account_id)
             .map(|record| StorageBalance {
                 total: U128(record.deposit),
-                available: U128(available_of(record)),
+                available: U128(available_of(record, min)),
             })
     }
 }
@@ -192,8 +202,32 @@ impl Contract {
             attached >= min,
             format!("Attach the storage deposit for {account}: {min} yoctoNEAR")
         );
-        self.register(account, min);
-        attached - min
+        self.register_with_budget(account, attached)
+    }
+
+    /// `ensure_registered` for callbacks: registers an unregistered account with whatever
+    /// `attached` covers of the minimum (the engine pays the rest) and returns the remainder.
+    pub fn register_with_budget(&mut self, account: &AccountId, attached: u128) -> u128 {
+        if self.storage_accounts.contains_key(account) {
+            return attached;
+        }
+        let deposit = self.min_storage_deposit().min(attached);
+        self.register(account, deposit);
+        attached - deposit
+    }
+
+    /// True while the engine may still have to credit `account`: live bids or asks, units
+    /// locked in an Advance, liens held or funded, payouts or deposit registrations in flight.
+    /// While it is true the account's storage deposit cannot leave the engine, so an owed
+    /// credit never lands on an unfunded account.
+    pub(crate) fn has_obligations(&self, account: &AccountId) -> bool {
+        let indexed = self.account_index.get(account).is_some_and(|index| {
+            !(index.bids.is_empty()
+                && index.advances.is_empty()
+                && index.liens_held.is_empty()
+                && index.lien_shares.is_empty())
+        });
+        indexed || self.has_pending_custody(account)
     }
 
     /// True when `account` has a storage account.
@@ -206,11 +240,19 @@ impl Contract {
         bytes_cost(STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES)
     }
 
-    /// Charges `bytes` to `account`'s storage usage (a new holding row).
+    /// Charges `bytes` to `account`'s storage usage (a new holding row). An owed credit can land
+    /// on an account that is not registered (it unregistered meanwhile, or never registered):
+    /// the account is then registered with a zero deposit, the engine paying its bytes, so its
+    /// rows stay accounted for and `storage_unregister` keeps refusing while it holds them.
     pub(crate) fn charge_storage(&mut self, account: &AccountId, bytes: u64) {
-        if let Some(record) = self.storage_accounts.get_mut(account) {
-            record.used_bytes = record.used_bytes.saturating_add(bytes);
+        if !self.storage_accounts.contains_key(account) {
+            self.register(account, 0);
         }
+        let record = self
+            .storage_accounts
+            .get_mut(account)
+            .expect("registered above");
+        record.used_bytes = record.used_bytes.saturating_add(bytes);
     }
 
     /// Releases `bytes` from `account`'s storage usage (a removed holding row).
@@ -277,6 +319,11 @@ pub(crate) fn bytes_cost(bytes: u64) -> u128 {
         .saturating_mul(u128::from(bytes))
 }
 
-fn available_of(record: &StorageAccount) -> u128 {
-    record.deposit.saturating_sub(bytes_cost(record.used_bytes))
+/// Withdrawable part of a deposit: what exceeds both the bytes in use and the registration
+/// minimum, so a registered account always keeps the deposit `storage_balance_bounds().min`
+/// promises (room for its record and one holding row) unless it unregisters.
+fn available_of(record: &StorageAccount, min: u128) -> u128 {
+    record
+        .deposit
+        .saturating_sub(bytes_cost(record.used_bytes).max(min))
 }

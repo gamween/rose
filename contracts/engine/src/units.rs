@@ -208,7 +208,7 @@ impl Contract {
                     .balance;
                 let refund = refund.min(receiver_balance);
                 if refund > 0 {
-                    self.move_units(&receiver_id, sender, token_id, refund, f_now);
+                    self.return_units(&receiver_id, sender, token_id, refund, f_now);
                     log_mt(
                         "mt_transfer",
                         &[MtTransferLog {
@@ -391,8 +391,11 @@ impl Contract {
         self.require_storage_capacity(account, self.row_bytes_needed(account, class_id));
     }
 
-    /// Adds `units` to a holding, accruing from `f_from` (`<= f_now`). An account must be
-    /// registered with a deposit covering its rows (checked before the change).
+    /// Adds `units` to a holding, accruing from `f_from` (`<= f_now`). Never checks the NEP-145
+    /// capacity: every caller either checked it first (a voluntary receipt: `mint_units`,
+    /// `move_units`, `distribute_units`) or credits what the engine owes the account (returned
+    /// or settled units, lien releases, refunds), which must never fail because the account
+    /// withdrew its storage deposit; a missing row is then paid by the engine.
     pub(crate) fn credit_holding(
         &mut self,
         holder: &Holder,
@@ -401,9 +404,6 @@ impl Contract {
         f_now: u128,
         f_from: u128,
     ) {
-        if let Holder::Account(account) = holder {
-            self.check_row_capacity(account, class_id);
-        }
         let mut holding = self.holding(holder, class_id);
         holding
             .credit_since(f_now, units, f_from)
@@ -446,13 +446,11 @@ impl Contract {
         self.put_holding(holder, class_id, holding);
     }
 
-    /// Adds already unlocked tokens to a holding's claimable balance.
+    /// Adds already unlocked tokens to a holding's claimable balance (always owed by the engine:
+    /// no capacity check, see `credit_holding`).
     pub(crate) fn add_claimable(&mut self, holder: &Holder, class_id: &ClassId, tokens: u128) {
         if tokens == 0 {
             return;
-        }
-        if let Holder::Account(account) = holder {
-            self.check_row_capacity(account, class_id);
         }
         let mut holding = self.holding(holder, class_id);
         holding
@@ -473,10 +471,22 @@ impl Contract {
         units: u128,
         f_from: u128,
     ) {
+        self.check_row_capacity(account, class_id);
+        self.mint_units_owed(class_id, account, units, f_from);
+    }
+
+    /// `mint_units` without the capacity check: for units the engine owes back (a redeem whose
+    /// release produced no signature).
+    pub fn mint_units_owed(
+        &mut self,
+        class_id: &ClassId,
+        account: &AccountId,
+        units: u128,
+        f_from: u128,
+    ) {
         require!(units > 0, "Cannot mint zero units");
         let f_now = self.fraction_now(class_id);
         require!(f_from <= f_now, "Mint checkpoint is in the future");
-        self.check_row_capacity(account, class_id);
         let class = self.classes.get_mut(class_id).expect("class exists");
         class.total_units = class
             .total_units
@@ -530,6 +540,7 @@ impl Contract {
         });
     }
 
+    /// A voluntary transfer: the receiver must have the capacity for the row.
     fn move_units(
         &mut self,
         from: &AccountId,
@@ -539,6 +550,19 @@ impl Contract {
         f_now: u128,
     ) {
         self.check_row_capacity(to, class_id);
+        self.return_units(from, to, class_id, units, f_now);
+    }
+
+    /// Units going back to an account the engine owes them to (a `mt_transfer_call` refund):
+    /// no capacity check, see `credit_holding`.
+    fn return_units(
+        &mut self,
+        from: &AccountId,
+        to: &AccountId,
+        class_id: &ClassId,
+        units: u128,
+        f_now: u128,
+    ) {
         self.debit_holding(&Holder::Account(from.clone()), class_id, units, f_now);
         self.credit_holding(&Holder::Account(to.clone()), class_id, units, f_now, f_now);
     }

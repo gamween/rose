@@ -221,10 +221,16 @@ pub enum PayoutKind {
         to_owner: String,
         amount: U128,
     },
-    /// Streamflow `transfer_recipient` of a stream held by the vault to `to_owner`.
+    /// Streamflow `transfer_recipient` of a stream held by the vault to `to_owner`, after the
+    /// withdrawal of its unlocked, not yet withdrawn tokens into the vault's token account.
     SolRelease { metadata: String, to_owner: String },
-    /// Streamflow `withdraw` of everything unlocked into the vault's token account.
-    SolWithdraw { metadata: String },
+    /// Streamflow `transfer_recipient` of an attributed stream from its deposit address to the
+    /// vault (spec 7.2 step 2).
+    SolMove {
+        metadata: String,
+        from: String,
+        to_owner: String,
+    },
     /// Streamflow `transfer_recipient` of a refused stream from where it sits to its return
     /// address.
     SolReturn {
@@ -285,6 +291,15 @@ pub struct BaseSignature {
     pub v: u8,
 }
 
+/// A Streamflow `withdraw` the engine put inside a payout transaction, counted in the stream's
+/// `engine_withdrawn` the moment the payout is requested.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StreamWithdraw {
+    pub position_id: U64,
+    pub amount: U128,
+}
+
 /// A Solana legacy transaction the engine built, with its signatures as they arrive. Everything
 /// is hex.
 #[near(serializers = [borsh, json])]
@@ -292,6 +307,13 @@ pub struct BaseSignature {
 pub struct SolTransaction {
     /// The compiled message every signer signs.
     pub message: String,
+    /// Streamflow withdrawals inside the message, feeding the vault's token account with exactly
+    /// what the message pays out of it.
+    pub withdraws: Vec<StreamWithdraw>,
+    /// Tokens paid out of the vault's tracked pool (withdrawn earlier by in-kind redeems).
+    pub pool_used: U128,
+    /// Tokens an in-kind redeem withdraws into the vault's pool before releasing the stream.
+    pub pool_credit: U128,
     /// Nonce account and value when the message uses a durable nonce (`None` with a recent
     /// blockhash).
     pub nonce_account: Option<String>,
@@ -317,6 +339,9 @@ pub struct Payout {
     pub debit: PayoutDebit,
     /// Account that requested the action.
     pub requester: AccountId,
+    /// Block height of the request (a Base authorization still `Requested` this many blocks
+    /// later may be re-requested, see `retry_base_signature`).
+    pub requested_block: U64,
     /// Position released or withdrawn, when the action concerns one.
     pub position_id: Option<U64>,
     pub status: PayoutStatus,
@@ -406,6 +431,11 @@ pub struct SolStreamInfo {
     pub amount_per_period: u64,
     pub net_amount_deposited: u64,
     pub end_time: u64,
+    /// Tokens withdrawn from the stream's escrow so far: the attested `amount_withdrawn` at
+    /// registration plus every withdrawal the engine signed since. Only the engine withdraws
+    /// vault streams (automatic withdrawal is refused at deposit), so this is exact once the
+    /// signed transactions are broadcast.
+    pub engine_withdrawn: u64,
 }
 
 impl SolStreamInfo {
