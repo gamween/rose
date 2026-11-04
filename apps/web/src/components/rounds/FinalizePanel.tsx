@@ -36,6 +36,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
   const toast = useToast();
   const [steps, setSteps] = useState<Map<number, Step>>(() => new Map());
   const [running, setRunning] = useState(false);
+  const [pausing, setPausing] = useState(false);
   const [keyState, setKeyState] = useState<"unchecked" | "valid" | "invalid" | "error">("unchecked");
   const stopRef = useRef(false);
   const latestBids = useRef<Bid[]>(bids);
@@ -66,6 +67,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
   const runAll = useCallback(async () => {
     if (!key || running) return;
     stopRef.current = false;
+    setPausing(false);
     setRunning(true);
     const queue = latestBids.current.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex);
     setSteps(new Map(queue.map((bid) => [bid.bidId, { status: "queued" as const }])));
@@ -104,6 +106,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
       }
     }
     setRunning(false);
+    setPausing(false);
     onChanged();
     if (opened > 0) toast.show({ tone: "success", title: `${String(opened)} ${opened === 1 ? "order" : "orders"} opened on chain`, description: "The book is public; the Verify panel can recompute the result once the window ends." });
   }, [config.ckd_public_key, engine, key, onChanged, round.roundId, running, sendNearCall, setStep, toast]);
@@ -144,28 +147,33 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
                 : "nothing left to open"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {running ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                stopRef.current = true;
-              }}
-            >
-              Pause after this order
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => void runAll()} disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
-              {steps.size > 0 ? "Resume" : "Open every order"}
-            </Button>
-          )}
-        </div>
+        {/* The run button keeps its place and turns into a disabled progress label while the run
+            goes, so a second click (or the click that follows Finalize's auto-start) lands on
+            nothing; pausing is a separate control under the progress bar. */}
+        <Button size="sm" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
+          {steps.size > 0 ? "Resume" : "Open every order"}
+        </Button>
       </div>
       <div className="px-4 py-3">
         <div className="mb-3 h-1.5 w-full overflow-hidden rounded-sm bg-ink-800" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Orders opened">
           <div className="h-full bg-ember-500 transition-[width] duration-500" style={{ width: `${String(total === 0 ? 0 : Math.round((done / total) * 100))}%` }} />
         </div>
+        {running ? (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px] text-ink-300" data-finalize-pause>
+            <span>{pausing ? "The run stops once the order in flight lands." : "Each order is one NEAR transaction; you can stop between two of them."}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pausing}
+              onClick={() => {
+                stopRef.current = true;
+                setPausing(true);
+              }}
+            >
+              {pausing ? "Pausing…" : "Pause after this order"}
+            </Button>
+          </div>
+        ) : null}
         {keyState === "invalid" ? <Notice tone="danger">The stored key does not verify against the CKD public key in this browser. Do not open anything; this should be impossible since the contract verified it with a pairing check.</Notice> : null}
         {keyState === "error" ? <Notice tone="warning">The IBE module could not load in this browser, so orders cannot be decrypted here. Reload the page or use another browser.</Notice> : null}
         {keyState === "valid" ? <p className="mb-2 text-[11px] text-success-400">Round key verified in the browser against the CKD public key.</p> : null}

@@ -168,6 +168,8 @@ test.describe("rounds with a mocked engine", () => {
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("[data-key-release]")).toContainText(ROUNDS_MOCK.round1Key);
     await page.locator("[data-action='finalize']").click();
+    // A second click where "Open every order" sat lands on the disabled run button, never on a pause.
+    await page.locator("[data-finalize-run]").click({ force: true });
     await expect(page.locator("[data-open-status='opened']")).toHaveCount(3, { timeout: 60_000 });
     await expect(page.locator("[data-next-action='clear']")).toBeVisible({ timeout: 30_000 });
     await page.locator("[data-action='clear']").click();
