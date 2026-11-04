@@ -1,21 +1,20 @@
 "use client";
 
-import { approveToken, decodeCashDeposited, depositCash, erc20Abi, waitForSafeHead, type Cash, type CashDepositedLog } from "@rose/sdk";
+import type { Cash } from "@rose/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { FlowSteps } from "@/components/ui/FlowSteps";
 import { Input, NumberInput } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatUsdc, parseAmount, venueLabel } from "@/lib/amounts";
-import { deployedAddress, NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
+import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { RoseActionError } from "@/lib/errors";
-import { txLinks } from "@/lib/explorer";
 import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
-import { useAction, useFlow } from "@/lib/use-action";
-import { registerCashLog } from "./base-registration";
-import { ActionFeedback, FieldLabel, Hint, Preview, useVenueOptions, type IssuerBase, baseClient } from "./shared";
+import { useAction } from "@/lib/use-action";
+import { BaseCashFunding } from "./BaseCashFunding";
+import { isNearAccountId } from "./dao-accounts";
+import { ActionFeedback, FieldLabel, Hint, Preview, useVenueOptions, type IssuerBase } from "./shared";
 
 const USDC = 6;
 
@@ -23,33 +22,37 @@ const USDC = 6;
 export function FundTab({ base }: { base: IssuerBase }) {
   const wallets = useWallets();
   const venues = useVenueOptions(base);
-  const vault = deployedAddress("roseVault");
   const [venueId, setVenueId] = useState(venues[0]?.id ?? "near");
   const [amount, setAmount] = useState("1000");
-  const [roundId, setRoundId] = useState("0");
+  const [roundId, setRoundId] = useState("");
+  /* Empty means the connected NEAR account; a DAO or any other account can be credited on Base. */
+  const [creditInput, setCreditInput] = useState("");
   const [cash, setCash] = useState<Cash[] | null>(null);
+  const [baseRuns, setBaseRuns] = useState(0);
   const near = useAction();
-  const flow = useFlow();
   const storageNeed = useNearCashStorageNeed(base.engine, wallets.near.accountId, near.state.status);
   const option = venues.find((item) => item.id === venueId) ?? venues[0]!;
   const amountUnits = parseAmount(amount, USDC);
 
+  const creditTo = option.venue === "Near" ? (wallets.near.accountId ?? "") : creditInput.trim() || (wallets.near.accountId ?? "");
+  const creditValid = creditTo === "" || isNearAccountId(creditTo);
+
   const refreshCash = useCallback(async () => {
-    if (!wallets.near.accountId) {
+    if (!creditTo || !isNearAccountId(creditTo)) {
       setCash(null);
       return;
     }
     try {
-      setCash(await base.engine.views.getCash(wallets.near.accountId));
+      setCash(await base.engine.views.getCash(creditTo));
     } catch {
       setCash(null);
     }
-  }, [base.engine, wallets.near.accountId]);
+  }, [base.engine, creditTo]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshCash(), 0);
     return () => window.clearTimeout(timer);
-  }, [refreshCash, near.state.status, flow.completed]);
+  }, [refreshCash, near.state.status, baseRuns]);
 
   const fundNear = () =>
     near.run("Depositing tUSDC into the engine", async () => {
@@ -61,61 +64,6 @@ export function FundTab({ base }: { base: IssuerBase }) {
       const result = await depositNearCash({ send: wallets.sendNearCall, engine: base.engine, token: NEAR_TUSDC_ACCOUNT, account, amount: amountUnits });
       return { message: `${formatUsdc(amountUnits)} tUSDC credited to your NEAR cash`, links: result.links };
     });
-
-  const fundBase = async () => {
-    if (option.venue === "Near" || !vault || amountUnits === null || amountUnits <= 0n || !wallets.evm.address) return;
-    const token = option.venue.Base.token as `0x${string}`;
-    const client = baseClient();
-    const nearAccount = wallets.near.accountId ?? "";
-    let log: CashDepositedLog | null = null;
-    await flow.start([
-      {
-        id: "approve",
-        label: `Approve RoseVault for ${formatUsdc(amountUnits)} ${venueLabel(option.venue, base.symbols).replace(/^Base /, "")}`,
-        run: async () => {
-          const [balance, allowance] = await Promise.all([client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [wallets.evm.address!] }), client.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [wallets.evm.address!, vault] })]);
-          if (balance < amountUnits) throw new RoseActionError("insufficient_balance", "Not enough tokens on Base", `Your Base wallet holds ${formatUsdc(balance)}. Mint tUSDC from "Get test funds".`);
-          if (allowance >= amountUnits) return { message: "Allowance already sufficient" };
-          const wallet = await wallets.getEvmWalletClient();
-          const hash = await approveToken(wallet, token, vault, amountUnits);
-          await client.waitForTransactionReceipt({ hash });
-          return { message: "Approved", links: txLinks("base", hash) };
-        },
-      },
-      {
-        id: "deposit",
-        label: `depositCash(${formatUsdc(amountUnits)}, ${nearAccount}, round ${roundId || "0"})`,
-        run: async ({ setDetail }) => {
-          const wallet = await wallets.getEvmWalletClient();
-          const hash = await depositCash(wallet, { vault, token, amount: amountUnits, nearAccount, roundId: BigInt(roundId || "0") });
-          setDetail("Waiting for the receipt…");
-          const receipt = await client.waitForTransactionReceipt({ hash });
-          log = decodeCashDeposited(receipt)[0] ?? null;
-          if (!log) throw new RoseActionError("contract", "No CashDeposited log", "RoseVault did not emit CashDeposited.");
-          return { message: `CashDeposited in block ${receipt.blockNumber.toString()}`, links: txLinks("base", hash) };
-        },
-      },
-      {
-        id: "finality",
-        label: "Base finality: ~3 min (safe head plus a 30 s margin)",
-        run: async ({ setDetail, signal }) => {
-          await waitForSafeHead(client, log!.blockNumber, { signal, onProgress: (progress) => setDetail(progress.phase === "ready" ? "Safe." : progress.phase === "margin" ? "Safe head passed; 30 s margin…" : `Safe head ${progress.safeHead.toString()} / target ${progress.target.toString()}…`) });
-          return { message: "Base finality reached" };
-        },
-      },
-      {
-        id: "register",
-        label: "register_base_cash on the engine (MPC verification, ~7 s)",
-        run: async ({ signal, setDetail }) => {
-          const result = await registerCashLog(base.engine, wallets.sendNearCall, log!, { signal, onDetail: setDetail });
-          if (result.outcome.outcome === "refused") throw new RoseActionError("contract", "Deposit refused", result.outcome.refused.reason);
-          return { message: `${formatUsdc(amountUnits)} credited to your Base cash`, links: result.txHash ? txLinks("near", result.txHash) : [] };
-        },
-      },
-    ]);
-  };
-
-  const baseDisabled = option.venue === "Near" ? null : !vault ? "RoseVault is not deployed yet." : !wallets.evm.address ? "Connect a Base Sepolia wallet." : !wallets.near.accountId ? "Connect a NEAR wallet (the cash is credited to it)." : amountUnits === null || amountUnits <= 0n ? "Enter an amount." : null;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -158,18 +106,19 @@ export function FundTab({ base }: { base: IssuerBase }) {
             </>
           ) : (
             <>
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="fund-round">Round id (0 before the Tender exists)</FieldLabel>
-                <Input id="fund-round" value={roundId} onChange={(event) => setRoundId(event.target.value.replace(/\D/g, ""))} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="fund-credit">Credit the cash to (NEAR account)</FieldLabel>
+                  <Input id="fund-credit" value={creditInput} onChange={(event) => setCreditInput(event.target.value)} placeholder={wallets.near.accountId ?? "treasury.sputnik-v2.testnet"} data-fund-credit />
+                  {creditValid ? <Hint>Empty credits your connected account. A DAO that files the Tender needs the escrow in its own cash.</Hint> : <Hint tone="danger">Not a NEAR account id.</Hint>}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="fund-round">Round id label (optional)</FieldLabel>
+                  <Input id="fund-round" value={roundId} onChange={(event) => setRoundId(event.target.value.replace(/\D/g, ""))} placeholder="0" />
+                  <Hint>A note in the deposit log only; the cash is usable by any round of the account.</Hint>
+                </div>
               </div>
-              <Hint>depositCash pulls the tokens into RoseVault and emits CashDeposited; the engine credits your Base cash after a ForeignTx proof at Base safe finality.</Hint>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={() => void fundBase()} disabled={baseDisabled !== null || flow.running} loading={flow.running} loadingLabel="Running" title={baseDisabled ?? undefined} data-fund-base>
-                  Deposit on Base
-                </Button>
-                {baseDisabled ? <Hint>{baseDisabled}</Hint> : null}
-              </div>
-              <FlowSteps steps={flow.steps} onRetry={() => void flow.retry()} running={flow.running} />
+              <BaseCashFunding base={base} token={option.venue.Base.token} amount={amountUnits} creditTo={creditValid ? creditTo : ""} roundId={BigInt(roundId || "0")} onDone={() => setBaseRuns((runs) => runs + 1)} />
             </>
           )}
           <p className="text-[12px] text-ink-400">
@@ -178,10 +127,10 @@ export function FundTab({ base }: { base: IssuerBase }) {
         </CardBody>
       </Card>
       <Card>
-        <CardHeader title="Your engine cash" description={wallets.near.accountId ?? "Connect a NEAR wallet"} />
+        <CardHeader title={creditTo && creditTo !== wallets.near.accountId ? "Engine cash of the credited account" : "Your engine cash"} description={creditTo || "Connect a NEAR wallet"} />
         <CardBody>
           {cash === null ? (
-            <p className="text-[13px] text-ink-400">{wallets.near.accountId ? "Reading…" : "Cash balances are per NEAR account."}</p>
+            <p className="text-[13px] text-ink-400">{creditTo && creditValid ? "Reading…" : "Cash balances are per NEAR account."}</p>
           ) : (
             <Preview rows={venues.map((item) => ({ label: item.label, value: `${formatUsdc(cash.find((entry) => venueLabel(entry.venue, base.symbols) === item.label)?.amount ?? 0n)} USDC`, emphasis: item.id === venueId }))} />
           )}

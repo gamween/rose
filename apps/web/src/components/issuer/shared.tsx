@@ -10,10 +10,10 @@ import { baseSepoliaChain, type ClassInfo, type ConfigView, type Limits } from "
 import { createPublicClient, http, type PublicClient } from "viem";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { ConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatDate, formatFraction, secondsToMs, shortHex, venueLabel } from "@/lib/amounts";
 import { engineClient, requireEngine, type EngineClient } from "@/lib/engine-client";
@@ -249,6 +249,19 @@ export function useVenueOptions(base: IssuerBase | null): { id: string; label: s
   }, [base]);
 }
 
+/** Opens the connect modal on the NEAR tab: the issuer signs with a NEAR account. */
+function IssuerConnectButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} data-issuer-connect>
+        Connect NEAR
+      </Button>
+      <ConnectModal open={open} onClose={() => setOpen(false)} initialChain="near" />
+    </>
+  );
+}
+
 /** The shared calm states: engine not deployed, loading, read error, no NEAR wallet. */
 export function IssuerGate({ state, onRetry, children }: { state: EngineQueryState<IssuerBase>; onRetry: () => void; children: (base: IssuerBase) => ReactNode }) {
   const wallets = useWallets();
@@ -291,7 +304,7 @@ export function IssuerGate({ state, onRetry, children }: { state: EngineQuerySta
           illustration="ledger"
           title="Connect a NEAR wallet to act as the issuer"
           description="Every issuer action (registering cohort deposits, distributing units, creating and funding a Tender) is signed by your NEAR account. Previews below work without a wallet."
-          action={<Badge tone="ember">Top bar → Connect</Badge>}
+          action={<IssuerConnectButton />}
         />
         {children(state.value)}
       </div>

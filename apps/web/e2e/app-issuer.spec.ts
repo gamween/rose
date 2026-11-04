@@ -62,6 +62,7 @@ const RESULT_7 = {
 const BIDS_7 = RESULT_7.fills.map((fill) => ({ round_id: "7", bid_id: fill.bid_id, bidder: fill.bidder, side: "Sell", status: "Settled", escrow: "0", locked_units: fill.locked_units, bond: fill.bond, fee: "0", cash: fill.cash, fill_quantity: fill.fill_quantity, ciphertext_hex: null, placed_at: ns(NOW_SEC - 5 * DAY + 100), opened: fill.opened, void: null }));
 
 const TX_HASH = "7yB4Z4yHnm8hsg8sXxQ4vCxk3iCTn2MmiLpSj8YsUvQd";
+const DAO = "test.sputnikv2.testnet";
 
 function successOutcome(account: string, receiver: string, value: string) {
   const outcome = { id: "r", outcome: { logs: [], receipt_ids: [], gas_burnt: 1, tokens_burnt: "0", executor_id: receiver, status: { SuccessValue: value } } };
@@ -77,12 +78,13 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
         case "get_holding":
           return { class_id: args.class_id, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" };
         case "get_cash":
-          return [{ venue: "Near", amount: "1000000000" }];
+          return args.account_id === DAO ? [] : [{ venue: "Near", amount: "1000000000" }];
         case "storage_balance_of":
-          return { total: "0", available: "0" };
+          return args.account_id === DAO ? null : { total: "0", available: "0" };
         case "storage_balance_bounds":
           return { min: "6190000000000000000000", max: null };
         case "get_portfolio":
+          if (args.account_id === DAO) return { holdings: [], bids: [], liens_held: [], lien_shares: [], cash: [] };
           return { holdings: [{ class_id: SEED, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" }], bids: [], liens_held: [], lien_shares: [], cash: [{ venue: "Near", amount: "1000000000" }] };
         case "registration_deposit_for":
           return String(args.account).startsWith("halden") ? "0" : "3360000000000000000000";
@@ -96,6 +98,7 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
           return String(args.round_id) === "7" ? BIDS_7 : [];
         case "get_rounds": {
           const filter = args.filter as { creator?: string; kind?: string } | null;
+          if (filter?.kind === "Tender" && filter.creator === DAO) return { rounds: [{ ...ROUND_7, round_id: "8", status: "Open", creator: DAO }], next: null };
           return filter?.kind === "Tender" && filter.creator === state.account && state.account ? { rounds: [{ ...ROUND_7, creator: state.account }], next: null } : { rounds: [], next: null };
         }
         default:
@@ -108,6 +111,7 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
       }
       if (method === "query" && params.request_type === "call_function") {
         if (params.method_name === "ft_balance_of") return "5000000000";
+        if (params.method_name === "storage_balance_of") return { total: "1250000000000000000000", available: "0" };
         if (params.method_name === "get_policy") return { roles: [], default_vote_policy: { weight_kind: "RoleWeight", quorum: "0", threshold: [1, 2] }, proposal_bond: "1000000000000000000000000", proposal_period: "604800000000000", bounty_bond: "1000000000000000000000000", bounty_forgiveness_period: "86400000000000" };
         if (params.method_name === "version") return "2.0.0";
       }
@@ -226,30 +230,50 @@ test.describe("issuer console", () => {
     expect(state.sent).toHaveLength(1);
   });
 
-  test("builds the Sputnik DAO proposal with the live bond and the Trezu manifest", async ({ page }) => {
+  test("runs a Tender via a DAO: reads it, funds its engine cash and files both proposals, then lists its Tenders", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
     const state = { account: "", sent: [] as string[] };
     await mockChains(page, overrides(state));
     await openConsole(page, "#dao");
     state.account = await connectNearDemo(page);
-    await expect(page.locator("[data-dao-panel]")).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator("[data-preview]").first()).toContainText("1,000.00 USDC", { timeout: 30_000 });
+    const panel = page.locator("[data-dao-panel]");
+    await expect(panel).toBeVisible({ timeout: 30_000 });
     await page.locator("#tender-budget").fill("950");
     await page.locator("#tender-max").fill("9");
     await page.locator("#tender-retire").fill("0x000000000000000000000000000000000000dEaD");
-    await page.locator("#dao-account").fill("test.sputnikv2.testnet");
+    await page.locator("#dao-account").fill(DAO);
     await page.locator("[data-read-policy]").scrollIntoViewIfNeeded();
     await page.locator("[data-read-policy]").click();
-    await expect(page.getByText(/Proposal bond 1 NEAR/)).toBeVisible({ timeout: 30_000 });
-    const json = page.locator("[data-dao-json]");
-    await expect(json).toContainText(`"receiver_id": "${MOCK.engine}"`);
-    await expect(json).toContainText('"method_name": "create_tender"');
-    await expect(json).toContainText('"deposit": "50000000000000000000000"');
-    const trezu = page.locator("[data-trezu-json]");
-    await expect(trezu).toContainText('"version": 1');
-    await expect(trezu).toContainText('"budget": "{{budget}}"');
+    await expect(panel.getByText(/Proposal bond 1 NEAR/)).toBeVisible({ timeout: 30_000 });
+    const funding = panel.locator("[data-dao-funding]");
+    await expect(funding.locator("[data-preview]")).toContainText("952.85 USDC");
+    await expect(funding).toContainText("0.00619 NEAR is missing");
+    await expect(funding).toContainText("5,000.00 tUSDC, enough for the funding.");
+    const fundingJson = page.locator("[data-dao-json='funding']");
+    await expect(fundingJson).toContainText('"receiver_id": "tusdc.rose-app.testnet"');
+    await expect(fundingJson).toContainText('"method_name": "ft_transfer_call"');
+    await expect(fundingJson).toContainText('"deposit": "1"');
+    await panel.locator("[data-dao-storage]").click();
+    await expect(funding.locator("[data-action-success]").first()).toContainText(`NEAR of engine storage paid for ${DAO}`, { timeout: 30_000 });
+    await dismissToasts(page);
+    await page.locator("[data-file-proposal='funding']").click();
+    await expect(funding.locator("[data-action-success]").last()).toContainText(`Proposal #9 filed to ${DAO}`, { timeout: 30_000 });
+    const tenderJson = page.locator("[data-dao-json='tender']");
+    await expect(tenderJson).toContainText(`"receiver_id": "${MOCK.engine}"`);
+    await expect(tenderJson).toContainText('"method_name": "create_tender"');
+    await expect(tenderJson).toContainText('"deposit": "50000000000000000000000"');
+    await expect(page.locator("[data-trezu-json]")).toContainText('"budget": "{{budget}}"');
     await shot(page, "dao");
-    await page.locator("[data-file-proposal]").click();
-    await expect(page.locator("[data-action-success]")).toContainText("Proposal #9 filed to test.sputnikv2.testnet", { timeout: 30_000 });
+    await page.locator("[data-file-proposal='tender']").click();
+    await expect(panel.locator("[data-action-success]").last()).toContainText(`Proposal #9 filed to ${DAO}`, { timeout: 30_000 });
+    expect(state.sent).toHaveLength(3);
+    await page.getByRole("tab", { name: "Results" }).click();
+    const row = page.locator("[data-tender-row='8']");
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await expect(row).toContainText(DAO);
+    await expect(page.locator("[data-tender-row='7']")).toContainText("You");
+    expect(errors).toEqual([]);
   });
 
   test("funds the NEAR venue and lists the issuer's Tenders with their report", async ({ page }) => {
