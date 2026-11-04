@@ -135,13 +135,20 @@ export interface EventAmountFormat {
   cash: (amount: string) => string;
   /** Units of a class (and the tokens they claim). */
   units: (amount: string, classId: string) => string;
+  /** NEP-145 storage amounts (yoctoNEAR on chain); printed raw with their unit when absent. */
+  near?: (amount: string) => string;
 }
 
 const RAW_AMOUNTS: EventAmountFormat = { cash: (amount) => amount, units: (amount) => amount };
 
+function rawYocto(amount: string): string {
+  return `${amount} yoctoNEAR`;
+}
+
 /** A short, human-readable line for an engine event (activity feed and toasts). */
 export function describeRoseEvent(event: RoseEventView, format: EventAmountFormat = RAW_AMOUNTS): string {
   const { cash, units } = format;
+  const near = format.near ?? rawYocto;
   switch (event.event) {
     case "class_created": {
       const d = event.data;
@@ -209,15 +216,15 @@ export function describeRoseEvent(event: RoseEventView, format: EventAmountForma
     }
     case "storage_deposited": {
       const d = event.data;
-      return `${d.account} deposited ${d.amount} yoctoNEAR of storage`;
+      return `${d.account} deposited ${near(d.amount)} of storage`;
     }
     case "storage_withdrawn": {
       const d = event.data;
-      return `${d.account} withdrew ${d.amount} yoctoNEAR of storage`;
+      return `${d.account} withdrew ${near(d.amount)} of storage`;
     }
     case "storage_unregistered": {
       const d = event.data;
-      return `${d.account} unregistered (${d.refund} yoctoNEAR refunded)`;
+      return `${d.account} unregistered (${near(d.refund)} refunded)`;
     }
     case "key_received": {
       const d = event.data;

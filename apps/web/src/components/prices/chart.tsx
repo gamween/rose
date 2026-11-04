@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { formatUtcDay } from "@/lib/format";
 import { CHART_GRID, CHART_SURFACE, CHART_TEXT, type ChartShape } from "./palette";
 import { compactNumber } from "./transforms";
 
@@ -166,9 +167,7 @@ export function ChartTable({ caption, columns, rows, className }: { caption: str
   );
 }
 
-export function formatDay(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
+export const formatDay = formatUtcDay;
 
 export function formatDays(days: number): string {
   return `${compactNumber(days)}d`;

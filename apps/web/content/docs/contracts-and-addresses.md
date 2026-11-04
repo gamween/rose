@@ -11,7 +11,7 @@ All addresses are testnet. Nothing is deployed on any mainnet. Live checks (keyl
 
 | Contract | Account | Notes |
 |---|---|---|
-| rose-engine | `{{ENGINE_ACCOUNT}}` | Rust, near-sdk 5.x. Classes, positions, NEP-245 units, liens, rounds, sealed bids, opening, clearing, settlement, cash ledger, foreign custody. Keyless after init (`view_access_key_list` returns `[]`), no upgrade method, no delete-account path, no generic call method. New versions deploy to new accounts. |
+| rose-engine | `{{ENGINE_ACCOUNT}}` | Rust, near-sdk 5.x. Classes, positions, NEP-245 units, liens, rounds, sealed bids, opening, clearing, settlement, cash ledger, foreign custody. No upgrade method, no delete-account path, no generic call method; new versions deploy to new accounts. The final engine is keyless after init (`view_access_key_list` returns `[]`); a staging engine keeps a key, see below. |
 | rose tUSDC | `tusdc.rose-app.testnet` | NEP-141 "Test USDC", 6 decimals, public mint capped at 10,000 tUSDC per account per 24 h. The NEAR cash venue. Keyless. |
 | NEAR MPC | `v1.signer-prod.testnet` | Version 3.18.0. Domains: 0 Sign, CaitSith (secp256k1); 1 Sign, Frost (Ed25519); 2 Confidential Key Derivation (BLS12-381); 3 ForeignTx, CaitSith (secp256k1). Threshold 11. Foreign chains served include Base and Solana. |
 
@@ -32,7 +32,7 @@ Every lifecycle transition is a public method; there is no keeper.
 | `close` | anyone | `closes_at <= now < closes_at + key_timeout` | Requests the round key from CKD (retries unbounded, 80 Tgas attached); a round without any sealed order is cancelled instead |
 | `on_round_key` (callback), `submit_key` | MPC, anyone | key verifies with one pairing check | `Revealing` from `key_received_at` |
 | `cancel_no_key` | anyone | no key by `closes_at + key_timeout`, and no key request in flight (250 blocks after the last `close`) | `Cancelled`, everything refundable |
-| `open_bid` | anyone | `Revealing`, inside the window | Full verification of `(plaintext, sigma)`; the bid is opened, or void if it exceeds its collateral |
+| `open_bid` | anyone | `Revealing`, inside the window | Full verification of `(plaintext, sigma)`; the bid is opened, or void when its escrow does not cover `limit * quantity` plus fee, its quantity exceeds its locked units or the round's largest buy quantity, or an Advance reserve's quantity is not the claim |
 | `clear` | anyone | window over | Unopened bids void and slashed; clearing price and fills computed and stored; `Settled`, or `Cancelled` when nothing crosses |
 | `settle_bid` | anyone | `Settled` or `Cancelled` | Applies one bid's result to the ledger (units, cash, refund, bond); idempotent |
 | `register_base_deposit` | anyone | ForeignTx `Log` proof at `Safe`, sent without `expected_payload_hash`; the callback recomputes the payload hash | Mints units for a `StreamDeposited` log |
@@ -88,7 +88,16 @@ The engine proves a Streamflow stream with one ForeignTx `AccountState` read of 
 
 ## Explorers
 
-Every transaction in the app links to a live explorer for its chain. NearBlocks testnet is frozen, so the app links to a live NEAR testnet explorer.
+Every transaction, account and address in the app links to a live explorer for its chain:
+
+| Chain | Explorer | Links |
+|---|---|---|
+| NEAR testnet | [NEAR Rocks](https://testnet.near.rocks) (primary) | `/tx/<hash>`, `/account/<id>`, `/block/<height>` |
+| NEAR testnet | [Near Validate](https://nearvalidate.org) (fallback, next to every NEAR transaction) | `/txns/<hash>?network=testnet` |
+| Base Sepolia | [Basescan Sepolia](https://sepolia.basescan.org) | `/tx/<hash>`, `/address/<address>` |
+| Solana devnet | [Solana Explorer](https://explorer.solana.com/?cluster=devnet) | `/tx/<signature>?cluster=devnet`, `/address/<address>?cluster=devnet` |
+
+NearBlocks testnet stopped indexing in September 2026, so no link points to it.
 
 ## Third-party code
 

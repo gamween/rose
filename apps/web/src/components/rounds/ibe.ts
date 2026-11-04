@@ -44,6 +44,12 @@ export async function checkRoundKey(mpk: string, engineAccount: string, roundId:
   return ibe.verifyRoundKey(mpk, engineAccount, roundId, roundKey);
 }
 
+/** Unwraps a public CKD response `(big_y, big_c)` with the round's public scalar (the `submit_key` fallback). */
+export async function unwrapKey(engineAccount: string, roundId: bigint, bigY: string, bigC: string): Promise<string> {
+  const ibe = await ensureIbe();
+  return ibe.unwrapRoundKey(engineAccount, roundId, bigY, bigC);
+}
+
 /** SHA-256 of a ciphertext, shown in the sealed book next to the public collateral. */
 export async function ciphertextHash(ciphertextHex: string): Promise<string> {
   const bytes = new Uint8Array(ciphertextHex.length / 2);

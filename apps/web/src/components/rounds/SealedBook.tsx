@@ -48,6 +48,12 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
   const locked = sells.reduce((sum, bid) => sum + bid.lockedUnits, 0n);
   const bonds = bids.reduce((sum, bid) => sum + bid.bond, 0n);
   const opened = bids.filter((bid) => bid.opened !== null).length;
+  /** An Advance reserve locks no units: its public collateral is the claim K it offers. */
+  const collateralOf = (bid: Bid): string => {
+    if (bid.side === "Buy") return `${formatUsdc(bid.escrow)} USDC`;
+    if (round.kind === "Advance") return `claim ${formatQty(round.advanceClaim ?? 0n, cls.decimals)} tokens`;
+    return `${formatQty(bid.lockedUnits, cls.decimals)} units`;
+  };
 
   return (
     <section aria-label="Sealed book" className="rounded-lg border border-ink-750 bg-ink-850" data-sealed-book>
@@ -55,7 +61,9 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
         <div>
           <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">{opened > 0 ? "Book" : "Sealed book"}</h3>
           <p className="mt-0.5 text-[12px] text-ink-400">
-            {opened > 0 ? `${String(opened)} of ${String(bids.length)} orders opened; prices and quantities below are public.` : "Public: order count, each order's collateral and bond, ciphertext hashes. Hidden: every price and exact quantity."}
+            {opened > 0
+              ? `${String(opened)} of ${String(bids.length)} orders opened; prices and quantities below are public. A ciphertext is deleted once its order settles.`
+              : "Public: order count, each order's collateral and bond, ciphertext hashes. Hidden: every price and exact quantity."}
           </p>
         </div>
         <dl className="grid grid-cols-3 gap-x-5 text-right">
@@ -111,11 +119,11 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
                     </a>
                     {mine ? <span className="ml-1.5 font-display text-[10px] uppercase tracking-wide text-ember-300">you</span> : null}
                   </TD>
-                  <TD numeric>{bid.side === "Buy" ? `${formatUsdc(bid.escrow)} USDC` : `${formatQty(bid.lockedUnits, cls.decimals)} units`}</TD>
+                  <TD numeric>{collateralOf(bid)}</TD>
                   <TD numeric>{formatUsdc(bid.bond)}</TD>
                   <TD>
-                    <span className="tabular text-[11px] text-ink-400" title={hashes.get(bid.bidId)}>
-                      {hashes.get(bid.bidId)?.slice(0, 16) ?? (bid.ciphertextHex ? "hashing…" : "—")}
+                    <span className="tabular text-[11px] text-ink-400" title={hashes.get(bid.bidId) ?? (bid.ciphertextHex ? undefined : "The engine deletes a ciphertext once its order settles (storage refund).")}>
+                      {hashes.get(bid.bidId)?.slice(0, 16) ?? (bid.ciphertextHex ? "hashing…" : bid.status === "Settled" ? "pruned at settlement" : "—")}
                     </span>
                   </TD>
                   <TD numeric>

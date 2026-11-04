@@ -33,6 +33,8 @@ describe("walkthrough", () => {
     expect(text("open")).toContain("Nadia Solvik's own opening was refused on chain");
     expect(text("settle")).toContain("bond is slashed");
     expect(text("payout")).toContain("Ines Marlow withdraws");
+    expect(text("payout")).toContain("claim_sol_tokens");
+    expect(text("payout")).toContain("confirm_sol_redeem");
     for (const step of exit) {
       expect(step.title.length).toBeGreaterThan(0);
       expect(step.body).not.toMatch(/undefined|null|NaN/);

@@ -132,6 +132,17 @@ export interface Journal {
   steps: Record<string, JournalEntry>;
 }
 
+/**
+ * `deployments/e2e/<engine>.solana.json` (`scripts/e2e-solana-stream.mjs`): one holder's Solana
+ * stream taken through custody, the two-phase token payout (`claim_sol_tokens`, broadcast,
+ * `confirm_sol_payout`) and the two-phase redeem (`redeem`, broadcast, `confirm_sol_redeem`).
+ */
+export interface SolanaJournal {
+  engine: string;
+  near_holder: string;
+  steps: Record<string, Record<string, unknown>>;
+}
+
 export interface ManifestSources {
   /** `deployments/e2e/cindral.json`: the cast and the token, engine-independent. */
   cast: Journal;
@@ -139,6 +150,8 @@ export interface ManifestSources {
   seed: Journal;
   /** `deployments/e2e/<engine>.live.json`. */
   live: Journal;
+  /** `deployments/e2e/<engine>.solana.json`, when the engine ran the Solana payout script. */
+  solana?: SolanaJournal;
   /** Paths recorded in the manifest. */
   paths: string[];
 }
@@ -497,6 +510,33 @@ function payoutStep(live: Journal, kind: DemoRoundKind): DemoStepData | null {
   return step("payout", keys.map((key) => entry(live, key)));
 }
 
+/** The Solana token payout and redeem of `e2e-solana-stream.mjs`, in the order they ran (NEAR call, then its Solana broadcast). */
+const SOLANA_PAYOUT_TXS: readonly { key: string; near: string; solana?: string }[] = [
+  { key: "claim", near: "claim_sol_tokens: the engine signs a durable-nonce Solana transfer", solana: "Solana: the signed payout, broadcast by the holder" },
+  { key: "confirm", near: "confirm_sol_payout: ForeignTx proves the nonce advanced" },
+  { key: "redeem", near: "redeem: the engine signs the stream's transfer back to the holder", solana: "Solana: the signed release, broadcast by the holder" },
+  { key: "confirm_redeem", near: "confirm_sol_redeem: ForeignTx proof, the position is released" },
+];
+
+function solanaPayoutTxs(journal: SolanaJournal, engine: string): DemoTx[] {
+  if (journal.engine !== engine) throw new ManifestError(`the Solana journal is for ${journal.engine}, the seed journal for ${engine}`);
+  const note = `Separate run on this engine (scripts/e2e-solana-stream.mjs) by ${str(journal.near_holder, "solana journal near_holder")} on a test Solana stream`;
+  return SOLANA_PAYOUT_TXS.flatMap(({ key, near, solana }) => {
+    const data = journal.steps[key];
+    if (!data) return [];
+    const where = `solana.${key}`;
+    const txs = [parseTx({ label: near, chain: "near", hash: data.near_tx, gasTgas: typeof data.gas_tgas === "number" ? data.gas_tgas : null, gasUsed: null, failed: false, note }, `${where}.near_tx`)];
+    if (solana) txs.push(parseTx({ label: solana, chain: "solana", hash: data.solana_tx, gasTgas: null, gasUsed: null, failed: false, note }, `${where}.solana_tx`));
+    return txs;
+  });
+}
+
+/** The payout step of an Exit on a Solana class also shows the engine's Solana payout paths, which pay tokens rather than cash. */
+function withSolanaPayout(payout: DemoStepData | null, sources: ManifestSources, chain: "Base" | "Solana", engine: string): DemoStepData | null {
+  if (!payout || chain !== "Solana" || !sources.solana) return payout;
+  return { ...payout, txs: [...payout.txs, ...solanaPayoutTxs(sources.solana, engine)] };
+}
+
 /** `payout:redeem` releases one position; it belongs to the scenario whose class holds it. */
 function redeemStep(live: Journal, positions: readonly DemoPosition[]): DemoStepData | null {
   const redeem = entry(live, "payout:redeem");
@@ -557,7 +597,7 @@ function roundScenario(sources: ManifestSources, classes: readonly SeedClass[], 
       step("open", [open]),
       step("clear", [clear]),
       step("settle", [settled]),
-      payoutStep(live, round.kind),
+      withSolanaPayout(payoutStep(live, round.kind), sources, cls.chain, str(seed.header.engine, "seed header engine")),
       redeemStep(live, custody.positions),
     ]),
   };

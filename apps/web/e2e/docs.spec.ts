@@ -39,6 +39,12 @@ test.describe("docs", () => {
     const tables = page.locator("article table");
     expect(await tables.count()).toBeGreaterThanOrEqual(10);
     await expect(tables.first().locator("th").first()).toHaveText("Candidate P");
+    // Every table sits in a focusable region that scrolls sideways with an edge cue on a phone (no page overflow).
+    const region = page.locator("[data-docs-table]").first();
+    await expect(region).toHaveAttribute("tabindex", "0");
+    await expect(region).toHaveCSS("overflow-x", "auto");
+    expect(await region.evaluate((element) => getComputedStyle(element).backgroundImage)).toContain("radial-gradient");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.goto("/docs/sealed-rounds");
     await expect(page.locator("article pre code")).toContainText("Scheduled -> Open -> KeyRequested");
   });
@@ -91,6 +97,12 @@ test.describe("docs", () => {
     }
     const footer = page.getByRole("navigation", { name: "Footer" });
     await expect(footer.getByRole("link", { name: "Contracts" })).toHaveAttribute("href", "/docs/contracts");
+    await page.goto("/docs/faq");
+    await expect(page.locator("article")).toContainText("NEAR Connect");
+    await expect(page.locator("article")).not.toContainText("Wallet Selector");
+    await page.goto("/docs/contracts-and-addresses");
+    await expect(page.locator("article").getByRole("link", { name: "NEAR Rocks" })).toHaveAttribute("href", "https://testnet.near.rocks");
+    await expect(page.locator("article")).toContainText("The final engine is keyless after init");
     expect(errors).toEqual([]);
   });
 });

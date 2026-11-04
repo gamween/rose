@@ -8,6 +8,8 @@ import {
   groupByToken,
   niceTicks,
   priceDomain,
+  PRICE_UNIT_LABEL,
+  priceUnitOf,
   toPlottedPoint,
   unlockedPercent,
   type ClassView,
@@ -66,6 +68,30 @@ describe("prices transforms", () => {
     expect(series[0]!.points[1]!.discount).toBeNull();
     expect(series[0]!.tokenKey).toBe(`Base:${seed.token}`);
     expect(series[0]!.scheduleEndMs).toBe(END * 1_000);
+  });
+
+  it("finds the declared reference of a live price point, whose round_id is a JSON number (engine-s4 Tender #0)", () => {
+    // get_price_history returns `"round_id":0` (RoundId, u64); get_rounds returns `"round_id":"0"` (U64) with `"reference_price":"80000"`.
+    const live: PricePoint = { round_id: 0, kind: "Tender", price: "36000", remaining_lock_secs: "79030495", volume: "41666666666666666666666", settled_at: "1793786513397000000" };
+    const series = buildSeries([seed], new Map([[seed.class_id, [live]]]), new Map([["0", 80_000n]]));
+    const plotted = series[0]!.points[0]!;
+    expect(plotted.roundId).toBe("0");
+    expect(plotted.referenceText).toBe("0.0800");
+    expect(plotted.discount).toBeCloseTo(0.55, 10);
+  });
+
+  it("keeps Advance prices (per claimed token) on their own line, apart from the per-locked-token line", () => {
+    const histories = new Map([[seed.class_id, [point("6", "Exit", "25000", 914, 1_750_100_000), point("2", "Advance", "37500", 334, 1_750_000_000), point("0", "Tender", "36000", 914, 1_749_000_000)]]]);
+    const series = buildSeries([seed], histories, new Map());
+    expect(series.map((item) => [item.key, item.unit, item.points.map((p) => p.roundId)])).toEqual([
+      [seed.class_id, "locked", ["0", "6"]],
+      [`${seed.class_id}:claimed`, "claimed", ["2"]],
+    ]);
+    expect(series[1]!.label).toContain("· Advance");
+    expect(priceUnitOf("Advance")).toBe("claimed");
+    expect(PRICE_UNIT_LABEL[series[1]!.unit]).toBe("USDC per claimed token");
+    const onlyAdvance = buildSeries([kol], new Map([[kol.class_id, [point("2", "Advance", "37500", 334, 1_750_000_000)]]]), new Map());
+    expect(onlyAdvance.map((item) => item.unit)).toEqual(["claimed"]);
   });
 
   it("groups series by token, most settled rounds first, with resolved symbols", () => {

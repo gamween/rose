@@ -187,7 +187,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
                 {nextCursor !== null ? (
                   <div className="flex flex-col items-center gap-2">
                     <Button variant="secondary" size="sm" onClick={() => void list.loadMore()} loading={list.loadingMore} loadingLabel="Loading…" data-load-more>
-                      Load more (from #{nextCursor.toString()})
+                      Load older rounds (before #{nextCursor.toString()})
                     </Button>
                     {list.loadMoreError ? <p className="text-[12px] text-danger-400">{list.loadMoreError}</p> : null}
                   </div>

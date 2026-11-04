@@ -148,7 +148,9 @@ function body(id: WalkStepId, ctx: Context, txs: readonly DemoTx[]): string {
       const actor = actorOf(manifest, txs) ?? "The seller";
       if (scenario.kind === "Advance") return `Sablier releases unlocked ${manifest.token.symbol} into RoseVault, ${actor} claims its lien share on NEAR (claim_base_tokens), and the transfer the engine signed with Chain Signatures pays it on Base Sepolia.`;
       if (txs.some((tx) => tx.chain === "base")) return `${actor} withdraws the proceeds on Base: the engine signs a RoseVault transfer with Chain Signatures, and the signed transfer is submitted on Base Sepolia (executeTransfer).`;
-      return `${actor} withdraws the proceeds from the engine as tUSDC on NEAR (withdraw_near_cash).`;
+      const cash = `${actor} withdraws the proceeds from the engine as tUSDC on NEAR (withdraw_near_cash).`;
+      if (!txs.some((tx) => tx.chain === "solana")) return cash;
+      return `${cash} Tokens unlocked on Solana are paid out in two phases: claim_sol_tokens has the engine sign a durable-nonce transfer with Chain Signatures, the holder broadcasts it, and confirm_sol_payout proves through ForeignTx that the nonce advanced. A Solana redeem works the same way (redeem, broadcast, confirm_sol_redeem). Those transactions come from a separate holder run on the same engine.`;
     }
     case "redeem": {
       const actor = actorOf(manifest, txs) ?? "A holder";

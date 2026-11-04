@@ -26,7 +26,17 @@ export function VerifyPanel({ detail }: { detail: RoundDetail }) {
   const [ran, setRan] = useState(false);
   const verification = useMemo(() => (ran ? verifyRound(round, cls.decimals, bids) : null), [bids, cls.decimals, ran, round]);
   const cleared = round.status === "Settled" || (round.status === "Cancelled" && round.cancelReason === "NoCrossing");
+  /** Cancelled before any opening (no key, no orders, withdrawn): there is no book to recompute. */
+  const neverOpened = round.status === "Cancelled" && round.cancelReason !== "NoCrossing";
   const copy = verification ? STATUS_COPY[verification.status] : null;
+  if (neverOpened) {
+    return (
+      <section aria-label="Verify" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-verify="cancelled">
+        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Verify</h3>
+        <p className="mt-0.5 text-[12px] text-ink-400">Nothing to verify: the round was cancelled before any order was opened, so no clearing price exists. Every order settles as a refund.</p>
+      </section>
+    );
+  }
 
   return (
     <section aria-label="Verify" className="rounded-lg border border-ink-750 bg-ink-850" data-verify>

@@ -44,7 +44,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Everything is verifiable",
-    body: "Every action shows an explorer link, the activity feed reads the engine's on-chain history, and the command palette (Cmd+K) jumps anywhere. The Status page checks the engine is keyless.",
+    body: "Every action shows an explorer link, the activity feed reads the engine's on-chain history, and the command palette (Cmd+K, or Search in the menu on a phone) jumps anywhere. The Status page checks the engine is keyless.",
     illustration: "exit",
     learn: "trust",
   },

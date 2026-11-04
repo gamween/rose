@@ -12,7 +12,8 @@ const HIT_RADIUS = 24;
 type Dot = { point: PlottedPoint; seriesIndex: number; label: string };
 
 /**
- * Price versus remaining lock time across the classes of one token. Series are told apart by
+ * Price versus remaining lock time across the classes of one token, for prices per locked token
+ * only (Tender and Exit; the caller leaves the per-claimed-token Advance series out). Series are told apart by
  * hue and marker shape (fixed order), a legend is always present, and the nearest dot within
  * 24px answers the pointer so nobody has to land on an 8px mark.
  */
@@ -69,7 +70,7 @@ export function LockScatterChart({ group }: { group: TokenGroup }) {
       </figcaption>
       <ul className="mb-3 flex flex-wrap gap-x-5 gap-y-1" aria-label="Classes">
         {group.series.map((series, index) => (
-          <LegendItem key={series.classId} color={seriesColor(index)} shape={seriesShape(index)} label={series.label} />
+          <LegendItem key={series.key} color={seriesColor(index)} shape={seriesShape(index)} label={series.label} />
         ))}
       </ul>
       <div ref={ref} className="relative">

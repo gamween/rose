@@ -263,7 +263,7 @@ Every async action has loading, success and failure states, human-readable error
 
 ### 8.4 Wallets and onboarding
 
-- NEAR: NEAR Wallet Selector (verify the current package and supported testnet wallets), plus an in-app demo wallet (ed25519 key in the browser, account created on testnet) for judges.
+- NEAR: NEAR Connect (`@hot-labs/near-connect`, the wallet connector docs.near.org documents; NEAR Wallet Selector had no release since 2025-12 when verified, see docs/verification.md "Web wallets"), with the testnet wallets its manifest flags, plus an in-app demo wallet (ed25519 key in the browser, account created on testnet) for judges.
 - EVM: injected wallets via wagmi/viem on Base Sepolia, plus an in-app demo wallet.
 - Solana: wallet adapter (Phantom, Solflare) on devnet, plus an in-app demo wallet.
 - "Get test funds": NEAR testnet account and NEAR, Base Sepolia gas and Solana devnet SOL via `/api/faucet` (server-side hot wallets; the Solana devnet RPC faucet is closed and the PoW faucets are drained), test USDC minted on-chain (tUSDC on Base Sepolia and on NEAR testnet, public capped mint: 10,000 tUSDC per address per 24-hour window, which starts at the address's first mint after the previous window expired (both deployed contracts use this fixed window; the NEAR token's per-account window record is paid by the token contract, and each minting account first pays its own NEP-145 registration on the token), and "Mint me a demo vesting position" (the on-chain `DemoStreamFaucet` creates a Sablier LL stream of the demo token to the caller on Base, one per class per 24 h, `granularity = 1`; or the app creates a Streamflow stream on Solana).

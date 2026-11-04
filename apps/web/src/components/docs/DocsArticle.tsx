@@ -99,7 +99,8 @@ const components: Partial<Components> = {
     />
   ),
   table: (props) => (
-    <div className="my-5 overflow-x-auto rounded-md border border-ink-750">
+    // A wide table scrolls sideways on a phone: edge shadows mark the side that holds more columns, and the region takes keyboard focus.
+    <div className="scroll-cue my-5 overflow-x-auto rounded-md border border-ink-750" role="region" aria-label="Table" tabIndex={0} data-docs-table>
       <table className="w-full border-collapse text-[13px]" {...props} />
     </div>
   ),
