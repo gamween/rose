@@ -107,3 +107,19 @@ The demo issuer is the fictional **Cindral Foundation**, token **Cindral (CINDR)
 | DefiLlama | `curl https://api.llama.fi/protocols` (8,926 protocols) | no match |
 | Web | searches `"Cindral" crypto`, `"CINDR" token` | no result |
 | Nearest names | same sources | Cindrum (CIND, inactive), Cindicator (CND): neither name nor ticker shared. Rejected tickers: CNDL (DefiLlama "Candle"), CNDR (Solana "Condor"), CIND (Cindrum) |
+
+## Web app: toolchain, fonts and engine view errors
+
+| Fact | Command | Result (2026-11-04) |
+|---|---|---|
+| Web package versions | `npm view <pkg> version` for next, react, react-dom, tailwindcss, @tailwindcss/postcss, three, @types/three, vitest, @playwright/test, eslint-config-next, geist | next 16.4.5, react 19.3.1, react-dom 19.3.1, tailwindcss 4.3.4, @tailwindcss/postcss 4.3.4, three 0.187.0, @types/three 0.187.0, vitest 5.1.0, @playwright/test 1.64.1, eslint-config-next 16.4.5, geist 1.9.0 |
+| TypeScript pinned to 6.0.3 (latest is 7.0.2) | `npm view typescript-eslint peerDependencies` | `typescript: '>=4.8.4 <6.1.0'` (typescript-eslint 8.72.1, used by eslint-config-next) |
+| ESLint pinned to 9.39.5 (latest is 10.14.0) | `npm view eslint-plugin-react peerDependencies`, same for `eslint-plugin-import`, `eslint-plugin-jsx-a11y` | peer ranges stop at ESLint 9 |
+| `next lint` removed in Next 16 | `node_modules/next/dist/docs/01-app/03-api-reference/05-config/03-eslint.md` | "Starting with Next.js 16, `next lint` is removed"; lint runs `eslint .` with `eslint-config-next/core-web-vitals` and `/typescript` flat configs |
+| Departure Mono font and license | `curl https://api.github.com/repos/rektdeckard/departure-mono/releases/latest`, LICENSE in `DepartureMono-1.500.zip` | v1.500, font files under SIL Open Font License 1.1 (repository code MIT) |
+| Geist Sans and Geist Mono license | `npm view geist@1.9.0 license` | SIL Open Font License |
+| View call on a missing account | `curl https://test.rpc.fastnear.com` `query`/`call_function` on `no-such-rose-engine-xyz.testnet` | JSON-RPC `error.cause.name = "UNKNOWN_ACCOUNT"`, `data = "account ... does not exist while viewing"` |
+| View call on an account without contract | same on `rose-app.testnet`, method `stats` | `result.error = "wasm execution failed with error: CompilationError(CodeDoesNotExist { account_id: \"rose-app.testnet\" })"` |
+| View call on a missing method | same on `v1.signer-prod.testnet`, method `stats` | `result.error = "wasm execution failed with error: MethodResolveError(MethodNotFound)"` |
+| View call success shape | same on `v1.signer-prod.testnet`, method `version` | `result.result` = UTF-8 bytes of the JSON value (`"3.18.0"`), plus `block_height` |
+| Explorers reachable from scripts | `curl -L -o /dev/null -w '%{http_code}'` | `explorer.testnet.near.org` 200; `testnet.nearblocks.io` and `sepolia.basescan.org` 403 (bot protection); `explorer.solana.com` 429. Not yet used by the web app |
