@@ -234,7 +234,7 @@ test.describe("issuer console", () => {
     await page.locator("[data-read-policy]").click();
     await expect(page.getByText(/Proposal bond 1 NEAR/)).toBeVisible({ timeout: 30_000 });
     const json = page.locator("[data-dao-json]");
-    await expect(json).toContainText('"receiver_id": "engine.rose-app.testnet"');
+    await expect(json).toContainText(`"receiver_id": "${MOCK.engine}"`);
     await expect(json).toContainText('"method_name": "create_tender"');
     await expect(json).toContainText('"deposit": "50000000000000000000000"');
     const trezu = page.locator("[data-trezu-json]");

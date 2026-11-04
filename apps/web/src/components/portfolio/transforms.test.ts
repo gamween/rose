@@ -1,6 +1,6 @@
 import { ONE, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type StoredEvent } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { accountEvents, actionablePayouts, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, tokenClaims } from "./transforms";
+import { accountEvents, actionablePayouts, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, planSolDraws, tokenClaims } from "./transforms";
 
 const NOW = 1_762_200_000n;
 const DAY = 86_400n;
@@ -63,7 +63,7 @@ describe("tokenClaims", () => {
 });
 
 function payout(overrides: Partial<PayoutView>): PayoutView {
-  return { id: "1", chain: "Base", kind: { BaseTransfer: { token: seed.token, to: "0x1", amount: "1" } }, debit: null, requester: "a.testnet", status: "Signed", created_at: "0", updated_at: "0", requested_block: "100", ...overrides };
+  return { id: "1", chain: "Base", kind: { BaseTransfer: { token: seed.token, to: "0x1", amount: "1" } }, debit: null, requester: "a.testnet", status: "Signed", created_at: "0", updated_at: "0", requested_block: "100", sign_requests: 1, ...overrides };
 }
 
 describe("payoutState", () => {
@@ -74,6 +74,11 @@ describe("payoutState", () => {
     expect(payoutState(payout({ status: "Requested" }), null, 500n)).toBe("requested");
     expect(payoutState(payout({ status: "Requested" }), null, 700n)).toBe("stale");
     expect(payoutState(payout({ status: { Failed: { reason: "no signature" } } }), null, 700n)).toBe("failed");
+    expect(payoutState(payout({ status: "Landed" }), null, 700n)).toBe("submitted");
+    const solTransfer = payout({ chain: "Solana", kind: { SolTransfer: { mint: "m", to_owner: "o", amount: "1" } } });
+    expect(payoutState(solTransfer, true, 700n)).toBe("unconfirmed");
+    expect(payoutState(solTransfer, false, 700n)).toBe("signed");
+    expect(payoutState(payout({ chain: "Solana", kind: { SolMove: { metadata: "m", from: "f", to_owner: "o" } } }), true, 700n)).toBe("submitted");
     const entries = [
       { payout: payout({ id: "1" }), state: "signed" as const },
       { payout: payout({ id: "2" }), state: "submitted" as const },
@@ -108,5 +113,24 @@ describe("orders, liens and history", () => {
       { seq: 3n, blockHeight: 3n, timestamp: 3n, predecessor: "c.testnet", event: { event: "key_requested", data: { round_id: "1" } } },
     ];
     expect(accountEvents(events, "a.testnet").map((entry) => entry.seq)).toEqual([2n, 1n]);
+  });
+});
+
+describe("planSolDraws", () => {
+  const entry = (position_id: string, withdrawable: string, net = 1_000, withdrawn = 0) => ({ position_id, withdrawable, stream: { net_amount_deposited: net, engine_withdrawn: withdrawn } });
+  const streams = [entry("1", "40"), entry("2", "100"), entry("3", "0")];
+  it("draws on the largest withdrawable streams first, exactly the claimed amount", () => {
+    expect(planSolDraws(streams, 120n, 1)).toEqual([
+      { position_id: "2", amount: "100" },
+      { position_id: "1", amount: "20" },
+    ]);
+    expect(planSolDraws(streams, 50n, 1)).toEqual([{ position_id: "2", amount: "50" }]);
+  });
+  it("never draws less than one whole token unless the draw empties the stream", () => {
+    expect(() => planSolDraws([entry("1", "5")], 5n, 1)).toThrow("at least one whole token");
+    expect(planSolDraws([entry("1", "5", 1_000, 995)], 5n, 1)).toEqual([{ position_id: "1", amount: "5" }]);
+  });
+  it("refuses an amount the streams cannot pay now", () => {
+    expect(() => planSolDraws(streams, 141n, 1)).toThrow("cannot pay this amount right now");
   });
 });

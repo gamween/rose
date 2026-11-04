@@ -1,6 +1,6 @@
 "use client";
 
-import { describeRoseEvent, engineViews, NearRpc, type StoredEvent } from "@rose/sdk";
+import { describeRoseEvent, engineViews, NearRpc, type EventAmountFormat, type StoredEvent } from "@rose/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Drawer } from "@/components/ui/Modal";
@@ -8,13 +8,18 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { toActionError } from "@/lib/errors";
 import { deployed, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL } from "@/lib/deployment";
+import { eventAmountFormat, eventClassIds } from "@/lib/event-format";
+import { readEventRange } from "@/lib/event-pages";
 import { nearAccountUrl } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 
 const FEED_LIMIT = 40;
 const POLL_MS = 15_000;
 
-type FeedState = { status: "loading" } | { status: "not_deployed" } | { status: "error"; message: string } | { status: "ok"; events: StoredEvent[]; total: bigint };
+type FeedState = { status: "loading" } | { status: "not_deployed" } | { status: "error"; message: string } | { status: "ok"; events: StoredEvent[]; total: bigint; format: EventAmountFormat };
+
+/** Class decimals never change: read each class once per page load. */
+const classDecimals = new Map<string, number | null>();
 
 function roundHref(event: StoredEvent): string | null {
   const data = event.event.data as { round_id?: string };
@@ -41,11 +46,15 @@ export function useActivityFeed(enabled: boolean): { state: FeedState; refresh: 
     }
     try {
       const views = engineViews(engine, new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] }));
-      const page = await views.getEvents(undefined, FEED_LIMIT);
-      const total = page.total;
+      const probe = await views.getEvents(undefined, 1);
+      const total = probe.total;
       const from = total > BigInt(FEED_LIMIT) ? total - BigInt(FEED_LIMIT) : 0n;
-      const latest = from > page.oldest ? await views.getEvents(from, FEED_LIMIT) : page;
-      setState({ status: "ok", events: [...latest.events].sort((a, b) => (a.seq < b.seq ? 1 : -1)), total });
+      const latest = await readEventRange((fromSeq, limit) => views.getEvents(fromSeq, limit), from > probe.oldest ? from : probe.oldest, FEED_LIMIT);
+      const missing = eventClassIds(latest.events).filter((classId) => !classDecimals.has(classId));
+      const infos = await Promise.all(missing.map((classId) => views.getClass(classId)));
+      missing.forEach((classId, index) => classDecimals.set(classId, infos[index]?.decimals ?? null));
+      const format = eventAmountFormat((classId) => classDecimals.get(classId) ?? null);
+      setState({ status: "ok", events: [...latest.events].sort((a, b) => (a.seq < b.seq ? 1 : -1)), total, format });
     } catch (error) {
       const described = toActionError(error);
       setState(described.kind === "not_deployed" ? { status: "not_deployed" } : { status: "error", message: described.message });
@@ -97,7 +106,7 @@ export function ActivityFeedList({ state }: { state: FeedState }) {
     <ol className="flex flex-col divide-y divide-ink-800" data-activity-feed>
       {state.events.map((entry) => {
         const href = roundHref(entry);
-        const line = describeRoseEvent(entry.event);
+        const line = describeRoseEvent(entry.event, state.format);
         return (
           <li key={entry.seq.toString()} className="flex flex-col gap-0.5 py-2">
             <div className="flex items-start justify-between gap-3">

@@ -1,4 +1,7 @@
+import { NearRpc, NearRpcError } from "@rose/sdk";
+
 export const NEAR_TESTNET_RPC = "https://test.rpc.fastnear.com";
+export const NEAR_TESTNET_RPC_FALLBACK = "https://rpc.testnet.near.org";
 
 /** Decimals of the rose cash token (tUSDC) used for every USDC amount returned by the engine. */
 export const USDC_DECIMALS = 6;
@@ -70,31 +73,40 @@ function toBase64(text: string): string {
   return btoa(binary);
 }
 
-/** Calls a NEAR view method through JSON-RPC (`query` / `call_function`, final finality) and parses the JSON result. */
-export async function viewCall<T>(
-  accountId: string,
-  methodName: string,
-  args: Record<string, unknown> = {},
-  options: ViewOptions = {},
-): Promise<ViewResult<T>> {
+type QueryResult = NonNullable<RpcResponse["result"]>;
+
+/** The shared client of the page: FastNEAR, then rpc.testnet.near.org, under the page's request budget. */
+const defaultRpc = new NearRpc({ endpoints: [NEAR_TESTNET_RPC, NEAR_TESTNET_RPC_FALLBACK] });
+
+/**
+ * One NEAR `query` (any `request_type`): through the page's shared client with fallback by
+ * default, or through `options.fetchImpl` / `options.rpcUrl` when given.
+ */
+export function nearQuery<T>(accountId: string, params: Record<string, string>, options: ViewOptions = {}): Promise<T | undefined> {
+  return options.fetchImpl || options.rpcUrl ? queryWithFetch<T>(accountId, params, options) : queryWithFallback<T>(accountId, params, options.signal);
+}
+
+async function queryWithFallback<T>(accountId: string, params: Record<string, string>, signal?: AbortSignal): Promise<T | undefined> {
+  try {
+    return await defaultRpc.request<T>("query", params, signal);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    if (signal?.aborted) throw error;
+    if (error instanceof NearRpcError && error.kind === "account_missing") throw new EngineViewError("account_missing", `Account ${accountId} does not exist on NEAR testnet.`);
+    if (error instanceof NearRpcError && (error.kind === "unreachable" || error.kind === "http")) throw new EngineViewError("rpc", "The NEAR RPC could not be reached.");
+    throw new EngineViewError("rpc", error instanceof Error ? error.message : "The NEAR RPC returned an error.");
+  }
+}
+
+/** One endpoint and an injected `fetch` (tests, or a caller that names its RPC). */
+async function queryWithFetch<T>(accountId: string, params: Record<string, string>, options: ViewOptions): Promise<T | undefined> {
   const fetchImpl = options.fetchImpl ?? fetch;
   let response: Response;
   try {
     response = await fetchImpl(options.rpcUrl ?? NEAR_TESTNET_RPC, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "rose",
-        method: "query",
-        params: {
-          request_type: "call_function",
-          finality: "final",
-          account_id: accountId,
-          method_name: methodName,
-          args_base64: toBase64(JSON.stringify(args)),
-        },
-      }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: "rose", method: "query", params }),
       signal: options.signal,
     });
   } catch (error) {
@@ -104,14 +116,31 @@ export async function viewCall<T>(
   if (!response.ok) {
     throw new EngineViewError("rpc", `The NEAR RPC answered with HTTP ${response.status}.`);
   }
-  const body = (await response.json()) as RpcResponse;
+  const body = (await response.json()) as { result?: T; error?: RpcResponse["error"] };
   if (body.error) {
     if (body.error.cause?.name === "UNKNOWN_ACCOUNT") {
       throw new EngineViewError("account_missing", `Account ${accountId} does not exist on NEAR testnet.`);
     }
     throw new EngineViewError("rpc", typeof body.error.data === "string" ? body.error.data : "The NEAR RPC returned an error.");
   }
-  const result = body.result;
+  return body.result;
+}
+
+/** Calls a NEAR view method through JSON-RPC (`query` / `call_function`, final finality) and parses the JSON result. */
+export async function viewCall<T>(
+  accountId: string,
+  methodName: string,
+  args: Record<string, unknown> = {},
+  options: ViewOptions = {},
+): Promise<ViewResult<T>> {
+  const params = {
+    request_type: "call_function",
+    finality: "final",
+    account_id: accountId,
+    method_name: methodName,
+    args_base64: toBase64(JSON.stringify(args)),
+  };
+  const result = await nearQuery<QueryResult>(accountId, params, options);
   if (!result) throw new EngineViewError("invalid_response", "The NEAR RPC returned no result.");
   if (result.error) {
     if (result.error.includes("CodeDoesNotExist")) {

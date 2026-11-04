@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/cn";
 import { CreateExitModal } from "./CreateExitModal";
 import { symbolOf } from "./engine";
-import { classShortLabel, KIND_LABEL, STATUS_LABEL } from "./model";
+import { classShortLabel, formatDate, KIND_LABEL, scheduleEndSecs, STATUS_LABEL } from "./model";
 import { RoundCard } from "./RoundCard";
 import { ErrorState, LoadingCards, NotDeployedState } from "./shared";
 import { EMPTY_FILTER, useRoundsList, type RoundsFilterState } from "./useRoundsList";
@@ -118,6 +118,7 @@ export function RoundsPage({ configured }: { configured: boolean }) {
                 {data.classes.map((cls) => (
                   <Chip key={cls.classId} active={filter.classId === cls.classId} onClick={() => setFilter((f) => ({ ...f, classId: f.classId === cls.classId ? "" : cls.classId }))}>
                     {classShortLabel(cls, symbolOf(data.symbols, cls))}
+                    <span className="text-ink-400"> · until {formatDate(scheduleEndSecs(cls) * 1000)}</span>
                   </Chip>
                 ))}
               </div>

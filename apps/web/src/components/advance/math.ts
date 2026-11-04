@@ -4,6 +4,7 @@
  */
 
 import { charge, ONE, perClaimedToken } from "@rose/sdk";
+import { formatAmount, formatUsdc } from "@/lib/amounts";
 
 /** `K_max = floor(X * (1 - f(ts)) / ONE)`: the tokens still locked at settlement by `units`. */
 export function maxClaim(units: bigint, fTs: bigint): bigint {
@@ -30,7 +31,7 @@ export type AdvanceForm = {
 export type AdvanceFormErrors = Partial<Record<keyof AdvanceForm, string>>;
 
 /** Validation of the create form against the holder's free units, `f(ts)` and the clock. */
-export function validateAdvance(form: AdvanceForm, context: { freeUnits: bigint; fTs: bigint; nowMs: number; cash: bigint; bond: bigint | null }): AdvanceFormErrors {
+export function validateAdvance(form: AdvanceForm, context: { freeUnits: bigint; fTs: bigint; nowMs: number; cash: bigint; bond: bigint | null; decimals: number }): AdvanceFormErrors {
   const errors: AdvanceFormErrors = {};
   if (form.units === null) errors.units = "Enter the units to encumber";
   else if (form.units === 0n) errors.units = "Units must be positive";
@@ -39,7 +40,7 @@ export function validateAdvance(form: AdvanceForm, context: { freeUnits: bigint;
   const kMax = form.units === null ? 0n : maxClaim(form.units, context.fTs);
   if (form.claim === null) errors.claim = "Enter the claim K";
   else if (form.claim === 0n) errors.claim = "The claim must be positive";
-  else if (form.units !== null && form.claim > kMax) errors.claim = `At most ${kMax.toString()} base units are still locked at settlement`;
+  else if (form.units !== null && form.claim > kMax) errors.claim = `At most ${formatAmount(kMax, context.decimals)} tokens are still locked at settlement`;
   if (form.minFill === null) errors.minFill = "Enter the minimum fill";
   else if (form.claim !== null && form.minFill > form.claim) errors.minFill = "The minimum fill cannot exceed the claim";
   if (form.maxPrice === null || form.maxPrice === 0n) errors.maxPrice = "Enter a positive price ceiling";
@@ -47,6 +48,6 @@ export function validateAdvance(form: AdvanceForm, context: { freeUnits: bigint;
   else if (form.maxPrice !== null && form.reserve > form.maxPrice) errors.reserve = "The reserve cannot exceed the price ceiling (it would never fill)";
   if (form.closesAtMs === null) errors.closesAtMs ??= "Choose when bidding closes";
   else if (form.closesAtMs <= context.nowMs + 60_000) errors.closesAtMs ??= "Bidding must close at least a minute from now";
-  if (context.bond !== null && context.cash < context.bond) errors.maxPrice ??= `Your cash in the venue does not cover the bond (${context.bond.toString()} base units)`;
+  if (context.bond !== null && context.cash < context.bond) errors.maxPrice ??= `Your cash in the venue (${formatUsdc(context.cash)} USDC) does not cover the ${formatUsdc(context.bond)} USDC bond`;
   return errors;
 }

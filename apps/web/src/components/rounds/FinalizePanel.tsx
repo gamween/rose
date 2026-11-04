@@ -3,7 +3,7 @@
 /**
  * "Finalize" (spec 5.2 step 2): with the round key public, this browser decrypts every sealed
  * order that is still unopened and submits `open_bid` for each one in sequence, one transaction
- * per order prepaid with 300 Tgas. Progress is per order, failures do not stop the run (a
+ * per order prepaid with 200 Tgas. Progress is per order, failures do not stop the run (a
  * malformed ciphertext can be opened by nobody and is void at clearing), and the run resumes
  * from the chain's own `opened` flags after a reload.
  */
@@ -140,7 +140,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
                 ? `the reveal window closed with ${String(remaining)} unopened: void at clearing, bond slashed`
                 : "the reveal window closed; clearing can run"
               : remaining > 0
-                ? `${String(remaining)} left, about ${cost} NEAR of gas in total (${OPENING_COST_NEAR} per order, 300 Tgas prepaid each)`
+                ? `${String(remaining)} left, about ${cost} NEAR of gas in total (${OPENING_COST_NEAR} per order, 200 Tgas prepaid each)`
                 : "nothing left to open"}
           </p>
         </div>

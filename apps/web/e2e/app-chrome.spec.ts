@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { collectErrors } from "./fixtures/console";
 
 /**
  * Global app chrome (spec 8.3 "Global") with the in-app demo wallets. Nothing here needs a
@@ -7,21 +8,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const APP_PAGE = "/app/prices";
-
-/** Section routes whose pages are built by later milestones; Next prefetches them from the Portfolio links. */
-const ROUTES_NOT_BUILT_YET = /\/app\/(rounds|deposit|issuer|advance)(\?|$)/;
-
-async function collectErrors(page: Page): Promise<string[]> {
-  const errors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error" && !/favicon|ERR_INTERNET|net::ERR|Failed to fetch|429|Rate limit|status of 404/i.test(message.text())) errors.push(message.text());
-  });
-  page.on("response", (response) => {
-    if (response.status() === 404 && !ROUTES_NOT_BUILT_YET.test(response.url())) errors.push(`404 ${response.url()}`);
-  });
-  page.on("pageerror", (error) => errors.push(error.message));
-  return errors;
-}
 
 test.describe("app chrome", () => {
   test("shows the tour on the first visit, remembers its dismissal and opens from the palette again", async ({ page }) => {
@@ -45,7 +31,7 @@ test.describe("app chrome", () => {
   });
 
   test("connects the three demo wallets and shows them with balances in the top bar", async ({ page }) => {
-    const errors = await collectErrors(page);
+    const errors = collectErrors(page);
     await page.goto(APP_PAGE);
     await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await page.reload();
@@ -87,7 +73,7 @@ test.describe("app chrome", () => {
     await page.locator("[data-get-funds]").click();
     const drawer = page.getByRole("dialog", { name: "Get test funds" });
     await expect(drawer).toBeVisible();
-    await expect(drawer.getByText("Create the demo account with 10 NEAR")).toBeVisible();
+    await expect(drawer.getByText("Create the demo account with test NEAR")).toBeVisible();
     await expect(drawer.getByText("Mint 1,000 tUSDC on NEAR")).toBeVisible();
     await expect(drawer.getByText(/^Send .* ETH for gas$/)).toBeVisible();
     await expect(drawer.getByText("Mint 1,000 tUSDC on Base")).toBeVisible();
@@ -108,7 +94,8 @@ test.describe("app chrome", () => {
       await page.locator("[data-activity]").click();
       const feed = page.getByRole("dialog", { name: "Activity" });
       await expect(feed).toBeVisible();
-      await expect(feed.getByText(/Engine not deployed yet|No activity yet|cleared|created|placed/)).toBeVisible({ timeout: 20_000 });
+      // A live engine shows its latest events (any kind); a fresh or missing one shows its empty state.
+      await expect(feed.locator("[data-activity-feed] li").or(feed.getByText(/Engine not deployed yet|No activity yet/)).first()).toBeVisible({ timeout: 20_000 });
       await page.keyboard.press("Escape");
     }
     await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyK" : "Control+KeyK");

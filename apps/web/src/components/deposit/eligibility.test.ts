@@ -1,7 +1,7 @@
 import { LockupModel, TOKEN_PROGRAM_ID, type SablierStream, type StreamflowMetadata } from "@rose/sdk";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { baseLogReplayKey, baseVerdict, mintDecimals, remainingToLock, sablierScheduleArgs, scanRange, solanaVerdict, streamflowScheduleArgs } from "./eligibility";
+import { baseLogReplayKey, baseVerdict, mintDecimals, remainingToLock, sablierScheduleArgs, scanRange, solanaVerdict, streamflowChargesFees, streamflowScheduleArgs } from "./eligibility";
 
 const stream: SablierStream = {
   streamId: 82n,
@@ -93,18 +93,28 @@ describe("baseVerdict", () => {
   });
 });
 
+const FEE_FREE = new Uint8Array(1104);
+
 describe("solanaVerdict", () => {
+  it("refuses a stream whose withdrawals pay Streamflow or partner fees", () => {
+    const withFee = new Uint8Array(1104);
+    new DataView(withFee.buffer).setFloat32(321, 0.25, true);
+    expect(streamflowChargesFees(FEE_FREE)).toBe(false);
+    expect(streamflowChargesFees(withFee)).toBe(true);
+    expect(solanaVerdict(metadata, TOKEN_PROGRAM_ID, withFee).reasons).toEqual(["Withdrawals from the stream pay Streamflow or partner fees; the engine only holds fee-free streams."]);
+  });
+
   it("accepts a stream the sender cannot change on a classic mint", () => {
-    expect(solanaVerdict(metadata, TOKEN_PROGRAM_ID)).toEqual({ eligible: true, reasons: [] });
+    expect(solanaVerdict(metadata, TOKEN_PROGRAM_ID, FEE_FREE)).toEqual({ eligible: true, reasons: [] });
   });
   it("adds the automatic withdrawal and Token-2022 rules to the SDK rules", () => {
-    const verdict = solanaVerdict({ ...metadata, automaticWithdrawal: true, canTopup: true }, key(42));
+    const verdict = solanaVerdict({ ...metadata, automaticWithdrawal: true, canTopup: true }, key(42), FEE_FREE);
     expect(verdict.reasons).toEqual([
       "The sender can top the stream up, which would change the schedule.",
       "The stream withdraws automatically; the engine must control every withdrawal.",
       "The mint is not a classic SPL Token mint (Token-2022 is not supported).",
     ]);
-    expect(solanaVerdict(metadata, null).reasons).toEqual(["The mint account could not be read."]);
+    expect(solanaVerdict(metadata, null, FEE_FREE).reasons).toEqual(["The mint account could not be read."]);
   });
   it("builds the class-id arguments as plain numbers", () => {
     expect(streamflowScheduleArgs(metadata)).toEqual({

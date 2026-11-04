@@ -67,6 +67,12 @@ export type ReplayOutcome = "consumed" | "cleared";
  * (minted or refused, see `get_refused_deposit`); a key that was `Pending` and disappears means
  * the callback failed (`PromiseError` or mismatch) and the call may be sent again.
  */
+/** Units of `classId` held by `account`; zero while the class does not exist (a deposit's first stream creates it). */
+export async function holdingBalance(views: EngineViews, account: string, classId: string): Promise<bigint> {
+  if ((await views.getClass(classId)) === null) return 0n;
+  return (await views.getHolding(account, classId)).balance;
+}
+
 export async function waitForReplay(views: EngineViews, key: ReplayKey, options: { signal?: AbortSignal; onPoll?: (elapsedMs: number, state: ReplayStateView | null) => void } = {}): Promise<ReplayOutcome> {
   const started = Date.now();
   let seenPending = false;

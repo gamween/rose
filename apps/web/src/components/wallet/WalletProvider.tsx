@@ -147,6 +147,26 @@ export const wagmiConfig = createConfig({
 const BALANCE_POLL_MS = 20_000;
 const nearRpc = new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] });
 
+const FINAL_HEAD_TIMEOUT_MS = 10_000;
+
+/**
+ * Waits until the final head reaches the optimistic head seen after a transaction, so the views
+ * the page re-reads next (all at `final` finality) already include it. Bounded: a slow RPC only
+ * delays the refresh, it never fails the action.
+ */
+async function waitForFinalHead(): Promise<void> {
+  try {
+    const target = (await nearRpc.block("optimistic")).header.height;
+    const started = Date.now();
+    while (Date.now() - started < FINAL_HEAD_TIMEOUT_MS) {
+      if ((await nearRpc.block("final")).header.height >= target) return;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+  } catch {
+    // The transaction already succeeded; a view refresh will catch up on the next poll.
+  }
+}
+
 type NearConnectorModule = typeof import("@hot-labs/near-connect");
 
 async function loadNearConnector(): Promise<NearConnector> {
@@ -286,7 +306,9 @@ function InnerWalletProvider({ children }: { children: ReactNode }) {
           if (!exists) throw new RoseActionError("insufficient_balance", "Demo account not created yet", "Open \"Get test funds\" and create the NEAR demo account first.");
           markNearDemoCreated();
         }
-        return sendNearDemoCall(near.demo, call);
+        const outcome = await sendNearDemoCall(near.demo, call);
+        await waitForFinalHead();
+        return outcome;
       }
       const wallet = nearWalletRef.current;
       if (!wallet || !near.accountId) throw new RoseActionError("no_wallet", "No NEAR wallet", "Connect a NEAR wallet first.");
@@ -300,6 +322,7 @@ function InnerWalletProvider({ children }: { children: ReactNode }) {
         const described = failureToActionError(failure);
         throw new RoseActionError(described.kind, described.title, described.message, described.retryable);
       }
+      await waitForFinalHead();
       return outcome;
     },
     [markNearDemoCreated, near.accountId, near.demo, near.demoAccountExists, near.kind],

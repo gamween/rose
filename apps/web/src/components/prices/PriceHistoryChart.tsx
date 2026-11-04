@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useId, useState, type PointerEvent } from "react";
 import { Axes, ChartTable, ChartTooltip, formatDay, LegendItem, linearScale, MARGIN, Marker, useMeasure, type TooltipRow } from "./chart";
 import { CHART_REFERENCE, type ChartShape } from "./palette";
-import { compactNumber, formatPercent, niceTicks, priceDomain, type ClassSeries, type PlottedPoint } from "./transforms";
+import { compactNumber, distinctTicks, formatPercent, niceTicks, priceDomain, type ClassSeries, type PlottedPoint } from "./transforms";
 
 const HEIGHT = 240;
 const DAY_MS = 86_400_000;
@@ -40,7 +40,10 @@ export function PriceHistoryChart({ series, color, shape, symbol }: { series: Cl
   const x = linearScale(xDomain, [MARGIN.left, plotWidth - MARGIN.right]);
   const y = linearScale(yDomain, [HEIGHT - MARGIN.bottom, MARGIN.top]);
   const yTicks = niceTicks(yDomain[0], yDomain[1], 5).filter((tick) => tick <= yDomain[1]);
-  const xTicks = niceTicks(xDomain[0], xDomain[1], Math.max(3, Math.min(6, Math.floor(plotWidth / 110)))).filter((tick) => tick >= xDomain[0] && tick <= xDomain[1]);
+  const xTicks = distinctTicks(
+    niceTicks(xDomain[0], xDomain[1], Math.max(3, Math.min(6, Math.floor(plotWidth / 110)))).filter((tick) => tick >= xDomain[0] && tick <= xDomain[1]),
+    formatDay,
+  );
   const path = points.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.settledAtMs).toFixed(1)} ${y(point.price).toFixed(1)}`).join(" ");
   const area = points.length > 1 ? `${path} L${x(points[points.length - 1]!.settledAtMs).toFixed(1)} ${y(0)} L${x(points[0]!.settledAtMs).toFixed(1)} ${y(0)} Z` : "";
 

@@ -119,7 +119,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
         <p className="text-[12px] text-ink-300">
           Your cash in this venue is short by <span className="tabular text-ink-50">{formatUsdc(shortfall)} tUSDC</span>. Deposit tUSDC from your NEAR wallet into the engine (`ft_transfer_call`); it stays yours and is withdrawable from the Portfolio.
         </p>
-        <Field label="Amount to deposit" hint={wallet !== null ? `Wallet balance ${formatUsdc(wallet)} tUSDC` : "Reading the wallet balance…"} error={parsed !== null && !enough && wallet !== null ? "Not enough tUSDC in the wallet: mint some with &quot;Get test funds&quot; in the banner, then retry." : null}>
+        <Field label="Amount to deposit" hint={wallet !== null ? `Wallet balance ${formatUsdc(wallet)} tUSDC` : "Reading the wallet balance…"} error={parsed !== null && !enough && wallet !== null ? "Not enough tUSDC in the wallet: mint some with “Get test funds” in the banner, then retry." : null}>
           {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={amount} onValueChange={setAmount} unit="tUSDC" decimals={USDC_DECIMALS} />}
         </Field>
         <div className="flex items-center gap-2">

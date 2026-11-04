@@ -217,7 +217,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="tender-opens">Opens</FieldLabel>
+              <FieldLabel htmlFor="tender-opens">Opens (UTC)</FieldLabel>
               <div className="flex items-center gap-2">
                 <label className="flex items-center gap-1.5 text-[12px] text-ink-300">
                   <input type="checkbox" checked={opensNow} onChange={(event) => setOpensNow(event.target.checked)} /> now

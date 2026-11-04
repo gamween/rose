@@ -50,7 +50,7 @@ function text(error: unknown): string {
 }
 
 const REJECTED = /user rejected|user denied|rejected the request|user cancel|cancelled by user|canceled by user|request rejected|action_rejected|4001/i;
-const INSUFFICIENT = /insufficient funds|insufficient lamports|insufficient balance|exceeds balance|not enough balance|attempt to debit an account|NotEnoughBalance|LackBalanceForState|Insufficient cash/i;
+const INSUFFICIENT = /insufficient funds|gas required exceeds allowance|insufficient lamports|insufficient balance|exceeds balance|not enough balance|attempt to debit an account|NotEnoughBalance|LackBalanceForState|Insufficient cash/i;
 const EXPIRED_BLOCKHASH = /blockhash not found|block height exceeded|transaction has expired|expired|BlockhashNotFound/i;
 const MPC_TIMEOUT = /request has timed out|timed out|Timeout|yield.*resumed|PromiseError/i;
 

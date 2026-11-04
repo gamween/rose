@@ -13,6 +13,7 @@ const STATE_LABEL: Record<PayoutEntry["state"], { text: string; tone: "neutral" 
   requested: { text: "Signature pending", tone: "ember" },
   stale: { text: "Signature request expired", tone: "warning" },
   signed: { text: "Signed, not submitted", tone: "ember" },
+  unconfirmed: { text: "Landed, not confirmed", tone: "ember" },
   submitted: { text: "Executed", tone: "success" },
   awaiting_gas: { text: "Gas signature missing", tone: "warning" },
   failed: { text: "Failed, refunded", tone: "danger" },
@@ -24,6 +25,7 @@ export type ClaimsActions = {
   onFinishPayout: (payout: PayoutView) => void;
   onResignGas: (payout: PayoutView) => void;
   onRetrySignature: (payout: PayoutView) => void;
+  onConfirmPayout: (payout: PayoutView) => void;
 };
 
 /** Claimable cash per venue and tokens per chain, with the payouts still waiting for the claimant. */
@@ -100,6 +102,11 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
                     {state === "signed" ? (
                       <Button size="sm" onClick={() => actions.onFinishPayout(payout)}>
                         {payout.chain === "Base" ? "Submit on Base" : "Broadcast on Solana"}
+                      </Button>
+                    ) : null}
+                    {state === "unconfirmed" ? (
+                      <Button size="sm" onClick={() => actions.onConfirmPayout(payout)}>
+                        Confirm
                       </Button>
                     ) : null}
                     {state === "awaiting_gas" ? (

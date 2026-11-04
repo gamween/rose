@@ -48,11 +48,11 @@ function describe(action: NextAction, viewer: string | null): { title: string; b
     case "cancel_no_key":
       return { title: "No key within the timeout", body: "The MPC never delivered the key. Anyone can cancel the round: nothing was opened, every escrow, bond and locked unit becomes refundable." };
     case "finalize":
-      return { title: `${String(action.remaining)} sealed ${action.remaining === 1 ? "order" : "orders"} to open`, body: `The key is public: this browser decrypts every remaining order and submits one \`open_bid\` per order (300 Tgas prepaid, about ${OPENING_COST_NEAR} NEAR of gas each). Resumable at any time.` };
+      return { title: `${String(action.remaining)} sealed ${action.remaining === 1 ? "order" : "orders"} to open`, body: `The key is public: this browser decrypts every remaining order and submits one \`open_bid\` per order (200 Tgas prepaid, about ${OPENING_COST_NEAR} NEAR of gas each). Resumable at any time.` };
     case "wait_reveal":
       return { title: "Every order is open", body: `The reveal window runs until ${formatDateTime(action.until)}; clearing can run right after.` };
     case "clear":
-      return { title: "Ready to clear", body: "Anyone can compute the clearing price and every fill in one transaction (300 Tgas prepaid). Orders nobody opened are void and lose their bond." };
+      return { title: "Ready to clear", body: "Anyone can compute the clearing price and every fill in one transaction (50 Tgas prepaid). Orders nobody opened are void and lose their bond." };
     case "settle":
       return { title: `${String(action.pending)} ${action.pending === 1 ? "order" : "orders"} to settle`, body: "Settlement is per order and idempotent: units, cash, refunds and bond go to each participant; the storage deposit of the order is returned." };
     case "done":

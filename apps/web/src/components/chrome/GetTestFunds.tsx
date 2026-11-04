@@ -8,7 +8,7 @@ import { Drawer } from "@/components/ui/Modal";
 import { useToast, type ExplorerLink } from "@/components/ui/Toast";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { deployedAddress, NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
-import { toActionError, type ActionError } from "@/lib/errors";
+import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
 import { CHAIN_LABEL, txLinks, type ChainId } from "@/lib/explorer";
 import { formatUnits } from "@/lib/format";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
@@ -28,18 +28,40 @@ type FaucetInfo = {
 type FaucetSuccess =
   | { chain: "base"; txHash: string; amount: string; explorerUrl: string }
   | { chain: "solana"; signature: string; amount: string; explorerUrl: string }
-  | { chain: "near"; accountId: string; txHash: string; explorerUrl: string };
+  | { chain: "near"; accountId: string; txHash: string; amount: string; explorerUrl: string };
 
 type FaucetFailure = { error: string; message: string; retryAfterSeconds?: number };
 
-async function callFaucet(body: Record<string, string>): Promise<FaucetSuccess> {
-  const response = await fetch("/api/faucet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const payload = (await response.json()) as FaucetSuccess | FaucetFailure;
-  if (!response.ok || "error" in payload) {
-    const failure = payload as FaucetFailure;
-    const retry = failure.retryAfterSeconds ? ` Try again in ${String(Math.ceil(failure.retryAfterSeconds / 3600))} h.` : "";
-    throw new Error(`${failure.message}${retry}`);
+/** The faucet's own message is already human-readable; only its title and retry hint depend on the code. */
+function faucetError(failure: FaucetFailure): RoseActionError {
+  switch (failure.error) {
+    case "rate_limited":
+      return new RoseActionError("rate_limited", "Faucet limit reached", failure.message);
+    case "faucet_dry":
+      return new RoseActionError("insufficient_balance", "Faucet empty", failure.message);
+    case "not_configured":
+      return new RoseActionError("not_deployed", "Faucet not configured", failure.message);
+    case "invalid_request":
+      return new RoseActionError("contract", "Request refused", failure.message);
+    default:
+      return new RoseActionError("rpc", "Faucet unavailable", failure.message, true);
   }
+}
+
+async function callFaucet(body: Record<string, string>): Promise<FaucetSuccess> {
+  let response: Response;
+  try {
+    response = await fetch("/api/faucet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    throw new RoseActionError("rpc", "Network error", "The faucet did not answer. Check your connection and retry.", true);
+  }
+  let payload: FaucetSuccess | FaucetFailure;
+  try {
+    payload = (await response.json()) as FaucetSuccess | FaucetFailure;
+  } catch {
+    throw new RoseActionError("rpc", "Faucet unavailable", `The faucet answered HTTP ${String(response.status)} without a result. Retry in a minute.`, true);
+  }
+  if (!response.ok || "error" in payload) throw faucetError(payload as FaucetFailure);
   return payload;
 }
 
@@ -174,12 +196,12 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
           <ChainHeading chain="near" address={wallets.near.accountId} kind={wallets.near.kind} />
           <ul className="flex flex-col gap-2">
             <ActionRow
-              title="Create the demo account with 10 NEAR"
+              title="Create the demo account with test NEAR"
               description={
                 nearDemo
                   ? wallets.near.demoAccountExists
                     ? `${nearDemo.accountId} already exists on testnet.`
-                    : `Creates ${nearDemo.accountId} through the NEAR testnet faucet helper (the same service near-cli-rs uses).`
+                    : `Creates ${nearDemo.accountId} through the NEAR testnet faucet helper (the same service near-cli-rs uses, 10 NEAR), or from the project's funder account when the helper is rate limited.`
                   : wallets.near.kind === "external"
                     ? "Your external wallet already has an account. The helper only creates new demo accounts."
                     : connectHint("near")
@@ -189,9 +211,9 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               onRun={() =>
                 void runNearAccount("Creating the NEAR demo account", async () => {
                   if (!nearDemo) throw new Error("No NEAR demo wallet.");
-                  const result = await callFaucet({ chain: "near", accountId: nearDemo.accountId, publicKey: nearDemo.publicKey });
+                  const result = (await callFaucet({ chain: "near", accountId: nearDemo.accountId, publicKey: nearDemo.publicKey })) as { txHash: string; amount: string };
                   wallets.markNearDemoCreated();
-                  return { message: `Account ${nearDemo.accountId} created with 10 NEAR`, links: txLinks("near", (result as { txHash: string }).txHash) };
+                  return { message: `Account ${nearDemo.accountId} created with ${result.amount}`, links: txLinks("near", result.txHash) };
                 })
               }
             />

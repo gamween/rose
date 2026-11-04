@@ -172,7 +172,7 @@ export function PricesPage({ deployment }: { deployment: Deployment }) {
   const notDeployed = state.status === "not_deployed" || (state.status === "error" && !deployment.ENGINE_ACCOUNT);
 
   return (
-    <main className="mx-auto w-full max-w-[1440px] px-4 py-8 md:px-6 lg:py-10" aria-busy={state.status === "loading"}>
+    <div className="py-2 lg:py-4" aria-busy={state.status === "loading"} data-prices>
       <header className="mb-8">
         <p className="font-display text-[11px] uppercase tracking-wide text-ember-400">Clearing prices</p>
         <h1 className="mt-2 font-display text-[28px] leading-tight text-ink-50 md:text-[34px]">Prices</h1>
@@ -206,6 +206,6 @@ export function PricesPage({ deployment }: { deployment: Deployment }) {
       <div className="mt-8">
         <Methodology />
       </div>
-    </main>
+    </div>
   );
 }

@@ -24,6 +24,7 @@ import { createSolanaDemoPosition } from "@/lib/wallet/solana-stream";
 import { recordAttempted } from "./attempted";
 import { solStreamReplayKey } from "./eligibility";
 import { ClassNote, Reasons, Row, VerdictBadge, WalletPrompt } from "./shared";
+import { holdingBalance } from "./base-reads";
 import { depositAddressFor, listSolanaStreams, readMetadataHex, stageName, waitForStage, type SolanaStreamRow } from "./solana-reads";
 
 type Context = { address?: string; transferSignature?: string; moveSignature?: string; needFreshMove?: boolean; balanceBefore?: bigint };
@@ -147,7 +148,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
         run: async (step) => {
           const { views, calls } = requireEngine();
           recordAttempted({ key: solStreamReplayKey(metadataKey), chain: "solana", label: `Streamflow stream ${shortHex(metadataKey, 6, 6)}`, nearAccount, attemptedAt: Date.now() });
-          context.balanceBefore ??= (await views.getHolding(nearAccount, classId)).balance;
+          context.balanceBefore ??= await holdingBalance(views, nearAccount, classId);
           const existing = await views.raw.getSolDeposit(metadataKey);
           if (existing && stageName(existing.stage) !== "Refused") return { message: `Already attributed to ${existing.account} (stage ${stageName(existing.stage)}).` };
           step.setDetail("Reading the metadata and mint accounts at finalized…");

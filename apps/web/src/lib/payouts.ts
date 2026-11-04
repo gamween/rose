@@ -1,16 +1,17 @@
 /**
  * Foreign-chain side of the engine's payouts (spec 7.3): submitting a stored EIP-712
- * authorization to RoseVault, creating and proving a Solana durable nonce, and broadcasting a
- * stored durable-nonce transaction. The engine never pushes; the claimant's browser does.
+ * authorization to RoseVault, creating and proving a Solana durable nonce with the recipient's
+ * token account, broadcasting a stored durable-nonce transaction and reading the accounts that
+ * confirm it landed. The engine never pushes; the claimant's browser does.
  */
 
 import {
+  base64ToBytes,
   bytesToHex,
   confirmSignature,
   createNonceAccountTransaction,
   executeRelease,
   executeTransfer,
-  hexToBytes,
   nonceRent,
   readNonceAccount,
   type EngineViews,
@@ -18,6 +19,8 @@ import {
   type SignerClient,
   type SolNonceProof,
 } from "@rose/sdk";
+import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { baseEncode } from "near-api-js";
 import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
 import type { Address, Hex } from "viem";
 import { RoseActionError } from "./errors";
@@ -97,22 +100,33 @@ export type CreatedNonce = { proof: SolNonceProof; nonceAccount: PublicKey; sign
 
 /**
  * Creates the payout's durable nonce account from the claimant's Solana wallet (authority =
- * the engine's vault), waits for finality and reads back the exact bytes the engine proves.
+ * the engine's vault) and, in the same transaction, the recipient's associated token account for
+ * the mint when it does not exist yet (idempotent). After finality it reads back the exact bytes
+ * the engine proves: the nonce account and the recipient's token account.
  */
-export async function createPayoutNonce(signer: SolanaSigner, connection: Connection, vaultSol: string, onProgress?: (text: string) => void): Promise<CreatedNonce> {
+export async function createPayoutNonce(
+  signer: SolanaSigner,
+  connection: Connection,
+  vaultSol: string,
+  recipient: { owner: PublicKey; mint: PublicKey },
+  onProgress?: (text: string) => void,
+): Promise<CreatedNonce> {
   const nonceKeypair = Keypair.generate();
   const lamports = await nonceRent(connection);
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
   const transaction = createNonceAccountTransaction({ payer: signer.publicKey, nonceAccount: nonceKeypair.publicKey, authority: new PublicKey(vaultSol), lamports, blockhash, lastValidBlockHeight });
+  const recipientTokens = getAssociatedTokenAddressSync(recipient.mint, recipient.owner, true);
+  transaction.add(createAssociatedTokenAccountIdempotentInstruction(signer.publicKey, recipientTokens, recipient.owner, recipient.mint));
   transaction.partialSign(nonceKeypair);
   const signed = await signer.signTransaction(transaction);
   onProgress?.("Sending the nonce account creation…");
   const signature = await connection.sendRawTransaction(signed.serialize());
   onProgress?.("Waiting for finality (about 15 s)…");
   await confirmSignature(connection, signature, { strategy: "blockhash", blockhash, lastValidBlockHeight, commitment: "finalized" });
-  const state = await readNonceAccount(connection, nonceKeypair.publicKey, "finalized");
+  const [state, tokens] = await Promise.all([readNonceAccount(connection, nonceKeypair.publicKey, "finalized"), connection.getAccountInfo(recipientTokens, "finalized")]);
+  if (!tokens) throw new RoseActionError("contract", "No token account", `The recipient's token account ${recipientTokens.toBase58()} is not readable at finality yet; retry.`, true);
   return {
-    proof: { account: nonceKeypair.publicKey.toBase58(), anchor_tx: signature, data: bytesToHex(state.raw) },
+    proof: { account: nonceKeypair.publicKey.toBase58(), anchor_tx: signature, data: bytesToHex(state.raw), recipient_tokens_data: bytesToHex(Uint8Array.from(tokens.data)) },
     nonceAccount: nonceKeypair.publicKey,
     signature,
     nonceValue: state.nonce,
@@ -120,11 +134,11 @@ export async function createPayoutNonce(signer: SolanaSigner, connection: Connec
   };
 }
 
-/** Broadcasts the engine-signed durable-nonce transaction stored in a payout and waits for confirmation. */
+/** Broadcasts the engine-signed durable-nonce transaction (base64 wire bytes) stored in a payout and waits for confirmation. */
 export async function broadcastSolPayout(connection: Connection, payout: PayoutView): Promise<string> {
   const solana = payout.solana;
   if (!solana?.transaction) throw new RoseActionError("contract", "Not signed yet", "The engine has not stored both signatures of this transaction yet.");
-  const wire = hexToBytes(solana.transaction);
+  const wire = base64ToBytes(solana.transaction);
   const slot = await connection.getSlot("confirmed");
   const signature = await connection.sendRawTransaction(wire, { skipPreflight: false });
   if (solana.nonce_account && solana.nonce_value) {
@@ -134,6 +148,29 @@ export async function broadcastSolPayout(connection: Connection, payout: PayoutV
     await confirmSignature(connection, signature, { strategy: "blockhash", blockhash, lastValidBlockHeight });
   }
   return signature;
+}
+
+/**
+ * The Solana signature (base58) of a payout's stored transaction: the first signature of the
+ * wire bytes (`[count] || sig(gas) || sig(authority) || message`), which is the transaction id.
+ */
+export function solPayoutSignature(payout: PayoutView): string | null {
+  const wire = payout.solana?.transaction;
+  if (!wire) return null;
+  const bytes = base64ToBytes(wire);
+  return bytes.length >= 65 && bytes[0]! >= 1 ? baseEncode(bytes.slice(1, 65)) : null;
+}
+
+/**
+ * The finalized account bytes that settle a broadcast payout or redeem (`confirm_sol_payout`,
+ * `confirm_sol_redeem`): the nonce account (advanced) and the metadata of each drawn stream.
+ */
+export async function readSolConfirmation(connection: Connection, nonceAccount: string, streams: readonly string[]): Promise<{ nonceData: string; streamData: string[] }> {
+  const accounts = await connection.getMultipleAccountsInfo([new PublicKey(nonceAccount), ...streams.map((stream) => new PublicKey(stream))], "finalized");
+  const missing = accounts.findIndex((account) => account === null);
+  if (missing !== -1) throw new RoseActionError("contract", "Account not final yet", `${missing === 0 ? "The nonce account" : "A drawn stream"} is not readable at finality yet; retry in a few seconds.`, true);
+  const data = accounts.map((account) => bytesToHex(Uint8Array.from(account!.data)));
+  return { nonceData: data[0]!, streamData: data.slice(1) };
 }
 
 /** One line describing what a payout does, for lists and toasts. */

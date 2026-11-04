@@ -14,7 +14,7 @@ import {
   waitForSafeHead,
   type StreamDepositedLog,
 } from "@rose/sdk";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Address } from "viem";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
@@ -29,11 +29,11 @@ import { deployedAddress, SABLIER_LOCKUP_ADDRESS } from "@/lib/deployment";
 import { RoseActionError } from "@/lib/errors";
 import { txLinks, type ChainId } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
-import { useAction, useFlow } from "@/lib/use-action";
+import { useAction, useFlow, type StepDefinition } from "@/lib/use-action";
 import { useEngineQuery } from "@/lib/use-engine-query";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
-import { recordAttempted } from "./attempted";
-import { initialRange, listBaseStreams, waitForReplay, type BaseListing, type BaseStreamRow } from "./base-reads";
+import { loadAttempted, recordAttempted, type AttemptedDeposit } from "./attempted";
+import { holdingBalance, initialRange, listBaseStreams, waitForReplay, type BaseListing, type BaseStreamRow } from "./base-reads";
 import { baseLogReplayKey, remainingToLock } from "./eligibility";
 import { ClassNote, Reasons, Row, VerdictBadge, WalletPrompt } from "./shared";
 
@@ -84,7 +84,7 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
   const demoFaucet = deployedAddress("demoStreamFaucet");
   const lockup = SABLIER_LOCKUP_ADDRESS as Address;
   const [older, setOlder] = useState(0n);
-  const [selected, setSelected] = useState<BaseStreamRow | null>(null);
+  const [selected, setSelected] = useState<{ streamId: bigint; resumed: boolean } | null>(null);
   const [demoClass, setDemoClass] = useState<0 | 1>(DemoClass.SEED);
   const [symbols, setSymbols] = useState<Map<string, string>>(new Map());
 
@@ -115,10 +115,88 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
     return null;
   }, [nearAccount, vault, wallets.near.demoAccountExists, wallets.near.kind]);
 
+  /** Finality, registration and the minted units of a deposited stream (shared by a new deposit and a resumed one). */
+  const registrationSteps = (context: Context, streamId: bigint, owner: string): StepDefinition[] => {
+    if (!nearAccount) return [];
+    return [
+      {
+        id: "finality",
+        label: "Base finality: ~3 min",
+        run: async (step) => {
+          const log = context.log;
+          if (!log) throw new RoseActionError("unknown", "Missing receipt", "The deposit receipt is missing; retry the deposit step.");
+          const result = await waitForSafeHead(basePublicClient(), log.blockNumber, {
+            signal: step.signal,
+            onProgress: (progress) => {
+              if (progress.phase === "waiting_safe") step.setDetail(`Safe head ${progress.safeHead.toString()}, waiting for block ${progress.target.toString()} (the safe head moves every 3 to 4 min)…`);
+              else if (progress.phase === "margin") step.setDetail(`Safe head ${progress.safeHead.toString()} passed block ${progress.target.toString()}; 30 s margin for the MPC nodes' providers…`);
+            },
+          });
+          return { message: `Block ${log.blockNumber.toString()} is safe (safe head ${result.safeHead.toString()}).` };
+        },
+      },
+      {
+        id: "register",
+        label: "Register on NEAR: MPC verification (~7 s)",
+        run: async (step) => {
+          const log = context.log;
+          if (!log) throw new RoseActionError("unknown", "Missing receipt", "The deposit receipt is missing; retry the deposit step.");
+          const { views, calls } = requireEngine();
+          const key = baseLogReplayKey(log);
+          recordAttempted({ key, chain: "base", label: `Sablier stream #${streamId.toString()}`, nearAccount, attemptedAt: Date.now(), baseTx: log.transactionHash, streamId: streamId.toString() });
+          const args = registerBaseDepositArgs(log);
+          context.classId ??= await views.raw.computeBaseClassId(args.fields.token, args.fields.decimals, {
+            start: args.fields.start,
+            cliff: args.fields.cliff,
+            end: args.fields.end,
+            granularity: args.fields.granularity,
+            deposited: args.fields.deposited,
+            start_unlock: args.fields.start_unlock,
+            cliff_unlock: args.fields.cliff_unlock,
+          });
+          context.balanceBefore ??= await holdingBalance(views, nearAccount, context.classId);
+          const state = await views.raw.getReplay(key);
+          if (state === null) {
+            const registration = await views.registrationDepositFor(nearAccount, context.classId);
+            step.setDetail(`Sending register_base_deposit with ${formatAmount(registration, 24, 5)} NEAR of storage for ${nearAccount}…`);
+            const outcome = await wallets.sendNearCall(calls.registerBaseDeposit(args.location, { ...args.fields }, registration));
+            step.addLinks(txLinks("near", outcome.transaction.hash));
+            context.registerSent = true;
+          } else if (state !== "Consumed") {
+            step.setDetail("A verification of this log is already in flight; waiting for the MPC callback…");
+          }
+          const outcome = await waitForReplay(views, key, {
+            signal: step.signal,
+            onPoll: (elapsed) => step.setDetail(`MPC nodes verifying the Base log (${String(Math.round(elapsed / 1000))} s; usually 6 to 9 s)…`),
+          });
+          if (outcome === "cleared") {
+            throw new RoseActionError("mpc_timeout", "MPC verification failed", "The MPC request ended without a match (a PromiseError after about 2 min, or a value mismatch). The log can be registered again: retry.", true);
+          }
+          const refused = await views.raw.getRefusedDeposit(key);
+          if (refused) throw new RoseActionError("contract", "Deposit refused by the engine", `${refused.reason}. The stream is held by RoseVault; use "Return my stream" below to get it back.`);
+          return { message: "The MPC matched the log and the engine registered the position." };
+        },
+      },
+      {
+        id: "minted",
+        label: "Units minted",
+        run: async () => {
+          const { views } = requireEngine();
+          const classId = context.classId;
+          const log = context.log;
+          if (!classId || !log) throw new RoseActionError("unknown", "Missing class", "The class id is missing; retry the registration step.");
+          const holding = await views.getHolding(owner, classId);
+          const minted = holding.balance - (context.balanceBefore ?? 0n);
+          return { message: `${formatAmount(minted, log.args.decimals)} units of class ${shortHex(classId, 8, 6)} minted to ${owner}.` };
+        },
+      },
+    ];
+  };
+
   const startDeposit = (row: BaseStreamRow) => {
     const stream = row.stream;
     if (!stream || !vault || !nearAccount) return;
-    setSelected(row);
+    setSelected({ streamId: row.streamId, resumed: false });
     const context: Context = {};
     const client = basePublicClient();
     const streamId = stream.streamId;
@@ -154,82 +232,38 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
           const log = decodeStreamDeposited(receipt).find((entry) => entry.args.streamId === streamId);
           if (!log) throw new RoseActionError("contract", "No StreamDeposited event", "The receipt holds no StreamDeposited log for this stream.");
           context.log = log;
+          recordAttempted({ key: baseLogReplayKey(log), chain: "base", label: `Sablier stream #${streamId.toString()}`, nearAccount, attemptedAt: Date.now(), baseTx: hash, streamId: streamId.toString() });
           const vested = log.args.withdrawn - stream.withdrawn;
           return {
             message: `Deposited in block ${log.blockNumber.toString()}${vested > 0n ? `; ${formatAmount(vested, stream.decimals)} already vested tokens were withdrawn to you first` : ""}.`,
           };
         },
       },
+      ...registrationSteps(context, streamId, nearAccount),
+    ]);
+  };
+
+  /** Registers a deposit made earlier in this browser whose registration did not finish (a reload during the finality wait). */
+  const resumeRegistration = (attempt: AttemptedDeposit) => {
+    if (!attempt.baseTx || !attempt.streamId || !nearAccount) return;
+    const streamId = BigInt(attempt.streamId);
+    const hash = attempt.baseTx as `0x${string}`;
+    setSelected({ streamId, resumed: true });
+    const context: Context = {};
+    void flow.start([
       {
-        id: "finality",
-        label: "Base finality: ~3 min",
+        id: "deposit",
+        label: "Read the deposit receipt",
         run: async (step) => {
-          const log = context.log;
-          if (!log) throw new RoseActionError("unknown", "Missing receipt", "The deposit receipt is missing; retry the deposit step.");
-          const result = await waitForSafeHead(client, log.blockNumber, {
-            signal: step.signal,
-            onProgress: (progress) => {
-              if (progress.phase === "waiting_safe") step.setDetail(`Safe head ${progress.safeHead.toString()}, waiting for block ${progress.target.toString()} (the safe head moves every 3 to 4 min)…`);
-              else if (progress.phase === "margin") step.setDetail(`Safe head ${progress.safeHead.toString()} passed block ${progress.target.toString()}; 30 s margin for the MPC nodes' providers…`);
-            },
-          });
-          return { message: `Block ${log.blockNumber.toString()} is safe (safe head ${result.safeHead.toString()}).` };
+          step.addLinks(txLinks("base", hash));
+          const receipt = await basePublicClient().getTransactionReceipt({ hash });
+          const log = decodeStreamDeposited(receipt).find((entry) => entry.args.streamId === streamId);
+          if (!log) throw new RoseActionError("contract", "No StreamDeposited event", "The receipt holds no StreamDeposited log for this stream.");
+          context.log = log;
+          return { message: `Deposited in block ${log.blockNumber.toString()} for ${log.args.nearAccount}.` };
         },
       },
-      {
-        id: "register",
-        label: "Register on NEAR: MPC verification (~7 s)",
-        run: async (step) => {
-          const log = context.log;
-          if (!log) throw new RoseActionError("unknown", "Missing receipt", "The deposit receipt is missing; retry the deposit step.");
-          const { views, calls } = requireEngine();
-          const key = baseLogReplayKey(log);
-          recordAttempted({ key, chain: "base", label: `Sablier stream #${streamId.toString()}`, nearAccount, attemptedAt: Date.now() });
-          const args = registerBaseDepositArgs(log);
-          context.classId ??= await views.raw.computeBaseClassId(args.fields.token, args.fields.decimals, {
-            start: args.fields.start,
-            cliff: args.fields.cliff,
-            end: args.fields.end,
-            granularity: args.fields.granularity,
-            deposited: args.fields.deposited,
-            start_unlock: args.fields.start_unlock,
-            cliff_unlock: args.fields.cliff_unlock,
-          });
-          context.balanceBefore ??= (await views.getHolding(nearAccount, context.classId)).balance;
-          const state = await views.raw.getReplay(key);
-          if (state === null) {
-            const registration = await views.registrationDepositFor(nearAccount, context.classId);
-            step.setDetail(`Sending register_base_deposit with ${formatAmount(registration, 24, 5)} NEAR of storage for ${nearAccount}…`);
-            const outcome = await wallets.sendNearCall(calls.registerBaseDeposit(args.location, { ...args.fields }, registration));
-            step.addLinks(txLinks("near", outcome.transaction.hash));
-            context.registerSent = true;
-          } else if (state !== "Consumed") {
-            step.setDetail("A verification of this log is already in flight; waiting for the MPC callback…");
-          }
-          const outcome = await waitForReplay(views, key, {
-            signal: step.signal,
-            onPoll: (elapsed) => step.setDetail(`MPC nodes verifying the Base log (${String(Math.round(elapsed / 1000))} s; usually 6 to 9 s)…`),
-          });
-          if (outcome === "cleared") {
-            throw new RoseActionError("mpc_timeout", "MPC verification failed", "The MPC request ended without a match (a PromiseError after about 2 min, or a value mismatch). The log can be registered again: retry.", true);
-          }
-          const refused = await views.raw.getRefusedDeposit(key);
-          if (refused) throw new RoseActionError("contract", "Deposit refused by the engine", `${refused.reason}. The stream is held by RoseVault; use "Return my stream" below to get it back.`);
-          return { message: "The MPC matched the log and the engine registered the position." };
-        },
-      },
-      {
-        id: "minted",
-        label: "Units minted",
-        run: async () => {
-          const { views } = requireEngine();
-          const classId = context.classId;
-          if (!classId) throw new RoseActionError("unknown", "Missing class", "The class id is missing; retry the registration step.");
-          const holding = await views.getHolding(nearAccount, classId);
-          const minted = holding.balance - (context.balanceBefore ?? 0n);
-          return { message: `${formatAmount(minted, stream.decimals)} units of class ${shortHex(classId, 8, 6)} minted to ${nearAccount}.` };
-        },
-      },
+      ...registrationSteps(context, streamId, attempt.nearAccount),
     ]);
   };
 
@@ -340,10 +374,12 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
         </CardBody>
       </Card>
 
+      <PendingRegistrations nearAccount={nearAccount} busy={flow.running} onResume={resumeRegistration} refreshKey={flow.completed} />
+
       {selected && flow.steps.length > 0 ? (
         <Card data-deposit-flow>
           <CardHeader
-            title={`Depositing Sablier stream #${selected.streamId.toString()}`}
+            title={`${selected.resumed ? "Registering" : "Depositing"} Sablier stream #${selected.streamId.toString()}`}
             description={`Units are minted to ${nearAccount ?? "your NEAR account"} with a checkpoint at the deposit time. The vault withdraws the already vested part to your EVM address first; the rest accrues to the units.`}
             action={
               flow.completed ? (
@@ -366,5 +402,54 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
         RoseVault refuses non-linear, cancelable, non-transferable, canceled or depleted streams and streams below one whole token; the engine re-checks the schedule from the attested event. <LearnMore topic="custody" />
       </p>
     </div>
+  );
+}
+
+/**
+ * Base deposits this browser made whose registration never completed (the tab was closed during
+ * the finality wait, or the step failed): the stream sits in RoseVault until its log is
+ * registered, which anyone can do, so the holder gets a one-click resume here.
+ */
+function PendingRegistrations({ nearAccount, busy, onResume, refreshKey }: { nearAccount: string | null; busy: boolean; onResume: (attempt: AttemptedDeposit) => void; refreshKey: boolean }) {
+  const [attempts, setAttempts] = useState<AttemptedDeposit[]>([]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAttempts(loadAttempted().filter((attempt) => attempt.chain === "base" && attempt.baseTx && attempt.streamId && attempt.nearAccount === nearAccount)), 0);
+    return () => window.clearTimeout(timer);
+  }, [nearAccount, refreshKey]);
+  const fetcher = useCallback(
+    async (signal: AbortSignal): Promise<AttemptedDeposit[]> => {
+      if (attempts.length === 0) return [];
+      const { views } = requireEngine();
+      const states = await Promise.all(attempts.map((attempt) => Promise.all([views.raw.getReplay(attempt.key, { signal }), views.raw.getRefusedDeposit(attempt.key, { signal })])));
+      return attempts.filter((_, index) => states[index]![0] === null && states[index]![1] === null);
+    },
+    [attempts],
+  );
+  const query = useEngineQuery(fetcher, { enabled: attempts.length > 0, pollMs: 60_000 });
+  if (query.state.status !== "ok" || query.state.value.length === 0) return null;
+  return (
+    <Card data-pending-registrations>
+      <CardHeader title="Waiting for registration" description="Streams this browser deposited into RoseVault whose registration on NEAR did not finish. Register them to receive the units." />
+      <CardBody>
+        <ul className="flex flex-col gap-2">
+          {query.state.value.map((attempt) => (
+            <li key={attempt.baseTx} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-900 px-3 py-2.5">
+              <div className="min-w-0 text-[13px]">
+                <p className="text-ink-50">{attempt.label}</p>
+                <p className="text-[12px] text-ink-400">
+                  Deposited {formatDay(attempt.attemptedAt)} for {attempt.nearAccount}.{" "}
+                  <a href={txLinks("base", attempt.baseTx!)[0]!.href} target="_blank" rel="noreferrer" className="text-ember-300 underline-offset-2 hover:underline">
+                    Deposit transaction ↗
+                  </a>
+                </p>
+              </div>
+              <Button size="sm" onClick={() => onResume(attempt)} disabled={busy} data-resume-registration>
+                Register
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </CardBody>
+    </Card>
   );
 }

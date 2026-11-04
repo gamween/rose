@@ -27,7 +27,7 @@ export type FaucetErrorCode = "invalid_request" | "rate_limited" | "not_configur
 export type FaucetSuccess =
   | { chain: "base"; txHash: string; amount: string; explorerUrl: string }
   | { chain: "solana"; signature: string; amount: string; explorerUrl: string }
-  | { chain: "near"; accountId: string; txHash: string; explorerUrl: string };
+  | { chain: "near"; accountId: string; txHash: string; amount: string; explorerUrl: string };
 
 export type FaucetFailure = { error: FaucetErrorCode; message: string; retryAfterSeconds?: number };
 
@@ -83,8 +83,8 @@ async function send(senders: FaucetSenders, request: FaucetRequest): Promise<Fau
       return { chain: "solana", signature, amount, explorerUrl: `${SOLANA_TX_URL}${signature}?cluster=devnet` };
     }
     case "near": {
-      const { txHash } = await senders.createNearAccount(request.accountId, request.publicKey);
-      return { chain: "near", accountId: request.accountId, txHash, explorerUrl: `${NEAR_TX_URL}${txHash}` };
+      const { txHash, amount } = await senders.createNearAccount(request.accountId, request.publicKey);
+      return { chain: "near", accountId: request.accountId, txHash, amount, explorerUrl: `${NEAR_TX_URL}${txHash}` };
     }
   }
 }

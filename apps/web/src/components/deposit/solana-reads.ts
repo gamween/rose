@@ -48,7 +48,7 @@ export async function listSolanaStreams(connection: Connection, views: EngineVie
     const mintKey = entry.metadata.mint.toBase58();
     if (!mints.has(mintKey)) mints.set(mintKey, await readMintAccount(connection, entry.metadata.mint));
     const mint = mints.get(mintKey) ?? null;
-    const verdict = solanaVerdict(entry.metadata, mint?.owner.equals(TOKEN_PROGRAM_ID) ? TOKEN_PROGRAM_ID : (mint?.owner ?? null));
+    const verdict = solanaVerdict(entry.metadata, mint?.owner.equals(TOKEN_PROGRAM_ID) ? TOKEN_PROGRAM_ID : (mint?.owner ?? null), entry.raw);
     let classId: string | null = null;
     let classExists: boolean | null = null;
     if (verdict.eligible && mint) {

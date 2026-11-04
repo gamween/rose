@@ -35,13 +35,26 @@ export function baseVerdict(stream: SablierStream | null, decimalsError: string 
 }
 
 /**
- * Solana eligibility: the SDK rules plus no automatic withdrawal (the engine sizes its own
- * withdraws inside payouts) and a classic SPL Token mint (Token-2022 is not modeled).
+ * Whether a Streamflow stream charges Streamflow or partner fees on withdrawals (`streamflow_fee_total`
+ * 305, `_withdrawn` 313, `_percent` f32 321, `partner_fee_total` 389, `_withdrawn` 397, `_percent`
+ * f32 405, little-endian, as `foreign::solana` in the engine reads them).
  */
-export function solanaVerdict(metadata: StreamflowMetadata, mintOwner: PublicKey | null): Verdict {
+export function streamflowChargesFees(raw: Uint8Array): boolean {
+  if (raw.length < 409) return true;
+  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  return [305, 313, 389, 397].some((offset) => view.getBigUint64(offset, true) !== 0n) || [321, 405].some((offset) => view.getFloat32(offset, true) !== 0);
+}
+
+/**
+ * Solana eligibility: the SDK rules plus no automatic withdrawal (the engine sizes its own
+ * withdraws inside payouts), no withdrawal fees (the engine's withdraws carry no fee accounts)
+ * and a classic SPL Token mint (Token-2022 is not modeled).
+ */
+export function solanaVerdict(metadata: StreamflowMetadata, mintOwner: PublicKey | null, raw: Uint8Array): Verdict {
   const result = checkStreamflowEligibility(metadata);
   const reasons = result.reasons.map((reason) => STREAMFLOW_ELIGIBILITY_MESSAGES[reason]);
   if (metadata.automaticWithdrawal) reasons.push("The stream withdraws automatically; the engine must control every withdrawal.");
+  if (streamflowChargesFees(raw)) reasons.push("Withdrawals from the stream pay Streamflow or partner fees; the engine only holds fee-free streams.");
   if (mintOwner === null) reasons.push("The mint account could not be read.");
   else if (!mintOwner.equals(TOKEN_PROGRAM_ID)) reasons.push("The mint is not a classic SPL Token mint (Token-2022 is not supported).");
   return { eligible: reasons.length === 0, reasons };

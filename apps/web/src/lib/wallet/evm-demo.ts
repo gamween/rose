@@ -4,7 +4,7 @@
  */
 
 import { baseSepoliaChain, createBaseClient, type SignerClient } from "@rose/sdk";
-import { createWalletClient, http, type Hex, type PublicClient } from "viem";
+import { createWalletClient, http, MethodNotSupportedRpcError, type Hex, type PublicClient, type Transport } from "viem";
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { BASE_SEPOLIA_RPC_URL } from "@/lib/deployment";
 import { DEMO_STORAGE_KEYS, readStored, removeStored, writeStored } from "./storage";
@@ -42,7 +42,27 @@ export function evmDemoAccount(wallet: EvmDemoWallet): PrivateKeyAccount {
   return privateKeyToAccount(wallet.privateKey);
 }
 
+/**
+ * The public Base Sepolia endpoint answers `eth_fillTransaction` (tried first by viem when it
+ * prepares a transaction) with HTTP 401, which the browser logs as a console error before viem
+ * falls back to the individual calls. The demo wallet refuses that one method locally instead,
+ * so viem goes straight to the fallback.
+ */
+export function baseSepoliaWalletTransport(): Transport {
+  const inner = http(BASE_SEPOLIA_RPC_URL);
+  return (params) => {
+    const transport = inner(params);
+    return {
+      ...transport,
+      request: (async (args, options) => {
+        if (args.method === "eth_fillTransaction") throw new MethodNotSupportedRpcError(new Error("eth_fillTransaction is not available on the public Base Sepolia endpoint"));
+        return transport.request(args, options);
+      }) as typeof transport.request,
+    };
+  };
+}
+
 /** A viem wallet client that signs locally with the demo key and broadcasts to Base Sepolia. */
 export function evmDemoWalletClient(wallet: EvmDemoWallet): SignerClient {
-  return createWalletClient({ account: evmDemoAccount(wallet), chain: baseSepoliaChain, transport: http(BASE_SEPOLIA_RPC_URL) });
+  return createWalletClient({ account: evmDemoAccount(wallet), chain: baseSepoliaChain, transport: baseSepoliaWalletTransport() });
 }

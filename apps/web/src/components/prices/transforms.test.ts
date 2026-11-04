@@ -3,6 +3,7 @@ import {
   buildSeries,
   classLabel,
   compactNumber,
+  distinctTicks,
   discountToReference,
   groupByToken,
   niceTicks,
@@ -92,5 +93,13 @@ describe("prices transforms", () => {
     expect(compactNumber(1_250)).toBe("1.3K");
     expect(compactNumber(0.5)).toBe("0.5");
     expect(compactNumber(12)).toBe("12");
+    expect(compactNumber(0.005)).toBe("0.005");
+    expect(compactNumber(0.004)).toBe("0.004");
+    expect(compactNumber(0.0012)).toBe("0.0012");
+    expect(compactNumber(0.25)).toBe("0.25");
+  });
+
+  it("drops ticks whose label repeats the previous one", () => {
+    expect(distinctTicks([0, 0.4, 1, 1.6, 2], (value) => String(Math.floor(value)))).toEqual([0, 1, 2]);
   });
 });

@@ -12,8 +12,8 @@ import { formatUnits } from "@/lib/format";
 export const USDC_DECIMALS = 6;
 export const ONE_USDC = 1_000_000n;
 export const NS_PER_MS = 1_000_000n;
-/** Gas burnt by one fully verified opening, measured live (spec 5.2): 124.4 Tgas at 1e-4 NEAR per Tgas. */
-export const OPENING_COST_NEAR = "0.0124";
+/** Gas burnt by one fully verified opening, measured live on the staging engine: 132 Tgas at 1e-4 NEAR per Tgas. */
+export const OPENING_COST_NEAR = "0.0132";
 
 export function nsToMs(ns: bigint): number {
   return Number(ns / NS_PER_MS);

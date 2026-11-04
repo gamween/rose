@@ -1,0 +1,23 @@
+# The web app deploys from the repository root (pnpm workspace, project root directory apps/web):
+# only the workspace manifests, apps/web and the packages it builds from are uploaded, plus the
+# manifest of every other workspace project so `pnpm install --frozen-lockfile` matches the lockfile.
+/*
+!/package.json
+!/pnpm-lock.yaml
+!/pnpm-workspace.yaml
+!/apps
+!/packages
+!/scripts
+/apps/*
+!/apps/web
+/scripts/*
+!/scripts/package.json
+**/node_modules
+**/.next
+**/dist
+**/test-results
+**/playwright-report
+**/.env
+**/.env.*
+!**/.env.example
+**/*.tsbuildinfo

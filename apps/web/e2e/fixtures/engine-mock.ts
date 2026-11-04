@@ -6,15 +6,25 @@ import type { Page, Route } from "@playwright/test";
  * rounds (two with an issuer-declared reference), key releases and verified deposits.
  */
 
+/**
+ * The mocked deployment follows the `NEXT_PUBLIC_*` values the app under test was built with
+ * (`playwright.config.ts` loads `.env.local` like `next build` does), so the mocked suites run
+ * against any build that has an engine account: the fixture's own addresses are the fallbacks.
+ */
+function built(value: string | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : fallback;
+}
+
 export const MOCK = {
-  engine: "engine.rose-app.testnet",
-  vault: "0x1111111111111111111111111111111111111111",
+  engine: built(process.env.NEXT_PUBLIC_ENGINE_ACCOUNT, "engine.rose-app.testnet"),
+  vault: built(process.env.NEXT_PUBLIC_ROSE_VAULT_ADDRESS, "0x1111111111111111111111111111111111111111").toLowerCase(),
   signer: "0x2222222222222222222222222222222222222222",
   lockup: "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
-  baseTusdc: "0x3333333333333333333333333333333333333333",
-  demoToken: "0x4444444444444444444444444444444444444444",
-  vaultSol: "5vaultSoLAddress111111111111111111111111111",
-  gasSol: "5gasSoLAddress1111111111111111111111111111",
+  baseTusdc: built(process.env.NEXT_PUBLIC_BASE_TUSDC_ADDRESS, "0x3333333333333333333333333333333333333333").toLowerCase(),
+  demoToken: built(process.env.NEXT_PUBLIC_DEMO_TOKEN_ADDRESS, "0x4444444444444444444444444444444444444444").toLowerCase(),
+  vaultSol: built(process.env.NEXT_PUBLIC_SOLANA_VAULT_ADDRESS, "5vaultSoLAddress111111111111111111111111111"),
+  gasSol: built(process.env.NEXT_PUBLIC_SOLANA_GAS_PAYER_ADDRESS, "5gasSoLAddress1111111111111111111111111111"),
   codeHash: "7JHPYMQ1o7QVhVyMwmzzxS3vVhyqEkcWQrGJUcmubizP",
 } as const;
 

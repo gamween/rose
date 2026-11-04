@@ -16,6 +16,7 @@ import { requireEngine } from "@/lib/engine-client";
 import { nearAccountUrl } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { useEngineQuery } from "@/lib/use-engine-query";
+import { readEventRange } from "@/lib/event-pages";
 import { askOrders, candidateTable, eventsOfRound, pricingOf, recompute, tenderReportCsv, type TenderReportData } from "./report";
 import { classSymbol, downloadFile, resolveSymbols } from "./shared";
 
@@ -28,14 +29,12 @@ async function fetchReport(roundId: bigint, signal: AbortSignal): Promise<Loaded
   const round: Round | null = await engine.views.getRound(roundId, { signal });
   if (!round) throw new Error(`Round #${roundId.toString()} does not exist on ${engine.account}.`);
   if (round.kind !== "Tender") throw new Error(`Round #${roundId.toString()} is an ${round.kind} round, not a Tender.`);
-  const [cls, bids, result, firstPage] = await Promise.all([engine.views.getClass(round.classId, { signal }), engine.views.getBids(roundId, { signal }), engine.views.getRoundResult(roundId, { signal }), engine.views.getEvents(undefined, EVENTS_PAGE, { signal })]);
+  const [cls, bids, result, probe] = await Promise.all([engine.views.getClass(round.classId, { signal }), engine.views.getBids(roundId, { signal }), engine.views.getRoundResult(roundId, { signal }), engine.views.getEvents(undefined, 1, { signal })]);
   if (!cls) throw new Error("The round's class is missing.");
-  let events: StoredEvent[] = firstPage.events;
-  let next = firstPage.events.length === EVENTS_PAGE ? (firstPage.events.at(-1)?.seq ?? 0n) + 1n : null;
-  while (next !== null && next < firstPage.total) {
-    const page = await engine.views.getEvents(next, EVENTS_PAGE, { signal });
+  let events: StoredEvent[] = [];
+  for (let next = probe.oldest; next < probe.total; next += BigInt(EVENTS_PAGE)) {
+    const page = await readEventRange((fromSeq, limit) => engine.views.getEvents(fromSeq, limit, { signal }), next, EVENTS_PAGE);
     events = [...events, ...page.events];
-    next = page.events.length === EVENTS_PAGE ? (page.events.at(-1)?.seq ?? next) + 1n : null;
   }
   const symbols = cls.chain === "Base" ? await resolveSymbols([cls.token]) : new Map<string, string>();
   return { engine: engine.account, round, cls, symbol: classSymbol(cls, symbols), bids, result, events: eventsOfRound(events, roundId), generatedAt: Date.now(), symbols };

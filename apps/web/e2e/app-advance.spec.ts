@@ -44,16 +44,25 @@ const ROUNDS = [advanceRound("10", "Open", "teodor.testnet"), advanceRound("11",
 
 const sent: { method: string; args: Record<string, unknown> }[] = [];
 
-/** The JSON arguments of the single function call inside a borsh `SignedTransaction` (balanced braces from the first `{`). */
+/**
+ * The JSON arguments of the single function call inside a borsh `SignedTransaction`: the first
+ * `{"` whose balanced braces parse as JSON (a random key or nonce byte can be a `{`).
+ */
 function jsonArgsOf(signed: Buffer): string {
   const text = signed.toString("latin1");
-  const start = text.indexOf("{");
-  let depth = 0;
-  for (let i = start; i < text.length; i += 1) {
-    if (text[i] === "{") depth += 1;
-    if (text[i] === "}") {
-      depth -= 1;
-      if (depth === 0) return Buffer.from(text.slice(start, i + 1), "latin1").toString("utf8");
+  for (let start = text.indexOf('{"'); start !== -1; start = text.indexOf('{"', start + 1)) {
+    let depth = 0;
+    for (let i = start; i < text.length; i += 1) {
+      if (text[i] === "{") depth += 1;
+      if (text[i] === "}") depth -= 1;
+      if (depth !== 0) continue;
+      const candidate = Buffer.from(text.slice(start, i + 1), "latin1").toString("utf8");
+      try {
+        JSON.parse(candidate);
+        return candidate;
+      } catch {
+        break;
+      }
     }
   }
   throw new Error("No JSON arguments in the signed transaction");
@@ -153,7 +162,7 @@ test.describe("advance", () => {
     await form.getByRole("textbox", { name: /Public price ceiling/ }).fill("9");
     await form.getByRole("textbox", { name: /Minimum fill/ }).fill("1");
     await form.locator("[data-advance-submit]").click();
-    await expect(form.getByText(/At most .* base units are still locked/)).toBeVisible();
+    await expect(form.getByText(/At most .* tokens are still locked/)).toBeVisible();
     await form.getByRole("textbox", { name: /Claim \(K\)/ }).fill("10");
     await expect(form.getByText(/Values your bond: 1.00 USDC/)).toBeVisible();
     await shot(page, "create");

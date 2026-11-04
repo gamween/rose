@@ -3,7 +3,8 @@
  * `f(now)`, claim sources per chain, pending payouts, the account's slice of the event history.
  */
 
-import { ONE, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type StoredEvent, type Venue } from "@rose/sdk";
+import { ONE, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type SolDrawArgs, type StoredEvent, type Venue } from "@rose/sdk";
+import { RoseActionError } from "@/lib/errors";
 import { nsToMs, sameVenue, tokensAtFraction } from "@/lib/amounts";
 import { fractionAt } from "@/lib/unlock-schedule";
 
@@ -88,25 +89,29 @@ export function cashIn(cash: readonly Cash[], venue: Venue): bigint {
   return cash.find((entry) => sameVenue(entry.venue, venue))?.amount ?? 0n;
 }
 
-export type PayoutState = "requested" | "stale" | "signed" | "submitted" | "awaiting_gas" | "failed";
+export type PayoutState = "requested" | "stale" | "signed" | "unconfirmed" | "submitted" | "awaiting_gas" | "failed";
 
 /**
  * Where a payout stands from the claimant's point of view. `submitted` comes from the foreign
  * chain (RoseVault's replay bitmap or the advanced nonce); `stale` means the signature request
- * is older than the engine's pending expiry and can be re-requested.
+ * is older than the engine's pending expiry and can be re-requested; `unconfirmed` is a Solana
+ * transfer or release whose nonce advanced but which the engine has not proven landed yet
+ * (`confirm_sol_payout` / `confirm_sol_redeem`).
  */
 export function payoutState(payout: PayoutView, submitted: boolean | null, currentBlock: bigint | null, pendingExpiryBlocks = 600n): PayoutState {
   if (typeof payout.status === "object") return "failed";
+  if (payout.status === "Landed") return "submitted";
   if (payout.status === "AwaitingGasSignature") return "awaiting_gas";
   if (payout.status === "Requested") {
     return currentBlock !== null && BigInt(payout.requested_block) + pendingExpiryBlocks <= currentBlock ? "stale" : "requested";
   }
-  return submitted ? "submitted" : "signed";
+  if (!submitted) return "signed";
+  return payout.chain === "Solana" && ("SolTransfer" in payout.kind || "SolRelease" in payout.kind) ? "unconfirmed" : "submitted";
 }
 
 /** Payouts that still need something from the claimant (submission, broadcast, a re-signature). */
 export function actionablePayouts(payouts: readonly { payout: PayoutView; state: PayoutState }[]): { payout: PayoutView; state: PayoutState }[] {
-  return payouts.filter((entry) => entry.state === "signed" || entry.state === "awaiting_gas" || entry.state === "stale");
+  return payouts.filter((entry) => entry.state === "signed" || entry.state === "unconfirmed" || entry.state === "awaiting_gas" || entry.state === "stale");
 }
 
 export type OrderRow = { bid: Bid; open: boolean };
@@ -149,4 +154,31 @@ export function orderRoundIds(bids: readonly Bid[]): bigint[] {
 
 export function eventTimeMs(event: StoredEvent): number {
   return nsToMs(event.timestamp);
+}
+
+/** What `planSolDraws` reads of a `get_sol_streams` entry. */
+export type DrawableStream = { position_id: string; withdrawable: string; stream: { net_amount_deposited: number; engine_withdrawn: number } };
+
+/**
+ * The streams a Solana claim of `amount` draws on: largest withdrawable first, as `get_sol_streams`
+ * reports them now. The engine re-checks every draw: at most the stream's withdrawable amount, and
+ * at least one whole token unless the draw empties the stream.
+ */
+export function planSolDraws(streams: readonly DrawableStream[], amount: bigint, decimals: number): SolDrawArgs[] {
+  const oneToken = 10n ** BigInt(decimals);
+  const draws: SolDrawArgs[] = [];
+  let left = amount;
+  for (const entry of [...streams].sort((a, b) => (BigInt(b.withdrawable) > BigInt(a.withdrawable) ? 1 : -1))) {
+    if (left === 0n) break;
+    const withdrawable = BigInt(entry.withdrawable);
+    const take = withdrawable < left ? withdrawable : left;
+    const empties = BigInt(entry.stream.engine_withdrawn) + take === BigInt(entry.stream.net_amount_deposited);
+    if (take === 0n || (take < oneToken && !empties)) continue;
+    draws.push({ position_id: entry.position_id, amount: take.toString() });
+    left -= take;
+  }
+  if (left > 0n) {
+    throw new RoseActionError("contract", "Not withdrawable yet", "The class streams cannot pay this amount right now: each stream must give at least one whole token. Claim less or wait for the next unlock.");
+  }
+  return draws;
 }

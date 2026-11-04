@@ -9,6 +9,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Field, NumberInput } from "@/components/ui/Input";
 import { amountToText, formatAmount, formatDate, nsToMs, parseAmount } from "@/lib/amounts";
 import { nearAccountUrl } from "@/lib/explorer";
+import { eventAmountFormat } from "@/lib/event-format";
 import { describePayout } from "@/lib/payouts";
 import { ROUTES } from "@/lib/routes";
 import type { PayoutEntry, PortfolioData } from "./data";
@@ -23,6 +24,7 @@ function roundHref(data: Record<string, unknown>): string | null {
 export function HistorySection({ data }: { data: PortfolioData }) {
   const [showAll, setShowAll] = useState(false);
   const events = showAll ? data.events : data.events.slice(0, 12);
+  const amountFormat = eventAmountFormat((classId) => data.classes.get(classId)?.decimals ?? null);
   const executed = data.payouts.filter((entry) => entry.state === "submitted" || entry.state === "failed");
   return (
     <Card data-history>
@@ -34,7 +36,7 @@ export function HistorySection({ data }: { data: PortfolioData }) {
           <ol className="flex flex-col divide-y divide-ink-800">
             {events.map((entry) => {
               const href = roundHref(entry.event.data as Record<string, unknown>);
-              const line = describeRoseEvent(entry.event);
+              const line = describeRoseEvent(entry.event, amountFormat);
               return (
                 <li key={entry.seq.toString()} className="flex flex-col gap-0.5 py-2" data-history-event={entry.event.event}>
                   <div className="flex items-start justify-between gap-3">

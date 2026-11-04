@@ -24,7 +24,7 @@ import { ClaimDialog, type ClaimPrompt } from "./ClaimDialog";
 import { ClaimsSection } from "./ClaimsSection";
 import { fetchPortfolioData, classLabel } from "./data";
 import { FlowDialog, type FlowRequest } from "./FlowDialog";
-import { claimBaseTokensSteps, claimSolTokensSteps, finishPayoutSteps, redeemSteps, resignGasSteps, retryBaseSignatureSteps, withdrawBaseCashSteps, withdrawNearCashSteps, type FlowDeps } from "./flows";
+import { claimBaseTokensSteps, claimSolTokensSteps, confirmPayoutSteps, finishPayoutSteps, redeemSteps, resignGasSteps, retryBaseSignatureSteps, retrySolPayoutSteps, withdrawBaseCashSteps, withdrawNearCashSteps, type FlowDeps } from "./flows";
 import { HistorySection, StorageSection } from "./HistoryAndStorage";
 import { HoldingsSection } from "./HoldingsSection";
 import { LiensSection, OrdersSection } from "./OrdersAndLiens";
@@ -190,7 +190,7 @@ export function PortfolioPage() {
         setFlow({
           title: `Claim ${formatAmount(amount, claim.info.decimals)} ${symbol}`,
           summary: `${claim.source.label} → ${destination}`,
-          steps: () => (chain === "base" ? claimBaseTokensSteps(deps(), source, claim.info.token, claim.info.decimals, data.positions, destination.toLowerCase()) : claimSolTokensSteps(deps(), source, destination)),
+          steps: () => (chain === "base" ? claimBaseTokensSteps(deps(), source, claim.info.token, claim.info.decimals, data.positions, destination.toLowerCase()) : claimSolTokensSteps(deps(), source, claim.info.token, claim.info.decimals, destination)),
         });
       },
     });
@@ -212,14 +212,16 @@ export function PortfolioPage() {
       onConfirm: ({ destination, position }) => {
         if (!position) return;
         setPrompt(null);
-        setFlow({ title: `Redeem position #${position.positionId.toString()}`, summary: `${formatAmount(position.allocation, row.info.decimals)} units burned · stream to ${destination}`, steps: () => redeemSteps(deps(), position, chain === "base" ? destination.toLowerCase() : destination) });
+        setFlow({ title: `Redeem position #${position.positionId.toString()}`, summary: `${formatAmount(position.allocation, row.info.decimals)} units burned · stream to ${destination}`, steps: () => redeemSteps(deps(), position, chain === "base" ? destination.toLowerCase() : destination, row.info.token) });
       },
     });
   };
 
   const finishPayout = (payout: PayoutView) => setFlow({ title: `Finish payout #${payout.id}`, steps: () => finishPayoutSteps(deps(), payout) });
   const resignGas = (payout: PayoutView) => setFlow({ title: `Re-sign gas for payout #${payout.id}`, steps: () => resignGasSteps(deps(), payout) });
-  const retrySignature = (payout: PayoutView) => setFlow({ title: `Retry signature of payout #${payout.id}`, steps: () => retryBaseSignatureSteps(deps(), payout) });
+  const retrySignature = (payout: PayoutView) =>
+    setFlow({ title: `Retry signature of payout #${payout.id}`, steps: () => (payout.chain === "Base" ? retryBaseSignatureSteps(deps(), payout) : retrySolPayoutSteps(deps(), payout)) });
+  const confirmPayout = (payout: PayoutView) => setFlow({ title: `Confirm payout #${payout.id}`, steps: () => confirmPayoutSteps(deps(), payout) });
   const releaseLien = (lienId: bigint) =>
     void simple.run(`Releasing lien #${lienId.toString()}`, async () => {
       const outcome = await wallets.sendNearCall(requireEngine().calls.releaseLien(lienId));
@@ -319,7 +321,7 @@ export function PortfolioPage() {
           </Card>
           <HoldingsSection rows={rows} data={data} onClaim={(row) => claimTokens({ info: row.info, source: { kind: "holding", classId: row.info.classId, amount: row.holding.claimable, label: "Units" } })} onRedeem={redeem} />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <ClaimsSection data={data} cash={cash} tokens={claims} actions={{ onClaimCash: claimCash, onClaimTokens: claimTokens, onFinishPayout: finishPayout, onResignGas: resignGas, onRetrySignature: retrySignature }} />
+            <ClaimsSection data={data} cash={cash} tokens={claims} actions={{ onClaimCash: claimCash, onClaimTokens: claimTokens, onFinishPayout: finishPayout, onResignGas: resignGas, onRetrySignature: retrySignature, onConfirmPayout: confirmPayout }} />
             <OrdersSection rows={orders} data={data} />
           </div>
           <LiensSection held={liens} data={data} onRelease={releaseLien} />

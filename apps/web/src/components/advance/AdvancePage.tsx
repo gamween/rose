@@ -274,7 +274,7 @@ export function AdvancePage() {
                         </Link>
                       </p>
                     ) : null}
-                    <CreateAdvanceForm data={data} account={account} busy={flow !== null} onSubmit={submit} />
+                    <CreateAdvanceForm data={data} account={account} busy={flow !== null} onSubmit={submit} onCashDeposited={() => void refresh()} />
                   </>
                 ) : (
                   <EmptyState

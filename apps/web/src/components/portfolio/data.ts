@@ -4,10 +4,11 @@
  * its NEP-145 storage, token symbols from Base and the account's slice of the event history.
  */
 
-import { erc20Abi, isAuthorizationUsed, readNonceAccount, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type StorageBalance, type StoredEvent } from "@rose/sdk";
+import { erc20Abi, isAuthorizationUsed, readNonceAccount, readStreamflowStream, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type StorageBalance, type StoredEvent } from "@rose/sdk";
 import { PublicKey } from "@solana/web3.js";
 import type { Address } from "viem";
-import { deployedAddress } from "@/lib/deployment";
+import { deployed, deployedAddress } from "@/lib/deployment";
+import { readEventRange } from "@/lib/event-pages";
 import { requireEngine, nearRpc } from "@/lib/engine-client";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
@@ -93,6 +94,13 @@ async function payoutSubmitted(payout: PayoutView): Promise<boolean | null> {
       if (!vault) return null;
       return await isAuthorizationUsed(basePublicClient(), vault, BigInt(payout.id));
     }
+    // A deposit move is signed against a recent blockhash, not a nonce: it ran once the stream's recipient is the vault.
+    if ("SolMove" in payout.kind) {
+      const vault = deployed("solanaVault");
+      if (!vault) return null;
+      const stream = await readStreamflowStream(solanaConnection(), new PublicKey(payout.kind.SolMove.metadata), "confirmed");
+      return stream.metadata.recipient.toBase58() === vault;
+    }
     const nonceAccount = payout.solana?.nonce_account;
     const nonceValue = payout.solana?.nonce_value;
     if (!nonceAccount || !nonceValue) return null;
@@ -122,7 +130,7 @@ async function recentEvents(account: string, signal: AbortSignal): Promise<Store
   const { views } = requireEngine();
   const latest = await views.getEvents(undefined, 1, { signal });
   const from = latest.total > BigInt(EVENTS_WINDOW) ? latest.total - BigInt(EVENTS_WINDOW) : 0n;
-  const page = await views.getEvents(from > latest.oldest ? from : latest.oldest, EVENTS_WINDOW, { signal });
+  const page = await readEventRange((fromSeq, limit) => views.getEvents(fromSeq, limit, { signal }), from > latest.oldest ? from : latest.oldest, EVENTS_WINDOW);
   return accountEvents(page.events, account);
 }
 

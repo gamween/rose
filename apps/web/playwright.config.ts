@@ -1,4 +1,17 @@
+import { existsSync, readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * The specs read the same `NEXT_PUBLIC_*` values the app was built with (`next build` loads
+ * `.env.local`, then `.env`): variables already set in the shell win, as they do for Next.js.
+ */
+for (const file of [".env.local", ".env"]) {
+  if (!existsSync(file)) continue;
+  for (const [key, value] of Object.entries(parseEnv(readFileSync(file, "utf8")))) {
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 const port = 3100;
 const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;

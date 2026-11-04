@@ -1,4 +1,4 @@
-import { EngineViewError, NEAR_TESTNET_RPC, type ViewOptions } from "@/lib/engine";
+import { EngineViewError, nearQuery as engineQuery, type ViewOptions } from "@/lib/engine";
 
 export const BASE_SEPOLIA_RPC = "https://sepolia.base.org";
 export const SOLANA_DEVNET_RPC = "https://api.devnet.solana.com";
@@ -34,16 +34,10 @@ async function postJson<T>(url: string, body: unknown, options: ViewOptions): Pr
   return (await response.json()) as JsonRpcResponse<T>;
 }
 
-async function nearQuery<T>(params: Record<string, unknown>, options: ViewOptions): Promise<T> {
-  const body = await postJson<T>(options.rpcUrl ?? NEAR_TESTNET_RPC, { jsonrpc: "2.0", id: "rose", method: "query", params }, options);
-  if (body.error) {
-    if (body.error.cause?.name === "UNKNOWN_ACCOUNT") {
-      throw new EngineViewError("account_missing", `Account ${String(params.account_id)} does not exist on NEAR testnet.`);
-    }
-    throw new EngineViewError("rpc", typeof body.error.data === "string" ? body.error.data : "The NEAR RPC returned an error.");
-  }
-  if (!body.result) throw new EngineViewError("invalid_response", "The NEAR RPC returned no result.");
-  return body.result;
+async function nearQuery<T>(params: Record<string, string>, options: ViewOptions): Promise<T> {
+  const result = await engineQuery<T>(params.account_id ?? "", params, options);
+  if (!result) throw new EngineViewError("invalid_response", "The NEAR RPC returned no result.");
+  return result;
 }
 
 /** `view_access_key_list`: the raw list of full-access and function-call keys of an account. */

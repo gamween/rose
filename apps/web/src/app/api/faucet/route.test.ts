@@ -12,7 +12,7 @@ function config(overrides: Partial<FaucetConfig> = {}): FaucetConfig {
   return {
     base: { configured: true, rpcUrl: "https://sepolia.base.org", amountWei: 2_000_000_000_000_000n },
     solana: { configured: true, rpcUrl: "https://api.devnet.solana.com", lamports: 50_000_000n },
-    near: { configured: true, helperUrl: "https://helper.nearprotocol.com/account" },
+    near: { configured: true, helperUrl: "https://helper.nearprotocol.com/account", rpcUrl: "https://rpc.testnet.near.org", funderAccountId: null, funderYocto: 500_000_000_000_000_000_000_000n },
     cookieSecret: SECRET,
     ...overrides,
   };
@@ -32,7 +32,7 @@ function senders(overrides: Partial<FaucetSenders> = {}): FaucetSenders & { call
     },
     createNearAccount: async (accountId) => {
       calls.push(`near:${accountId}`);
-      return { txHash: "8PRxQzVKKEiiAtvA3XTcC1NEbWiQUtNddyrARMdwEuoK" };
+      return { txHash: "8PRxQzVKKEiiAtvA3XTcC1NEbWiQUtNddyrARMdwEuoK", amount: "10 NEAR" };
     },
     ...overrides,
   };
@@ -95,6 +95,7 @@ describe("POST /api/faucet", () => {
       chain: "near",
       accountId: "alice-demo.testnet",
       txHash: "8PRxQzVKKEiiAtvA3XTcC1NEbWiQUtNddyrARMdwEuoK",
+      amount: "10 NEAR",
       explorerUrl: "https://testnet.near.rocks/tx/8PRxQzVKKEiiAtvA3XTcC1NEbWiQUtNddyrARMdwEuoK",
     });
   });

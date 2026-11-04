@@ -2,7 +2,7 @@ import { Keypair } from "@solana/web3.js";
 import { KeyPair } from "near-api-js";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { exportEvmDemoWallet, forgetEvmDemoWallet, generateEvmDemoWallet, loadEvmDemoWallet, saveEvmDemoWallet } from "./evm-demo";
+import { baseSepoliaWalletTransport, exportEvmDemoWallet, forgetEvmDemoWallet, generateEvmDemoWallet, loadEvmDemoWallet, saveEvmDemoWallet } from "./evm-demo";
 import { exportNearDemoWallet, generateNearDemoWallet, loadNearDemoWallet, randomDemoAccountId, saveNearDemoWallet } from "./near-demo";
 import { exportSolanaDemoWallet, generateSolanaDemoWallet, loadSolanaDemoWallet, saveSolanaDemoWallet, signWithSolanaDemo, solanaDemoKeypair } from "./solana-demo";
 import { DEMO_STORAGE_KEYS, readStored, writeStored } from "./storage";
@@ -78,5 +78,12 @@ describe("demo wallets", () => {
     writeStored(DEMO_STORAGE_KEYS.solana, { secretKey: [1, 2, 3] });
     expect(loadSolanaDemoWallet()).toBeNull();
     expect(readStored(DEMO_STORAGE_KEYS.near)).toBeNull();
+  });
+});
+
+describe("Base Sepolia wallet transport", () => {
+  it("refuses eth_fillTransaction locally and forwards every other method", async () => {
+    const transport = baseSepoliaWalletTransport()({ chain: undefined, retryCount: 0 });
+    await expect(transport.request({ method: "eth_fillTransaction", params: [{}] } as never)).rejects.toThrow("eth_fillTransaction is not available");
   });
 });

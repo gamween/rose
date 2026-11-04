@@ -13,7 +13,7 @@ const MOCK_ENGINE_BUILD = process.env.NEXT_PUBLIC_ENGINE_ACCOUNT === ROUNDS_MOCK
 async function collectErrors(page: Page): Promise<string[]> {
   const errors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error" && !/favicon|ERR_INTERNET|net::ERR|Failed to fetch|429|Rate limit|status of 404/i.test(message.text())) errors.push(message.text());
+    if (message.type() === "error" && !/favicon|ERR_INTERNET|net::ERR|Failed to fetch|429|Rate limit/i.test(message.text())) errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
   return errors;
@@ -102,7 +102,7 @@ test.describe("rounds with a mocked engine", () => {
     await page.goto("/app/rounds/6");
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("[data-finalize]")).toContainText("2 / 4");
-    await expect(page.locator("[data-finalize]")).toContainText("0.0124 per order");
+    await expect(page.locator("[data-finalize]")).toContainText("0.0132 per order");
     await page.goto("/app/rounds/3");
     await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("[data-timeline] [data-step='clear']")).toHaveAttribute("data-state", "failed");

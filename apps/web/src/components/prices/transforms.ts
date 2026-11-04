@@ -177,12 +177,24 @@ export function dayDomain(values: readonly number[]): [number, number] {
   return [0, max === 0 ? 1 : max * 1.08];
 }
 
-/** Compact axis label: `1.2K`, `12`, `0.5`. */
+/** Compact axis label: `1.2K`, `12`, `0.5`, `0.004` (two significant digits below 1, at most 6 decimals). */
 export function compactNumber(value: number): string {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
   if (Number.isInteger(value)) return value.toString();
-  return value.toFixed(Math.abs(value) < 1 ? 2 : 1).replace(/\.?0+$/, "");
+  const decimals = Math.abs(value) < 1 ? Math.min(6, Math.max(2, 1 - Math.floor(Math.log10(Math.abs(value))))) : 1;
+  return value.toFixed(decimals).replace(/\.?0+$/, "");
+}
+
+/** Keeps the first tick of each distinct label, so a short time axis never repeats a date. */
+export function distinctTicks(ticks: readonly number[], format: (value: number) => string): number[] {
+  const seen = new Set<string>();
+  return ticks.filter((tick) => {
+    const label = format(tick);
+    if (seen.has(label)) return false;
+    seen.add(label);
+    return true;
+  });
 }
 
 export function formatPercent(value: number): string {

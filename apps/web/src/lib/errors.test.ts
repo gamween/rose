@@ -23,6 +23,8 @@ describe("human-readable errors", () => {
   it("recognizes insufficient balances on every chain", () => {
     expect(toActionError(new Error("insufficient funds for gas * price + value"))).toMatchObject({ kind: "insufficient_balance" });
     expect(toActionError(new Error("Transfer: insufficient lamports 0, need 5000"))).toMatchObject({ kind: "insufficient_balance" });
+    // viem, Base Sepolia account without ETH (live, 2026-11-04).
+    expect(toActionError(new Error("Execution reverted with reason: gas required exceeds allowance (0)."))).toMatchObject({ kind: "insufficient_balance" });
     expect(toActionError(new Error("Smart contract panicked: Insufficient cash")).message).toContain("Deposit tUSDC");
   });
 

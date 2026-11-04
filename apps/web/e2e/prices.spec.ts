@@ -7,11 +7,12 @@ test.describe("prices", () => {
       if (message.type() === "error") errors.push(message.text());
     });
     page.on("pageerror", (error) => errors.push(error.message));
+    await page.addInitScript(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await page.goto("/app/prices");
     await expect(page.getByRole("heading", { level: 1, name: "Prices" })).toBeVisible();
     await expect(page).toHaveTitle("Prices · rose");
-    const main = page.getByRole("main");
-    await expect(main).not.toHaveAttribute("aria-busy", "true", { timeout: 30_000 });
+    await expect(page.getByRole("main")).toHaveCount(1);
+    await expect(page.locator("[data-prices]")).not.toHaveAttribute("aria-busy", "true", { timeout: 30_000 });
     const outcome = page.getByText(/Protocol not deployed yet|No clearing price yet|Could not read the engine|Clearing price history per class/);
     await expect(outcome.first()).toBeVisible();
     if (await page.getByRole("heading", { name: "Clearing price history per class" }).isVisible()) {
