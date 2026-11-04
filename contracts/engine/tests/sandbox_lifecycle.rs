@@ -699,8 +699,8 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     let claimable = engine.claimable(holder.id(), &class).await?;
     assert_eq!(claimable, 100 * USDC, "one period of 100 tokens unlocked");
 
-    // Claim: the holder names the stream, proves its nonce account (created from its wallet
-    // with a seed bound to its NEAR account) and its token account.
+    // Claim: the holder names the stream, proves its nonce and receipt accounts (created from its
+    // wallet with seeds bound to its NEAR account) and its token account.
     let nonce_base = [12u8; 32];
     let prefix: String = engine
         .view("nonce_seed_prefix_of", json!({ "account_id": holder.id() }))
@@ -710,28 +710,39 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
         hex::encode(sol::sha256(holder.id().as_bytes()))[..24]
     );
     let nonce_seed = format!("{prefix}a");
+    let receipt_seed = format!("{prefix}r");
     let nonce_account =
         sol::create_with_seed(&nonce_base, &nonce_seed, &sol::SYSTEM_PROGRAM).unwrap();
+    let receipt_account =
+        sol::create_with_seed(&nonce_base, &receipt_seed, &sol::SYSTEM_PROGRAM).unwrap();
     let signed_nonce = [13u8; 32];
     let advanced_nonce = [14u8; 32];
+    let receipt_value = [16u8; 32];
     let recipient_tokens = sol::associated_token_address(&return_to, &mint).unwrap();
     let nonce_anchor = bs58::encode([23u8; 64]).into_string();
-    let proof = |value: [u8; 32]| {
+    let proof = |value: [u8; 32], receipt: [u8; 32]| {
         json!({
             "account": sol::format_pubkey(&nonce_account),
             "base": sol::format_pubkey(&nonce_base),
             "seed": nonce_seed,
+            "receipt_seed": receipt_seed,
             "anchor_tx": nonce_anchor,
             "data": hex::encode(nonce_bytes(vault, value)),
+            "receipt_data": hex::encode(nonce_bytes(vault, receipt)),
             "recipient_tokens_data": hex::encode(token_account_bytes(mint, return_to)),
         })
     };
-    let payout_accounts = |value: [u8; 32]| {
+    let payout_accounts = |value: [u8; 32], receipt: [u8; 32]| {
         vec![
             (
                 nonce_account,
                 sol::SYSTEM_PROGRAM,
                 nonce_bytes(vault, value),
+            ),
+            (
+                receipt_account,
+                sol::SYSTEM_PROGRAM,
+                nonce_bytes(vault, receipt),
             ),
             (
                 recipient_tokens,
@@ -740,16 +751,32 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
             ),
         ]
     };
+    // The proof of a settled action: the nonce at `nonce` and the receipt at `receipt`.
+    let settled = |nonce: [u8; 32], receipt: [u8; 32]| {
+        vec![
+            (
+                nonce_account,
+                sol::SYSTEM_PROGRAM,
+                nonce_bytes(vault, nonce),
+            ),
+            (
+                receipt_account,
+                sol::SYSTEM_PROGRAM,
+                nonce_bytes(vault, receipt),
+            ),
+        ]
+    };
+    let drawn = claimable / 2;
     engine
-        .prime_accounts(&nonce_anchor, &payout_accounts(signed_nonce))
+        .prime_accounts(&nonce_anchor, &payout_accounts(signed_nonce, receipt_value))
         .await?;
     let result = holder
         .call(engine.id(), "claim_sol_tokens")
         .args_json(json!({
             "source": { "Holding": { "class_id": class } },
-            "draws": [{ "position_id": "0", "amount": claimable.to_string() }],
+            "draws": [{ "position_id": "0", "amount": drawn.to_string() }],
             "to_owner": sol::format_pubkey(&return_to),
-            "nonce": proof(signed_nonce),
+            "nonce": proof(signed_nonce, receipt_value),
         }))
         .deposit(PAYOUT_STORAGE_DEPOSIT)
         .gas(Gas::from_tgas(200))
@@ -760,6 +787,10 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
         .view("get_payout", json!({ "payout_id": "1" }))
         .await?;
     assert_eq!(payout["status"], "Signed", "{payout}");
+    assert_eq!(
+        payout["solana"]["receipt_account"],
+        sol::format_pubkey(&receipt_account)
+    );
     let message = base64_decode(payout["solana"]["message"].as_str().unwrap())?;
     verify_ed25519(
         &vault_text,
@@ -772,9 +803,9 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     assert_eq!(&transaction[129..], &message[..]);
     assert_eq!(
         payout["solana"]["draws"][0]["expected_withdrawn"],
-        claimable.to_string()
+        drawn.to_string()
     );
-    assert_eq!(engine.claimable(holder.id(), &class).await?, 0);
+    assert_eq!(engine.claimable(holder.id(), &class).await?, claimable - drawn);
     let info: Value = engine
         .view("get_sol_stream", json!({ "position_id": "0" }))
         .await?;
@@ -784,13 +815,13 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     );
     assert_eq!(info["drawing"], "1");
 
-    // A redeem waits for the payout's confirmation.
+    // A redeem waits for the payout's confirmation, and the payout's accounts stay reserved.
     let result = holder
         .call(engine.id(), "redeem")
         .args_json(json!({
             "position_id": "0",
             "to": sol::format_pubkey(&return_to),
-            "nonce": proof(advanced_nonce),
+            "nonce": proof(advanced_nonce, receipt_value),
         }))
         .deposit(PAYOUT_STORAGE_DEPOSIT)
         .gas(Gas::from_tgas(200))
@@ -798,21 +829,10 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
         .await?;
     gas.fails_with("redeem (payout unconfirmed)", result, "not confirmed yet")?;
 
-    // Broadcast and executed: the nonce advanced and the stream paid the claim.
+    // Broadcast and executed: the nonce advanced and the receipt holds its new value.
     let confirm_anchor = bs58::encode([24u8; 64]).into_string();
-    let paid = spec(vault, claimable as u64);
     engine
-        .prime_accounts(
-            &confirm_anchor,
-            &[
-                (
-                    nonce_account,
-                    sol::SYSTEM_PROGRAM,
-                    nonce_bytes(vault, advanced_nonce),
-                ),
-                (stream, streamflow, paid.bytes()),
-            ],
-        )
+        .prime_accounts(&confirm_anchor, &settled(advanced_nonce, advanced_nonce))
         .await?;
     let result = holder
         .call(engine.id(), "confirm_sol_payout")
@@ -820,7 +840,7 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
             "payout_id": "1",
             "anchor_tx": confirm_anchor,
             "nonce_data": hex::encode(nonce_bytes(vault, advanced_nonce)),
-            "stream_data": [hex::encode(paid.bytes())],
+            "receipt_data": hex::encode(nonce_bytes(vault, advanced_nonce)),
         }))
         .gas(Gas::from_tgas(100))
         .transact()
@@ -830,21 +850,92 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     let info: Value = engine
         .view("get_sol_stream", json!({ "position_id": "0" }))
         .await?;
-    assert_eq!(info["engine_withdrawn"], claimable.to_string());
+    assert_eq!(info["engine_withdrawn"], drawn.to_string());
     assert!(info["drawing"].is_null());
 
-    // Redeem: the stream's unlocked tokens are all withdrawn, so the holder pays nothing more;
-    // the release stays Releasing until its own confirmation.
+    // Streamflow withdrew 300 tokens into the vault's token account outside any payout (its
+    // auto-claim does so at a stream's end): anyone syncs it into the class's swept balance.
+    let synced = spec(vault, drawn as u64 + 300 * USDC as u64);
+    let sync_anchor = bs58::encode([25u8; 64]).into_string();
+    engine
+        .prime_accounts(&sync_anchor, &[(stream, streamflow, synced.bytes())])
+        .await?;
+    let result = holder
+        .call(engine.id(), "sync_sol_stream")
+        .args_json(json!({
+            "position_id": "0",
+            "anchor_tx": sync_anchor,
+            "metadata_data": hex::encode(synced.bytes()),
+        }))
+        .gas(Gas::from_tgas(80))
+        .transact()
+        .await?;
+    let result = gas.ok("sync_sol_stream", result)?;
+    assert!(result.logged("sol_stream_swept"), "{:?}", result.logs);
+    let swept: Value = engine
+        .view("get_sol_swept", json!({ "class_id": class }))
+        .await?;
+    assert_eq!(swept["balance"], (300 * USDC).to_string(), "{swept}");
+
+    // The rest of the claim is paid from the swept balance: TransferChecked alone.
+    let swept_nonce = [17u8; 32];
+    engine
+        .prime_accounts(&nonce_anchor, &payout_accounts(advanced_nonce, advanced_nonce))
+        .await?;
+    let rest = claimable - drawn;
+    let result = holder
+        .call(engine.id(), "claim_sol_tokens")
+        .args_json(json!({
+            "source": { "Holding": { "class_id": class } },
+            "draws": [],
+            "swept": rest.to_string(),
+            "to_owner": sol::format_pubkey(&return_to),
+            "nonce": proof(advanced_nonce, advanced_nonce),
+        }))
+        .deposit(PAYOUT_STORAGE_DEPOSIT)
+        .gas(Gas::from_tgas(200))
+        .transact()
+        .await?;
+    gas.ok("claim_sol_tokens (swept balance)", result)?;
+    let payout: Value = engine
+        .view("get_payout", json!({ "payout_id": "2" }))
+        .await?;
+    assert_eq!(payout["status"], "Signed", "{payout}");
+    assert_eq!(payout["solana"]["swept"], rest.to_string());
+    engine
+        .prime_accounts(&confirm_anchor, &settled(swept_nonce, swept_nonce))
+        .await?;
+    let result = holder
+        .call(engine.id(), "confirm_sol_payout")
+        .args_json(json!({
+            "payout_id": "2",
+            "anchor_tx": confirm_anchor,
+            "nonce_data": hex::encode(nonce_bytes(vault, swept_nonce)),
+            "receipt_data": hex::encode(nonce_bytes(vault, swept_nonce)),
+        }))
+        .gas(Gas::from_tgas(100))
+        .transact()
+        .await?;
+    let result = gas.ok("confirm_sol_payout (swept balance)", result)?;
+    assert!(result.logged("payout_landed"), "{:?}", result.logs);
+    let swept: Value = engine
+        .view("get_sol_swept", json!({ "class_id": class }))
+        .await?;
+    assert_eq!(swept["balance"], (300 * USDC - rest).to_string(), "{swept}");
+    assert_eq!(swept["pending"], "0");
+
+    // Redeem: payouts and the sync took more than the position's units accrued, so the holder
+    // pays nothing more; the release stays Releasing until its own confirmation.
     let redeem_nonce = [15u8; 32];
     engine
-        .prime_accounts(&nonce_anchor, &payout_accounts(advanced_nonce))
+        .prime_accounts(&nonce_anchor, &payout_accounts(swept_nonce, swept_nonce))
         .await?;
     let result = holder
         .call(engine.id(), "redeem")
         .args_json(json!({
             "position_id": "0",
             "to": sol::format_pubkey(&return_to),
-            "nonce": proof(advanced_nonce),
+            "nonce": proof(swept_nonce, swept_nonce),
         }))
         .deposit(PAYOUT_STORAGE_DEPOSIT)
         .gas(Gas::from_tgas(200))
@@ -852,7 +943,7 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
         .await?;
     gas.ok("redeem (solana)", result)?;
     let release: Value = engine
-        .view("get_payout", json!({ "payout_id": "2" }))
+        .view("get_payout", json!({ "payout_id": "3" }))
         .await?;
     assert_eq!(release["status"], "Signed", "{release}");
     let message = base64_decode(release["solana"]["message"].as_str().unwrap())?;
@@ -867,22 +958,8 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
     assert_eq!(position["state"], "Releasing", "{position}");
     assert_eq!(engine.balance(holder.id(), &class).await?, 0);
 
-    let released = StreamflowSpec {
-        amount_withdrawn: claimable as u64,
-        ..spec(return_to, 0)
-    };
     engine
-        .prime_accounts(
-            &confirm_anchor,
-            &[
-                (
-                    nonce_account,
-                    sol::SYSTEM_PROGRAM,
-                    nonce_bytes(vault, redeem_nonce),
-                ),
-                (stream, streamflow, released.bytes()),
-            ],
-        )
+        .prime_accounts(&confirm_anchor, &settled(redeem_nonce, redeem_nonce))
         .await?;
     let result = holder
         .call(engine.id(), "confirm_sol_redeem")
@@ -890,7 +967,7 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
             "position_id": "0",
             "anchor_tx": confirm_anchor,
             "nonce_data": hex::encode(nonce_bytes(vault, redeem_nonce)),
-            "stream_data": hex::encode(released.bytes()),
+            "receipt_data": hex::encode(nonce_bytes(vault, redeem_nonce)),
         }))
         .gas(Gas::from_tgas(100))
         .transact()
@@ -902,7 +979,7 @@ async fn solana_two_phase_payout_and_redeem() -> Result<()> {
         .await?;
     assert_eq!(position["state"], "Released", "{position}");
     let release: Value = engine
-        .view("get_payout", json!({ "payout_id": "2" }))
+        .view("get_payout", json!({ "payout_id": "3" }))
         .await?;
     assert_eq!(release["status"], "Landed");
     gas.print();
