@@ -1,11 +1,12 @@
 import { decodeString, ethCall, SELECTORS } from "@/components/status/rpc";
-import { viewCall, type ViewOptions } from "@/lib/engine";
+import { viewCall, type ViewOptions, type ViewResult } from "@/lib/engine";
 import { tokenKeyOf, type ClassView, type PricePoint } from "./transforms";
 
 const PAGE = 50;
 
 /** Minimal `RoundView` fields the prices page reads from `get_rounds`. */
 type RoundSummary = { round_id: string; kind: PricePoint["kind"]; reference_price: string | null };
+type RoundsSummaryPage = { rounds: RoundSummary[]; next: string | null };
 
 export type PricesData = {
   classes: ClassView[];
@@ -31,14 +32,14 @@ async function fetchAllClasses(account: string, options: ViewOptions): Promise<{
 
 async function fetchReferencePrices(account: string, options: ViewOptions): Promise<Map<string, bigint>> {
   const references = new Map<string, bigint>();
-  let from = 0;
+  let from: string | null = null;
   for (;;) {
-    const page = await viewCall<RoundSummary[]>(account, "get_rounds", { filter: { kind: "Tender", status: "Settled" }, from_index: from, limit: PAGE }, options);
-    for (const round of page.value) {
+    const page: ViewResult<RoundsSummaryPage> = await viewCall(account, "get_rounds", { filter: { kind: "Tender", status: "Settled" }, from_index: from, limit: PAGE }, options);
+    for (const round of page.value.rounds) {
       if (round.reference_price) references.set(round.round_id, BigInt(round.reference_price));
     }
-    if (page.value.length < PAGE) break;
-    from += PAGE;
+    if (page.value.next === null) break;
+    from = page.value.next;
   }
   return references;
 }
@@ -57,10 +58,10 @@ async function resolveBaseSymbol(token: string, options: ViewOptions): Promise<s
 export async function fetchPricesData(account: string, options: ViewOptions = {}): Promise<PricesData> {
   const { classes, blockHeight } = await fetchAllClasses(account, options);
   const [historyPages, references] = await Promise.all([
-    Promise.all(classes.map((cls) => viewCall<PricePoint[]>(account, "get_price_history", { class_id: cls.class_id }, options))),
+    Promise.all(classes.map((cls) => viewCall<{ points: PricePoint[]; total: number }>(account, "get_price_history", { class_id: cls.class_id }, options))),
     fetchReferencePrices(account, options),
   ]);
-  const histories = new Map(classes.map((cls, index) => [cls.class_id, historyPages[index]!.value]));
+  const histories = new Map(classes.map((cls, index) => [cls.class_id, historyPages[index]!.value.points]));
   const symbols = new Map<string, string>();
   const baseTokens = [...new Set(classes.filter((cls) => cls.chain === "Base").map((cls) => cls.token))];
   const resolved = await Promise.all(baseTokens.map((token) => resolveBaseSymbol(token, options)));

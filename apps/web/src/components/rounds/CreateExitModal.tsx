@@ -1,0 +1,238 @@
+"use client";
+
+/**
+ * "Create Exit round" (spec 8.3): `create_exit` is open to anyone. Class, cash venue, max price
+ * and bidding window, with the round storage deposit (0.05 NEAR, kept with the round record)
+ * shown before signing, then the full transaction flow and a jump to the new round.
+ */
+
+import { ONE, outcomeValue, ROUND_STORAGE_DEPOSIT, type ClassInfo, type ConfigView, type Venue } from "@rose/sdk";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { LearnMore } from "@/components/chrome/LearnMore";
+import { Button } from "@/components/ui/Button";
+import { Field, Input, NumberInput } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
+import { useWallets } from "@/components/wallet/WalletProvider";
+import { formatUnits } from "@/lib/format";
+import { ROUTES } from "@/lib/routes";
+import { useNearAction } from "./actions";
+import type { RoundsEngine } from "./engine";
+import { symbolOf } from "./engine";
+import { classLabel, formatDuration, parseDecimal, secondsToNs, shortHex, USDC_DECIMALS } from "./model";
+import { Notice } from "./shared";
+
+const WINDOWS: { label: string; seconds: number }[] = [
+  { label: "10 min", seconds: 600 },
+  { label: "1 h", seconds: 3600 },
+  { label: "24 h", seconds: 86_400 },
+  { label: "7 d", seconds: 7 * 86_400 },
+];
+
+/**
+ * `f(ts)` of a class at `ts` from its schedule: the engine's rule without the Sablier margin, so
+ * the form can refuse a fully unlocked class (`f(ts) = 1`, spec 5.4) before anything is signed.
+ */
+export function fractionAt(cls: ClassInfo, tsSeconds: number): bigint {
+  const s = cls.schedule;
+  const t = BigInt(tsSeconds);
+  if (s.kind === "Linear") {
+    if (t < s.start) return 0n;
+    if (t >= s.end) return ONE;
+    if (t < s.cliff) return (s.startUnlock * ONE) / s.total;
+    const elapsed = t - s.cliff;
+    const span = s.end - s.cliff;
+    const unlockedAtCliff = s.startUnlock + s.cliffUnlock;
+    const remaining = s.total - unlockedAtCliff;
+    const linear = span > 0n ? (remaining * elapsed) / span : remaining;
+    const fraction = ((unlockedAtCliff + linear) * ONE) / s.total;
+    return fraction >= ONE ? ONE : fraction;
+  }
+  if (t < s.start) return 0n;
+  if (t >= s.end) return ONE;
+  const periods = (t - s.start) / s.period;
+  const unlocked = s.cliffAmount + periods * s.amountPerPeriod;
+  const capped = unlocked > s.total ? s.total : unlocked;
+  return (capped * ONE) / s.total;
+}
+
+function venueOptions(config: ConfigView): { id: string; label: string; venue: Venue }[] {
+  return [
+    { id: "near", label: `tUSDC on NEAR (${config.near_cash_token})`, venue: "Near" },
+    ...config.base_cash_tokens.map((token) => ({ id: `base:${token}`, label: `${shortHex(token, 8, 6)} on Base Sepolia`, venue: { Base: { token } } as Venue })),
+  ];
+}
+
+const selectClass = "h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 hover:border-ink-600 focus:border-ember-500 focus:outline-none";
+
+export function CreateExitModal({
+  open,
+  onClose,
+  engine,
+  classes,
+  symbols,
+  config,
+}: {
+  open: boolean;
+  onClose: () => void;
+  engine: RoundsEngine;
+  classes: ClassInfo[];
+  symbols: ReadonlyMap<string, string>;
+  config: ConfigView | null;
+}) {
+  const router = useRouter();
+  const { near } = useWallets();
+  const { run, status } = useNearAction();
+  const [chosenClassId, setClassId] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const [venueId, setVenueId] = useState("near");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [windowSeconds, setWindowSeconds] = useState(3600);
+  const [customCloses, setCustomCloses] = useState("");
+  const [useCustom, setUseCustom] = useState(false);
+
+  const eligible = useMemo(() => classes.filter((cls) => cls.fractionNow < ONE), [classes]);
+  const classId = chosenClassId || (eligible[0]?.classId ?? "");
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [open]);
+
+  const venues = config ? venueOptions(config) : [];
+  const selectedVenue = venues.find((v) => v.id === venueId)?.venue ?? "Near";
+  const cls = classes.find((c) => c.classId === classId) ?? null;
+  const price = parseDecimal(maxPrice, USDC_DECIMALS);
+  const closesAtMs = useCustom ? (customCloses ? new Date(customCloses).getTime() : Number.NaN) : now + windowSeconds * 1000;
+  const closesValid = Number.isFinite(closesAtMs) && closesAtMs > now + 30_000;
+  const fTs = cls && closesValid ? fractionAt(cls, Math.floor(closesAtMs / 1000)) : null;
+  const fullyUnlocked = fTs !== null && fTs >= ONE;
+
+  const errors = {
+    price: maxPrice !== "" && (price === null || price <= 0n) ? "Enter a positive price in USDC per locked token." : null,
+    closes: useCustom && customCloses !== "" && !closesValid ? "The close must be at least 30 seconds in the future." : null,
+    cls: fullyUnlocked ? "This class is fully unlocked at the close time: there is nothing locked to price. Pick an earlier close or another class." : null,
+  };
+  const ready = near.status === "connected" && cls !== null && price !== null && price > 0n && closesValid && !fullyUnlocked && status.status !== "busy";
+
+  const submit = async () => {
+    if (!ready || !cls || price === null) return;
+    const call = engine.calls.createExit({ classId: cls.classId, venue: selectedVenue, maxPrice: price, window: { closesAt: secondsToNs(Math.floor(closesAtMs / 1000)) } });
+    const result = await run({
+      label: "Creating the Exit round",
+      call,
+      success: (outcome) => {
+        const id = outcomeValue(outcome);
+        return typeof id === "string" ? `Exit round #${id} created` : "Exit round created";
+      },
+    });
+    if (result.ok) {
+      const id = outcomeValue(result.outcome);
+      onClose();
+      if (typeof id === "string") router.push(`${ROUTES.rounds}/${id}`);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Create an Exit round"
+      description="Holders of the class submit sealed asks, buyers submit sealed bids; one uniform clearing price."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => void submit()} disabled={!ready} loading={status.status === "busy"} loadingLabel="Signing…" data-create-exit-submit>
+            Create round · {formatUnits(ROUND_STORAGE_DEPOSIT, 24, 2)} NEAR
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        {near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or use the demo wallet) to create a round.</Notice> : null}
+        {eligible.length === 0 ? <Notice tone="info">No class with locked tokens exists yet. Deposit a position first; the class appears here once it is registered.</Notice> : null}
+        <Field label="Class" error={errors.cls}>
+          {({ inputId, describedBy, invalid }) => (
+            <select id={inputId} aria-describedby={describedBy} aria-invalid={invalid || undefined} value={classId} onChange={(event) => setClassId(event.target.value)} className={selectClass}>
+              {classes.map((item) => (
+                <option key={item.classId} value={item.classId} disabled={item.fractionNow >= ONE}>
+                  {classLabel(item, symbolOf(symbols, item))}
+                  {item.fractionNow >= ONE ? " (fully unlocked)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Cash venue" hint="Every escrow, bond, fee and payout of the round lives in this venue.">
+          {({ inputId, describedBy }) => (
+            <select id={inputId} aria-describedby={describedBy} value={venueId} onChange={(event) => setVenueId(event.target.value)} className={selectClass}>
+              {venues.map((venue) => (
+                <option key={venue.id} value={venue.id}>
+                  {venue.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Max price" hint="Per whole locked token at the close time; orders priced above it stay outside the book. Seller bonds are 1% of their units valued at this price." error={errors.price}>
+          {({ inputId, describedBy, invalid }) => (
+            <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={maxPrice} onValueChange={setMaxPrice} unit="USDC" decimals={USDC_DECIMALS} placeholder="8.50" />
+          )}
+        </Field>
+        <Field
+          label="Bidding window"
+          hint={config ? `Key timeout ${formatDuration(Number(config.default_key_timeout) / 1e9)} and reveal window ${formatDuration(Number(config.default_reveal_window) / 1e9)} follow the engine defaults.` : undefined}
+          error={errors.closes}
+        >
+          {({ inputId, describedBy, invalid }) => (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Bidding window presets">
+                {WINDOWS.map((preset) => (
+                  <Button
+                    key={preset.seconds}
+                    type="button"
+                    size="sm"
+                    variant={!useCustom && windowSeconds === preset.seconds ? "primary" : "secondary"}
+                    aria-pressed={!useCustom && windowSeconds === preset.seconds}
+                    onClick={() => {
+                      setUseCustom(false);
+                      setWindowSeconds(preset.seconds);
+                    }}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+                <Button type="button" size="sm" variant={useCustom ? "primary" : "secondary"} aria-pressed={useCustom} onClick={() => setUseCustom(true)}>
+                  Custom
+                </Button>
+              </div>
+              {useCustom ? <Input id={inputId} aria-describedby={describedBy} invalid={invalid} type="datetime-local" value={customCloses} onChange={(event) => setCustomCloses(event.target.value)} /> : null}
+            </div>
+          )}
+        </Field>
+        <dl className="grid grid-cols-2 gap-3 rounded-md border border-ink-750 bg-ink-900 p-3 text-[12px]">
+          <div>
+            <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Storage deposit</dt>
+            <dd className="tabular text-ink-100">{formatUnits(ROUND_STORAGE_DEPOSIT, 24, 2)} NEAR</dd>
+            <dd className="text-ink-400">Kept with the round record, its result and its price point.</dd>
+          </div>
+          <div>
+            <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Locked at close</dt>
+            <dd className="tabular text-ink-100">{fTs === null ? "—" : `${(Number(((ONE - fTs) * 10_000n) / ONE) / 100).toFixed(2)}%`}</dd>
+            <dd className="text-ink-400">Prices are per locked token at the close time.</dd>
+          </div>
+        </dl>
+        {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
+        <LearnMore topic="clearing" label="How an Exit clears" />
+      </form>
+    </Modal>
+  );
+}
