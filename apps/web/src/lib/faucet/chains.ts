@@ -1,8 +1,10 @@
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
-import { Account, JsonRpcProvider, KeyPairSigner, actions, baseDecode, type KeyPairString } from "near-api-js";
-import { createPublicClient, createWalletClient, http, parseEther, type Hex } from "viem";
+import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, actions, baseDecode, type KeyPairString } from "near-api-js";
+import { createPublicClient, createWalletClient, formatEther, http, nonceManager, parseEther, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia } from "viem/chains";
+import { capRefusal, type SendCaps, type SendUsage } from "./guards";
+import { nearAccountExists, nearRpcCall, readBaseUsage, readNearKeyUsage, readSolanaUsage } from "./ledger";
 
 export const DEFAULT_BASE_RPC_URL = "https://sepolia.base.org";
 export const DEFAULT_SOLANA_RPC_URL = "https://api.devnet.solana.com";
@@ -25,10 +27,23 @@ const NEAR_CREATE_ACCOUNT_GAS = 30_000_000_000_000n;
 /** Keeps the funder account above its own storage and gas needs. */
 const NEAR_FUNDER_RESERVE_YOCTO = 100_000_000_000_000_000_000_000n;
 
+/**
+ * Sends per hot wallet for everyone together, per rolling hour and day, sized on the live budgets
+ * of 2026-11-04 (Base 0.046 ETH at 0.002 a send, Solana 0.4 SOL at 0.05, NEAR funder 12 NEAR at 1)
+ * so a day of abuse leaves the wallets able to serve the next day. The NEAR caps apply to the
+ * funder fallback only; the public helper spends its own funds under its own limits.
+ */
+export const DEFAULT_CAPS = {
+  base: { hourly: 5, daily: 15 },
+  solana: { hourly: 3, daily: 6 },
+  near: { hourly: 3, daily: 6 },
+} as const satisfies Record<string, SendCaps>;
+
 export class FaucetError extends Error {
   constructor(
-    readonly code: "faucet_dry" | "upstream" | "invalid_request",
+    readonly code: "faucet_dry" | "upstream" | "invalid_request" | "rate_limited" | "already_funded",
     message: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "FaucetError";
@@ -44,20 +59,29 @@ export interface FaucetSenders {
 }
 
 export type FaucetConfig = {
-  base: { configured: boolean; rpcUrl: string; amountWei: bigint };
-  solana: { configured: boolean; rpcUrl: string; lamports: bigint };
+  base: { configured: boolean; rpcUrl: string; amountWei: bigint; caps: SendCaps };
+  solana: { configured: boolean; rpcUrl: string; lamports: bigint; caps: SendCaps };
   /**
    * The public helper is tried first; when it is rate limited or down and a funder account is
    * configured (`NEAR_FAUCET_ACCOUNT_ID` + `NEAR_FAUCET_PRIVATE_KEY`), the funder creates the
-   * account through the testnet registrar instead.
+   * account through the testnet registrar instead, within `funderCaps`.
    */
-  near: { configured: boolean; helperUrl: string; rpcUrl: string; funderAccountId: string | null; funderYocto: bigint };
+  near: { configured: boolean; helperUrl: string; rpcUrl: string; funderAccountId: string | null; funderYocto: bigint; funderCaps: SendCaps };
   cookieSecret: string | null;
 };
 
 function bigintEnv(value: string | undefined, fallback: bigint): bigint {
   const trimmed = value?.trim();
   return trimmed && /^\d+$/.test(trimmed) ? BigInt(trimmed) : fallback;
+}
+
+/** `<PREFIX>_HOURLY_CAP` and `<PREFIX>_DAILY_CAP`, whole numbers, defaulting to `fallback`. */
+function capsEnv(env: NodeJS.ProcessEnv, prefix: string, fallback: SendCaps): SendCaps {
+  const read = (name: string, value: number) => {
+    const raw = env[`${prefix}_${name}`]?.trim();
+    return raw && /^\d+$/.test(raw) ? Number(raw) : value;
+  };
+  return { hourly: read("HOURLY_CAP", fallback.hourly), daily: read("DAILY_CAP", fallback.daily) };
 }
 
 /** Reads the faucet configuration; only presence is kept for the keys, their values stay in the senders. */
@@ -67,11 +91,13 @@ export function readFaucetConfig(env: NodeJS.ProcessEnv): FaucetConfig {
       configured: Boolean(env.BASE_FAUCET_PRIVATE_KEY?.trim()),
       rpcUrl: env.BASE_SEPOLIA_RPC_URL?.trim() || DEFAULT_BASE_RPC_URL,
       amountWei: bigintEnv(env.BASE_FAUCET_ETH_WEI, DEFAULT_BASE_ETH_WEI),
+      caps: capsEnv(env, "BASE_FAUCET", DEFAULT_CAPS.base),
     },
     solana: {
       configured: Boolean(env.SOLANA_FAUCET_SECRET_KEY?.trim()),
       rpcUrl: env.SOLANA_RPC_URL?.trim() || DEFAULT_SOLANA_RPC_URL,
       lamports: bigintEnv(env.SOLANA_FAUCET_LAMPORTS, DEFAULT_SOLANA_LAMPORTS),
+      caps: capsEnv(env, "SOLANA_FAUCET", DEFAULT_CAPS.solana),
     },
     near: {
       configured: true,
@@ -79,6 +105,7 @@ export function readFaucetConfig(env: NodeJS.ProcessEnv): FaucetConfig {
       rpcUrl: env.NEAR_RPC_URL?.trim() || DEFAULT_NEAR_RPC_URL,
       funderAccountId: env.NEAR_FAUCET_ACCOUNT_ID?.trim() && env.NEAR_FAUCET_PRIVATE_KEY?.trim() ? env.NEAR_FAUCET_ACCOUNT_ID.trim() : null,
       funderYocto: bigintEnv(env.NEAR_FAUCET_YOCTO, DEFAULT_NEAR_FUNDER_YOCTO),
+      funderCaps: capsEnv(env, "NEAR_FAUCET", DEFAULT_CAPS.near),
     },
     cookieSecret: env.FAUCET_COOKIE_SECRET?.trim() || null,
   };
@@ -89,6 +116,26 @@ export function safeMessage(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
   const line = text.split("\n")[0] ?? "";
   return line.length > 200 ? `${line.slice(0, 200)}…` : line;
+}
+
+function durationLabel(seconds: number): string {
+  if (seconds < 3600) {
+    const minutes = Math.max(1, Math.ceil(seconds / 60));
+    return `${String(minutes)} minute${minutes === 1 ? "" : "s"}`;
+  }
+  const hours = Math.ceil(seconds / 3600);
+  return `${String(hours)} hour${hours === 1 ? "" : "s"}`;
+}
+
+/** Throws `rate_limited` when the hot wallet's own history shows a full hourly or daily cap. */
+export function enforceCaps(label: string, usage: SendUsage, caps: SendCaps, nowSeconds: number): void {
+  const refusal = capRefusal(usage, caps, nowSeconds);
+  if (refusal === null) return;
+  throw new FaucetError(
+    "rate_limited",
+    `The ${label} faucet reached its limit of ${String(refusal.cap)} sends per ${refusal.window} for all visitors. Try again in about ${durationLabel(refusal.retryAfterSeconds)}.`,
+    refusal.retryAfterSeconds,
+  );
 }
 
 /** Parses the Solana secret key from a JSON byte array or a base58 string (64 bytes). */
@@ -130,33 +177,57 @@ function describeFailure(failure: unknown): string {
   return `The NEAR helper reported a failure: ${text.slice(0, 160)}`;
 }
 
+/** Upstream answers meaning another sender (another instance) used the same Base nonce first. */
+const NONCE_CONFLICT = /nonce too low|lower than the current nonce|replacement transaction underpriced|already known|nonce has already been used/i;
+
 /** Real senders backed by the server-side hot wallets; keys are read lazily on first use. */
-export function createFaucetSenders(env: NodeJS.ProcessEnv, config: FaucetConfig = readFaucetConfig(env)): FaucetSenders {
+export function createFaucetSenders(env: NodeJS.ProcessEnv, config: FaucetConfig = readFaucetConfig(env), now: () => number = () => Date.now()): FaucetSenders {
   return {
     async sendBase(address) {
       const key = env.BASE_FAUCET_PRIVATE_KEY?.trim() as Hex | undefined;
       if (!key) throw new FaucetError("upstream", "The Base faucet is not configured.");
-      const account = privateKeyToAccount(key.startsWith("0x") ? key : (`0x${key}` as Hex));
+      /* The module-level nonce manager hands out consecutive nonces on this instance even when the RPC's pending count lags. */
+      const account = privateKeyToAccount(key.startsWith("0x") ? key : (`0x${key}` as Hex), { nonceManager });
       const transport = http(config.base.rpcUrl);
       const publicClient = createPublicClient({ chain: baseSepolia, transport });
       const wallet = createWalletClient({ account, chain: baseSepolia, transport });
       const amount = config.base.amountWei;
+      const nowSeconds = Math.floor(now() / 1000);
+      let held: bigint;
       let balance: bigint;
       let fees: { maxFeePerGas?: bigint; gasPrice?: bigint };
+      let usage: SendUsage;
       try {
-        [balance, fees] = await Promise.all([publicClient.getBalance({ address: account.address }), publicClient.estimateFeesPerGas()]);
+        [held, balance, fees, usage] = await Promise.all([
+          publicClient.getBalance({ address }),
+          publicClient.getBalance({ address: account.address }),
+          publicClient.estimateFeesPerGas(),
+          readBaseUsage({ getBlock: (args) => publicClient.getBlock(args), getTransactionCount: (args) => publicClient.getTransactionCount(args) }, account.address, nowSeconds),
+        ]);
       } catch (error) {
         throw new FaucetError("upstream", `Base Sepolia RPC failed: ${safeMessage(error)}`);
       }
+      if (held >= amount) {
+        throw new FaucetError("already_funded", `This address already holds ${formatEther(held)} ETH on Base Sepolia, at least what the faucet sends. The faucet only tops up empty wallets.`);
+      }
+      enforceCaps("Base Sepolia", usage, config.base.caps, nowSeconds);
       const gasCost = 21_000n * (fees.maxFeePerGas ?? fees.gasPrice ?? 0n) * 2n;
       if (balance < amount + gasCost) {
         throw new FaucetError("faucet_dry", "The Base Sepolia faucet wallet is empty; ask the team to refill it.");
       }
-      try {
-        const txHash = await wallet.sendTransaction({ to: address, value: amount });
-        return { txHash, amount: amount.toString() };
-      } catch (error) {
-        throw new FaucetError("upstream", `Base Sepolia transfer failed: ${safeMessage(error)}`);
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const txHash = await wallet.sendTransaction({ to: address, value: amount });
+          return { txHash, amount: amount.toString() };
+        } catch (error) {
+          const message = safeMessage(error);
+          /* viem keeps the node's own words in the details lines of its message. */
+          if (attempt === 0 && error instanceof Error && NONCE_CONFLICT.test(error.message)) {
+            nonceManager.reset({ address: account.address, chainId: baseSepolia.id });
+            continue;
+          }
+          throw new FaucetError("upstream", `Base Sepolia transfer failed: ${message}`);
+        }
       }
     },
 
@@ -166,18 +237,29 @@ export function createFaucetSenders(env: NodeJS.ProcessEnv, config: FaucetConfig
       const payer = Keypair.fromSecretKey(parseSolanaSecretKey(raw));
       const connection = new Connection(config.solana.rpcUrl, "confirmed");
       const lamports = config.solana.lamports;
+      const recipient = new PublicKey(address);
+      const nowSeconds = Math.floor(now() / 1000);
+      const caps = config.solana.caps;
+      let held: number;
       let balance: number;
+      let usage: SendUsage;
       try {
-        balance = await connection.getBalance(payer.publicKey, "confirmed");
+        [held, balance, usage] = await Promise.all([
+          connection.getBalance(recipient, "confirmed"),
+          connection.getBalance(payer.publicKey, "confirmed"),
+          readSolanaUsage(connection, payer.publicKey, nowSeconds, Math.max(caps.hourly, caps.daily) + 1),
+        ]);
       } catch (error) {
         throw new FaucetError("upstream", `Solana devnet RPC failed: ${safeMessage(error)}`);
       }
+      if (BigInt(held) >= lamports) {
+        throw new FaucetError("already_funded", `This address already holds ${(held / LAMPORTS_PER_SOL).toString()} SOL on devnet, at least what the faucet sends. The faucet only tops up empty wallets.`);
+      }
+      enforceCaps("Solana devnet", usage, caps, nowSeconds);
       if (BigInt(balance) < lamports + 10_000n) {
         throw new FaucetError("faucet_dry", "The Solana devnet faucet wallet is empty; ask the team to refill it.");
       }
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: new PublicKey(address), lamports }),
-      );
+      const transaction = new Transaction().add(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: recipient, lamports }));
       try {
         const signature = await sendAndConfirmTransaction(connection, transaction, [payer], { commitment: "confirmed" });
         return { signature, amount: lamports.toString() };
@@ -187,11 +269,19 @@ export function createFaucetSenders(env: NodeJS.ProcessEnv, config: FaucetConfig
     },
 
     async createNearAccount(accountId, publicKey) {
+      const call = nearRpcCall(config.near.rpcUrl);
+      let exists: boolean;
+      try {
+        exists = await nearAccountExists(call, accountId);
+      } catch (error) {
+        throw new FaucetError("upstream", `NEAR testnet RPC failed: ${safeMessage(error)}`);
+      }
+      if (exists) throw new FaucetError("invalid_request", "That account id already exists; pick another one.");
       const helper = await createWithHelper(config.near.helperUrl, accountId, publicKey);
       if (helper.ok) return { txHash: helper.txHash, amount: NEAR_HELPER_FUNDING };
       const key = env.NEAR_FAUCET_PRIVATE_KEY?.trim();
       if (!helper.fallback || !config.near.funderAccountId || !key) throw helper.error;
-      return createWithFunder(config.near, key as KeyPairString, accountId, publicKey);
+      return createWithFunder(config.near, key as KeyPairString, accountId, publicKey, Math.floor(now() / 1000));
     },
   };
 }
@@ -232,23 +322,27 @@ async function createWithHelper(helperUrl: string, accountId: string, publicKey:
   return { ok: true, txHash };
 }
 
-/** Creates `accountId` from the funder account through the testnet registrar, funded with `funderYocto`. */
-async function createWithFunder(near: FaucetConfig["near"], key: KeyPairString, accountId: string, publicKey: string): Promise<{ txHash: string; amount: string }> {
+/** Creates `accountId` from the funder account through the testnet registrar, funded with `funderYocto`, within the funder caps. */
+async function createWithFunder(near: FaucetConfig["near"], key: KeyPairString, accountId: string, publicKey: string, nowSeconds: number): Promise<{ txHash: string; amount: string }> {
   const funderId = near.funderAccountId!;
   const provider = new JsonRpcProvider({ url: near.rpcUrl });
   let signer: KeyPairSigner;
+  let funderPublicKey: string;
   try {
     signer = KeyPairSigner.fromSecretKey(key);
+    funderPublicKey = KeyPair.fromString(key).getPublicKey().toString();
   } catch {
     throw new FaucetError("upstream", "NEAR_FAUCET_PRIVATE_KEY is not an ed25519 secret key.");
   }
   const funder = new Account(funderId, provider, signer);
   let balance: bigint;
+  let usage: SendUsage;
   try {
-    balance = (await funder.getBalance()) as bigint;
+    [balance, usage] = await Promise.all([funder.getBalance() as Promise<bigint>, readNearKeyUsage(nearRpcCall(near.rpcUrl), funderId, funderPublicKey, nowSeconds)]);
   } catch (error) {
     throw new FaucetError("upstream", `NEAR testnet RPC failed: ${safeMessage(error)}`);
   }
+  enforceCaps("NEAR testnet", usage, near.funderCaps, nowSeconds);
   if (balance < near.funderYocto + NEAR_FUNDER_RESERVE_YOCTO) {
     throw new FaucetError("faucet_dry", "The NEAR faucet helper is rate limited and the NEAR funder account is empty; ask the team to refill it.");
   }

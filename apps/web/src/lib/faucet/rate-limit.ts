@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { FaucetChain } from "./validate";
+import { FAUCET_CHAINS, type FaucetChain } from "./validate";
 
 /** One request per funded address (or account id) per chain per window. */
 export const ADDRESS_LIMIT = 1;
@@ -10,11 +10,12 @@ export const WINDOW_SECONDS = 24 * 60 * 60;
 
 export const COOKIE_NAME = "rose_faucet";
 
-export type RateLimitDecision = { allowed: true } | { allowed: false; retryAfterSeconds: number; scope: "address" | "ip" | "cookie" };
+export type RateLimitDecision = { allowed: true; release: () => void } | { allowed: false; retryAfterSeconds: number; scope: "address" | "ip" | "cookie" };
 
 /**
- * In-memory counters with a rolling window. On Vercel Hobby every instance keeps its own map,
- * so a cold start forgets it; the signed cookie covers the same browser across instances.
+ * In-memory counters with a rolling window, one map per serverless instance: a cold start forgets
+ * them, and two instances do not share them. They stop bursts against one warm instance; the
+ * signed cookie and the on-chain caps of `ledger.ts` hold across instances.
  */
 export class MemoryRateLimiter {
   private readonly hits = new Map<string, number[]>();
@@ -40,6 +41,29 @@ export class MemoryRateLimiter {
     const recent = this.recent(key, nowSeconds);
     recent.push(nowSeconds);
     this.hits.set(key, recent);
+  }
+
+  /** Removes one hit recorded at `at` for `key` (a reservation whose send failed). */
+  release(key: string, at: number): void {
+    const hits = this.hits.get(key);
+    if (!hits) return;
+    const index = hits.indexOf(at);
+    if (index >= 0) hits.splice(index, 1);
+    if (hits.length === 0) this.hits.delete(key);
+  }
+
+  /**
+   * Checks every `(key, limit)` pair and records a hit on all of them in the same synchronous
+   * step, so concurrent requests on one instance cannot all pass the check before any records.
+   * Returns the index of the first limit that refused, or a `release` that undoes the reservation.
+   */
+  reserve(limits: readonly { key: string; limit: number }[], nowSeconds: number): { allowed: true; release: () => void } | { allowed: false; index: number; retryAfterSeconds: number } {
+    for (const [index, { key, limit }] of limits.entries()) {
+      const decision = this.check(key, limit, nowSeconds);
+      if (!decision.allowed) return { allowed: false, index, retryAfterSeconds: decision.retryAfterSeconds };
+    }
+    for (const { key } of limits) this.record(key, nowSeconds);
+    return { allowed: true, release: () => limits.forEach(({ key }) => this.release(key, nowSeconds)) };
   }
 
   /** Evicts every key with no hit inside the window; called opportunistically on each request. */
@@ -73,9 +97,8 @@ export function verifyCookie(value: string | null | undefined, secret: string): 
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
     const payload: CookiePayload = {};
     for (const [chain, at] of Object.entries(parsed)) {
-      if ((chain === "base" || chain === "solana" || chain === "near") && typeof at === "number" && Number.isFinite(at)) {
-        payload[chain] = at;
-      }
+      const known = FAUCET_CHAINS.find((candidate) => candidate === chain);
+      if (known !== undefined && typeof at === "number" && Number.isFinite(at)) payload[known] = at;
     }
     return payload;
   } catch {
@@ -83,12 +106,17 @@ export function verifyCookie(value: string | null | undefined, secret: string): 
   }
 }
 
-/** Reads one cookie from a `Cookie` request header. */
+/** Reads one cookie from a `Cookie` request header; a malformed value reads as absent. */
 export function readCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const [key, ...rest] = part.trim().split("=");
-    if (key === name) return decodeURIComponent(rest.join("="));
+    if (key !== name) continue;
+    try {
+      return decodeURIComponent(rest.join("="));
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -117,21 +145,24 @@ export type RateLimitInput = {
   limiter: MemoryRateLimiter;
 };
 
-/** Pure decision: the signed cookie first, then the per-address and per-IP counters. */
-export function decideRateLimit({ chain, subject, ip, cookie, nowSeconds, limiter }: RateLimitInput): RateLimitDecision {
+/**
+ * The signed cookie first, then the per-address and per-IP counters, reserved atomically: the
+ * caller sends only after a reservation and calls `release` when the send fails.
+ */
+export function reserveRateLimit({ chain, subject, ip, cookie, nowSeconds, limiter }: RateLimitInput): RateLimitDecision {
   const last = cookie[chain];
   if (last !== undefined && nowSeconds - last < WINDOW_SECONDS) {
     return { allowed: false, retryAfterSeconds: Math.max(1, last + WINDOW_SECONDS - nowSeconds), scope: "cookie" };
   }
-  const byAddress = limiter.check(`${chain}:address:${subject}`, ADDRESS_LIMIT, nowSeconds);
-  if (!byAddress.allowed) return { allowed: false, retryAfterSeconds: byAddress.retryAfterSeconds, scope: "address" };
-  const byIp = limiter.check(`${chain}:ip:${ip}`, IP_LIMIT, nowSeconds);
-  if (!byIp.allowed) return { allowed: false, retryAfterSeconds: byIp.retryAfterSeconds, scope: "ip" };
-  return { allowed: true };
-}
-
-export function recordRequest({ chain, subject, ip, nowSeconds, limiter }: Omit<RateLimitInput, "cookie">): void {
-  limiter.record(`${chain}:address:${subject}`, nowSeconds);
-  limiter.record(`${chain}:ip:${ip}`, nowSeconds);
   limiter.prune(nowSeconds);
+  const scopes = ["address", "ip"] as const;
+  const reservation = limiter.reserve(
+    [
+      { key: `${chain}:address:${subject}`, limit: ADDRESS_LIMIT },
+      { key: `${chain}:ip:${ip}`, limit: IP_LIMIT },
+    ],
+    nowSeconds,
+  );
+  if (!reservation.allowed) return { allowed: false, retryAfterSeconds: reservation.retryAfterSeconds, scope: scopes[reservation.index] ?? "address" };
+  return { allowed: true, release: reservation.release };
 }
