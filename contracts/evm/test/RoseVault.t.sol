@@ -4,11 +4,18 @@ pragma solidity ^0.8.29;
 import {Test, Vm} from "forge-std/Test.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {RoseVault} from "../src/RoseVault.sol";
 import {ISablierLockup, Lockup, LockupLinear} from "../src/interfaces/ISablierLockup.sol";
 import {MockLockup} from "./mocks/MockLockup.sol";
-import {FeeOnTransferToken, MockERC20, RawDecimalsToken} from "./mocks/MockTokens.sol";
+import {
+    FeeOnTransferToken,
+    MockERC20,
+    RawDecimalsToken,
+    ReentrantToken,
+    ShiftingDecimalsToken
+} from "./mocks/MockTokens.sol";
 import {MpcSignature} from "./utils/MpcSignature.sol";
 
 contract RoseVaultTest is Test {
@@ -685,6 +692,16 @@ contract RoseVaultTest is Test {
         }
     }
 
+    /// @dev The vault's last log in `logs`; Sablier and the token log after it (`Approval` from the allowance reset).
+    function _lastVaultLog(Vm.Log[] memory logs) internal view returns (Vm.Log memory) {
+        for (uint256 i = logs.length; i > 0; --i) {
+            if (logs[i - 1].emitter == address(vault)) {
+                return logs[i - 1];
+            }
+        }
+        revert("no vault log");
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                                   NFT RECEIVER
     //////////////////////////////////////////////////////////////////////////*/
@@ -981,8 +998,7 @@ contract RoseVaultTest is Test {
         vm.recordLogs();
         vm.prank(alice);
         uint256[] memory ids = vault.createStreams(IERC20(address(token)), _cohort(), list);
-        Vm.Log[] memory created = vm.getRecordedLogs();
-        Vm.Log memory cohortLog = created[created.length - 1];
+        Vm.Log memory cohortLog = _lastVaultLog(vm.getRecordedLogs());
 
         uint256 streamId = _lockedStream(alice);
         vm.recordLogs();
@@ -1422,6 +1438,176 @@ contract RoseVaultTest is Test {
         lockup.withdrawMax{value: FEE}(streamId, address(vault));
         assertEq(token.balanceOf(address(vault)), vested);
     }
+
+    function test_depositCash_rejectsLockupAsToken() public {
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.InvalidToken.selector, address(lockup)));
+        vault.depositCash(IERC20(address(lockup)), 1, NEAR_ACCOUNT, 1);
+    }
+
+    function test_depositCash_succeedsWhenVaultAlreadyHoldsToken() public {
+        usdc.mint(address(vault), 100e6);
+        usdc.mint(alice, 50e6);
+        vm.startPrank(alice);
+        usdc.approve(address(vault), 50e6);
+        vault.depositCash(IERC20(address(usdc)), 50e6, NEAR_ACCOUNT, 3);
+        vm.stopPrank();
+        assertEq(usdc.balanceOf(address(vault)), 150e6);
+    }
+
+    function test_createStreams_succeedsWhenVaultAlreadyHoldsToken() public {
+        token.mint(address(vault), 500e18);
+        _fundIssuer(DEPOSIT);
+        vm.prank(alice);
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), _cohort(), _allocations(1, DEPOSIT));
+        assertEq(lockup.ownerOf(ids[0]), address(vault));
+        assertEq(token.balanceOf(address(vault)), 500e18);
+        assertEq(token.allowance(address(vault), address(lockup)), 0);
+    }
+
+    function test_executeRelease_toContractWithoutReceiverHook() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        address recipient = address(new RejectingSubmitter());
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, recipient, 22);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+        vault.executeRelease(auth, v, r, s);
+        assertEq(lockup.ownerOf(streamId), recipient);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                               DECIMALS CONSISTENCY
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev The token flips from 18 to 6 decimals while the cohort is pulled: the log must carry the 18 that passed
+    /// the minimum check.
+    function test_createStreams_emitsDecimalsReadForMinimumCheck() public {
+        ShiftingDecimalsToken shifting = new ShiftingDecimalsToken();
+        shifting.setTrigger(alice);
+        shifting.mint(alice, DEPOSIT);
+        vm.startPrank(alice);
+        shifting.approve(address(vault), DEPOSIT);
+        vm.recordLogs();
+        vault.createStreams(IERC20(address(shifting)), _cohort(), _allocations(1, DEPOSIT));
+        vm.stopPrank();
+        Vm.Log memory log = _lastVaultLog(vm.getRecordedLogs());
+        assertEq(shifting.decimals(), 6);
+        assertEq(_word(log.data, 3), 18);
+    }
+
+    /// @dev The token flips when the vested balance leaves the Lockup during the deposit: same rule.
+    function test_depositStream_emitsDecimalsReadForMinimumCheck() public {
+        ShiftingDecimalsToken shifting = new ShiftingDecimalsToken();
+        shifting.setTrigger(address(lockup));
+        shifting.mint(address(this), DEPOSIT);
+        shifting.approve(address(lockup), DEPOSIT);
+        uint256 streamId = lockup.createWithTimestampsLL(
+            Lockup.CreateWithTimestamps({
+                sender: address(this),
+                recipient: alice,
+                depositAmount: DEPOSIT,
+                token: IERC20(address(shifting)),
+                cancelable: false,
+                transferable: true,
+                timestamps: Lockup.Timestamps({start: NOW - 100 days, end: NOW + 265 days}),
+                shape: ""
+            }),
+            LockupLinear.UnlockAmounts({start: 0, cliff: 0}),
+            1,
+            0
+        );
+        assertGt(lockup.withdrawableAmountOf(streamId), 0);
+        vm.startPrank(alice);
+        lockup.approve(address(vault), streamId);
+        vm.recordLogs();
+        vault.depositStream{value: FEE}(lockup, streamId, NEAR_ACCOUNT);
+        vm.stopPrank();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        Vm.Log memory log = logs[logs.length - 1];
+        assertEq(log.emitter, address(vault));
+        assertEq(shifting.decimals(), 6);
+        assertEq(_word(log.data, 3), 18);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                    REENTRANCY
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function _reentrantCall() internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
+    }
+
+    function test_reentrancy_tokenCannotReenterCreateStreams() public {
+        ReentrantToken reentrant = new ReentrantToken();
+        reentrant.mint(alice, DEPOSIT);
+        RoseVault.Allocation[] memory list = _allocations(1, DEPOSIT);
+        reentrant.arm(
+            address(vault), abi.encodeCall(vault.createStreams, (IERC20(address(reentrant)), _cohort(), list))
+        );
+        vm.startPrank(alice);
+        reentrant.approve(address(vault), DEPOSIT);
+        uint256[] memory ids = vault.createStreams(IERC20(address(reentrant)), _cohort(), list);
+        vm.stopPrank();
+        assertEq(reentrant.lastReason(), _reentrantCall());
+        assertEq(lockup.ownerOf(ids[0]), address(vault));
+    }
+
+    function test_reentrancy_tokenCannotReenterDepositCash() public {
+        ReentrantToken reentrant = new ReentrantToken();
+        reentrant.mint(alice, 50e6);
+        reentrant.arm(
+            address(vault), abi.encodeCall(vault.depositCash, (IERC20(address(reentrant)), 1e6, NEAR_ACCOUNT, 1))
+        );
+        vm.startPrank(alice);
+        reentrant.approve(address(vault), 50e6);
+        vault.depositCash(IERC20(address(reentrant)), 50e6, NEAR_ACCOUNT, 1);
+        vm.stopPrank();
+        assertEq(reentrant.lastReason(), _reentrantCall());
+        assertEq(reentrant.balanceOf(address(vault)), 50e6);
+    }
+
+    function test_reentrancy_tokenCannotReenterExecuteTransfer() public {
+        ReentrantToken reentrant = new ReentrantToken();
+        reentrant.mint(address(vault), 500e6);
+        RoseVault.Transfer memory first = RoseVault.Transfer(address(reentrant), bob, 100e6, 1);
+        RoseVault.Transfer memory second = RoseVault.Transfer(address(reentrant), bob, 100e6, 2);
+        (uint8 v, bytes32 r, bytes32 s) = _signTransfer(SIGNER_KEY, second);
+        reentrant.arm(address(vault), abi.encodeCall(vault.executeTransfer, (second, v, r, s)));
+        (v, r, s) = _signTransfer(SIGNER_KEY, first);
+        vault.executeTransfer(first, v, r, s);
+        assertEq(reentrant.lastReason(), _reentrantCall());
+        assertEq(reentrant.balanceOf(bob), 100e6);
+        assertTrue(vault.isAuthorizationUsed(1));
+        assertFalse(vault.isAuthorizationUsed(2));
+    }
+
+    function test_reentrancy_refundCannotReenterDepositStream() public {
+        ReentrantReceiver holder = new ReentrantReceiver(vault);
+        uint256 streamId = _vestingStream(address(holder));
+        holder.approveStream(lockup, streamId);
+        holder.arm(abi.encodeCall(vault.depositStream, (lockup, streamId, NEAR_ACCOUNT)));
+        holder.deposit{value: FEE + 1}(lockup, streamId, NEAR_ACCOUNT);
+        assertEq(holder.lastReason(), _reentrantCall());
+        assertEq(lockup.ownerOf(streamId), address(vault));
+        assertEq(address(holder).balance, 1);
+    }
+
+    function test_reentrancy_refundCannotReenterExecuteRelease() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        vm.warp(NOW + 60 days);
+        _fundVault(500e6);
+        ReentrantReceiver submitter = new ReentrantReceiver(vault);
+        RoseVault.Transfer memory payout = RoseVault.Transfer(address(usdc), bob, 100e6, 23);
+        (uint8 v, bytes32 r, bytes32 s) = _signTransfer(SIGNER_KEY, payout);
+        submitter.arm(abi.encodeCall(vault.executeTransfer, (payout, v, r, s)));
+        RoseVault.Release memory release = RoseVault.Release(address(lockup), streamId, bob, 24);
+        (v, r, s) = _signRelease(SIGNER_KEY, release);
+        submitter.release{value: FEE + 1}(release, v, r, s);
+        assertEq(submitter.lastReason(), _reentrantCall());
+        assertEq(lockup.ownerOf(streamId), bob);
+        assertFalse(vault.isAuthorizationUsed(23));
+        assertEq(usdc.balanceOf(bob), 0);
+    }
 }
 
 /// @dev Submits a release on behalf of a contract that has no `receive`, so any refund the vault sends back fails.
@@ -1431,5 +1617,48 @@ contract RejectingSubmitter {
         payable
     {
         vault.executeRelease{value: msg.value}(auth, v, r, s);
+    }
+}
+
+/// @dev Holder or submitter whose refund hook re-enters the vault with the armed call and records why the re-entry
+/// failed; a re-entry that succeeds reverts the whole call.
+contract ReentrantReceiver {
+    RoseVault private immutable _vault;
+    bytes private _attack;
+    bytes public lastReason;
+
+    error ReentrySucceeded();
+
+    constructor(RoseVault vault) {
+        _vault = vault;
+    }
+
+    function arm(bytes calldata attack) external {
+        _attack = attack;
+    }
+
+    function approveStream(ISablierLockup lockup, uint256 streamId) external {
+        lockup.approve(address(_vault), streamId);
+    }
+
+    function deposit(ISablierLockup lockup, uint256 streamId, string calldata nearAccount) external payable {
+        _vault.depositStream{value: msg.value}(lockup, streamId, nearAccount);
+    }
+
+    function release(RoseVault.Release calldata auth, uint8 v, bytes32 r, bytes32 s) external payable {
+        _vault.executeRelease{value: msg.value}(auth, v, r, s);
+    }
+
+    receive() external payable {
+        if (_attack.length == 0) {
+            return;
+        }
+        bytes memory attack = _attack;
+        delete _attack;
+        (bool ok, bytes memory reason) = address(_vault).call(attack);
+        if (ok) {
+            revert ReentrySucceeded();
+        }
+        lastReason = reason;
     }
 }

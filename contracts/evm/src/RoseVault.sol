@@ -267,7 +267,8 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         if (LOCKUP.isDepleted(streamId)) {
             revert StreamDepleted(streamId);
         }
-        uint128 minimum = _minimumDeposit(_decimalsOf(LOCKUP.getUnderlyingToken(streamId)));
+        uint8 decimals = _decimalsOf(LOCKUP.getUnderlyingToken(streamId));
+        uint128 minimum = _minimumDeposit(decimals);
         uint128 deposited = LOCKUP.getDepositedAmount(streamId);
         if (deposited < minimum) {
             revert AmountBelowMinimum(deposited, minimum);
@@ -280,14 +281,14 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         LOCKUP.safeTransferFrom(msg.sender, address(this), streamId);
         _pendingStreamId = 0;
 
-        _emitStreamDeposited(streamId, nearAccount);
+        _emitStreamDeposited(streamId, nearAccount, decimals);
         _refund(msg.value - feePaid);
     }
 
     /// @notice Issuer path: creates one Lockup Linear stream per allocation, owned by the vault from birth and
     /// attributed to the allocation's NEAR account. Anyone holding the tokens can call it.
-    /// @dev Pulls the cohort total from the caller, approves `LOCKUP` for exactly that total and lets Sablier pull it
-    /// stream by stream, so no allowance survives the call; the vault's balance of `token` must be the same before
+    /// @dev Pulls the cohort total from the caller, approves `LOCKUP` for exactly that total, lets Sablier pull it
+    /// stream by stream and resets the allowance to zero; the vault's balance of `token` must be the same before
     /// and after, which refuses fee-on-transfer and rebasing tokens instead of letting them consume other holders'
     /// cash. Every stream has sender = vault, recipient = vault, cancelable = false and transferable = true, so
     /// nobody can cancel it and it can leave only through a `Release` authorization. Sablier mints the NFT with
@@ -317,7 +318,8 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             revert InvalidToken(address(token));
         }
         _checkSchedule(schedule);
-        uint128 minimum = _minimumDeposit(_decimalsOf(token));
+        uint8 decimals = _decimalsOf(token);
+        uint128 minimum = _minimumDeposit(decimals);
 
         uint256 total;
         for (uint256 i; i < count; ++i) {
@@ -364,8 +366,9 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             feesPaid += feePaid;
             _checkRemaining(streamId, minimum);
             streamIds[i] = streamId;
-            _emitStreamDeposited(streamId, allocation.nearAccount);
+            _emitStreamDeposited(streamId, allocation.nearAccount, decimals);
         }
+        token.forceApprove(address(LOCKUP), 0);
         uint256 balanceAfter = token.balanceOf(address(this));
         if (balanceAfter != balanceBefore) {
             revert AmountMismatch(balanceBefore, balanceAfter);
@@ -375,13 +378,17 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
 
     /// @notice Deposits `amount` of an ERC-20 cash token for `nearAccount`, earmarked for round `roundId`.
     /// @dev The NEAR engine decides which tokens it credits (Base Sepolia USDC or rose tUSDC). Tokens that do not
-    /// deliver exactly `amount` (fee-on-transfer, rebasing) are refused.
+    /// deliver exactly `amount` (fee-on-transfer, rebasing) are refused, and so is the Lockup contract itself, whose
+    /// ERC-721 `transferFrom` shares the selector of the ERC-20 pull.
     function depositCash(IERC20 token, uint128 amount, string calldata nearAccount, uint64 roundId)
         external
         nonReentrant
     {
         if (amount == 0) {
             revert ZeroAmount();
+        }
+        if (address(token) == address(LOCKUP)) {
+            revert InvalidToken(address(token));
         }
         if (!NearAccountId.isValid(nearAccount)) {
             revert InvalidNearAccount();
@@ -610,16 +617,17 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         }
     }
 
-    function _emitStreamDeposited(uint256 streamId, string calldata nearAccount) private {
+    /// @dev `decimals` is the value the caller read once for the minimum check, so the log can never disagree with
+    /// the rule that admitted the stream even if the token answers differently later in the same call.
+    function _emitStreamDeposited(uint256 streamId, string calldata nearAccount, uint8 decimals) private {
         LockupLinear.UnlockAmounts memory unlockAmounts = LOCKUP.getUnlockAmounts(streamId);
-        IERC20 token = LOCKUP.getUnderlyingToken(streamId);
         emit StreamDeposited({
             sender: msg.sender,
             nearAccount: nearAccount,
             lockup: address(LOCKUP),
             streamId: streamId,
-            token: address(token),
-            decimals: _decimalsOf(token),
+            token: address(LOCKUP.getUnderlyingToken(streamId)),
+            decimals: decimals,
             deposited: LOCKUP.getDepositedAmount(streamId),
             withdrawn: LOCKUP.getWithdrawnAmount(streamId),
             start: LOCKUP.getStartTime(streamId),

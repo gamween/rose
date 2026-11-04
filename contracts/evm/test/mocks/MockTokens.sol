@@ -51,3 +51,66 @@ contract FeeOnTransferToken is ERC20 {
         }
     }
 }
+
+/// @notice Reports 18 decimals until a transfer leaves `trigger`, then 6: shows that a stream log carries the
+/// decimals read for the minimum check rather than whatever the token answers later in the same call.
+contract ShiftingDecimalsToken is ERC20 {
+    uint8 private _decimals = 18;
+    address private _trigger;
+
+    constructor() ERC20("Shifting Decimals", "SHIFT") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function setTrigger(address trigger) external {
+        _trigger = trigger;
+    }
+
+    function decimals() public view override returns (uint8) {
+        return _decimals;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        super._update(from, to, value);
+        if (from == _trigger) {
+            _decimals = 6;
+        }
+    }
+}
+
+/// @notice Re-enters `target` with the armed call during the next transfer it performs, records the reason that
+/// re-entry failed with and lets the transfer complete; a re-entry that succeeds reverts the whole call.
+contract ReentrantToken is ERC20 {
+    address private _target;
+    bytes private _attack;
+    bytes public lastReason;
+
+    error ReentrySucceeded();
+
+    constructor() ERC20("Reentrant", "RENT") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function arm(address target, bytes calldata attack) external {
+        _target = target;
+        _attack = attack;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        super._update(from, to, value);
+        if (_attack.length == 0) {
+            return;
+        }
+        bytes memory attack = _attack;
+        delete _attack;
+        (bool ok, bytes memory reason) = _target.call(attack);
+        if (ok) {
+            revert ReentrySucceeded();
+        }
+        lastReason = reason;
+    }
+}
