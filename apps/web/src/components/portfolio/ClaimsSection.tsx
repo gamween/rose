@@ -7,7 +7,8 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { formatAmount, formatUsdc, shortHex, venueLabel } from "@/lib/amounts";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { describePayout } from "@/lib/payouts";
-import { classLabel, type PayoutEntry, type PortfolioData } from "./data";
+import { classLabel } from "@/lib/token-symbols";
+import type { PayoutEntry, PortfolioData } from "./data";
 import type { CashRow, TokenClaim } from "./transforms";
 
 const STATE_LABEL: Record<PayoutEntry["state"], { text: string; tone: "neutral" | "ember" | "success" | "warning" | "danger" }> = {

@@ -14,7 +14,7 @@ import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/ne
 import { defaultDurations, formatBound, minutesToNs } from "@/lib/round-window";
 import { useAction } from "@/lib/use-action";
 import { fractionAt } from "@/lib/unlock-schedule";
-import { classLabel } from "@/components/portfolio/data";
+import { classLabel } from "@/lib/token-symbols";
 import { RoundTimingFields, type RoundTimingValue } from "@/components/rounds/RoundTimingFields";
 import type { AdvanceData } from "./data";
 import { holderBond, maxClaim, validateAdvance } from "./math";

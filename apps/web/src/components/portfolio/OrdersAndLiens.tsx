@@ -7,7 +7,8 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { formatAmount, formatUsdc, formatDate, nsToMs } from "@/lib/amounts";
 import { ROUTES } from "@/lib/routes";
-import { classLabel, type PortfolioData } from "./data";
+import { classLabel } from "@/lib/token-symbols";
+import type { PortfolioData } from "./data";
 import type { LienProgress, OrderRow } from "./transforms";
 
 const STATUS_TONE: Record<string, BadgeTone> = { Sealed: "ember", Opened: "info", Void: "danger", Settled: "success" };

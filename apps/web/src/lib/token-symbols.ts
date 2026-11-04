@@ -17,6 +17,13 @@ export function tokenKey(token: string): string {
   return token.toLowerCase();
 }
 
+/** Display label of a class: its token symbol, or the short token address when the token has none. */
+export function classLabel(info: { chain: TokenChain; token: string }, symbols: ReadonlyMap<string, string>): string {
+  const symbol = symbols.get(tokenKey(info.token));
+  if (symbol) return symbol;
+  return info.chain === "Base" ? `${info.token.slice(0, 6)}…${info.token.slice(-4)}` : `${info.token.slice(0, 4)}…${info.token.slice(-4)}`;
+}
+
 /** Symbols the deployment names without a chain read: rose tUSDC and Circle USDC on Base Sepolia. */
 export function deployedCashSymbol(token: string): string | null {
   const key = tokenKey(token);

@@ -9,9 +9,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { formatAmount, formatDay, formatFraction, secondsToMs, shortHex } from "@/lib/amounts";
 import { cn } from "@/lib/cn";
+import { classLabel } from "@/lib/token-symbols";
 import { scheduleBounds } from "@/lib/unlock-schedule";
 import { ROUTES } from "@/lib/routes";
-import { classLabel, type PortfolioData } from "./data";
+import type { PortfolioData } from "./data";
 import { UnlockChart } from "./UnlockChart";
 import type { HoldingRow } from "./transforms";
 

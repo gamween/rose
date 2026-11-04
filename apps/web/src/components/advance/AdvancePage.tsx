@@ -4,7 +4,7 @@ import { outcomeValue, type Round } from "@rose/sdk";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
-import { classLabel } from "@/components/portfolio/data";
+import { classLabel } from "@/lib/token-symbols";
 import { FlowDialog, type FlowRequest } from "@/components/portfolio/FlowDialog";
 import { lienProgress } from "@/components/portfolio/transforms";
 import { orderIdentity, sealOrder } from "@/components/rounds/ibe";

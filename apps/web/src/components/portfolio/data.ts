@@ -9,7 +9,7 @@ import { PublicKey } from "@solana/web3.js";
 import { deployed, deployedAddress } from "@/lib/deployment";
 import { readEventRange } from "@/lib/event-pages";
 import { requireEngine, nearRpc } from "@/lib/engine-client";
-import { tokenKey, tokenSymbols } from "@/lib/token-symbols";
+import { tokenSymbols } from "@/lib/token-symbols";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
 import { accountEvents, orderRoundIds, payoutState, type PayoutState } from "./transforms";
@@ -166,15 +166,4 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
     blockHeight,
     blockTimeSec: BigInt(block.header.timestamp_nanosec) / 1_000_000_000n,
   };
-}
-
-/** Display label of a class: its token symbol, or the short token address when the token has none. */
-export function classLabel(info: ClassInfo, symbols: ReadonlyMap<string, string>): string {
-  const symbol = symbols.get(tokenKey(info.token));
-  if (symbol) return symbol;
-  return info.chain === "Base" ? `${info.token.slice(0, 6)}…${info.token.slice(-4)}` : `${info.token.slice(0, 4)}…${info.token.slice(-4)}`;
-}
-
-export function tokenSymbol(token: string, symbols: ReadonlyMap<string, string>): string {
-  return symbols.get(token.toLowerCase()) ?? `${token.slice(0, 6)}…${token.slice(-4)}`;
 }
