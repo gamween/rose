@@ -10,6 +10,7 @@ import BN from "bn.js";
 import type { SolanaSigner } from "@/components/wallet/WalletProvider";
 import { deployed, SOLANA_DEVNET_RPC_URL } from "@/lib/deployment";
 import { RoseActionError, type ActionErrorKind } from "@/lib/errors";
+import { solanaTxUrl } from "@/lib/explorer";
 import { solanaConnection } from "./solana-demo";
 
 /** Demo schedule: 1,000 whole tokens over 30 days with a 7-day cliff releasing 10 %, hourly periods. */
@@ -27,6 +28,11 @@ const TOKEN_WAIT_MS = 60_000;
 const TOKEN_POLL_MS = 2_000;
 
 export type DemoStreamResult = { txId: string; metadataId: string; faucetTx: string | null };
+
+/** Explorer links of a created demo position: the faucet's token transfer (when there was one) and the stream creation. */
+export function demoPositionLinks(result: DemoStreamResult): { href: string; label: string }[] {
+  return [...(result.faucetTx ? [{ href: solanaTxUrl(result.faucetTx), label: "Demo tokens from the faucet" }] : []), { href: solanaTxUrl(result.txId), label: "Stream creation on Solana Explorer" }];
+}
 
 /** The amounts of the demo stream in base units of a mint with `decimals`. */
 export function demoStreamAmounts(decimals: number): { amount: bigint; cliffAmount: bigint; amountPerPeriod: bigint } {

@@ -44,11 +44,11 @@ export function HistorySection({ data }: { data: PortfolioData }) {
                 <li key={entry.seq.toString()} className="flex flex-col gap-0.5 py-2" data-history-event={entry.event.event}>
                   <div className="flex items-start justify-between gap-3">
                     {href ? (
-                      <Link href={href} className="text-[13px] text-ink-100 underline-offset-2 hover:underline">
+                      <Link href={href} className="min-w-0 text-[13px] text-ink-100 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
                         {line}
                       </Link>
                     ) : (
-                      <span className="text-[13px] text-ink-100">{line}</span>
+                      <span className="min-w-0 text-[13px] text-ink-100 [overflow-wrap:anywhere]">{line}</span>
                     )}
                     <span className="tabular shrink-0 text-[11px] text-ink-400">{formatDate(nsToMs(entry.timestamp))}</span>
                   </div>
@@ -95,7 +95,7 @@ function PayoutLine({ entry, data }: { entry: PayoutEntry; data: PortfolioData }
   const link = payoutExplorerLink(payout, deployedAddress("roseVault"));
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-[12px]" data-history-payout={payout.id}>
-      <span className="text-ink-100">
+      <span className="min-w-0 text-ink-100 [overflow-wrap:anywhere]">
         #{payout.id} · {describePayout(payout, decimalsOf, formatAmount)}
         {link ? (
           <>

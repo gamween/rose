@@ -1,6 +1,6 @@
 import { Keypair } from "@solana/web3.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEMO_WHOLE_TOKENS, demoStreamAmounts, requestDemoTokens } from "./solana-stream";
+import { DEMO_WHOLE_TOKENS, demoPositionLinks, demoStreamAmounts, requestDemoTokens } from "./solana-stream";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -9,6 +9,14 @@ describe("demo Streamflow position", () => {
     expect(DEMO_WHOLE_TOKENS).toBe(1_000n);
     expect(demoStreamAmounts(9)).toEqual({ amount: 1_000_000_000_000n, cliffAmount: 100_000_000_000n, amountPerPeriod: 1_630_434_782n });
     expect(demoStreamAmounts(6).amount).toBe(1_000_000_000n);
+  });
+
+  it("links the faucet transfer and the stream creation under distinct labels", () => {
+    expect(demoPositionLinks({ txId: "create", metadataId: "m", faucetTx: "tokens" })).toEqual([
+      { href: "https://explorer.solana.com/tx/tokens?cluster=devnet", label: "Demo tokens from the faucet" },
+      { href: "https://explorer.solana.com/tx/create?cluster=devnet", label: "Stream creation on Solana Explorer" },
+    ]);
+    expect(demoPositionLinks({ txId: "create", metadataId: "m", faucetTx: null })).toHaveLength(1);
   });
 
   it("asks the faucet's solana-demo-token action for the tokens and explains its refusals", async () => {

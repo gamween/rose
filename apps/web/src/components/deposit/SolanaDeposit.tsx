@@ -21,7 +21,7 @@ import { ROUTES } from "@/lib/routes";
 import { useAction, useFlow, type StepContext } from "@/lib/use-action";
 import { useEngineQuery } from "@/lib/use-engine-query";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
-import { createSolanaDemoPosition } from "@/lib/wallet/solana-stream";
+import { createSolanaDemoPosition, demoPositionLinks } from "@/lib/wallet/solana-stream";
 import { loadAttempted, recordAttempted, type AttemptedDeposit } from "./attempted";
 import { solStreamReplayKey } from "./eligibility";
 import { ClassNote, Reasons, Row, VerdictBadge, WalletPrompt } from "./shared";
@@ -310,7 +310,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
                     onClick={() =>
                       void demo.run("Creating a Streamflow position", async () => {
                         const result = await createSolanaDemoPosition(wallets.getSolanaSigner());
-                        return { message: `Streamflow stream ${result.metadataId.slice(0, 8)}… created`, links: [...(result.faucetTx ? txLinks("solana", result.faucetTx) : []), ...txLinks("solana", result.txId)] };
+                        return { message: `Streamflow stream ${result.metadataId.slice(0, 8)}… created`, links: demoPositionLinks(result) };
                       })
                     }
                     loading={demo.state.status === "loading"}

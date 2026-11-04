@@ -13,7 +13,7 @@ import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
 import { CHAIN_LABEL, txLinks, type ChainId } from "@/lib/explorer";
 import { formatUnits } from "@/lib/format";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
-import { createSolanaDemoPosition } from "@/lib/wallet/solana-stream";
+import { createSolanaDemoPosition, demoPositionLinks } from "@/lib/wallet/solana-stream";
 import { LearnMore } from "./LearnMore";
 
 const NEAR_TUSDC_MINT = 1_000_000_000n;
@@ -337,7 +337,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                 void runSolPosition("Creating a Streamflow position", async () => {
                   const signer = wallets.getSolanaSigner();
                   const result = await createSolanaDemoPosition(signer);
-                  return { message: `Streamflow stream ${result.metadataId.slice(0, 8)}… created`, links: [...(result.faucetTx ? txLinks("solana", result.faucetTx) : []), ...txLinks("solana", result.txId)] };
+                  return { message: `Streamflow stream ${result.metadataId.slice(0, 8)}… created`, links: demoPositionLinks(result) };
                 })
               }
             />
