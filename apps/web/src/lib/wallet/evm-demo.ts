@@ -30,10 +30,6 @@ export function forgetEvmDemoWallet(): void {
   removeStored(DEMO_STORAGE_KEYS.evm);
 }
 
-export function exportEvmDemoWallet(wallet: EvmDemoWallet): string {
-  return JSON.stringify({ address: wallet.address, privateKey: wallet.privateKey, chainId: baseSepoliaChain.id, label: "rose demo wallet (Base Sepolia)" }, null, 2);
-}
-
 export function basePublicClient(): PublicClient {
   return createBaseClient({ rpcUrl: BASE_SEPOLIA_RPC_URL });
 }

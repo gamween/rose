@@ -1,50 +1,24 @@
 "use client";
 
 /**
- * Unified wallet context (spec 8.4): NEAR through NEAR Connect (`@hot-labs/near-connect`, the
- * connector docs.near.org recommends; on testnet it lists Meteor, Intear, Nightly, Ledger, Unity,
- * WalletConnect and NEAR CLI) or the in-app demo wallet; EVM through wagmi (injected wallets,
- * EIP-6963 discovery) or the in-app demo wallet on Base Sepolia; Solana through the wallet
- * adapter (Phantom, Solflare) or the in-app demo keypair on devnet. Balances per chain are read
- * directly from the RPCs. Everything is testnet only.
+ * Unified wallet context (spec 8.4) for NEAR, Base Sepolia and Solana devnet, external or in-app
+ * demo wallets. The wallet SDKs (NEAR Connect, wagmi and viem, the Solana wallet adapter and
+ * web3.js, the demo wallets) live in `WalletRuntime`, which this provider imports on demand: right
+ * after hydration when the browser holds a session to restore, otherwise when a wallet surface
+ * opens (connect modal, test funds) or a wallet action runs. Until then the context reports no
+ * wallet, and every async action awaits the runtime before it runs, so a click during the load
+ * only takes longer. Everything is testnet only.
  */
 
-import type { NearConnector, NearWalletBase } from "@hot-labs/near-connect";
-import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
-import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
-import { ConnectionProvider, useWallet, WalletProvider as SolanaAdapterProvider } from "@solana/wallet-adapter-react";
-import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
-import { PublicKey, type Transaction, type VersionedTransaction } from "@solana/web3.js";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { NearRpc, NearRpcError, outcomeFailure, type FinalExecutionOutcome, type FunctionCall, type SignerClient } from "@rose/sdk";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { erc20Abi } from "viem";
-import { createConfig, http, useAccount, useConnect, useConnectors, useDisconnect, useSwitchChain, useWalletClient, WagmiProvider, type Connector } from "wagmi";
-import { baseSepolia } from "wagmi/chains";
-import { injected } from "wagmi/connectors";
-import { BASE_SEPOLIA_RPC_URL, deployedAddress, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL, NEAR_TUSDC_ACCOUNT, SOLANA_DEVNET_RPC_URL } from "@/lib/deployment";
-import { failureToActionError, RoseActionError } from "@/lib/errors";
-import { basePublicClient, evmDemoWalletClient, forgetEvmDemoWallet, generateEvmDemoWallet, loadEvmDemoWallet, saveEvmDemoWallet, type EvmDemoWallet } from "@/lib/wallet/evm-demo";
-import {
-  forgetNearDemoWallet,
-  generateNearDemoWallet,
-  loadNearDemoWallet,
-  nearAccountExists,
-  saveNearDemoWallet,
-  sendNearDemoCall,
-  type NearDemoWallet,
-} from "@/lib/wallet/near-demo";
-import {
-  forgetSolanaDemoWallet,
-  generateSolanaDemoWallet,
-  loadSolanaDemoWallet,
-  saveSolanaDemoWallet,
-  signWithSolanaDemo,
-  solanaConnection,
-  solanaDemoPublicKey,
-  type SolanaDemoWallet,
-} from "@/lib/wallet/solana-demo";
-import { DEMO_STORAGE_KEYS, readStored, removeStored, writeStored } from "@/lib/wallet/storage";
+import type { FinalExecutionOutcome, FunctionCall, SignerClient } from "@rose/sdk";
+import type { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import type { Connector } from "wagmi";
+import { RoseActionError } from "@/lib/errors";
+import type { EvmDemoWallet } from "@/lib/wallet/evm-demo";
+import type { NearDemoWallet } from "@/lib/wallet/near-demo";
+import type { SolanaDemoWallet } from "@/lib/wallet/solana-demo";
+import { hasStoredWalletSession } from "@/lib/wallet/storage";
 
 export type WalletKind = "external" | "demo";
 
@@ -92,7 +66,8 @@ export type SolanaSigner = {
   signTransaction: <T extends Transaction | VersionedTransaction>(transaction: T) => Promise<T>;
 };
 
-export type WalletContextValue = {
+/** What the wallet runtime reports once its SDKs are loaded. */
+export type WalletRuntimeValue = {
   near: NearWalletState;
   evm: EvmWalletState;
   solana: SolanaWalletState;
@@ -101,7 +76,7 @@ export type WalletContextValue = {
   /** Opens the NEAR Connect modal (external wallets). */
   connectNearExternal: () => Promise<void>;
   /** Creates (or restores) the in-app NEAR demo wallet; the account is funded through the faucet panel. */
-  useNearDemo: () => NearDemoWallet;
+  useNearDemo: () => Promise<NearDemoWallet>;
   disconnectNear: () => Promise<void>;
   forgetNearDemo: () => void;
   markNearDemoCreated: () => void;
@@ -109,7 +84,7 @@ export type WalletContextValue = {
   sendNearCall: (call: FunctionCall) => Promise<FinalExecutionOutcome>;
   evmConnectors: readonly Connector[];
   connectEvm: (connector: Connector) => Promise<void>;
-  useEvmDemo: () => EvmDemoWallet;
+  useEvmDemo: () => Promise<EvmDemoWallet>;
   disconnectEvm: () => Promise<void>;
   forgetEvmDemo: () => void;
   switchEvmToBaseSepolia: () => Promise<void>;
@@ -117,7 +92,7 @@ export type WalletContextValue = {
   getEvmWalletClient: () => Promise<SignerClient>;
   solanaWallets: { name: string; icon: string; installed: boolean }[];
   connectSolana: (walletName: string) => Promise<void>;
-  useSolanaDemo: () => SolanaDemoWallet;
+  useSolanaDemo: () => Promise<SolanaDemoWallet>;
   disconnectSolana: () => Promise<void>;
   forgetSolanaDemo: () => void;
   getSolanaSigner: () => SolanaSigner;
@@ -127,6 +102,17 @@ export type WalletContextValue = {
   hydrated: boolean;
 };
 
+/** `idle`: SDKs not requested; `loading`: importing; `ready`: runtime mounted; `failed`: the import failed (retried on the next request). */
+export type WalletsStatus = "idle" | "loading" | "ready" | "failed";
+
+export type WalletContextValue = WalletRuntimeValue & {
+  walletsStatus: WalletsStatus;
+  /** Loads the wallet SDKs (idempotent); resolves once the runtime has restored the sessions. */
+  loadWallets: () => Promise<void>;
+};
+
+type RuntimeComponent = ComponentType<{ onValue: (value: WalletRuntimeValue) => void }>;
+
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 export function useWallets(): WalletContextValue {
@@ -135,447 +121,140 @@ export function useWallets(): WalletContextValue {
   return value;
 }
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
+const IDLE_NEAR: NearWalletState = { status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccountExists: false };
+const IDLE_EVM: EvmWalletState = { status: "idle", address: null, kind: null, walletName: null, demo: null, wrongChain: false };
+const IDLE_SOLANA: SolanaWalletState = { status: "idle", publicKey: null, kind: null, walletName: null, demo: null };
+const NO_BALANCES: Balances = { nearYocto: null, nearTusdc: null, baseEthWei: null, baseTusdc: null, solLamports: null, loading: false, updatedAt: null };
 
-export const wagmiConfig = createConfig({
-  chains: [baseSepolia],
-  connectors: [injected()],
-  transports: { [baseSepolia.id]: http(BASE_SEPOLIA_RPC_URL) },
-  ssr: true,
-});
+function loadFailure(): RoseActionError {
+  return new RoseActionError("rpc", "Wallets did not load", "The wallet libraries could not be downloaded. Check your connection and retry.", true);
+}
 
-const BALANCE_POLL_MS = 20_000;
-const nearRpc = new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] });
-
-const FINAL_HEAD_TIMEOUT_MS = 10_000;
-
-/**
- * Waits until the final head reaches the optimistic head seen after a transaction, so the views
- * the page re-reads next (all at `final` finality) already include it. Bounded: a slow RPC only
- * delays the refresh, it never fails the action.
- */
-async function waitForFinalHead(): Promise<void> {
-  try {
-    const target = (await nearRpc.block("optimistic")).header.height;
-    const started = Date.now();
-    while (Date.now() - started < FINAL_HEAD_TIMEOUT_MS) {
-      if ((await nearRpc.block("final")).header.height >= target) return;
-      await new Promise((resolve) => setTimeout(resolve, 600));
-    }
-  } catch {
-    // The transaction already succeeded; a view refresh will catch up on the next poll.
+/** Schedules `run` once the main thread is idle (bounded), so restoring a session never competes with the first paint. */
+function whenIdle(run: () => void): () => void {
+  if (typeof window.requestIdleCallback === "function") {
+    const handle = window.requestIdleCallback(run, { timeout: 1500 });
+    return () => window.cancelIdleCallback(handle);
   }
+  const handle = window.setTimeout(run, 200);
+  return () => window.clearTimeout(handle);
 }
 
-type NearConnectorModule = typeof import("@hot-labs/near-connect");
-
-async function loadNearConnector(): Promise<NearConnector> {
-  const mod: NearConnectorModule = await import("@hot-labs/near-connect");
-  return new mod.NearConnector({ network: "testnet", footerBranding: null, autoConnect: true });
-}
-
-function InnerWalletProvider({ children }: { children: ReactNode }) {
-  const [hydrated, setHydrated] = useState(false);
-
-  const connectorRef = useRef<Promise<NearConnector> | null>(null);
-  const nearWalletRef = useRef<NearWalletBase | null>(null);
-  const [near, setNear] = useState<NearWalletState>({ status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccountExists: false });
-
-  const [evmDemo, setEvmDemo] = useState<EvmDemoWallet | null>(null);
-  const evmAccount = useAccount();
-  const evmConnectors = useConnectors();
-  const { connectAsync } = useConnect();
-  const { disconnectAsync } = useDisconnect();
-  const { switchChainAsync } = useSwitchChain();
-  const { data: injectedWalletClient } = useWalletClient({ chainId: baseSepolia.id });
-
-  const [solanaDemo, setSolanaDemo] = useState<SolanaDemoWallet | null>(null);
-  const adapter = useWallet();
-
-  const [balances, setBalances] = useState<Balances>({ nearYocto: null, nearTusdc: null, baseEthWei: null, baseTusdc: null, solLamports: null, loading: false, updatedAt: null });
-
-  const getConnector = useCallback((): Promise<NearConnector> => {
-    connectorRef.current ??= loadNearConnector();
-    return connectorRef.current;
-  }, []);
-
-  /* Restore persisted sessions once on the client. */
-  useEffect(() => {
-    let cancelled = false;
-    const restoreSessions = async () => {
-      await Promise.resolve();
-      if (cancelled) return;
-      const nearDemo = loadNearDemoWallet();
-      const preferred = readStored<WalletKind>(DEMO_STORAGE_KEYS.preferredNear);
-      if (nearDemo && preferred === "demo") {
-        setNear({ status: "connected", accountId: nearDemo.accountId, kind: "demo", walletName: "Demo wallet", demo: nearDemo, demoAccountExists: false });
-        void nearAccountExists(nearDemo.accountId).then((exists) => {
-          if (!cancelled) setNear((state) => (state.demo?.accountId === nearDemo.accountId ? { ...state, demoAccountExists: exists } : state));
-        });
-      } else if (nearDemo) {
-        setNear((state) => ({ ...state, demo: nearDemo }));
-      }
-      if (preferred === "external") {
-        void getConnector()
-          .then(async (connector) => {
-            const { wallet, accounts } = await connector.getConnectedWallet();
-            const account = accounts[0];
-            if (cancelled || !account) return;
-            nearWalletRef.current = wallet;
-            setNear((state) => ({ ...state, status: "connected", accountId: account.accountId, kind: "external", walletName: wallet.manifest.name }));
-          })
-          .catch(() => {
-            if (!cancelled) removeStored(DEMO_STORAGE_KEYS.preferredNear);
-          });
-      }
-      setEvmDemo(loadEvmDemoWallet());
-      setSolanaDemo(loadSolanaDemoWallet());
-      setHydrated(true);
-    };
-    void restoreSessions();
-    return () => {
-      cancelled = true;
-    };
-  }, [getConnector]);
-
-  /* NEAR Connect events keep the state in sync with the modal. */
-  useEffect(() => {
-    let disposed = false;
-    void getConnector().then((connector) => {
-      if (disposed) return;
-      connector.on("wallet:signIn", (payload) => {
-        const account = payload.accounts[0];
-        if (!account) return;
-        nearWalletRef.current = payload.wallet;
-        writeStored(DEMO_STORAGE_KEYS.preferredNear, "external");
-        setNear((state) => ({ ...state, status: "connected", accountId: account.accountId, kind: "external", walletName: payload.wallet.manifest.name }));
-      });
-      connector.on("wallet:signOut", () => {
-        nearWalletRef.current = null;
-        setNear((state) => (state.kind === "external" ? { ...state, status: "idle", accountId: null, kind: null, walletName: null } : state));
-      });
-    });
-    return () => {
-      disposed = true;
-    };
-  }, [getConnector]);
-
-  const connectNearExternal = useCallback(async () => {
-    setNear((state) => ({ ...state, status: "connecting" }));
-    try {
-      const connector = await getConnector();
-      await connector.connect();
-    } catch (error) {
-      setNear((state) => (state.status === "connecting" ? { ...state, status: state.accountId ? "connected" : "idle" } : state));
-      throw error;
-    }
-  }, [getConnector]);
-
-  const useNearDemo = useCallback((): NearDemoWallet => {
-    const wallet = loadNearDemoWallet() ?? generateNearDemoWallet();
-    saveNearDemoWallet(wallet);
-    writeStored(DEMO_STORAGE_KEYS.preferredNear, "demo");
-    setNear({ status: "connected", accountId: wallet.accountId, kind: "demo", walletName: "Demo wallet", demo: wallet, demoAccountExists: false });
-    void nearAccountExists(wallet.accountId).then((exists) => setNear((state) => (state.demo?.accountId === wallet.accountId ? { ...state, demoAccountExists: exists } : state)));
-    return wallet;
-  }, []);
-
-  const markNearDemoCreated = useCallback(() => setNear((state) => ({ ...state, demoAccountExists: true })), []);
-
-  const disconnectNear = useCallback(async () => {
-    removeStored(DEMO_STORAGE_KEYS.preferredNear);
-    if (near.kind === "external") {
-      const connector = await getConnector();
-      await connector.disconnect().catch(() => undefined);
-      nearWalletRef.current = null;
-    }
-    setNear((state) => ({ ...state, status: "idle", accountId: null, kind: null, walletName: null }));
-  }, [getConnector, near.kind]);
-
-  const forgetNearDemo = useCallback(() => {
-    forgetNearDemoWallet();
-    removeStored(DEMO_STORAGE_KEYS.preferredNear);
-    setNear((state) => (state.kind === "demo" ? { status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccountExists: false } : { ...state, demo: null }));
-  }, []);
-
-  const sendNearCall = useCallback(
-    async (call: FunctionCall): Promise<FinalExecutionOutcome> => {
-      if (near.kind === "demo" && near.demo) {
-        if (!near.demoAccountExists) {
-          const exists = await nearAccountExists(near.demo.accountId);
-          if (!exists) throw new RoseActionError("insufficient_balance", "Demo account not created yet", "Open \"Get test funds\" and create the NEAR demo account first.");
-          markNearDemoCreated();
-        }
-        const outcome = await sendNearDemoCall(near.demo, call);
-        await waitForFinalHead();
-        return outcome;
-      }
-      const wallet = nearWalletRef.current;
-      if (!wallet || !near.accountId) throw new RoseActionError("no_wallet", "No NEAR wallet", "Connect a NEAR wallet first.");
-      const outcome = (await wallet.signAndSendTransaction({
-        signerId: near.accountId,
-        receiverId: call.receiverId,
-        actions: [{ type: "FunctionCall", params: { methodName: call.methodName, args: call.args, gas: call.gas.toString(), deposit: call.deposit.toString() } }],
-      })) as unknown as FinalExecutionOutcome;
-      const failure = outcomeFailure(outcome);
-      if (failure !== null) {
-        const described = failureToActionError(failure);
-        throw new RoseActionError(described.kind, described.title, described.message, described.retryable);
-      }
-      await waitForFinalHead();
-      return outcome;
-    },
-    [markNearDemoCreated, near.accountId, near.demo, near.demoAccountExists, near.kind],
-  );
-
-  /* EVM */
-  const evmPreferred = evmDemo !== null && readStored<WalletKind>(DEMO_STORAGE_KEYS.preferredEvm) === "demo";
-  const evm: EvmWalletState = useMemo(() => {
-    if (evmAccount.isConnected && evmAccount.address && !evmPreferred) {
-      return {
-        status: "connected",
-        address: evmAccount.address,
-        kind: "external",
-        walletName: evmAccount.connector?.name ?? "Injected wallet",
-        demo: evmDemo,
-        wrongChain: evmAccount.chainId !== baseSepolia.id,
-      };
-    }
-    if (evmDemo && evmPreferred) return { status: "connected", address: evmDemo.address, kind: "demo", walletName: "Demo wallet", demo: evmDemo, wrongChain: false };
-    return { status: evmAccount.isConnecting ? "connecting" : "idle", address: null, kind: null, walletName: null, demo: evmDemo, wrongChain: false };
-  }, [evmAccount.address, evmAccount.chainId, evmAccount.connector?.name, evmAccount.isConnected, evmAccount.isConnecting, evmDemo, evmPreferred]);
-
-  const connectEvm = useCallback(
-    async (connector: Connector) => {
-      removeStored(DEMO_STORAGE_KEYS.preferredEvm);
-      await connectAsync({ connector, chainId: baseSepolia.id });
-    },
-    [connectAsync],
-  );
-
-  const useEvmDemo = useCallback((): EvmDemoWallet => {
-    const wallet = loadEvmDemoWallet() ?? generateEvmDemoWallet();
-    saveEvmDemoWallet(wallet);
-    writeStored(DEMO_STORAGE_KEYS.preferredEvm, "demo");
-    setEvmDemo({ ...wallet });
-    return wallet;
-  }, []);
-
-  const disconnectEvm = useCallback(async () => {
-    removeStored(DEMO_STORAGE_KEYS.preferredEvm);
-    if (evmAccount.isConnected) await disconnectAsync();
-    setEvmDemo((wallet) => (wallet ? { ...wallet } : null));
-  }, [disconnectAsync, evmAccount.isConnected]);
-
-  const forgetEvmDemo = useCallback(() => {
-    forgetEvmDemoWallet();
-    removeStored(DEMO_STORAGE_KEYS.preferredEvm);
-    setEvmDemo(null);
-  }, []);
-
-  const switchEvmToBaseSepolia = useCallback(async () => {
-    await switchChainAsync({ chainId: baseSepolia.id });
-  }, [switchChainAsync]);
-
-  const getEvmWalletClient = useCallback(async (): Promise<SignerClient> => {
-    if (evm.kind === "demo" && evm.demo) return evmDemoWalletClient(evm.demo);
-    if (evm.kind === "external") {
-      if (evm.wrongChain) await switchChainAsync({ chainId: baseSepolia.id });
-      if (injectedWalletClient) return injectedWalletClient;
-      throw new RoseActionError("no_wallet", "Wallet not ready", "The injected wallet did not expose a signer. Reconnect and retry.", true);
-    }
-    throw new RoseActionError("no_wallet", "No EVM wallet", "Connect an EVM wallet on Base Sepolia first.");
-  }, [evm.demo, evm.kind, evm.wrongChain, injectedWalletClient, switchChainAsync]);
-
-  /* Solana */
-  const solanaPreferred = solanaDemo !== null && readStored<WalletKind>(DEMO_STORAGE_KEYS.preferredSolana) === "demo";
-  const solana: SolanaWalletState = useMemo(() => {
-    if (adapter.connected && adapter.publicKey && !solanaPreferred) {
-      return { status: "connected", publicKey: adapter.publicKey.toBase58(), kind: "external", walletName: adapter.wallet?.adapter.name ?? "Wallet", demo: solanaDemo };
-    }
-    if (solanaDemo && solanaPreferred) return { status: "connected", publicKey: solanaDemo.publicKey, kind: "demo", walletName: "Demo wallet", demo: solanaDemo };
-    return { status: adapter.connecting ? "connecting" : "idle", publicKey: null, kind: null, walletName: null, demo: solanaDemo };
-  }, [adapter.connected, adapter.connecting, adapter.publicKey, adapter.wallet?.adapter.name, solanaDemo, solanaPreferred]);
-
-  const solanaWallets = useMemo(
-    () => adapter.wallets.map((wallet) => ({ name: wallet.adapter.name, icon: wallet.adapter.icon, installed: wallet.readyState === "Installed" || wallet.readyState === "Loadable" })),
-    [adapter.wallets],
-  );
-
-  const pendingSolanaConnect = useRef<string | null>(null);
-  useEffect(() => {
-    if (pendingSolanaConnect.current && adapter.wallet?.adapter.name === pendingSolanaConnect.current && !adapter.connected && !adapter.connecting) {
-      pendingSolanaConnect.current = null;
-      void adapter.connect().catch(() => undefined);
-    }
-  }, [adapter]);
-
-  const connectSolana = useCallback(
-    async (walletName: string) => {
-      removeStored(DEMO_STORAGE_KEYS.preferredSolana);
-      const target = adapter.wallets.find((wallet) => wallet.adapter.name === walletName);
-      if (!target) throw new RoseActionError("no_wallet", "Wallet not found", `${walletName} is not available in this browser.`);
-      if (target.readyState !== "Installed" && target.readyState !== "Loadable") {
-        window.open(target.adapter.url, "_blank", "noopener");
-        throw new RoseActionError("no_wallet", `${walletName} not installed`, `Install ${walletName} and retry.`);
-      }
-      if (adapter.wallet?.adapter.name === walletName) {
-        await adapter.connect();
-        return;
-      }
-      pendingSolanaConnect.current = walletName;
-      adapter.select(target.adapter.name);
-    },
-    [adapter],
-  );
-
-  const useSolanaDemo = useCallback((): SolanaDemoWallet => {
-    const wallet = loadSolanaDemoWallet() ?? generateSolanaDemoWallet();
-    saveSolanaDemoWallet(wallet);
-    writeStored(DEMO_STORAGE_KEYS.preferredSolana, "demo");
-    setSolanaDemo({ ...wallet });
-    return wallet;
-  }, []);
-
-  const disconnectSolana = useCallback(async () => {
-    removeStored(DEMO_STORAGE_KEYS.preferredSolana);
-    if (adapter.connected) await adapter.disconnect();
-    setSolanaDemo((wallet) => (wallet ? { ...wallet } : null));
-  }, [adapter]);
-
-  const forgetSolanaDemo = useCallback(() => {
-    forgetSolanaDemoWallet();
-    removeStored(DEMO_STORAGE_KEYS.preferredSolana);
-    setSolanaDemo(null);
-  }, []);
-
-  const getSolanaSigner = useCallback((): SolanaSigner => {
-    if (solana.kind === "demo" && solana.demo) {
-      const demo = solana.demo;
-      return { publicKey: solanaDemoPublicKey(demo), signTransaction: (transaction) => Promise.resolve(signWithSolanaDemo(demo, transaction)) };
-    }
-    if (solana.kind === "external" && adapter.publicKey && adapter.signTransaction) {
-      return { publicKey: adapter.publicKey, signTransaction: adapter.signTransaction };
-    }
-    throw new RoseActionError("no_wallet", "No Solana wallet", "Connect a Solana wallet on devnet first.");
-  }, [adapter.publicKey, adapter.signTransaction, solana.demo, solana.kind]);
-
-  /* Balances */
-  const refreshBalances = useCallback(async () => {
-    setBalances((state) => ({ ...state, loading: true }));
-    const [nearYocto, nearTusdc, baseEthWei, baseTusdc, solLamports] = await Promise.all([
-      near.accountId
-        ? nearRpc
-            .viewAccount(near.accountId)
-            .then((view) => BigInt(view.amount))
-            .catch((error: unknown) => (error instanceof NearRpcError && error.kind === "account_missing" ? 0n : null))
-        : Promise.resolve(null),
-      near.accountId
-        ? nearRpc
-            .viewFunction<string>(NEAR_TUSDC_ACCOUNT, "ft_balance_of", { account_id: near.accountId })
-            .then((result) => BigInt(result.value))
-            .catch(() => null)
-        : Promise.resolve(null),
-      evm.address ? basePublicClient().getBalance({ address: evm.address }).catch(() => null) : Promise.resolve(null),
-      evm.address && deployedAddress("baseTestUsdc")
-        ? basePublicClient()
-            .readContract({ address: deployedAddress("baseTestUsdc") as `0x${string}`, abi: erc20Abi, functionName: "balanceOf", args: [evm.address] })
-            .catch(() => null)
-        : Promise.resolve(null),
-      solana.publicKey
-        ? solanaConnection()
-            .getBalance(new PublicKey(solana.publicKey))
-            .then((lamports) => BigInt(lamports))
-            .catch(() => null)
-        : Promise.resolve(null),
-    ]);
-    setBalances({ nearYocto, nearTusdc, baseEthWei, baseTusdc, solLamports, loading: false, updatedAt: Date.now() });
-  }, [evm.address, near.accountId, solana.publicKey]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const tick = () => void refreshBalances();
-    const first = window.setTimeout(tick, 0);
-    const timer = window.setInterval(tick, BALANCE_POLL_MS);
-    return () => {
-      window.clearTimeout(first);
-      window.clearInterval(timer);
-    };
-  }, [hydrated, refreshBalances]);
-
-  const value = useMemo<WalletContextValue>(
-    () => ({
-      near,
-      evm,
-      solana,
-      balances,
-      refreshBalances,
-      connectNearExternal,
-      useNearDemo,
-      disconnectNear,
-      forgetNearDemo,
-      markNearDemoCreated,
-      sendNearCall,
-      evmConnectors,
-      connectEvm,
-      useEvmDemo,
-      disconnectEvm,
-      forgetEvmDemo,
-      switchEvmToBaseSepolia,
-      getEvmWalletClient,
-      solanaWallets,
-      connectSolana,
-      useSolanaDemo,
-      disconnectSolana,
-      forgetSolanaDemo,
-      getSolanaSigner,
-      anyConnected: near.status === "connected" || evm.status === "connected" || solana.status === "connected",
-      hydrated,
-    }),
-    [
-      near,
-      evm,
-      solana,
-      balances,
-      refreshBalances,
-      connectNearExternal,
-      useNearDemo,
-      disconnectNear,
-      forgetNearDemo,
-      markNearDemoCreated,
-      sendNearCall,
-      evmConnectors,
-      connectEvm,
-      useEvmDemo,
-      disconnectEvm,
-      forgetEvmDemo,
-      switchEvmToBaseSepolia,
-      getEvmWalletClient,
-      solanaWallets,
-      connectSolana,
-      useSolanaDemo,
-      disconnectSolana,
-      forgetSolanaDemo,
-      getSolanaSigner,
-      hydrated,
-    ],
-  );
-
-  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
-}
-
-/** Mounts wagmi, the Solana wallet adapter and the unified rose wallet context. */
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const solanaAdapters = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter({ network: WalletAdapterNetwork.Devnet })], []);
+  const [Runtime, setRuntime] = useState<RuntimeComponent | null>(null);
+  const [runtimeValue, setRuntimeValue] = useState<WalletRuntimeValue | null>(null);
+  const [status, setStatus] = useState<WalletsStatus>("idle");
+  const [restoring, setRestoring] = useState(true);
+
+  const runtimeRef = useRef<WalletRuntimeValue | null>(null);
+  const importRef = useRef<Promise<void> | null>(null);
+  const readyRef = useRef<{ promise: Promise<void>; resolve: () => void; reject: (error: unknown) => void } | null>(null);
+
+  const ready = useCallback(() => {
+    if (!readyRef.current) {
+      let resolve: () => void = () => undefined;
+      let reject: (error: unknown) => void = () => undefined;
+      const promise = new Promise<void>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+      readyRef.current = { promise, resolve, reject };
+    }
+    return readyRef.current;
+  }, []);
+
+  const loadWallets = useCallback((): Promise<void> => {
+    const pending = ready();
+    if (runtimeRef.current?.hydrated) return Promise.resolve();
+    importRef.current ??= import("./WalletRuntime")
+      .then((mod) => {
+        setRuntime(() => mod.WalletRuntime);
+      })
+      .catch(() => {
+        importRef.current = null;
+        readyRef.current = null;
+        setStatus("failed");
+        setRestoring(false);
+        pending.reject(loadFailure());
+      });
+    setStatus((current) => (current === "ready" ? current : "loading"));
+    return pending.promise;
+  }, [ready]);
+
+  const onValue = useCallback(
+    (value: WalletRuntimeValue) => {
+      runtimeRef.current = value;
+      setRuntimeValue(value);
+      if (value.hydrated) {
+        setStatus("ready");
+        ready().resolve();
+      }
+    },
+    [ready],
+  );
+
+  /* After hydration: restore a stored session in the background, or report "no wallet" at once. */
+  useEffect(() => {
+    if (!hasStoredWalletSession()) {
+      const timer = window.setTimeout(() => setRestoring(false), 0);
+      return () => window.clearTimeout(timer);
+    }
+    return whenIdle(() => void loadWallets().catch(() => undefined));
+  }, [loadWallets]);
+
+  const viaRuntime = useCallback(
+    async <T,>(run: (runtime: WalletRuntimeValue) => T | Promise<T>): Promise<T> => {
+      await loadWallets();
+      const runtime = runtimeRef.current;
+      if (!runtime) throw loadFailure();
+      return run(runtime);
+    },
+    [loadWallets],
+  );
+
+  const fallback = useMemo<WalletRuntimeValue>(
+    () => ({
+      near: IDLE_NEAR,
+      evm: IDLE_EVM,
+      solana: IDLE_SOLANA,
+      balances: NO_BALANCES,
+      refreshBalances: () => (runtimeRef.current ? runtimeRef.current.refreshBalances() : Promise.resolve()),
+      connectNearExternal: () => viaRuntime((runtime) => runtime.connectNearExternal()),
+      useNearDemo: () => viaRuntime((runtime) => runtime.useNearDemo()),
+      disconnectNear: () => viaRuntime((runtime) => runtime.disconnectNear()),
+      forgetNearDemo: () => void viaRuntime((runtime) => runtime.forgetNearDemo()).catch(() => undefined),
+      markNearDemoCreated: () => void viaRuntime((runtime) => runtime.markNearDemoCreated()).catch(() => undefined),
+      sendNearCall: (call) => viaRuntime((runtime) => runtime.sendNearCall(call)),
+      evmConnectors: [],
+      connectEvm: (connector) => viaRuntime((runtime) => runtime.connectEvm(connector)),
+      useEvmDemo: () => viaRuntime((runtime) => runtime.useEvmDemo()),
+      disconnectEvm: () => viaRuntime((runtime) => runtime.disconnectEvm()),
+      forgetEvmDemo: () => void viaRuntime((runtime) => runtime.forgetEvmDemo()).catch(() => undefined),
+      switchEvmToBaseSepolia: () => viaRuntime((runtime) => runtime.switchEvmToBaseSepolia()),
+      getEvmWalletClient: () => viaRuntime((runtime) => runtime.getEvmWalletClient()),
+      solanaWallets: [],
+      connectSolana: (walletName) => viaRuntime((runtime) => runtime.connectSolana(walletName)),
+      useSolanaDemo: () => viaRuntime((runtime) => runtime.useSolanaDemo()),
+      disconnectSolana: () => viaRuntime((runtime) => runtime.disconnectSolana()),
+      forgetSolanaDemo: () => void viaRuntime((runtime) => runtime.forgetSolanaDemo()).catch(() => undefined),
+      getSolanaSigner: () => {
+        throw new RoseActionError("no_wallet", "No Solana wallet", "Connect a Solana wallet on devnet first.");
+      },
+      anyConnected: false,
+      hydrated: false,
+    }),
+    [viaRuntime],
+  );
+
+  const value = useMemo<WalletContextValue>(() => {
+    if (runtimeValue?.hydrated) return { ...runtimeValue, walletsStatus: status, loadWallets };
+    return { ...fallback, hydrated: !restoring, walletsStatus: status, loadWallets };
+  }, [fallback, loadWallets, restoring, runtimeValue, status]);
+
   return (
-    <WagmiProvider config={wagmiConfig}>
-      <QueryClientProvider client={queryClient}>
-        <ConnectionProvider endpoint={SOLANA_DEVNET_RPC_URL} config={{ commitment: "confirmed" }}>
-          <SolanaAdapterProvider wallets={solanaAdapters} autoConnect>
-            <InnerWalletProvider>{children}</InnerWalletProvider>
-          </SolanaAdapterProvider>
-        </ConnectionProvider>
-      </QueryClientProvider>
-    </WagmiProvider>
+    <WalletContext.Provider value={value}>
+      {children}
+      {Runtime ? <Runtime onValue={onValue} /> : null}
+    </WalletContext.Provider>
   );
 }

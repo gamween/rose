@@ -1,5 +1,6 @@
+import { BASE_SEPOLIA_CHAIN_ID as SDK_BASE_SEPOLIA_CHAIN_ID } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { DEPLOYMENT, deployed, deployedAddress, isDeployed, missingDeployments, NEAR_TUSDC_ACCOUNT, SABLIER_LOCKUP_ADDRESS } from "./deployment";
+import { BASE_SEPOLIA_CHAIN_ID, DEPLOYMENT, deployed, deployedAddress, isDeployed, missingDeployments, NEAR_TUSDC_ACCOUNT, SABLIER_LOCKUP_ADDRESS } from "./deployment";
 
 describe("deployment config", () => {
   it("lists every deployable contract with its NEXT_PUBLIC variable", () => {
@@ -26,5 +27,9 @@ describe("deployment config", () => {
   it("exposes the fixed testnet addresses", () => {
     expect(NEAR_TUSDC_ACCOUNT).toBe("tusdc.rose-app.testnet");
     expect(SABLIER_LOCKUP_ADDRESS).toBe("0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e");
+  });
+
+  it("names Base Sepolia with the SDK's chain id", () => {
+    expect(BASE_SEPOLIA_CHAIN_ID).toBe(SDK_BASE_SEPOLIA_CHAIN_ID);
   });
 });

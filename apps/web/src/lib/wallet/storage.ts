@@ -54,6 +54,27 @@ export function removeStored(key: DemoStorageKey): void {
   }
 }
 
+/**
+ * Whether this browser holds a wallet session to restore: a rose wallet preference (demo or
+ * external), a wagmi connection that was not disconnected (`wagmi.recentConnectorId` without the
+ * `<id>.disconnected` shim), or the Solana wallet adapter's remembered wallet (`walletName`). The
+ * wallet SDKs load right after hydration only in that case.
+ */
+export function hasStoredWalletSession(): boolean {
+  const store = storage();
+  if (!store) return false;
+  try {
+    if (readStored(DEMO_STORAGE_KEYS.preferredNear) || readStored(DEMO_STORAGE_KEYS.preferredEvm) || readStored(DEMO_STORAGE_KEYS.preferredSolana)) return true;
+    if (store.getItem("walletName")) return true;
+    const recent = store.getItem("wagmi.recentConnectorId");
+    if (!recent) return false;
+    const connectorId = JSON.parse(recent) as unknown;
+    return typeof connectorId === "string" && store.getItem(`wagmi.${connectorId}.disconnected`) === null;
+  } catch {
+    return false;
+  }
+}
+
 /** Triggers a download of `text` as `filename` (used by the "Export key" buttons). */
 export function downloadText(filename: string, text: string): void {
   const blob = new Blob([text], { type: "application/json" });

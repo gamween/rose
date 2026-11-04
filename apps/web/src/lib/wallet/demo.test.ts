@@ -2,9 +2,10 @@ import { Keypair } from "@solana/web3.js";
 import { KeyPair } from "near-api-js";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { baseSepoliaWalletTransport, exportEvmDemoWallet, forgetEvmDemoWallet, generateEvmDemoWallet, loadEvmDemoWallet, saveEvmDemoWallet } from "./evm-demo";
-import { exportNearDemoWallet, generateNearDemoWallet, loadNearDemoWallet, randomDemoAccountId, saveNearDemoWallet } from "./near-demo";
-import { exportSolanaDemoWallet, generateSolanaDemoWallet, loadSolanaDemoWallet, saveSolanaDemoWallet, signWithSolanaDemo, solanaDemoKeypair } from "./solana-demo";
+import { baseSepoliaWalletTransport, forgetEvmDemoWallet, generateEvmDemoWallet, loadEvmDemoWallet, saveEvmDemoWallet } from "./evm-demo";
+import { generateNearDemoWallet, loadNearDemoWallet, randomDemoAccountId, saveNearDemoWallet } from "./near-demo";
+import { generateSolanaDemoWallet, loadSolanaDemoWallet, saveSolanaDemoWallet, signWithSolanaDemo, solanaDemoKeypair } from "./solana-demo";
+import { exportEvmDemoWallet, exportNearDemoWallet, exportSolanaDemoWallet } from "./export";
 import { DEMO_STORAGE_KEYS, readStored, writeStored } from "./storage";
 
 class MemoryStorage implements Storage {

@@ -34,11 +34,6 @@ export function forgetSolanaDemoWallet(): void {
   removeStored(DEMO_STORAGE_KEYS.solana);
 }
 
-/** The `[u8; 64]` JSON array format of `solana-keygen`, so the key can be reused with the CLI. */
-export function exportSolanaDemoWallet(wallet: SolanaDemoWallet): string {
-  return JSON.stringify(wallet.secretKey);
-}
-
 export function solanaConnection(commitment: "confirmed" | "finalized" = "confirmed"): Connection {
   return new Connection(SOLANA_DEVNET_RPC_URL, commitment);
 }

@@ -1,20 +1,45 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps, type ComponentType, type ReactNode } from "react";
 import { TopNav } from "@/components/chrome/TopNav";
 import { Footer } from "@/components/chrome/Footer";
 import { WalletPills } from "@/components/wallet/WalletPills";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { Drawer } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
 import type { ChainId } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { ActivityFeedDrawer } from "./ActivityFeed";
 import { CommandPalette, usePaletteShortcut, type PaletteCommand } from "./CommandPalette";
-import { GetTestFundsDrawer } from "./GetTestFunds";
 import { GuidedTour, readTourDismissed } from "./GuidedTour";
 import { tourVisible, type TourState } from "@/lib/tour";
 import { TestnetBanner } from "./TestnetBanner";
+
+type FundsDrawer = ComponentType<ComponentProps<typeof import("./GetTestFunds").GetTestFundsDrawer>>;
+
+/** Stands in for the funds panel while its chunk downloads (it signs with the chain SDKs), or offers a retry. */
+function FundsLoading({ open, failed, onClose, onRetry }: { open: boolean; failed: boolean; onClose: () => void; onRetry: () => void }) {
+  return (
+    <Drawer open={open} onClose={onClose} title="Get test funds" description="Testnet assets only. Nothing here has value.">
+      {failed ? (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-danger-500/60 bg-danger-500/10 px-3 py-2 text-[12px] text-ink-200" role="alert">
+          <span>The funds panel did not load. Check your connection.</span>
+          <Button variant="ghost" size="sm" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
+      ) : (
+        <p className="flex items-center gap-2 text-[12px] text-ink-400">
+          <Spinner label="Loading the funds panel" />
+          Loading the funds panel…
+        </p>
+      )}
+    </Drawer>
+  );
+}
 
 /**
  * Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour.
@@ -25,7 +50,25 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
   const wallets = useWallets();
   const router = useRouter();
   const onDemo = (usePathname() ?? "") === ROUTES.demo;
-  const [fundsOpen, setFundsOpen] = useState(false);
+  const [fundsOpen, setFundsOpenState] = useState(false);
+  const [FundsPanel, setFundsPanel] = useState<FundsDrawer | null>(null);
+  const [fundsFailed, setFundsFailed] = useState(false);
+  const { loadWallets } = wallets;
+  const loadFundsPanel = useCallback(() => {
+    setFundsFailed(false);
+    import("./GetTestFunds")
+      .then((mod) => setFundsPanel(() => mod.GetTestFundsDrawer))
+      .catch(() => setFundsFailed(true));
+  }, []);
+  const setFundsOpen = useCallback(
+    (open: boolean) => {
+      setFundsOpenState(open);
+      if (!open) return;
+      if (!FundsPanel) loadFundsPanel();
+      void loadWallets().catch(() => undefined);
+    },
+    [FundsPanel, loadFundsPanel, loadWallets],
+  );
   const [activityOpen, setActivityOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tour, setTour] = useState<TourState>("closed");
@@ -52,7 +95,7 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
       { id: "act-refresh", label: "Refresh balances", group: "Actions", run: () => void wallets.refreshBalances() },
       ...(demo ? [{ id: "help-demo", label: "Watch a full round (guided demo)", group: "Help" as const, keywords: "demo walkthrough seeded tour video", run: () => router.push(ROUTES.demo) }] : []),
     ],
-    [demo, router, wallets],
+    [demo, router, setFundsOpen, wallets],
   );
 
   return (
@@ -89,14 +132,18 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
       <TestnetBanner onGetFunds={() => setFundsOpen(true)} demo={demo} />
       <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 md:px-6">{children}</main>
       <Footer />
-      <GetTestFundsDrawer
-        open={fundsOpen}
-        onClose={() => setFundsOpen(false)}
-        onConnect={(chain) => {
-          setFundsOpen(false);
-          setConnect(chain);
-        }}
-      />
+      {FundsPanel ? (
+        <FundsPanel
+          open={fundsOpen}
+          onClose={() => setFundsOpen(false)}
+          onConnect={(chain) => {
+            setFundsOpen(false);
+            setConnect(chain);
+          }}
+        />
+      ) : (
+        <FundsLoading open={fundsOpen} failed={fundsFailed} onClose={() => setFundsOpen(false)} onRetry={loadFundsPanel} />
+      )}
       <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} deciding={!tourDecided} />

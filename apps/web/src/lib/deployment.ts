@@ -8,6 +8,8 @@
 export const NEAR_RPC_URL = "https://test.rpc.fastnear.com";
 export const NEAR_RPC_FALLBACK_URL = "https://rpc.testnet.near.org";
 export const BASE_SEPOLIA_RPC_URL = "https://sepolia.base.org";
+/** Base Sepolia chain id, as `@rose/sdk` declares it; kept here so SDK-free modules can name the chain. */
+export const BASE_SEPOLIA_CHAIN_ID = 84532;
 export const SOLANA_DEVNET_RPC_URL = "https://api.devnet.solana.com";
 export const MPC_ACCOUNT = "v1.signer-prod.testnet";
 export const SABLIER_LOCKUP_ADDRESS = "0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e" as const;

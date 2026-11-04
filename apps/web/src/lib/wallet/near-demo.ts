@@ -48,11 +48,6 @@ export function forgetNearDemoWallet(): void {
   removeStored(DEMO_STORAGE_KEYS.near);
 }
 
-/** JSON in the near-cli legacy keychain format, so the key can be reused with `near-cli-rs`. */
-export function exportNearDemoWallet(wallet: NearDemoWallet): string {
-  return JSON.stringify({ account_id: wallet.accountId, public_key: wallet.publicKey, private_key: wallet.secretKey, network: "testnet", label: "rose demo wallet" }, null, 2);
-}
-
 export function nearProvider(): JsonRpcProvider {
   return new JsonRpcProvider({ url: NEAR_RPC_URL });
 }
