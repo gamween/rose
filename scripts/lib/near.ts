@@ -95,16 +95,26 @@ function rateLimited(error: unknown): boolean {
 }
 
 /**
- * Runs a signing call again when the RPC rate-limited it. A rate-limited request never reached
- * the chain, so a new attempt (with a fresh nonce) cannot duplicate a transaction.
+ * True for a non-JSON answer (an HTML error page of the public RPC's proxy) to one of the reads
+ * near-api-js makes while building the transaction (access key nonce, recent block hash): nothing
+ * was signed or sent yet.
+ */
+export function failedBeforeSigning(error: unknown): boolean {
+  return error instanceof SyntaxError && (error.stack ?? "").includes("Account.createTransaction");
+}
+
+/**
+ * Runs a signing call again when the RPC rate-limited it or failed while the transaction was being
+ * built. Neither request reached the chain, so a new attempt (with a fresh nonce) cannot duplicate
+ * a transaction.
  */
 async function retryRateLimited<T>(what: string, run: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await run();
     } catch (error) {
-      if (!rateLimited(error) || attempt >= 8) throw error;
-      log(`  ${what}: rate limited by the RPC, retrying in ${5 * (attempt + 1)} s`);
+      if (!(rateLimited(error) || failedBeforeSigning(error)) || attempt >= 8) throw error;
+      log(`  ${what}: ${failedBeforeSigning(error) ? "the RPC answered a non-JSON page before signing" : "rate limited by the RPC"}, retrying in ${5 * (attempt + 1)} s`);
       await sleep(5_000 * (attempt + 1));
     }
   }

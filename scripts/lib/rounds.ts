@@ -26,6 +26,7 @@ import { CAST, type Who } from "./identity.ts";
 import type { StepScope } from "./journal.ts";
 import { nearRef, withRetry, type NearActor } from "./near.ts";
 import { corrupt, seal } from "./sealed.ts";
+import { bidStorageTopUp } from "./storage.ts";
 
 export interface RoundRecord {
   roundId: string;
@@ -85,9 +86,21 @@ export function escrowFor(pricing: Pricing, quantity: bigint, price: bigint): bi
  * Creates the round, or finds the open round the same creator already opened on the class (a
  * run that stopped after the transaction and before recording it).
  */
+/** Time a reused round must still accept orders for: a resumed run places its orders right after. */
+export const REUSE_MARGIN_NANOS = 60_000_000_000n;
+
+/**
+ * The creator's open round a resumed run reuses (its creation landed but was not journaled): only
+ * one whose window still accepts orders, since an `Open` round past `closes_at` refuses them
+ * ("Round is closed") until someone calls `close`.
+ */
+export function reusableRound<T extends { closesAt: bigint }>(open: readonly T[], nowNanos: bigint): T | undefined {
+  return open.find((round) => round.closesAt > nowNanos + REUSE_MARGIN_NANOS);
+}
+
 export async function createRound(ctx: Context, scope: StepScope, label: string, creator: NearActor, kind: RoundKind, classId: string, call: FunctionCall): Promise<RoundRecord> {
   const existing = await withRetry("get_rounds", () => ctx.views.getRounds({ kind, class_id: classId, status: "Open", creator: creator.accountId }));
-  let round = existing.rounds[0];
+  let round = reusableRound(existing.rounds, BigInt(Date.now()) * 1_000_000n);
   if (round === undefined) {
     const result = await creator.call(call);
     scope.tx(nearRef(label, result));
@@ -127,6 +140,15 @@ export async function placeOrder(
     });
   });
   let bidId = await withRetry("get_order_id", () => ctx.views.getOrderId(round.roundId, actor.accountId, side));
+  if (bidId === null && side === "Buy" && round.kind === "Exit") {
+    const [storage, minimum, holding] = await Promise.all([
+      withRetry("storage_balance_of", () => ctx.views.storageBalanceOf(actor.accountId)),
+      withRetry("storage_balance_bounds", () => ctx.views.storageMinimum()),
+      withRetry("get_holding", () => ctx.views.getHolding(actor.accountId, round.classId)),
+    ]);
+    const topUp = bidStorageTopUp(storage, minimum, holding);
+    if (topUp > 0n) scope.tx(nearRef(`${CAST[who].name}: engine storage for the bought units' holding row`, await actor.call(ctx.calls.storageDeposit(topUp))));
+  }
   if (bidId === null) {
     const call = side === "Sell" ? ctx.calls.placeAsk(BigInt(round.roundId), secret.ciphertextHex, order.collateral) : ctx.calls.placeBid(BigInt(round.roundId), secret.ciphertextHex, order.collateral);
     const result = await actor.call(call);
