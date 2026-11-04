@@ -7,7 +7,7 @@
 
 import { charge, fee, ONE, perClaimedToken, type ClassInfo, type Pricing, type Round, type RoundKind, type RoundStatus, type Venue } from "@rose/sdk";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
-import { formatUnits } from "@/lib/format";
+import { formatCash, formatUnits } from "@/lib/format";
 import { deployedCashSymbol } from "@/lib/token-symbols";
 
 export const USDC_DECIMALS = 6;
@@ -28,14 +28,8 @@ export function secondsToNs(seconds: number): bigint {
   return BigInt(Math.floor(seconds)) * 1_000_000_000n;
 }
 
-/** `7.2` USDC: at least two fraction digits, trailing zeros beyond them dropped, never rounded up. */
-export function formatUsdc(amount: bigint, maxDigits = 6): string {
-  const full = formatUnits(amount, USDC_DECIMALS, maxDigits);
-  const [whole, fraction = ""] = full.split(".");
-  const trimmed = fraction.replace(/0+$/, "");
-  const shown = trimmed.length < 2 ? trimmed.padEnd(2, "0") : trimmed;
-  return `${whole ?? "0"}.${shown}`;
-}
+/** `7.20` USDC: at least two fraction digits, trailing zeros beyond them dropped, never rounded up. */
+export const formatUsdc = formatCash;
 
 /** Token quantities in whole tokens with up to four fraction digits (never rounded up). */
 export function formatQty(units: bigint, decimals: number, maxDigits = 4): string {
