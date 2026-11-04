@@ -46,7 +46,14 @@ export interface CohortSchedule {
 
 export interface Allocation { nearAccount: string; amount: bigint }
 
-export interface CreateStreamsParams { vault: Address; token: Address; schedule: CohortSchedule; allocations: Allocation[] }
+export interface CreateStreamsParams {
+  vault: Address;
+  token: Address;
+  schedule: CohortSchedule;
+  allocations: Allocation[];
+  /** Wei forwarded for Sablier's withdrawal fee when the schedule already started (the vault withdraws the vested part to the issuer); the unused part is refunded. */
+  value?: bigint;
+}
 
 /** `RoseVault.createStreams` (issuer path): one transaction, one `StreamDeposited` per holder. The caller must have approved the vault for the total. */
 export function createStreams(wallet: SignerClient, params: CreateStreamsParams): Promise<Hex> {
@@ -55,6 +62,7 @@ export function createStreams(wallet: SignerClient, params: CreateStreamsParams)
     abi: roseVaultAbi,
     functionName: "createStreams",
     args: [params.token, params.schedule, params.allocations],
+    value: params.value ?? 0n,
   });
 }
 

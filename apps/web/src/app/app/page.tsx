@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { WalletSummary } from "@/components/wallet/WalletSummary";
+import { PortfolioPage } from "@/components/portfolio/PortfolioPage";
 
 export const metadata: Metadata = { title: "Portfolio" };
 
-export default function PortfolioPage() {
-  return <WalletSummary />;
+export default function Page() {
+  return <PortfolioPage />;
 }

@@ -235,6 +235,11 @@ export function withdrawMaxCalldata(streamId: bigint, to: Address): Hex {
   return encodeFunctionData({ abi: sablierLockupAbi, functionName: "withdrawMax", args: [streamId, to] });
 }
 
+/** The address currently approved for one stream NFT (`getApproved`), the zero address when none. */
+export function approvedFor(client: PublicClient, streamId: bigint, lockup: Address = SABLIER_LOCKUP_V4): Promise<Address> {
+  return client.readContract({ ...lockupContract(lockup), functionName: "getApproved", args: [streamId] });
+}
+
 /** Approves `spender` (RoseVault) for one stream NFT. */
 export function approveStream(wallet: SignerClient, streamId: bigint, spender: Address, lockup: Address = SABLIER_LOCKUP_V4): Promise<Hex> {
   return wallet.writeContract({ ...lockupContract(lockup), functionName: "approve", args: [spender, streamId] });

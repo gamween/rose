@@ -100,7 +100,8 @@ export class NearRpc {
 
   constructor(options: NearRpcOptions = {}) {
     this.endpoints = options.endpoints ?? [NEAR_TESTNET_RPC, NEAR_TESTNET_RPC_FALLBACK];
-    this.fetchImpl = options.fetch ?? globalThis.fetch;
+    // Bound through a closure: a detached `window.fetch` throws "Illegal invocation" in browsers.
+    this.fetchImpl = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.timeoutMs = options.timeoutMs ?? 15_000;
     if (this.endpoints.length === 0) throw new NearRpcError("rpc", "At least one RPC endpoint is required.");
   }

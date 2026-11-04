@@ -17,10 +17,11 @@ import {
   parseLimits,
   parsePortfolio,
   parsePosition,
-  parsePricePoint,
+  parsePriceHistoryPage,
   parseRetiredLot,
   parseRound,
   parseRoundResult,
+  parseRoundsPage,
   parseSellQuote,
   parseStats,
   parseU,
@@ -53,8 +54,8 @@ import type {
   PortfolioView,
   Position,
   PositionView,
-  PricePoint,
-  PricePointView,
+  PriceHistoryPage,
+  PriceHistoryPageView,
   RetiredLot,
   RefusedDepositView,
   ReplayKey,
@@ -64,6 +65,8 @@ import type {
   RoundFilter,
   RoundResult,
   RoundResultView,
+  RoundsPage,
+  RoundsPageView,
   RoundView,
   SablierScheduleArgs,
   SellQuote,
@@ -123,7 +126,7 @@ export class EngineRawViews {
   getRound(roundId: Id, o?: ViewCallOptions): Promise<RoundView | null> {
     return this.call("get_round", { round_id: id(roundId) }, o);
   }
-  getRounds(filter?: RoundFilter, fromIndex?: Id, limit?: number, o?: ViewCallOptions): Promise<RoundView[]> {
+  getRounds(filter?: RoundFilter, fromIndex?: Id, limit?: number, o?: ViewCallOptions): Promise<RoundsPageView> {
     return this.call("get_rounds", { filter: filter ?? null, from_index: fromIndex === undefined ? null : id(fromIndex), limit: limit ?? null }, o);
   }
   getBids(roundId: Id, o?: ViewCallOptions): Promise<BidView[]> {
@@ -156,7 +159,7 @@ export class EngineRawViews {
   getLien(lienId: Id, o?: ViewCallOptions): Promise<LienView | null> {
     return this.call("get_lien", { lien_id: id(lienId) }, o);
   }
-  getPriceHistory(classId: ClassId, fromIndex?: number, limit?: number, o?: ViewCallOptions): Promise<PricePointView[]> {
+  getPriceHistory(classId: ClassId, fromIndex?: number, limit?: number, o?: ViewCallOptions): Promise<PriceHistoryPageView> {
     return this.call("get_price_history", { class_id: classId, from_index: fromIndex ?? null, limit: limit ?? null }, o);
   }
   getEvents(fromSeq?: Id, limit?: number, o?: ViewCallOptions): Promise<EventsPageView> {
@@ -271,8 +274,9 @@ export class EngineViews {
     const view = await this.raw.getRound(roundId, o);
     return view ? parseRound(view) : null;
   }
-  async getRounds(filter?: RoundFilter, fromIndex?: Id, limit?: number, o?: ViewCallOptions): Promise<Round[]> {
-    return (await this.raw.getRounds(filter, fromIndex, limit, o)).map(parseRound);
+  /** One page of rounds; pass `next` back as `fromIndex` to continue (the engine scans at most 200 ids per call). */
+  async getRounds(filter?: RoundFilter, fromIndex?: Id, limit?: number, o?: ViewCallOptions): Promise<RoundsPage> {
+    return parseRoundsPage(await this.raw.getRounds(filter, fromIndex, limit, o));
   }
   async getBids(roundId: Id, o?: ViewCallOptions): Promise<Bid[]> {
     return (await this.raw.getBids(roundId, o)).map(parseBid);
@@ -309,8 +313,8 @@ export class EngineViews {
     const view = await this.raw.getLien(lienId, o);
     return view ? parseLien(view) : null;
   }
-  async getPriceHistory(classId: ClassId, fromIndex?: number, limit?: number, o?: ViewCallOptions): Promise<PricePoint[]> {
-    return (await this.raw.getPriceHistory(classId, fromIndex, limit, o)).map(parsePricePoint);
+  async getPriceHistory(classId: ClassId, fromIndex?: number, limit?: number, o?: ViewCallOptions): Promise<PriceHistoryPage> {
+    return parsePriceHistoryPage(await this.raw.getPriceHistory(classId, fromIndex, limit, o));
   }
   async getEvents(fromSeq?: Id, limit?: number, o?: ViewCallOptions): Promise<EventsPage> {
     return parseEventsPage(await this.raw.getEvents(fromSeq, limit, o));

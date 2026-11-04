@@ -13,3 +13,4 @@ export { Tabs, type TabItem } from "./Tabs";
 export { ToastProvider, useToast, type ExplorerLink, type ToastInput, type ToastTone } from "./Toast";
 export { Tooltip } from "./Tooltip";
 export { VoxelArt, VOXEL_PRESETS, type VoxelPreset } from "./VoxelArt";
+export { FlowSteps } from "./FlowSteps";

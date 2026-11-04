@@ -7,6 +7,7 @@
  * @module
  */
 
+import type { CashDepositedFields, StreamDepositedFields } from "../chains/base/deposit.js";
 import type { AccountId, ClaimSourceArgs, ClassId, ReplayKey, Side, SolDepositArgs, SolNonceProof, Venue } from "./types.js";
 
 /** One NEAR function call: what every wallet needs to sign it. */
@@ -262,11 +263,11 @@ export class EngineCalls {
   }
 
   /** Spec 7.1 step 3; `registrationDeposit` comes from `registration_deposit_for` (the unused part is returned). */
-  registerBaseDeposit(location: BaseLogLocationArgs, fields: Record<string, unknown>, registrationDeposit: bigint): FunctionCall {
+  registerBaseDeposit(location: BaseLogLocationArgs, fields: StreamDepositedFields, registrationDeposit: bigint): FunctionCall {
     return this.call("register_base_deposit", { location, fields }, GAS.registerDeposit, registrationDeposit);
   }
 
-  registerBaseCash(location: BaseLogLocationArgs, fields: Record<string, unknown>): FunctionCall {
+  registerBaseCash(location: BaseLogLocationArgs, fields: CashDepositedFields): FunctionCall {
     return this.call("register_base_cash", { location, fields }, GAS.registerDeposit);
   }
 
@@ -283,10 +284,6 @@ export class EngineCalls {
   /** Spec 7.2 step 3: `metadataData` is the 1,104 metadata bytes (hex) read at `finalized` right before the call. */
   registerSolDeposit(metadata: string, anchorTx: string, metadataData: string, registrationDeposit: bigint): FunctionCall {
     return this.call("register_sol_deposit", { metadata, anchor_tx: anchorTx, metadata_data: metadataData }, GAS.registerDeposit, registrationDeposit);
-  }
-
-  withdrawSolStream(positionId: bigint, recentBlockhash: string): FunctionCall {
-    return this.call("withdraw_sol_stream", { position_id: positionId.toString(), recent_blockhash: recentBlockhash }, GAS.solAction, PAYOUT_STORAGE_DEPOSIT);
   }
 
   /** Spec 7.3: EIP-712 `Transfer` authorization for RoseVault, submitted by the claimant with `executeTransfer`. */
@@ -307,14 +304,18 @@ export class EngineCalls {
     return this.call("resign_sol_gas", { payout_id: payoutId.toString() }, GAS.solAction);
   }
 
-  /** In-kind exit: burns the position's allocation and authorizes its release (`nonce` and `metadataData` for Solana only). */
-  redeem(positionId: bigint, to: string, solana?: { nonce: SolNonceProof; metadataData: string }): FunctionCall {
-    return this.call(
-      "redeem",
-      { position_id: positionId.toString(), to, nonce: solana?.nonce ?? null, metadata_data: solana?.metadataData ?? null },
-      solana ? GAS.solPayout : GAS.payout,
-      PAYOUT_STORAGE_DEPOSIT,
-    );
+  /** Re-requests the `vault/base` signature of a Base authorization still `Requested` 600 blocks after its request. */
+  retryBaseSignature(payoutId: bigint): FunctionCall {
+    return this.call("retry_base_signature", { payout_id: payoutId.toString() }, GAS.payout);
+  }
+
+  /**
+   * In-kind exit: burns the position's allocation and authorizes its release. A Solana position
+   * needs the payout's durable nonce proof; the engine withdraws the stream's unlocked balance
+   * into the vault inside the same transaction.
+   */
+  redeem(positionId: bigint, to: string, nonce?: SolNonceProof): FunctionCall {
+    return this.call("redeem", { position_id: positionId.toString(), to, nonce: nonce ?? null }, nonce ? GAS.solPayout : GAS.payout, PAYOUT_STORAGE_DEPOSIT);
   }
 
   returnRefusedDeposit(key: ReplayKey, recentBlockhash?: string): FunctionCall {

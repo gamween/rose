@@ -260,6 +260,12 @@ export interface PricePointView {
   settled_at: U64;
 }
 
+/** `get_price_history`: a page of a class's clearing history, oldest first. */
+export interface PriceHistoryPageView { points: PricePointView[]; total: number }
+
+/** `get_rounds`: `next` is the id to continue from, null once every round was examined. */
+export interface RoundsPageView { rounds: RoundView[]; next?: U64 | null }
+
 export interface BuyQuoteView { charge: U128; fee: U128; bond: U128; escrow_required: U128 }
 export interface SellQuoteView { valuation: U128; bond: U128 }
 
@@ -501,6 +507,10 @@ export interface RetiredLot { roundId: bigint; classId: ClassId; retireTo: Accou
 
 export interface PricePoint { roundId: number; kind: RoundKind; price: bigint; volume: bigint; remainingLockSecs: bigint; settledAt: bigint }
 
+export interface PriceHistoryPage { points: PricePoint[]; total: number }
+
+export interface RoundsPage { rounds: Round[]; next: bigint | null }
+
 export interface BuyQuote { charge: bigint; fee: bigint; bond: bigint; escrowRequired: bigint }
 export interface SellQuote { valuation: bigint; bond: bigint }
 
@@ -527,7 +537,7 @@ export type PayoutKindView =
   | { BaseRelease: { lockup: string; stream_id: number; to: string } }
   | { SolTransfer: { mint: string; to_owner: string; amount: U128 } }
   | { SolRelease: { metadata: string; to_owner: string } }
-  | { SolWithdraw: { metadata: string } }
+  | { SolMove: { metadata: string; from: string; to_owner: string } }
   | { SolReturn: { metadata: string; from: string; to_owner: string } };
 
 export type PayoutStatusView = "Requested" | "Signed" | "AwaitingGasSignature" | { Failed: { reason: string } };
@@ -538,8 +548,14 @@ export interface BaseSignatureView {
   v: number;
 }
 
+/** A Streamflow `withdraw` placed inside a payout message, feeding the vault's token account. */
+export interface StreamWithdrawView { position_id: U64; amount: U128 }
+
 export interface SolTransactionView {
   message: string;
+  withdraws: StreamWithdrawView[];
+  pool_used: U128;
+  pool_credit: U128;
   authority_path: string;
   nonce_account?: string | null;
   nonce_value?: string | null;
@@ -562,6 +578,8 @@ export interface PayoutView {
   solana?: SolTransactionView | null;
   created_at: U64;
   updated_at: U64;
+  /** Block of the latest signature request (`retry_base_signature` waits 600 blocks past it). */
+  requested_block: U64;
 }
 
 export type RefusedAssetView = { BaseStream: { lockup: string; stream_id: number } } | { SolStream: { metadata: string; held_by: string; held_by_path: string } };

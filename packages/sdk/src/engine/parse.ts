@@ -32,6 +32,8 @@ import type {
   PositionSource,
   PositionSourceView,
   PositionView,
+  PriceHistoryPage,
+  PriceHistoryPageView,
   PricePoint,
   PricePointView,
   RetiredLot,
@@ -39,6 +41,8 @@ import type {
   Round,
   RoundResult,
   RoundResultView,
+  RoundsPage,
+  RoundsPageView,
   RoundView,
   ScheduleView,
   SellQuote,
@@ -324,6 +328,14 @@ export function parsePricePoint(view: PricePointView): PricePoint {
     remainingLockSecs: parseU(view.remaining_lock_secs, "price.remaining_lock_secs"),
     settledAt: parseU(view.settled_at, "price.settled_at"),
   };
+}
+
+export function parsePriceHistoryPage(view: PriceHistoryPageView): PriceHistoryPage {
+  return { points: view.points.map(parsePricePoint), total: parseCounter(view.total, "price_history.total") };
+}
+
+export function parseRoundsPage(view: RoundsPageView): RoundsPage {
+  return { rounds: view.rounds.map(parseRound), next: parseOptionalU(view.next, "rounds.next") };
 }
 
 export function parseBuyQuote(view: BuyQuoteView): BuyQuote {

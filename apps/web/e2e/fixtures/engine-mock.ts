@@ -106,7 +106,8 @@ const events = [
   event(14, NOW_SEC - 1 * DAY, "key_requested", { round_id: "8" }),
 ];
 
-const config = {
+/** `get_config` of the mocked engine (specs override single fields, for example a real CKD key). */
+export const MOCK_CONFIG = {
   mpc_account: "v1.signer-prod.testnet",
   sign_secp256k1_domain: 0,
   sign_ed25519_domain: 1,
@@ -138,18 +139,20 @@ function engineView(method: string, args: Record<string, unknown>): unknown {
     case "ft_total_supply":
       return "1000000000";
     case "get_config":
-      return config;
+      return MOCK_CONFIG;
     case "get_classes": {
       const from = Number(args.from_index ?? 0);
       return classes.slice(from, from + Number(args.limit ?? 50));
     }
     case "get_class":
       return classes.find((cls) => cls.class_id === args.class_id) ?? null;
-    case "get_price_history":
-      return history[String(args.class_id)] ?? [];
+    case "get_price_history": {
+      const points = history[String(args.class_id)] ?? [];
+      return { points, total: points.length };
+    }
     case "get_rounds": {
       const from = Number(args.from_index ?? 0);
-      return tenders.slice(from, from + Number(args.limit ?? 50));
+      return { rounds: tenders.slice(from, from + Number(args.limit ?? 50)), next: null };
     }
     case "get_events": {
       const from = Number(args.from_seq ?? 0);
@@ -194,11 +197,33 @@ async function fulfil(route: Route, body: unknown): Promise<void> {
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 }
 
+/**
+ * Per-spec additions to the fixture: each hook answers first and returns `undefined` to fall
+ * back to the shared responses above, so specs extend the mock without editing it.
+ */
+export type MockOverrides = {
+  /** Extra or replaced engine views; the raw NEAR `send_tx` and `tx` requests go through `nearRequest`. */
+  engineView?: (method: string, args: Record<string, unknown>) => unknown;
+  /** Any other NEAR JSON-RPC request (`send_tx`, `tx`, a view on another contract); returns the `result`. */
+  nearRequest?: (method: string, params: Record<string, unknown>) => unknown;
+  /** `eth_call` by target and calldata, or any other Base method by name. */
+  baseRequest?: (method: string, params: unknown[]) => unknown;
+  solanaRequest?: (method: string, params: unknown[]) => unknown;
+};
+
 /** Routes every chain RPC the pages call to the fixture above. */
-export async function mockChains(page: Page): Promise<void> {
+export async function mockChains(page: Page, overrides: MockOverrides = {}): Promise<void> {
   await page.route("https://test.rpc.fastnear.com/**", async (route) => {
-    const request = route.request().postDataJSON() as { id: string; params: Record<string, string> };
+    const request = route.request().postDataJSON() as { id: string; method: string; params: Record<string, string> };
     const params = request.params;
+    if (params.request_type !== "call_function" && params.request_type !== "view_access_key_list" && params.request_type !== "view_account") {
+      const custom = overrides.nearRequest?.(request.method, params);
+      if (custom !== undefined) return fulfil(route, { jsonrpc: "2.0", id: request.id, result: custom });
+    }
+    if (params.request_type === "call_function" && params.account_id !== MOCK.engine) {
+      const custom = overrides.nearRequest?.(request.method, params);
+      if (custom !== undefined) return fulfil(route, { jsonrpc: "2.0", id: request.id, result: viewResult(custom) });
+    }
     if (params.request_type === "view_access_key_list") {
       return fulfil(route, { jsonrpc: "2.0", id: request.id, result: { block_hash: "h", block_height: 276_200_000, keys: [] } });
     }
@@ -210,16 +235,21 @@ export async function mockChains(page: Page): Promise<void> {
       });
     }
     const args = JSON.parse(Buffer.from(params.args_base64!, "base64").toString("utf8")) as Record<string, unknown>;
-    return fulfil(route, { jsonrpc: "2.0", id: request.id, result: viewResult(engineView(params.method_name!, args)) });
+    const custom = overrides.engineView?.(params.method_name!, args);
+    return fulfil(route, { jsonrpc: "2.0", id: request.id, result: viewResult(custom !== undefined ? custom : engineView(params.method_name!, args)) });
   });
   await page.route("https://sepolia.base.org/**", async (route) => {
-    const request = route.request().postDataJSON() as { id: number; method: string; params: [{ to: string; data: string } | string] };
+    const request = route.request().postDataJSON() as { id: number; method: string; params: unknown[] };
+    const custom = overrides.baseRequest?.(request.method, request.params);
+    if (custom !== undefined) return fulfil(route, { jsonrpc: "2.0", id: request.id, result: custom });
     if (request.method === "eth_getCode") return fulfil(route, { jsonrpc: "2.0", id: request.id, result: "0x6080" });
     const call = request.params[0] as { to: string; data: string };
     return fulfil(route, { jsonrpc: "2.0", id: request.id, result: baseCall(call.to, call.data) });
   });
   await page.route("https://api.devnet.solana.com/**", async (route) => {
-    const request = route.request().postDataJSON() as { id: number; params: [string] };
+    const request = route.request().postDataJSON() as { id: number; method: string; params: unknown[] };
+    const custom = overrides.solanaRequest?.(request.method, request.params);
+    if (custom !== undefined) return fulfil(route, { jsonrpc: "2.0", id: request.id, result: custom });
     const value = request.params[0] === MOCK.gasSol ? 9_647_107_580 : 2_039_280;
     return fulfil(route, { jsonrpc: "2.0", id: request.id, result: { context: { slot: 518_422_893, apiVersion: "4.4.0" }, value } });
   });

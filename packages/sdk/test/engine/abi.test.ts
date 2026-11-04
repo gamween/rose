@@ -93,6 +93,7 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
   it("every change-call builder names an existing call method with the ABI's parameter names and payability", () => {
     const calls = new EngineCalls("engine.test");
     const window = { closesAt: 1n };
+    const location = { tx_hash: "0x1", block_hash: "0x2", block_number: 1, transaction_index: 0, log_index: 0 };
     const built = [
       calls.createTender({ classId: "c", venue: "Near", budget: 1n, maxPrice: 1n, retireTo: "t.testnet", window }),
       calls.createExit({ classId: "c", venue: "Near", maxPrice: 1n, window }),
@@ -116,16 +117,16 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
       calls.storageWithdraw(),
       calls.storageUnregister(),
       calls.bootstrap(),
-      calls.registerBaseDeposit({ tx_hash: "0x1", block_hash: "0x2", block_number: 1, transaction_index: 0, log_index: 0 }, {}, 1n),
-      calls.registerBaseCash({ tx_hash: "0x1", block_hash: "0x2", block_number: 1, transaction_index: 0, log_index: 0 }, {}),
+      calls.registerBaseDeposit(location, { sender: "0x1", stream_id: 1, near_account: "a.testnet", lockup: "0x2", token: "0x3", decimals: 18, deposited: "1", withdrawn: "0", start: 1, cliff: 0, end: 2, granularity: 1, start_unlock: "0", cliff_unlock: "0", cancelable: false, transferable: true, timestamp: 1 }, 1n),
+      calls.registerBaseCash(location, { sender: "0x1", token: "0x3", round_id: 0, near_account: "a.testnet", amount: "1", timestamp: 1 }),
       calls.attributeSolDeposit({ metadata: "m", class_id: "c", return_to: "r", anchor_tx: "t", metadata_data: "00", mint_data: "00" }),
       calls.moveSolDeposit("m", "b"),
       calls.registerSolDeposit("m", "t", "00", 1n),
-      calls.withdrawSolStream(1n, "b"),
       calls.claimBaseTokens({ Holding: { class_id: "c" } }, 1n, "0x1"),
       calls.withdrawBaseCash("0x1", 1n, "0x2"),
       calls.claimSolTokens({ Retired: { round_id: "1" } }, 1n, "o", { account: "n", anchor_tx: "t", data: "00" }),
       calls.resignSolGas(1n),
+      calls.retryBaseSignature(1n),
       calls.redeem(1n, "0x1"),
       calls.returnRefusedDeposit({ BaseLog: { tx_hash: "0x1", log_index: 0 } }),
     ];

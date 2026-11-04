@@ -1,0 +1,144 @@
+"use client";
+
+import { describeRoseEvent, type PayoutView } from "@rose/sdk";
+import Link from "next/link";
+import { useState } from "react";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Field, NumberInput } from "@/components/ui/Input";
+import { amountToText, formatAmount, formatDate, nsToMs, parseAmount } from "@/lib/amounts";
+import { nearAccountUrl } from "@/lib/explorer";
+import { describePayout } from "@/lib/payouts";
+import { ROUTES } from "@/lib/routes";
+import type { PayoutEntry, PortfolioData } from "./data";
+
+const NEAR_DECIMALS = 24;
+
+function roundHref(data: Record<string, unknown>): string | null {
+  return typeof data.round_id === "string" ? `${ROUTES.rounds}/${data.round_id}` : null;
+}
+
+/** The account's engine events (from the on-chain history) and its payouts, with explorer links. */
+export function HistorySection({ data }: { data: PortfolioData }) {
+  const [showAll, setShowAll] = useState(false);
+  const events = showAll ? data.events : data.events.slice(0, 12);
+  const executed = data.payouts.filter((entry) => entry.state === "submitted" || entry.state === "failed");
+  return (
+    <Card data-history>
+      <CardHeader title="History" description="Your entries in the engine's bounded on-chain event history (no indexer) and your payouts." />
+      <CardBody className="flex flex-col gap-4">
+        {data.events.length === 0 ? (
+          <p className="text-[13px] text-ink-400">No event mentions this account in the last {400} engine events.</p>
+        ) : (
+          <ol className="flex flex-col divide-y divide-ink-800">
+            {events.map((entry) => {
+              const href = roundHref(entry.event.data as Record<string, unknown>);
+              const line = describeRoseEvent(entry.event);
+              return (
+                <li key={entry.seq.toString()} className="flex flex-col gap-0.5 py-2" data-history-event={entry.event.event}>
+                  <div className="flex items-start justify-between gap-3">
+                    {href ? (
+                      <Link href={href} className="text-[13px] text-ink-100 underline-offset-2 hover:underline">
+                        {line}
+                      </Link>
+                    ) : (
+                      <span className="text-[13px] text-ink-100">{line}</span>
+                    )}
+                    <span className="tabular shrink-0 text-[11px] text-ink-400">{formatDate(nsToMs(entry.timestamp))}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
+                    <span className="font-display uppercase tracking-wide">{entry.event.event.replace(/_/g, " ")}</span>
+                    <span aria-hidden>·</span>
+                    <a href={nearAccountUrl(entry.predecessor)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                      {entry.predecessor}
+                    </a>
+                    <span aria-hidden>·</span>
+                    <a href={`https://testnet.near.rocks/block/${entry.blockHeight.toString()}`} target="_blank" rel="noreferrer" className="tabular underline-offset-2 hover:underline">
+                      block {entry.blockHeight.toString()} ↗
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {data.events.length > 12 ? (
+          <Button size="sm" variant="ghost" onClick={() => setShowAll((value) => !value)}>
+            {showAll ? "Show fewer" : `Show all ${String(data.events.length)} events`}
+          </Button>
+        ) : null}
+        {executed.length > 0 ? (
+          <section className="flex flex-col gap-2">
+            <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">Payouts</h4>
+            <ul className="flex flex-col divide-y divide-ink-800">
+              {executed.map((entry) => (
+                <PayoutLine key={entry.payout.id} entry={entry} data={data} />
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </CardBody>
+    </Card>
+  );
+}
+
+function PayoutLine({ entry, data }: { entry: PayoutEntry; data: PortfolioData }) {
+  const payout: PayoutView = entry.payout;
+  const decimalsOf = (token: string) => [...data.classes.values()].find((info) => info.token.toLowerCase() === token.toLowerCase())?.decimals ?? (data.config.base_cash_tokens.includes(token.toLowerCase()) ? 6 : null);
+  const failure = typeof payout.status === "object" ? payout.status.Failed.reason : null;
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-[12px]">
+      <span className="text-ink-100">
+        #{payout.id} · {describePayout(payout, decimalsOf, formatAmount)}
+      </span>
+      <span className="flex items-center gap-2 text-ink-400">
+        {failure ? <Badge tone="danger">Failed: {failure}</Badge> : <Badge tone="success">Executed</Badge>}
+        <span className="tabular">{formatDate(nsToMs(BigInt(payout.updated_at)))}</span>
+      </span>
+    </li>
+  );
+}
+
+/** NEP-145 storage balance of the account in the engine with deposit and withdraw. */
+export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: PortfolioData; onDeposit: (amount: bigint) => void; onWithdraw: (amount: bigint | null) => void; busy: boolean }) {
+  const [amount, setAmount] = useState(amountToText(data.storageMinimum, NEAR_DECIMALS));
+  const parsed = parseAmount(amount, NEAR_DECIMALS);
+  const registered = data.storage !== null;
+  return (
+    <Card data-storage>
+      <CardHeader
+        title="Storage (NEP-145)"
+        description="Every holding row costs 0.0012 NEAR of storage paid by its owner. Receiving units, buying in an Exit or getting a distribution requires a registered account with a free row."
+        action={registered ? <Badge tone="success">Registered</Badge> : <Badge tone="warning">Not registered</Badge>}
+      />
+      <CardBody className="flex flex-col gap-3">
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Total</dt>
+            <dd className="tabular text-[15px] text-ink-50">{data.storage ? `${formatAmount(data.storage.total, NEAR_DECIMALS, 5)} NEAR` : "—"}</dd>
+          </div>
+          <div>
+            <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Available</dt>
+            <dd className="tabular text-[15px] text-ink-50">{data.storage ? `${formatAmount(data.storage.available, NEAR_DECIMALS, 5)} NEAR` : "—"}</dd>
+          </div>
+          <div>
+            <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Minimum</dt>
+            <dd className="tabular text-[15px] text-ink-50">{formatAmount(data.storageMinimum, NEAR_DECIMALS, 5)} NEAR</dd>
+          </div>
+        </dl>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Amount" className="w-44" error={parsed === null ? "Enter a NEAR amount" : undefined}>
+            {({ inputId, invalid }) => <NumberInput id={inputId} value={amount} onValueChange={setAmount} unit="NEAR" decimals={NEAR_DECIMALS} invalid={invalid} />}
+          </Field>
+          <Button size="md" variant="secondary" disabled={parsed === null || parsed === 0n || busy} onClick={() => parsed !== null && onDeposit(parsed)} data-storage-deposit>
+            {registered ? "Top up" : "Register"}
+          </Button>
+          <Button size="md" variant="ghost" disabled={!registered || busy || (data.storage?.available ?? 0n) === 0n} title={!registered ? "Not registered" : (data.storage?.available ?? 0n) === 0n ? "Nothing available to withdraw" : undefined} onClick={() => onWithdraw(parsed !== null && parsed > 0n ? parsed : null)} data-storage-withdraw>
+            Withdraw {parsed !== null && parsed > 0n ? "amount" : "all available"}
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
