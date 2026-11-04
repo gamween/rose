@@ -70,11 +70,6 @@ export async function nearAccountExists(accountId: string): Promise<boolean> {
   }
 }
 
-export async function nearBalanceYocto(accountId: string): Promise<bigint> {
-  const view = await nearRpc().viewAccount(accountId);
-  return BigInt(view.amount);
-}
-
 /** Signs and sends one function call with the demo key; throws a `RoseActionError` on failure. */
 export async function sendNearDemoCall(wallet: NearDemoWallet, call: FunctionCall): Promise<FinalExecutionOutcome> {
   const account = nearDemoAccount(wallet);
@@ -89,23 +84,6 @@ export async function sendNearDemoCall(wallet: NearDemoWallet, call: FunctionCal
   } catch (error) {
     throw error instanceof Error ? error : new RoseActionError("unknown", "Transaction failed", String(error));
   }
-  const failure = outcomeFailure(outcome);
-  if (failure !== null) {
-    const described = failureToActionError(failure);
-    throw new RoseActionError(described.kind, described.title, described.message, described.retryable);
-  }
-  return outcome;
-}
-
-/** Sends plain NEAR from the demo account (used to top up another account in the funds panel). */
-export async function sendNearDemoTransfer(wallet: NearDemoWallet, receiverId: string, amountYocto: bigint): Promise<FinalExecutionOutcome> {
-  const account = nearDemoAccount(wallet);
-  const outcome = (await account.signAndSendTransaction({
-    receiverId,
-    actions: [actions.transfer(amountYocto)],
-    waitUntil: "EXECUTED_OPTIMISTIC",
-    throwOnFailure: false,
-  })) as unknown as FinalExecutionOutcome;
   const failure = outcomeFailure(outcome);
   if (failure !== null) {
     const described = failureToActionError(failure);

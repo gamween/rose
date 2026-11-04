@@ -24,6 +24,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { erc20Abi } from "viem";
 import { createConfig, http, useAccount, useConnect, useConnectors, useDisconnect, useSwitchChain, useWalletClient, WagmiProvider, type Connector } from "wagmi";
 import { baseSepolia } from "wagmi/chains";
+import { getWalletClient } from "wagmi/actions";
 import { injected } from "wagmi/connectors";
 import { BASE_SEPOLIA_RPC_URL, deployedAddress, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL, NEAR_TUSDC_ACCOUNT, SOLANA_DEVNET_RPC_URL } from "@/lib/deployment";
 import { failureToActionError, RoseActionError } from "@/lib/errors";
@@ -47,6 +48,7 @@ import {
   solanaDemoPublicKey,
   type SolanaDemoWallet,
 } from "@/lib/wallet/solana-demo";
+import { waitForSolanaConnection } from "@/lib/wallet/solana-connect";
 import { DEMO_STORAGE_KEYS, readStored, removeStored, writeStored } from "@/lib/wallet/storage";
 import type { Balances, EvmWalletState, NearWalletState, SolanaSigner, SolanaWalletState, WalletKind, WalletRuntimeValue } from "./WalletProvider";
 
@@ -81,6 +83,12 @@ async function waitForFinalHead(): Promise<void> {
     // The transaction already succeeded; a view refresh will catch up on the next poll.
   }
 }
+
+/**
+ * Every adapter error also rejects the call that caused it (connect, signTransaction), which the
+ * calling surface shows as a toast; the provider's default handler would only add a console error.
+ */
+function ignoreSolanaAdapterError(): void {}
 
 type NearConnectorModule = typeof import("@hot-labs/near-connect");
 
@@ -160,7 +168,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       if (disposed) return;
       connector.on("wallet:signIn", (payload) => {
         const account = payload.accounts[0];
-        if (!account) return;
+        if (!payload.success || !account) return;
         nearWalletRef.current = payload.wallet;
         writeStored(DEMO_STORAGE_KEYS.preferredNear, "external");
         setNear((state) => ({ ...state, status: "connected", accountId: account.accountId, kind: "external", walletName: payload.wallet.manifest.name }));
@@ -295,9 +303,15 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
   const getEvmWalletClient = useCallback(async (): Promise<SignerClient> => {
     if (evm.kind === "demo" && evm.demo) return evmDemoWalletClient(evm.demo);
     if (evm.kind === "external") {
-      if (evm.wrongChain) await switchChainAsync({ chainId: baseSepolia.id });
+      if (evm.wrongChain) {
+        await switchChainAsync({ chainId: baseSepolia.id });
+        /* The hook value is still the client of the previous chain until the next render. */
+        return getWalletClient(wagmiConfig, { chainId: baseSepolia.id });
+      }
       if (injectedWalletClient) return injectedWalletClient;
-      throw new RoseActionError("no_wallet", "Wallet not ready", "The injected wallet did not expose a signer. Reconnect and retry.", true);
+      return getWalletClient(wagmiConfig, { chainId: baseSepolia.id }).catch(() => {
+        throw new RoseActionError("no_wallet", "Wallet not ready", "The injected wallet did not expose a signer. Reconnect and retry.", true);
+      });
     }
     throw new RoseActionError("no_wallet", "No EVM wallet", "Connect an EVM wallet on Base Sepolia first.");
   }, [evm.demo, evm.kind, evm.wrongChain, injectedWalletClient, switchChainAsync]);
@@ -317,14 +331,6 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     [adapter.wallets],
   );
 
-  const pendingSolanaConnect = useRef<string | null>(null);
-  useEffect(() => {
-    if (pendingSolanaConnect.current && adapter.wallet?.adapter.name === pendingSolanaConnect.current && !adapter.connected && !adapter.connecting) {
-      pendingSolanaConnect.current = null;
-      void adapter.connect().catch(() => undefined);
-    }
-  }, [adapter]);
-
   const connectSolana = useCallback(
     async (walletName: string) => {
       removeStored(DEMO_STORAGE_KEYS.preferredSolana);
@@ -338,8 +344,14 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
         await adapter.connect();
         return;
       }
-      pendingSolanaConnect.current = walletName;
+      if (target.adapter.connected) {
+        adapter.select(target.adapter.name);
+        return;
+      }
+      /* Selecting makes the provider connect the adapter (autoConnect); resolve on its outcome. */
+      const connected = waitForSolanaConnection(target.adapter);
       adapter.select(target.adapter.name);
+      await connected;
     },
     [adapter],
   );
@@ -493,7 +505,7 @@ export const WalletRuntime = memo(function WalletRuntime({ onValue }: { onValue:
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <ConnectionProvider endpoint={SOLANA_DEVNET_RPC_URL} config={{ commitment: "confirmed" }}>
-          <SolanaAdapterProvider wallets={solanaAdapters} autoConnect>
+          <SolanaAdapterProvider wallets={solanaAdapters} autoConnect onError={ignoreSolanaAdapterError}>
             <RuntimeBridge onValue={onValue} />
           </SolanaAdapterProvider>
         </ConnectionProvider>
