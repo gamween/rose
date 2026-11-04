@@ -1,7 +1,7 @@
 import { LockupModel, TOKEN_PROGRAM_ID, type SablierStream, type StreamflowMetadata } from "@rose/sdk";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { baseLogReplayKey, baseVerdict, mintDecimals, remainingToLock, sablierScheduleArgs, scanRange, solanaVerdict, streamflowChargesFees, streamflowScheduleArgs } from "./eligibility";
+import { baseLogReplayKey, baseVerdict, mintDecimals, mintHasFreezeAuthority, remainingToLock, sablierScheduleArgs, scanRange, solanaVerdict, streamflowChargesFees, streamflowScheduleArgs } from "./eligibility";
 
 const stream: SablierStream = {
   streamId: 82n,
@@ -94,6 +94,14 @@ describe("baseVerdict", () => {
 });
 
 const FEE_FREE = new Uint8Array(1104);
+/** A classic 6-decimal mint without a freeze authority (`COption` tag 0 at byte 46). */
+const MINT_DATA = (() => {
+  const data = new Uint8Array(82);
+  data[44] = 6;
+  return data;
+})();
+const CLASSIC_MINT = { owner: TOKEN_PROGRAM_ID, data: MINT_DATA, decimals: 6 };
+const NOW = 1_750_000_000n;
 
 describe("solanaVerdict", () => {
   it("refuses a stream whose withdrawals pay Streamflow or partner fees", () => {
@@ -101,20 +109,31 @@ describe("solanaVerdict", () => {
     new DataView(withFee.buffer).setFloat32(321, 0.25, true);
     expect(streamflowChargesFees(FEE_FREE)).toBe(false);
     expect(streamflowChargesFees(withFee)).toBe(true);
-    expect(solanaVerdict(metadata, TOKEN_PROGRAM_ID, withFee).reasons).toEqual(["Withdrawals from the stream pay Streamflow or partner fees; the engine only holds fee-free streams."]);
+    expect(solanaVerdict(metadata, CLASSIC_MINT, withFee, NOW).reasons).toEqual(["Withdrawals from the stream pay Streamflow or partner fees; the engine only holds fee-free streams."]);
   });
 
   it("accepts a stream the sender cannot change on a classic mint", () => {
-    expect(solanaVerdict(metadata, TOKEN_PROGRAM_ID, FEE_FREE)).toEqual({ eligible: true, reasons: [] });
+    expect(solanaVerdict(metadata, CLASSIC_MINT, FEE_FREE, NOW)).toEqual({ eligible: true, reasons: [] });
   });
   it("adds the automatic withdrawal and Token-2022 rules to the SDK rules", () => {
-    const verdict = solanaVerdict({ ...metadata, automaticWithdrawal: true, canTopup: true }, key(42), FEE_FREE);
+    const verdict = solanaVerdict({ ...metadata, automaticWithdrawal: true, canTopup: true }, { ...CLASSIC_MINT, owner: key(42) }, FEE_FREE, NOW);
     expect(verdict.reasons).toEqual([
       "The sender can top the stream up, which would change the schedule.",
       "The stream withdraws automatically; the engine must control every withdrawal.",
       "The mint is not a classic SPL Token mint (Token-2022 is not supported).",
     ]);
-    expect(solanaVerdict(metadata, null, FEE_FREE).reasons).toEqual(["The mint account could not be read."]);
+    expect(solanaVerdict(metadata, null, FEE_FREE, NOW).reasons).toEqual(["The mint account could not be read."]);
+  });
+  it("refuses what the engine refuses at attribution: a freezable mint, history, dust and a fully unlocked stream", () => {
+    const freezable = Uint8Array.from(MINT_DATA);
+    freezable[46] = 1;
+    expect(mintHasFreezeAuthority(MINT_DATA)).toBe(false);
+    expect(mintHasFreezeAuthority(freezable)).toBe(true);
+    expect(solanaVerdict(metadata, { ...CLASSIC_MINT, data: freezable }, FEE_FREE, NOW).reasons).toEqual(["The mint has a freeze authority: its holder could freeze the vault's token account and block every payout."]);
+    expect(solanaVerdict({ ...metadata, pauseCumulative: 60n }, CLASSIC_MINT, FEE_FREE, NOW).reasons).toEqual(["The stream was paused or re-rated; its unlocks no longer follow the plain schedule."]);
+    expect(solanaVerdict({ ...metadata, amountWithdrawn: 999_500_000n }, CLASSIC_MINT, FEE_FREE, NOW).reasons).toEqual(["The stream holds less than one whole token."]);
+    expect(solanaVerdict({ ...metadata, amountWithdrawn: 1_000_000_000n }, CLASSIC_MINT, FEE_FREE, NOW).reasons).toEqual(["The stream is fully withdrawn."]);
+    expect(solanaVerdict(metadata, CLASSIC_MINT, FEE_FREE, 1_800_000_000n).reasons).toEqual(["The stream is fully unlocked: withdraw it instead."]);
   });
   it("builds the class-id arguments: times as numbers, token amounts as U64 strings", () => {
     expect(streamflowScheduleArgs(metadata)).toEqual({
