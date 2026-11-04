@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034 # the constants and EVM_* variables are read by the sourcing scripts
 # Shared helpers of the rose deployment scripts. Sourced, never executed. Testnet only.
 #
 # Conventions: every script is bash + near-cli-rs (NEAR), forge/cast (Base) and jq; python3 is used
@@ -26,7 +27,6 @@ MPC_ACCOUNT="v1.signer-prod.testnet"
 MPC_DOMAIN_SECP256K1=0
 MPC_DOMAIN_ED25519=1
 MPC_DOMAIN_CKD=2
-MPC_DOMAIN_FOREIGN_TX=3
 
 SABLIER_LOCKUP="0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e"
 CIRCLE_USDC_BASE_SEPOLIA="0x036cbd53842c5426634e7929541ec2318f3dcf7e"
@@ -52,9 +52,7 @@ evm_signer() {
   out="$(node "$ROSE_ROOT/scripts/evm-keystore.ts" "$1")" || die "cannot open the EVM key of $1.env"
   keystore="$(sed -n 's/^keystore=//p' <<<"$out")"
   password_file="$(sed -n 's/^password_file=//p' <<<"$out")"
-  # shellcheck disable=SC2034 # read by the sourcing script
   EVM_ADDRESS="$(sed -n 's/^address=//p' <<<"$out")"
-  # shellcheck disable=SC2034 # read by the sourcing script
   EVM_WALLET_ARGS=(--keystore "$keystore" --password-file "$password_file")
 }
 
