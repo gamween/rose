@@ -8,7 +8,7 @@ import { viewCall } from "@/lib/engine";
 import { formatCount, formatUnits, formatUtcDateTime } from "@/lib/format";
 import { fetchEngineConfig } from "./engineConfig";
 import { fetchRecentEvents, nanosToMillis, type StoredEvent } from "./events";
-import { baseAddressUrl, baseTxUrl, nearAccountUrl, nearBlockUrl, nearTxUrl, shorten, solanaAddressUrl, solanaTxUrl } from "@/lib/explorer";
+import { baseAddressUrl, nearAccountUrl, nearBlockUrl, shorten, solanaAddressUrl } from "@/lib/explorer";
 import { formatLatency, KEY_RELEASE, pairLatencies, type LatencyReport } from "./latency";
 import { decodeAddress, decodeString, decodeUint, EMPTY_CODE_HASH, ethCall, ethGetCode, SELECTORS, solanaBalance, viewAccessKeyList, viewAccount } from "./rpc";
 import { ExternalLink, RawResult, Row, Rows, StatusBlock } from "./StatusBlock";
