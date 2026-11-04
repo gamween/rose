@@ -32,6 +32,8 @@ interface Recording {
     noKeyRoundId: string;
     /** The position redeemed in kind at the end of the Advance walkthrough. */
     redeemedPositionId: string;
+    /** Start of the last Solana transaction of the Exit's payout step (the Solana redeem's `transfer_recipient`). */
+    exitPayoutLastSolanaTx: string;
   };
 }
 

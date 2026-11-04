@@ -116,7 +116,7 @@ test.describe("guided demo", () => {
     await page.keyboard.press("End");
     await expect(step).toHaveAttribute("data-demo-step", "payout");
     await expect(page.locator("[data-demo-step]")).toContainText("claim_sol_tokens");
-    await expect(page.locator("[data-demo-tx='solana'] a").last()).toHaveAttribute("href", /^https:\/\/explorer\.solana\.com\/tx\/44Jfunex.+\?cluster=devnet$/);
+    await expect(page.locator("[data-demo-tx='solana'] a").last()).toHaveAttribute("href", new RegExp(`^https://explorer\\.solana\\.com/tx/${DEMO_RECORDING.expected.exitPayoutLastSolanaTx}.+\\?cluster=devnet$`));
     expect(errors).toEqual([]);
   });
 
