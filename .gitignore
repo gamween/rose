@@ -7,3 +7,10 @@ target/
 out/
 dist/
 .DS_Store
+contracts/evm/out/
+contracts/evm/cache/
+broadcast/
+*.tsbuildinfo
+.vercel/
+playwright-report/
+test-results/
