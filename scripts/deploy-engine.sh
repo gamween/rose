@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploys the rose engine on NEAR testnet: creates <account> as a sub-account of its parent (the
-# parent signs with its legacy keychain key), deploys the engine wasm with the `new` init call, calls `bootstrap` (the MPC-derived vault addresses), waits for it and
+# parent signs with its legacy keychain key), deploys the engine wasm with the `new` init call,
+# calls `bootstrap` (the MPC-derived vault addresses), waits for it and
 # checks the derived addresses against the MPC view. Then it checks that the code on chain is
 # exactly the local wasm (view_account code hash == sha256 of the file). The balance pays the
 # code, the full event history (1,024 entries of at most 448 bytes, which no caller pays for:
@@ -80,24 +81,23 @@ build_digest="$(sed -n 's/^image_digest = "\(.*\)"$/\1/p' "$engine_manifest")"
 reproducible_build() {
   require_tools git docker cargo
   docker info >/dev/null 2>&1 || die "Docker is not running: start it for the reproducible build"
-  local commit work artifact built image_present=0 status=0
+  local commit artifact built status=0
+  image_present=0
   commit="$(git -C "$ROSE_ROOT" rev-parse HEAD)"
   [[ -z "$(git -C "$ROSE_ROOT" status --porcelain -- contracts Cargo.toml Cargo.lock rust-toolchain.toml)" ]] \
     || die "uncommitted changes under contracts/: the reproducible build uses HEAD ($commit) only, commit them first"
   docker image inspect "$build_image@$build_digest" >/dev/null 2>&1 && image_present=1
   work="$(mktemp -d "${TMPDIR:-/tmp}/rose-reproducible.XXXXXX")"
+  # The function runs in a $(...) subshell: this trap cleans up after an interrupt too.
+  trap 'rm -rf "$work"; if [[ $image_present -eq 0 ]]; then docker image rm "$build_image@$build_digest" >/dev/null 2>&1 || log "warning: could not remove the build image $build_image"; fi' EXIT
   log "reproducible build of $commit in $work (image $build_image@$build_digest)"
   git clone --quiet --no-hardlinks "$ROSE_ROOT" "$work/rose" && git -C "$work/rose" checkout --quiet --detach "$commit" \
     && (cd "$work/rose/contracts/engine" && cargo near build reproducible-wasm >&2) || status=$?
   artifact="$ROSE_ROOT/target/near/reproducible/rose_engine-$commit.wasm"
+  built="$work/rose/target/near/rose_engine/rose_engine.wasm"
   if [[ "$status" -eq 0 ]]; then
     mkdir -p "$(dirname "$artifact")"
-    built="$(find "$work/rose/target/near" -name rose_engine.wasm -type f | head -n 1)"
-    [[ -n "$built" ]] && cp "$built" "$artifact" || status=1
-  fi
-  rm -rf "$work"
-  if [[ "$image_present" -eq 0 ]]; then
-    docker image rm "$build_image@$build_digest" >/dev/null 2>&1 && log "removed the build image $build_image"
+    if [[ -f "$built" ]]; then cp "$built" "$artifact" || status=$?; else status=1; fi
   fi
   [[ "$status" -eq 0 ]] || die "cargo near build reproducible-wasm failed (exit $status)"
   printf '%s\n' "$artifact"
@@ -111,6 +111,9 @@ wasm_build_environment() {
 
 if [[ "$reproducible" -eq 1 ]]; then
   [[ "$verify_only" -eq 0 ]] || die "--verify-only checks an artifact already built: pass it with --wasm"
+  # The artifact embeds the HEAD commit, so a rebuild after any new commit differs from the code a
+  # stopped run deployed: a resume names that run's artifact instead.
+  [[ "$skip_create" -eq 0 ]] || die "--skip-create resumes a stopped run: pass its artifact with --wasm target/near/reproducible/rose_engine-<commit>.wasm"
   wasm="$(reproducible_build)"
 fi
 wasm="${wasm:-$ROSE_ROOT/target/near/rose_engine/rose_engine.wasm}"
@@ -118,8 +121,15 @@ wasm="${wasm:-$ROSE_ROOT/target/near/rose_engine/rose_engine.wasm}"
 wasm_sha256="$(shasum -a 256 "$wasm" | awk '{print $1}')"
 wasm_bytes="$(wc -c <"$wasm" | tr -d ' ')"
 build_environment="$(wasm_build_environment "$wasm")"
+source_snapshot="$({ LC_ALL=C grep -aoE '"source_code_snapshot":"[^"]*"' "$wasm" || true; } | head -n 1 | sed 's/^"source_code_snapshot":"//; s/"$//')"
 if [[ "$build_environment" == "$build_image@$build_digest" ]]; then
-  log "reproducible artifact $wasm: $wasm_bytes bytes, sha256 $wasm_sha256, built in $build_environment"
+  log "reproducible artifact $wasm: $wasm_bytes bytes, sha256 $wasm_sha256, built in $build_environment from $source_snapshot"
+  if [[ "$role" == "final" ]]; then
+    # Anyone must be able to rebuild it: the commit it names has to be on the remote.
+    source_rev="${source_snapshot##*rev=}"
+    git -C "$ROSE_ROOT" fetch --quiet origin || die "git fetch origin failed: cannot check that $source_rev is pushed"
+    [[ -n "$(git -C "$ROSE_ROOT" branch -r --contains "$source_rev" 2>/dev/null)" ]] || die "commit $source_rev of the artifact is not on the remote: push it first"
+  fi
 else
   [[ "$role" != "final" ]] || die "--role final deploys a reproducible build only (pass --reproducible, or --wasm with one): $wasm names build environment '${build_environment:-none}'"
   log "local build $wasm: $wasm_bytes bytes, sha256 $wasm_sha256 (not reproducible)"
@@ -198,7 +208,8 @@ deploy() {
 deployments_set "$engine" ".role" "\"$role\""
 deployments_set "$engine" ".near.engine.account" "\"$engine\""
 deployments_set "$engine" ".near.engine.wasm" "$(jq -cn --arg s "$wasm_sha256" --argjson b "$wasm_bytes" --arg e "$build_environment" \
-  --arg pinned "$build_image@$build_digest" '{sha256:$s,bytes:$b,reproducible:($e == $pinned),build_environment:(if $e == "" then null else $e end)}')"
+  --arg pinned "$build_image@$build_digest" --arg src "$source_snapshot" \
+  '{sha256:$s,bytes:$b,reproducible:($e == $pinned),build_environment:(if $e == "" then null else $e end),source_code_snapshot:(if $src == "" then null else $src end)}')"
 
 if [[ "$verify_only" -eq 1 ]]; then
   near_account_exists "$engine" || die "$engine does not exist"

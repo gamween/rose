@@ -374,7 +374,8 @@
             "sha256": "85a27c33b34c564647a5ec8cde66e86b609eaa3c3bb81c9b422b301ce9eb6942",
             "bytes": 1016367,
             "reproducible": true,
-            "build_environment": "sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c8640a27172f83136a0f0aab2a9bf9d09f6ba0e6afd187addfaa9b92bae0"
+            "build_environment": "sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c8640a27172f83136a0f0aab2a9bf9d09f6ba0e6afd187addfaa9b92bae0",
+            "source_code_snapshot": "git+https://github.com/gamween/rose?rev=b32248e8e5204ce9812929ad59570e210e638587"
           },
           "create_tx": "C7rS4vA7R7fQhvfnW6MrPgoy6uKfPELPuLNwmh235mKh",
           "init_args": {
@@ -401,7 +402,7 @@
           "bootstrap_tx": "HUGDTy3guMjr1EAmXCYjQiA3WeS6YodDf7SLyMNfqm33",
           "code_sha256": "85a27c33b34c564647a5ec8cde66e86b609eaa3c3bb81c9b422b301ce9eb6942",
           "keyless": false,
-          "access_keys_checked_at": "2026-11-04T16:44:21Z"
+          "access_keys_checked_at": "2026-11-04T18:25:49Z"
         },
         "derived": {
           "vault_base": "0x89caef524792109c4b6c8e6373bcf54d84acffc6",
