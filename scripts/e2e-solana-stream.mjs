@@ -120,7 +120,9 @@ async function record(name, hash, signer, extra = {}) {
 }
 async function waitFinalized(signature) {
   for (let i = 0; i < 60; i += 1) {
-    const st = (await conn.getSignatureStatuses([signature])).value[0];
+    // History included: the recent-status cache forgets a signature after about 150 slots, so a
+    // resumed step would otherwise wait for a transaction finalized long ago.
+    const st = (await conn.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];
     if (st?.confirmationStatus === "finalized") return;
     await sleep(2000);
   }
