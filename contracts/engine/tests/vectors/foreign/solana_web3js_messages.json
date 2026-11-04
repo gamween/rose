@@ -1,5 +1,5 @@
 {
-  "generator": "ts/vectors.ts (@solana/web3.js 1.98.4, @solana/spl-token 0.4.9, @streamflow/stream 13.4.0)",
+  "generator": "scripts/solana-vectors.ts (@solana/web3.js 1.99.0, @solana/spl-token 0.4.15, @streamflow/stream 13.4.0)",
   "keys": {
     "vault": "ERKmrj6yveQaKExLsfuiJZW19MYnwFhUUwdLBPniG6GL",
     "gas": "CBx96X3pThHzNJYjfXBKjdKktZxVApRaiNS8Ej6G7Qwz",
