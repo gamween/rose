@@ -7,11 +7,18 @@
 // broadcast and then confirmed with a proof that the nonce advanced and the stream paid, and
 // finally signs the in-kind release of the position, broadcast and confirmed the same way.
 //
-//   node scripts/e2e-solana-stream.mjs <engine account> <step> [--holder <near account>]
+// With --case ended, the stream runs 65 minutes (the engine refuses one ending within an hour of
+// its attribution) and stays in the vault until it ends: Streamflow's auto-claim then withdraws
+// its whole remainder into the vault's token account, `sync_sol_stream` books it in the class's
+// swept balance, and a claim paid from that balance alone (no draw, `TransferChecked` and the
+// receipt advance) is broadcast and confirmed on its receipt.
+//
+//   node scripts/e2e-solana-stream.mjs <engine account> <step> [--holder <near account>] [--case main|ended]
 // Steps, in order: setup, transfer, attribute, move, register, claim, confirm, redeem,
-// confirm-redeem (or `all`). Every signature and NEAR transaction is recorded in
-// deployments/e2e/<engine>.solana.json; `setup` and `claim` resume what an earlier attempt sent
-// instead of sending it again. --holder (the NEAR account credited, its key in the legacy
+// confirm-redeem (or `all`); with --case ended: setup, transfer, attribute, move, register,
+// wait-end, sync, claim-swept, confirm (or `all`). Every signature and NEAR transaction is recorded
+// in deployments/e2e/<engine>.solana.json (<engine>.solana-ended.json for --case ended); `setup`
+// and the claims resume what an earlier attempt sent instead of sending it again. --holder (the NEAR account credited, its key in the legacy
 // keychain) is required on the first run and then read from that file. Keys, under
 // $ROSE_CONFIG_DIR (default ~/.config/rose): the ops key solana-ops.json funds everything (never
 // printed); the Solana holder key is generated into solana-holder.json (mode 600); NEAR calls use
@@ -46,21 +53,24 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const [engine, step, ...rest] = process.argv.slice(2);
 if (!engine || !step) {
-  console.error("usage: e2e-solana-stream.mjs <engine account> <step|all> [--holder <near account>]");
+  console.error("usage: e2e-solana-stream.mjs <engine account> <step|all> [--holder <near account>] [--case main|ended]");
   process.exit(2);
 }
 let holderFlag = null;
+let flowCase = "main";
 for (let i = 0; i < rest.length; i += 2) {
   if (rest[i] === "--holder") holderFlag = rest[i + 1];
+  else if (rest[i] === "--case") flowCase = rest[i + 1];
   else throw new Error(`unknown argument ${rest[i]}`);
 }
+if (flowCase !== "main" && flowCase !== "ended") throw new Error(`--case must be main or ended, not ${flowCase}`);
 
 const conn = new Connection(RPC, "confirmed");
 const ops = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(CONFIG_DIR, "solana-ops.json"), "utf8"))));
 const holderFile = join(CONFIG_DIR, "solana-holder.json");
 if (!existsSync(holderFile)) writeFileSync(holderFile, JSON.stringify(Array.from(Keypair.generate().secretKey)), { mode: 0o600 });
 const holder = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(holderFile, "utf8"))));
-const stateFile = join(root, "deployments", "e2e", `${engine}.solana.json`);
+const stateFile = join(root, "deployments", "e2e", flowCase === "main" ? `${engine}.solana.json` : `${engine}.solana-ended.json`);
 mkdirSync(dirname(stateFile), { recursive: true });
 const recorded = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : null;
 const nearHolder = holderFlag ?? recorded?.near_holder;
@@ -178,7 +188,8 @@ async function creationSignature(address) {
   return oldest;
 }
 
-const STREAM_AMOUNT = 7_200_000_000n;
+// 60 tokens unlock per minute: two hours for the main flow, 65 minutes for the ended case.
+const STREAM_AMOUNT = flowCase === "main" ? 7_200_000_000n : 3_900_000_000n;
 
 async function stepSetup() {
   if (state.steps.setup?.schedule) {
@@ -219,8 +230,8 @@ async function stepSetup() {
     const ata = await getOrCreateAssociatedTokenAccount(conn, ops, mint, ops.publicKey);
     if (ata.amount < STREAM_AMOUNT) await mintTo(conn, ops, mint, ata.address, ops, STREAM_AMOUNT - ata.amount);
     const now = Math.floor(Date.now() / 1000);
-    // 7,200 tokens unlocking 60 per minute over two hours, starting in a minute (the engine refuses
-    // a stream ending within an hour of its attribution): no cliff, no
+    // 60 tokens unlocking per minute (two hours, or 65 minutes for the ended case), starting in a
+    // minute (the engine refuses a stream ending within an hour of its attribution): no cliff, no
     // sender permissions, transferable by the recipient, no automatic withdrawal.
     const params = {
       recipient: holder.publicKey.toBase58(), tokenId: mint.toBase58(), start: now + 60, cliff: 0,
@@ -327,13 +338,8 @@ async function payoutProof(owner, anchor) {
   };
 }
 
-// Resumable: the nonce account, the NEAR claim and the broadcast are each recorded as soon as they
-// exist, and a rerun continues from the first one missing instead of claiming again.
-async function stepClaim() {
-  if (state.steps.claim?.recipient_balance) {
-    log("claim already done: payout", state.steps.claim.payout_id);
-    return;
-  }
+/** Creates the claimant's nonce and receipt accounts once and records them in `state.steps.claim`. */
+async function ensureNonceAccounts() {
   if (!state.steps.claim?.nonce_account) {
     // The engine accepts only nonce accounts created with seeds naming the claimant (spec 7.3):
     // createWithSeed(ops, prefix(nearHolder) + suffix, System), so nobody else can spend their
@@ -356,6 +362,16 @@ async function stepClaim() {
     save();
   }
   await waitFinalized(state.steps.claim.nonce_create_tx);
+}
+
+// Resumable: the nonce account, the NEAR claim and the broadcast are each recorded as soon as they
+// exist, and a rerun continues from the first one missing instead of claiming again.
+async function stepClaim() {
+  if (state.steps.claim?.recipient_balance) {
+    log("claim already done: payout", state.steps.claim.payout_id);
+    return;
+  }
+  await ensureNonceAccounts();
   if (!state.steps.claim.near_tx) {
     const claimable = await nearView(engine, "get_claimable", { account: nearHolder, class_id: state.steps.transfer.class_id });
     if (claimable === "0") throw new Error("nothing claimable yet: the stream unlocks 60 tokens per minute after its start");
@@ -391,6 +407,100 @@ async function stepClaim() {
   log(`claimed ${state.steps.claim.amount}: recipient balance ${before} -> ${after}`);
 }
 
+/** Waits until the stream ended and Streamflow's auto-claim emptied it into the vault, at finality. */
+async function stepWaitEnd() {
+  if (state.steps.wait_end?.auto_claim_tx) {
+    log("auto-claim already seen:", state.steps.wait_end.auto_claim_link);
+    return;
+  }
+  const end = schedule().end_time;
+  for (;;) {
+    const now = Math.floor(Date.now() / 1000);
+    if (now > end + 1) break;
+    log(`stream ends in ${end - now} s; draws stopped ${now >= end - 300 ? "already" : `in ${end - 300 - now} s`}`);
+    await sleep(Math.min(60, end + 2 - now) * 1000);
+  }
+  const metadata = new PublicKey(state.steps.setup.metadata);
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const info = await conn.getAccountInfo(metadata, "finalized");
+    const withdrawn = info ? Buffer.from(info.data).readBigUInt64LE(17) : 0n;
+    const net = BigInt(schedule().net_amount_deposited);
+    if (withdrawn === net) {
+      const latest = (await conn.getSignaturesForAddress(metadata, { limit: 10 }, "finalized")).find((entry) => entry.err === null);
+      state.steps.wait_end = { amount_withdrawn: withdrawn.toString(), auto_claim_tx: latest.signature, auto_claim_link: explorer(latest.signature), memo: latest.memo ?? null };
+      save();
+      log(`auto-claim seen at finality (${latest.memo ?? "no memo"}): ${explorer(latest.signature)}; amount_withdrawn ${withdrawn} of ${net}`);
+      return;
+    }
+    log(`waiting for the auto-claim: amount_withdrawn ${withdrawn} of ${net} at finality`);
+    await sleep(10_000);
+  }
+  throw new Error("the auto-claim did not show at finality within 10 minutes of the end");
+}
+
+/** `sync_sol_stream`: the engine proves the metadata and books the auto-claim in the class's swept balance. */
+async function stepSync() {
+  if (state.steps.sync?.swept_after) {
+    log("sync already done:", state.steps.sync.link);
+    return;
+  }
+  const classId = state.steps.transfer.class_id;
+  const before = await nearView(engine, "get_sol_swept", { class_id: classId });
+  const metadata = await accountHex(state.steps.setup.metadata);
+  const hash = nearCall(nearHolder, "sync_sol_stream", { position_id: state.steps.register.position_id, anchor_tx: state.steps.wait_end.auto_claim_tx, metadata_data: metadata.data }, "80 Tgas", "0 NEAR");
+  const status = await record("sync", hash, nearHolder);
+  const event = status.receipts_outcome.flatMap((o) => o.outcome.logs).filter((line) => line.startsWith("EVENT_JSON:")).map((line) => JSON.parse(line.slice("EVENT_JSON:".length))).find((e) => e.event === "sol_stream_swept");
+  if (!event) throw new Error(`no sol_stream_swept event in ${hash}`);
+  const after = await nearView(engine, "get_sol_swept", { class_id: classId });
+  const streams = await nearView(engine, "get_sol_streams", { class_id: classId });
+  state.steps.sync = { ...state.steps.sync, booked: event.data.amount, swept_before: before, swept_after: after, stream_pruned: !streams.some((entry) => entry.position_id === state.steps.register.position_id) };
+  save();
+  log(`synced: ${event.data.amount} booked, swept balance ${before.balance} -> ${after.balance}, stream pruned: ${state.steps.sync.stream_pruned}`);
+}
+
+/** A claim paid from the swept balance alone: no draw, `TransferChecked` and the receipt advance. */
+async function stepClaimSwept() {
+  if (state.steps.claim?.recipient_balance) {
+    log("swept claim already done: payout", state.steps.claim.payout_id);
+    return;
+  }
+  await ensureNonceAccounts();
+  const classId = state.steps.transfer.class_id;
+  if (!state.steps.claim.near_tx) {
+    const claimable = BigInt(await nearView(engine, "get_claimable", { account: nearHolder, class_id: classId }));
+    const swept = await nearView(engine, "get_sol_swept", { class_id: classId });
+    const available = BigInt(swept.balance) - BigInt(swept.pending);
+    const amount = (claimable < available ? claimable : available).toString();
+    if (amount === "0") throw new Error(`nothing to claim from the swept balance: claimable ${claimable}, available ${available}`);
+    const { proof, value } = await payoutProof(ops.publicKey, state.steps.claim.nonce_create_tx);
+    state.steps.claim.amount = amount;
+    state.steps.claim.nonce_value = value;
+    state.steps.claim.swept_before = swept;
+    save();
+    const hash = nearCall(nearHolder, "claim_sol_tokens", { source: { Holding: { class_id: classId } }, draws: [], swept: amount, to_owner: ops.publicKey.toBase58(), nonce: proof }, "200 Tgas", "0.025 NEAR");
+    await record("claim", hash, nearHolder);
+  }
+  if (!state.steps.claim.payout_id) {
+    state.steps.claim.payout_id = payoutIdOf(await nearTxStatus(state.steps.claim.near_tx, nearHolder));
+    save();
+  }
+  const payout = await waitPayout(state.steps.claim.payout_id);
+  if (payout.status !== "Signed") throw new Error(`swept claim not signed: ${JSON.stringify(payout.status)}`);
+  if (payout.solana.draws.length !== 0 || payout.solana.swept !== state.steps.claim.amount) throw new Error(`unexpected payout: draws ${JSON.stringify(payout.solana.draws)}, swept ${payout.solana.swept}`);
+  state.steps.claim.swept_pending = (await nearView(engine, "get_sol_swept", { class_id: classId })).pending;
+  const ata = getAssociatedTokenAddressSync(new PublicKey(state.steps.setup.mint), ops.publicKey);
+  const balance = () => conn.getTokenAccountBalance(ata, "confirmed").then((b) => b.value.amount);
+  if (!state.steps.claim.solana_tx) {
+    state.steps.claim.balance_before = await balance();
+    save();
+    await broadcast(payout, "claim");
+  }
+  const after = await balance();
+  state.steps.claim.recipient_balance = { before: state.steps.claim.balance_before, after };
+  save();
+  log(`claimed ${state.steps.claim.amount} from the swept balance: recipient balance ${state.steps.claim.balance_before} -> ${after}`);
+}
+
 async function stepConfirm() {
   const nonce = await accountHex(state.steps.claim.nonce_account);
   const receipt = await accountHex(state.steps.claim.receipt_account);
@@ -398,9 +508,16 @@ async function stepConfirm() {
   await record("confirm", hash, nearHolder);
   const payout = await nearView(engine, "get_payout", { payout_id: state.steps.claim.payout_id });
   if (payout.status !== "Landed") throw new Error(`payout not landed: ${JSON.stringify(payout.status)}`);
+  state.steps.confirm.status = payout.status;
+  if (flowCase === "ended") {
+    const swept = await nearView(engine, "get_sol_swept", { class_id: state.steps.transfer.class_id });
+    state.steps.confirm.swept_after = swept;
+    save();
+    log(`payout ${payout.id} landed on its receipt: swept balance ${swept.balance}, pending ${swept.pending}`);
+    return;
+  }
   const info = await nearView(engine, "get_sol_stream", { position_id: state.steps.register.position_id });
   const stream = await client.getOne({ id: state.steps.setup.metadata });
-  state.steps.confirm.status = payout.status;
   state.steps.confirm.engine_withdrawn = info.engine_withdrawn;
   state.steps.confirm.stream_withdrawn = String(stream.withdrawnAmount);
   save();
@@ -443,10 +560,10 @@ async function stepConfirmRedeem() {
   log(`position ${position.position_id} released to ${holder.publicKey.toBase58()}`);
 }
 
-const steps = {
-  setup: stepSetup, transfer: stepTransfer, attribute: stepAttribute, move: stepMove, register: stepRegister,
-  claim: stepClaim, confirm: stepConfirm, redeem: stepRedeem, "confirm-redeem": stepConfirmRedeem,
-};
+const deposit = { setup: stepSetup, transfer: stepTransfer, attribute: stepAttribute, move: stepMove, register: stepRegister };
+const steps = flowCase === "main"
+  ? { ...deposit, claim: stepClaim, confirm: stepConfirm, redeem: stepRedeem, "confirm-redeem": stepConfirmRedeem }
+  : { ...deposit, "wait-end": stepWaitEnd, sync: stepSync, "claim-swept": stepClaimSwept, confirm: stepConfirm };
 if (step === "all") {
   for (const name of Object.keys(steps)) await steps[name]();
 } else if (steps[step]) {
