@@ -18,7 +18,7 @@ import { ClearingChart } from "./ClearingChart";
 import { buildBook, roundCurves } from "./curves";
 import { FillsTable } from "./FillsTable";
 import { FinalizePanel } from "./FinalizePanel";
-import { classLabel, formatDateTime, formatDuration, formatQty, formatUsdc, KIND_BLURB, lockedPercent, nsToMs, shortAccount, venueLabel } from "./model";
+import { classLabel, formatDateTime, formatDuration, formatQty, formatUsdc, KIND_BLURB, lockedPercent, nsToMs, shortAccount, venueLabel, venueTokenAccount } from "./model";
 import { MyOrders } from "./MyOrders";
 import { OrderForm } from "./OrderForm";
 import { SealedBook } from "./SealedBook";
@@ -34,11 +34,11 @@ function Parameters({ detail }: { detail: RoundDetail }) {
     <section aria-label="Public parameters" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-parameters>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-4 xl:grid-cols-6">
         <Param label="Class" mono={false} className="col-span-2">
-          <span title={cls.classId}>{classLabel(cls, symbol)}</span>
+          <span title={`Token ${cls.token} on ${cls.chain}`}>{classLabel(cls, symbol)}</span>
           <span className="tabular block truncate text-[11px] text-ink-400">{cls.classId}</span>
         </Param>
         <Param label="Cash venue" mono={false}>
-          {venueLabel(round.venue)}
+          <span title={venueTokenAccount(round.venue)}>{venueLabel(round.venue)}</span>
         </Param>
         <Param label="Max price">{formatUsdc(round.maxPrice)} USDC</Param>
         <Param label="Locked at close" >

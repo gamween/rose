@@ -11,14 +11,13 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ClearingChart } from "@/components/rounds/ClearingChart";
 import { buildBook, roundCurves } from "@/components/rounds/curves";
 import { ciphertextHash } from "@/components/rounds/ibe";
-import { classLabel, formatDateTime, formatDuration, formatQty, formatUsdc, lockedPercent, nsToMs, shortHex } from "@/components/rounds/model";
+import { classLabel, formatDateTime, formatDuration, formatQty, formatUsdc, lockedPercent, nsToMs, shortHex, venueLabel, venueTokenAccount } from "@/components/rounds/model";
 import { KindBadge, Param, StatusBadge } from "@/components/rounds/shared";
 import { verifyRound } from "@/components/rounds/verify";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { cn } from "@/lib/cn";
 import type { DemoManifest, DemoScenario } from "@/lib/demo/manifest";
 import type { WalkStep } from "@/lib/demo/walkthrough";
-import { deployed } from "@/lib/deployment";
 import { addressUrl, nearAccountUrl } from "@/lib/explorer";
 import type { DemoLive } from "./useDemoRound";
 
@@ -50,10 +49,8 @@ function nameOf(manifest: DemoManifest, account: string): string {
   return manifest.people.find((person) => person.account === account)?.name ?? account;
 }
 
-function venueText(venue: Venue): string {
-  if (venue === "Near") return "tUSDC on NEAR";
-  const tusdc = deployed("baseTestUsdc");
-  return tusdc && venue.Base.token.toLowerCase() === tusdc.toLowerCase() ? "tUSDC on Base (RoseVault)" : `${shortHex(venue.Base.token)} on Base`;
+function VenueText({ venue }: { venue: Venue }) {
+  return <span title={venueTokenAccount(venue)}>{venueLabel(venue)}</span>;
 }
 
 function Person({ manifest, account }: { manifest: DemoManifest; account: string }) {
@@ -76,7 +73,7 @@ function ClassPanel(props: PanelProps) {
     <Box label="Class" data="class">
       <Grid>
         <Param label="Class" mono={false} className="col-span-2">
-          <span>{classLabel(cls, symbolOf(props))}</span>
+          <span title={`Token ${cls.token} on ${cls.chain}`}>{classLabel(cls, symbolOf(props))}</span>
           <span className="tabular block truncate text-[11px] text-ink-400">{cls.classId}</span>
         </Param>
         <Param label="Token" mono={false}>
@@ -137,7 +134,7 @@ function CashPanel(props: PanelProps) {
     <Box label="Cash in the round" data="cash">
       <Grid>
         <Param label="Venue" mono={false}>
-          {venueText(round.venue)}
+          <VenueText venue={round.venue} />
         </Param>
         {round.kind === "Tender" ? (
           <>
@@ -167,7 +164,7 @@ function ParametersPanel(props: PanelProps) {
           <Person manifest={manifest} account={round.creator} />
         </Param>
         <Param label="Cash venue" mono={false}>
-          {venueText(round.venue)}
+          <VenueText venue={round.venue} />
         </Param>
         <Param label="Max price">{formatUsdc(round.maxPrice)} USDC</Param>
         {round.kind === "Tender" ? <Param label="Budget">{formatUsdc(round.budget ?? 0n)} USDC</Param> : null}

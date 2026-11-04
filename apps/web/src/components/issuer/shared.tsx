@@ -6,7 +6,7 @@
  * blocks for one-shot actions.
  */
 
-import { baseSepoliaChain, erc20Abi, type ClassInfo, type ConfigView, type Limits } from "@rose/sdk";
+import { baseSepoliaChain, type ClassInfo, type ConfigView, type Limits } from "@rose/sdk";
 import { createPublicClient, http, type PublicClient } from "viem";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
@@ -22,13 +22,14 @@ import { scheduleBounds } from "@/lib/unlock-schedule";
 import type { ActionState } from "@/lib/use-action";
 import { useEngineQuery, type EngineQueryState } from "@/lib/use-engine-query";
 import { BASE_SEPOLIA_RPC_URL } from "@/lib/deployment";
+import { tokenKey, tokenSymbols } from "@/lib/token-symbols";
 
 export type IssuerBase = {
   engine: EngineClient;
   config: ConfigView;
   limits: Limits;
   classes: ClassInfo[];
-  /** Token symbols by lowercase Base token address (Solana mints show their short address). */
+  /** Token symbols by `tokenKey` (Base tokens and the Solana demo mint); others show their short address. */
   symbols: Map<string, string>;
 };
 
@@ -54,21 +55,9 @@ async function fetchAllClasses(engine: EngineClient, signal: AbortSignal): Promi
   }
 }
 
-/** `symbol()` of Base tokens, resolved once per address; tokens that do not answer keep their address. */
-export async function resolveSymbols(tokens: readonly string[]): Promise<Map<string, string>> {
-  const symbols = new Map<string, string>();
-  const client = baseClient();
-  await Promise.all(
-    [...new Set(tokens.map((token) => token.toLowerCase()))].map(async (token) => {
-      try {
-        const symbol = await client.readContract({ address: token as `0x${string}`, abi: erc20Abi, functionName: "symbol" });
-        symbols.set(token, symbol);
-      } catch {
-        symbols.delete(token);
-      }
-    }),
-  );
-  return symbols;
+/** Symbols of the class tokens and Base cash tokens (see `lib/token-symbols`); tokens without one keep their address. */
+export function resolveSymbols(classes: readonly Pick<ClassInfo, "chain" | "token">[], baseCashTokens: readonly string[] = []): Promise<Map<string, string>> {
+  return tokenSymbols([...classes.map((cls) => ({ chain: cls.chain, token: cls.token })), ...baseCashTokens.map((token) => ({ chain: "Base" as const, token }))]);
 }
 
 /** Config, limits and classes of the engine, polled every 30 s. */
@@ -76,14 +65,14 @@ export function useIssuerBase(): { state: EngineQueryState<IssuerBase>; refresh:
   const fetcher = useCallback(async (signal: AbortSignal): Promise<IssuerBase> => {
     const engine = requireEngine();
     const [config, limits, classes] = await Promise.all([engine.views.getConfig({ signal }), engine.views.getLimits({ signal }), fetchAllClasses(engine, signal)]);
-    const symbols = await resolveSymbols([...classes.filter((cls) => cls.chain === "Base").map((cls) => cls.token), ...config.base_cash_tokens]);
+    const symbols = await resolveSymbols(classes, config.base_cash_tokens);
     return { engine, config, limits, classes, symbols };
   }, []);
   return useEngineQuery(fetcher, { pollMs: 30_000 });
 }
 
 export function classSymbol(cls: Pick<ClassInfo, "chain" | "token">, symbols: ReadonlyMap<string, string>): string {
-  return cls.chain === "Base" ? (symbols.get(cls.token.toLowerCase()) ?? shortHex(cls.token)) : shortHex(cls.token, 4, 4);
+  return symbols.get(tokenKey(cls.token)) ?? (cls.chain === "Base" ? shortHex(cls.token) : shortHex(cls.token, 4, 4));
 }
 
 export function classLabel(cls: ClassInfo, symbols: ReadonlyMap<string, string>): string {

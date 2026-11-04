@@ -36,7 +36,7 @@ async function fetchReport(roundId: bigint, signal: AbortSignal): Promise<Loaded
     const page = await readEventRange((fromSeq, limit) => engine.views.getEvents(fromSeq, limit, { signal }), next, EVENTS_PAGE);
     events = [...events, ...page.events];
   }
-  const symbols = cls.chain === "Base" ? await resolveSymbols([cls.token]) : new Map<string, string>();
+  const symbols = await resolveSymbols([cls]);
   return { engine: engine.account, round, cls, symbol: classSymbol(cls, symbols), bids, result, events: eventsOfRound(events, roundId), generatedAt: Date.now(), symbols };
 }
 

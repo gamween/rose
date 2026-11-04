@@ -1,13 +1,13 @@
 /**
  * Engine access for the Rounds pages: typed views and call builders bound to the configured
- * engine account, the cursor-paginated `get_rounds`, token symbols and the "not deployed"
+ * engine account, the cursor-paginated `get_rounds`, class token symbols and the "not deployed"
  * detection shared by every fetcher.
  */
 
 import { EngineCalls, EngineViews, NearRpc, NearRpcError, type ClassInfo, type RoundFilter, type RoundsPage } from "@rose/sdk";
 import { NotDeployedError } from "@/components/status/useLiveQuery";
 import { deployed, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL } from "@/lib/deployment";
-import { decodeString, ethCall, SELECTORS } from "@/components/status/rpc";
+import { tokenSymbols } from "@/lib/token-symbols";
 
 export interface RoundsEngine {
   account: string;
@@ -56,34 +56,9 @@ export async function fetchAllClasses(engine: RoundsEngine, signal?: AbortSignal
   }
 }
 
-const symbolCache = new Map<string, Promise<string | null>>();
-
-/** ERC-20 `symbol()` of a Base token through a raw `eth_call`, cached; null when the call fails (the UI then shows the address). */
-export function baseTokenSymbol(token: string): Promise<string | null> {
-  const key = token.toLowerCase();
-  let pending = symbolCache.get(key);
-  if (!pending) {
-    pending = ethCall(token, SELECTORS["symbol()"])
-      .then((hex) => {
-        const symbol = decodeString(hex);
-        return symbol.length > 0 ? symbol : null;
-      })
-      .catch(() => null);
-    symbolCache.set(key, pending);
-  }
-  return pending;
-}
-
-/** Symbols of the stream tokens of `classes` (Base only; Solana mints show their address). */
-export async function classSymbols(classes: readonly ClassInfo[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  const base = [...new Set(classes.filter((cls) => cls.chain === "Base").map((cls) => cls.token.toLowerCase()))];
-  const resolved = await Promise.all(base.map((token) => baseTokenSymbol(token)));
-  base.forEach((token, index) => {
-    const symbol = resolved[index];
-    if (symbol) out.set(token, symbol);
-  });
-  return out;
+/** Symbols of the stream tokens of `classes`, read on chain (see `lib/token-symbols`). */
+export function classSymbols(classes: readonly ClassInfo[]): Promise<Map<string, string>> {
+  return tokenSymbols(classes.map((cls) => ({ chain: cls.chain, token: cls.token })));
 }
 
 export function symbolOf(symbols: ReadonlyMap<string, string>, cls: Pick<ClassInfo, "token">): string | null {

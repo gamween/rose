@@ -4,12 +4,12 @@
  * its NEP-145 storage, token symbols from Base and the account's slice of the event history.
  */
 
-import { erc20Abi, isAuthorizationUsed, readNonceAccount, readStreamflowStream, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type StorageBalance, type StoredEvent } from "@rose/sdk";
+import { isAuthorizationUsed, readNonceAccount, readStreamflowStream, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type StorageBalance, type StoredEvent } from "@rose/sdk";
 import { PublicKey } from "@solana/web3.js";
-import type { Address } from "viem";
 import { deployed, deployedAddress } from "@/lib/deployment";
 import { readEventRange } from "@/lib/event-pages";
 import { requireEngine, nearRpc } from "@/lib/engine-client";
+import { tokenKey, tokenSymbols } from "@/lib/token-symbols";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
 import { accountEvents, orderRoundIds, payoutState, type PayoutState } from "./transforms";
@@ -111,21 +111,6 @@ async function payoutSubmitted(payout: PayoutView): Promise<boolean | null> {
   }
 }
 
-async function baseSymbols(tokens: readonly string[]): Promise<Map<string, string>> {
-  const client = basePublicClient();
-  const symbols = new Map<string, string>();
-  await Promise.all(
-    tokens.map(async (token) => {
-      try {
-        symbols.set(token.toLowerCase(), await client.readContract({ address: token as Address, abi: erc20Abi, functionName: "symbol" }));
-      } catch {
-        /* The address then shows instead of a symbol. */
-      }
-    }),
-  );
-  return symbols;
-}
-
 async function recentEvents(account: string, signal: AbortSignal): Promise<StoredEvent[]> {
   const { views } = requireEngine();
   const latest = await views.getEvents(undefined, 1, { signal });
@@ -155,11 +140,11 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
     Promise.all(roundIds.map((roundId) => views.getRound(roundId, { signal }))),
     Promise.all(payoutsRaw.map(payoutSubmitted)),
   ]);
-  const baseTokens = new Set<string>();
-  for (const info of classes.values()) if (info.chain === "Base") baseTokens.add(info.token);
-  for (const token of config.base_cash_tokens) baseTokens.add(token);
-  for (const entry of portfolio.cash) if (entry.venue !== "Near") baseTokens.add(entry.venue.Base.token);
-  const symbols = await baseSymbols([...baseTokens]);
+  const symbols = await tokenSymbols([
+    ...[...classes.values()].map((info) => ({ chain: info.chain, token: info.token })),
+    ...config.base_cash_tokens.map((token) => ({ chain: "Base" as const, token })),
+    ...portfolio.cash.flatMap((entry) => (entry.venue === "Near" ? [] : [{ chain: "Base" as const, token: entry.venue.Base.token }])),
+  ]);
   const blockHeight = BigInt(block.header.height);
   const rounds = new Map<string, Round>();
   roundList.forEach((round) => {
@@ -183,10 +168,11 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
   };
 }
 
-/** Display label of a class: token symbol (or short address) and chain. */
+/** Display label of a class: its token symbol, or the short token address when the token has none. */
 export function classLabel(info: ClassInfo, symbols: ReadonlyMap<string, string>): string {
-  if (info.chain === "Base") return symbols.get(info.token.toLowerCase()) ?? `${info.token.slice(0, 6)}…${info.token.slice(-4)}`;
-  return `${info.token.slice(0, 4)}…${info.token.slice(-4)}`;
+  const symbol = symbols.get(tokenKey(info.token));
+  if (symbol) return symbol;
+  return info.chain === "Base" ? `${info.token.slice(0, 6)}…${info.token.slice(-4)}` : `${info.token.slice(0, 4)}…${info.token.slice(-4)}`;
 }
 
 export function tokenSymbol(token: string, symbols: ReadonlyMap<string, string>): string {

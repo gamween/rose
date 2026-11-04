@@ -3,10 +3,9 @@
  * and cash for the create form, and the account's liens.
  */
 
-import { erc20Abi, type Cash, type ClassInfo, type ConfigView, type Holding, type Lien, type LienShare, type Limits, type Round } from "@rose/sdk";
-import type { Address } from "viem";
+import { type Cash, type ClassInfo, type ConfigView, type Holding, type Lien, type LienShare, type Limits, type Round } from "@rose/sdk";
 import { requireEngine, nearRpc } from "@/lib/engine-client";
-import { basePublicClient } from "@/lib/wallet/evm-demo";
+import { tokenSymbols } from "@/lib/token-symbols";
 
 const PAGE = 50;
 
@@ -45,21 +44,8 @@ async function allClasses(signal: AbortSignal): Promise<Map<string, ClassInfo>> 
   }
 }
 
-async function symbolsOf(classes: ReadonlyMap<string, ClassInfo>, cashTokens: readonly string[]): Promise<Map<string, string>> {
-  const client = basePublicClient();
-  const tokens = new Set<string>(cashTokens.map((token) => token.toLowerCase()));
-  for (const info of classes.values()) if (info.chain === "Base") tokens.add(info.token.toLowerCase());
-  const symbols = new Map<string, string>();
-  await Promise.all(
-    [...tokens].map(async (token) => {
-      try {
-        symbols.set(token, await client.readContract({ address: token as Address, abi: erc20Abi, functionName: "symbol" }));
-      } catch {
-        /* The address then shows instead of a symbol. */
-      }
-    }),
-  );
-  return symbols;
+function symbolsOf(classes: ReadonlyMap<string, ClassInfo>, cashTokens: readonly string[]): Promise<Map<string, string>> {
+  return tokenSymbols([...[...classes.values()].map((info) => ({ chain: info.chain, token: info.token })), ...cashTokens.map((token) => ({ chain: "Base" as const, token }))]);
 }
 
 export async function fetchAdvanceData(account: string | null, signal: AbortSignal): Promise<AdvanceData> {

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { formatAmount, formatUsdc, shortHex, venueLabel } from "@/lib/amounts";
+import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { describePayout } from "@/lib/payouts";
 import { classLabel, type PayoutEntry, type PortfolioData } from "./data";
 import type { CashRow, TokenClaim } from "./transforms";
@@ -45,7 +46,9 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
                 <li key={venueLabel(row.cash.venue)} className="flex items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-900 px-3 py-2" data-cash={row.chain}>
                   <div>
                     <p className="tabular text-[14px] text-ink-50">{formatUsdc(row.cash.amount)}</p>
-                    <p className="text-[12px] text-ink-400">{venueLabel(row.cash.venue, data.symbols)}</p>
+                    <p className="text-[12px] text-ink-400" title={row.cash.venue === "Near" ? NEAR_TUSDC_ACCOUNT : row.cash.venue.Base.token}>
+                      {venueLabel(row.cash.venue, data.symbols)}
+                    </p>
                   </div>
                   <Button size="sm" onClick={() => actions.onClaimCash(row)}>
                     Claim
@@ -66,7 +69,7 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
                   <li key={`${claim.source.kind}-${claim.source.classId}-${claim.source.label}`} className="flex items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-900 px-3 py-2" data-token-claim={chain}>
                     <div className="min-w-0">
                       <p className="tabular text-[14px] text-ink-50">
-                        {formatAmount(claim.source.amount, claim.info.decimals)} {classLabel(claim.info, data.symbols)}
+                        {formatAmount(claim.source.amount, claim.info.decimals)} <span title={`Token ${claim.info.token}`}>{classLabel(claim.info, data.symbols)}</span>
                       </p>
                       <p className="truncate text-[12px] text-ink-400">
                         {claim.source.label}

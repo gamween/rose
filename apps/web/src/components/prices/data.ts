@@ -1,4 +1,4 @@
-import { decodeString, ethCall, SELECTORS } from "@/components/status/rpc";
+import { tokenKey, tokenSymbols } from "@/lib/token-symbols";
 import { viewCall, type ViewOptions, type ViewResult } from "@/lib/engine";
 import { tokenKeyOf, type ClassView, type PricePoint } from "./transforms";
 
@@ -44,17 +44,7 @@ async function fetchReferencePrices(account: string, options: ViewOptions): Prom
   return references;
 }
 
-/** ERC-20 `symbol()` of a Base token, or `null` when the call fails (the page then shows the address). */
-async function resolveBaseSymbol(token: string, options: ViewOptions): Promise<string | null> {
-  try {
-    return decodeString(await ethCall(token, SELECTORS["symbol()"], options));
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
-    return null;
-  }
-}
-
-/** Everything the prices page plots, read live from the engine (and token symbols from Base). */
+/** Everything the prices page plots, read live from the engine (token symbols from `lib/token-symbols`). */
 export async function fetchPricesData(account: string, options: ViewOptions = {}): Promise<PricesData> {
   const { classes, blockHeight } = await fetchAllClasses(account, options);
   const [historyPages, references] = await Promise.all([
@@ -62,12 +52,11 @@ export async function fetchPricesData(account: string, options: ViewOptions = {}
     fetchReferencePrices(account, options),
   ]);
   const histories = new Map(classes.map((cls, index) => [cls.class_id, historyPages[index]!.value.points]));
+  const resolved = await tokenSymbols(classes.map((cls) => ({ chain: cls.chain, token: cls.token })));
   const symbols = new Map<string, string>();
-  const baseTokens = [...new Set(classes.filter((cls) => cls.chain === "Base").map((cls) => cls.token))];
-  const resolved = await Promise.all(baseTokens.map((token) => resolveBaseSymbol(token, options)));
-  baseTokens.forEach((token, index) => {
-    const symbol = resolved[index];
-    if (symbol) symbols.set(tokenKeyOf({ chain: "Base", token }), symbol);
-  });
+  for (const cls of classes) {
+    const symbol = resolved.get(tokenKey(cls.token));
+    if (symbol) symbols.set(tokenKeyOf(cls), symbol);
+  }
   return { classes, histories, references, symbols, blockHeight };
 }

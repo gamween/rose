@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatDay, formatDuration, secondsToMs, shortHex } from "@/lib/amounts";
 import { deployed } from "@/lib/deployment";
+import { useTokenSymbol } from "@/lib/token-symbols";
 import { requireEngine } from "@/lib/engine-client";
 import { RoseActionError, toActionError } from "@/lib/errors";
 import { txLinks, type ChainId } from "@/lib/explorer";
@@ -34,7 +35,8 @@ const PROOF_HINT = "MPC nodes proving the account at finalized";
 function StreamRow({ row, onDeposit, busy, disabledReason }: { row: SolanaStreamRow; onDeposit: () => void; busy: boolean; disabledReason: string | null }) {
   const m = row.metadata;
   const decimals = row.mint?.decimals ?? 0;
-  const unit = shortHex(m.mint.toBase58(), 4, 4);
+  const mint = m.mint.toBase58();
+  const unit = useTokenSymbol("Solana", mint) ?? shortHex(mint, 4, 4);
   const start = m.cliff > 0n ? m.cliff : m.startTime;
   return (
     <li className="flex flex-col gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2.5" data-stream={row.metadataPubkey}>

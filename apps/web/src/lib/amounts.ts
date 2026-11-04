@@ -7,6 +7,7 @@
 import { ONE, type Venue } from "@rose/sdk";
 import { USDC_DECIMALS } from "./engine";
 import { formatUnits } from "./format";
+import { deployedCashSymbol } from "./token-symbols";
 
 /** Parses a decimal string typed by a person into base units; null when it is not a valid amount. */
 export function parseAmount(text: string, decimals: number): bigint | null {
@@ -93,7 +94,7 @@ export function shortHex(value: string, head = 6, tail = 4): string {
 export function venueLabel(venue: Venue, symbols: ReadonlyMap<string, string> = new Map()): string {
   if (venue === "Near") return "NEAR tUSDC";
   const token = venue.Base.token.toLowerCase();
-  return `Base ${symbols.get(token) ?? shortHex(token)}`;
+  return `Base ${symbols.get(token) ?? deployedCashSymbol(token) ?? shortHex(token)}`;
 }
 
 export function venueChain(venue: Venue): "near" | "base" {

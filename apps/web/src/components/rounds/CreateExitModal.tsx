@@ -21,6 +21,7 @@ import { ROUTES } from "@/lib/routes";
 import { useNearAction } from "./actions";
 import type { RoundsEngine } from "./engine";
 import { symbolOf } from "./engine";
+import { deployedCashSymbol } from "@/lib/token-symbols";
 import { classLabel, msToNs, parseDecimal, secondsToNs, shortHex, USDC_DECIMALS } from "./model";
 import { RoundTimingFields, type RoundTimingValue } from "./RoundTimingFields";
 import { Notice } from "./shared";
@@ -62,7 +63,7 @@ export function fractionAt(cls: ClassInfo, tsSeconds: number): bigint {
 function venueOptions(config: ConfigView): { id: string; label: string; venue: Venue }[] {
   return [
     { id: "near", label: `tUSDC on NEAR (${config.near_cash_token})`, venue: "Near" },
-    ...config.base_cash_tokens.map((token) => ({ id: `base:${token}`, label: `${shortHex(token, 8, 6)} on Base Sepolia`, venue: { Base: { token } } as Venue })),
+    ...config.base_cash_tokens.map((token) => ({ id: `base:${token}`, label: `${deployedCashSymbol(token) ?? shortHex(token, 8, 6)} on Base Sepolia (${shortHex(token, 6, 4)})`, venue: { Base: { token } } as Venue })),
   ];
 }
 

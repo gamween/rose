@@ -8,6 +8,7 @@
 import { charge, fee, ONE, perClaimedToken, type ClassInfo, type Pricing, type Round, type RoundKind, type RoundStatus, type Venue } from "@rose/sdk";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { formatUnits } from "@/lib/format";
+import { deployedCashSymbol } from "@/lib/token-symbols";
 
 export const USDC_DECIMALS = 6;
 export const ONE_USDC = 1_000_000n;
@@ -113,8 +114,10 @@ export const STATUS_LABEL: Record<RoundStatus, string> = {
   Cancelled: "Cancelled",
 };
 
+/** `tUSDC on Base`: the symbol of a deployed cash token, the short address otherwise (the full one goes in a tooltip, see `venueTokenAccount`). */
 export function venueLabel(venue: Venue): string {
-  return venue === "Near" ? "tUSDC on NEAR" : `${shortHex(venue.Base.token)} on Base`;
+  if (venue === "Near") return "tUSDC on NEAR";
+  return `${deployedCashSymbol(venue.Base.token) ?? shortHex(venue.Base.token)} on Base`;
 }
 
 export function venueChain(venue: Venue): "near" | "base" {

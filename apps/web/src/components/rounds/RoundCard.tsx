@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Countdown } from "@/components/ui/Countdown";
 import { cn } from "@/lib/cn";
 import { ROUTES } from "@/lib/routes";
-import { cancelledOutcome, classShortLabel, formatDate, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, type NextAction } from "./model";
+import { cancelledOutcome, classShortLabel, formatDate, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, venueTokenAccount, type NextAction } from "./model";
 import { KindBadge, StatusBadge } from "./shared";
 import type { BookSummary } from "./useRoundsList";
 
@@ -65,7 +65,7 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
           <Link href={href} className="font-display text-[15px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline">
             Round #{round.roundId.toString()}
           </Link>
-          <p className="mt-0.5 truncate text-[12px] text-ink-400" title={cls ? `Class ${cls.classId}` : round.classId}>
+          <p className="mt-0.5 truncate text-[12px] text-ink-400" title={cls ? `Token ${cls.token} on ${cls.chain} · class ${cls.classId}` : round.classId}>
             {cls ? classShortLabel(cls, symbol) : `Class ${round.classId.slice(0, 10)}…`}
             {cls ? <span className="text-ink-400"> · unlocks until {formatDate(scheduleEndSecs(cls) * 1000)}</span> : null}
           </p>
@@ -101,7 +101,9 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
       </div>
 
       <footer className="flex items-center justify-between gap-3 text-[12px]">
-        <span className="truncate text-ink-400">{venueLabel(round.venue)}</span>
+        <span className="truncate text-ink-400" title={venueTokenAccount(round.venue)}>
+          {venueLabel(round.venue)}
+        </span>
         <span className="flex shrink-0 items-center gap-1.5 text-ink-200">
           <span className={cn(action.kind === "close" || action.kind === "clear" || action.kind === "finalize" || action.kind === "settle" ? "text-ember-300" : undefined)}>{line.text}</span>
           {line.countdown !== null ? <Countdown target={line.countdown} endedLabel="now" className="text-ink-50" /> : null}
