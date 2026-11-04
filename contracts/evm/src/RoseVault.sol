@@ -58,6 +58,36 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         uint256 id;
     }
 
+    /// @notice Shared Lockup Linear schedule of a cohort created with `createStreams`.
+    /// @dev Amounts are expressed per `unitAmount`: a stream of `n * unitAmount` unlocks `n * unitStartUnlock` at
+    /// `start` and `n * unitCliffUnlock` at `cliff`. Every stream of the cohort therefore has exactly proportional
+    /// unlock amounts and the same timestamps, which is what the NEAR engine normalizes into one class.
+    /// @param start Stream start (Unix seconds), non-zero.
+    /// @param cliff Cliff time (Unix seconds), or zero for no cliff.
+    /// @param end Stream end (Unix seconds), in the future.
+    /// @param granularity Unlock step in seconds, at least 1 and at most the streamable range.
+    /// @param unitAmount Deposit unit every allocation must be a multiple of.
+    /// @param unitStartUnlock Amount unlocked at `start` per `unitAmount`.
+    /// @param unitCliffUnlock Amount unlocked at `cliff` per `unitAmount` (zero when there is no cliff).
+    struct CohortSchedule {
+        uint40 start;
+        uint40 cliff;
+        uint40 end;
+        uint40 granularity;
+        uint128 unitAmount;
+        uint128 unitStartUnlock;
+        uint128 unitCliffUnlock;
+    }
+
+    /// @notice One stream of a cohort: the NEAR account credited with its units and the deposit of the stream.
+    struct Allocation {
+        string nearAccount;
+        uint128 amount;
+    }
+
+    /// @notice Upper bound on the allocations of one `createStreams` call.
+    uint256 public constant MAX_ALLOCATIONS = 50;
+
     /// @notice keccak256("Transfer(address token,address to,uint256 amount,uint256 id)")
     bytes32 public constant TRANSFER_TYPEHASH =
         keccak256("Transfer(address token,address to,uint256 amount,uint256 id)");
@@ -166,6 +196,10 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     error RefundFailed();
     error ZeroAmount();
     error AmountMismatch(uint256 expected, uint256 received);
+    error NoAllocations();
+    error TooManyAllocations(uint256 count);
+    error InvalidSchedule();
+    error AmountNotMultiple(uint256 index, uint128 amount, uint128 unitAmount);
     error AuthorizationUsed(uint256 id);
     error InvalidSignatureV(uint8 v);
     error InvalidSignatureS(bytes32 s);
@@ -230,6 +264,75 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
 
         _emitStreamDeposited(streamId, nearAccount);
         _refund(msg.value - feePaid);
+    }
+
+    /// @notice Issuer path: creates one Lockup Linear stream per allocation, owned by the vault from birth and
+    /// attributed to the allocation's NEAR account. Anyone holding the tokens can call it.
+    /// @dev Pulls the cohort total from the caller, approves `LOCKUP` for exactly that total and lets Sablier pull it
+    /// stream by stream, so no allowance survives the call. Every stream has sender = vault, recipient = vault,
+    /// cancelable = false and transferable = true, so nobody can cancel it and it can leave only through a `Release`
+    /// authorization. Sablier mints the NFT with `_mint`, not `_safeMint` (`SablierLockup._create`, tag lockup v4.0.1), so
+    /// `onERC721Received` and the pending-id guard of `depositStream` are not involved, and stream creation charges no
+    /// fee. Each stream emits the same `StreamDeposited` log as `depositStream` (sender = caller, withdrawn = 0,
+    /// timestamp = now), so the NEAR engine registers it through the same code path. The engine additionally refuses
+    /// streams below one whole token of `token`.
+    /// @return streamIds The created stream ids, in allocation order.
+    function createStreams(IERC20 token, CohortSchedule calldata schedule, Allocation[] calldata allocations)
+        external
+        nonReentrant
+        returns (uint256[] memory streamIds)
+    {
+        uint256 count = allocations.length;
+        if (count == 0) {
+            revert NoAllocations();
+        }
+        if (count > MAX_ALLOCATIONS) {
+            revert TooManyAllocations(count);
+        }
+        _checkSchedule(schedule);
+
+        uint256 total;
+        for (uint256 i; i < count; ++i) {
+            Allocation calldata allocation = allocations[i];
+            if (!NearAccountId.isValid(allocation.nearAccount)) {
+                revert InvalidNearAccount();
+            }
+            if (allocation.amount == 0) {
+                revert ZeroAmount();
+            }
+            if (allocation.amount % schedule.unitAmount != 0) {
+                revert AmountNotMultiple(i, allocation.amount, schedule.unitAmount);
+            }
+            total += allocation.amount;
+        }
+        token.safeTransferFrom(msg.sender, address(this), total);
+        token.forceApprove(address(LOCKUP), total);
+
+        streamIds = new uint256[](count);
+        for (uint256 i; i < count; ++i) {
+            Allocation calldata allocation = allocations[i];
+            // At most `amount` because the unit unlocks sum to at most `unitAmount`: no uint128 overflow.
+            uint128 units = allocation.amount / schedule.unitAmount;
+            uint256 streamId = LOCKUP.createWithTimestampsLL(
+                Lockup.CreateWithTimestamps({
+                    sender: address(this),
+                    recipient: address(this),
+                    depositAmount: allocation.amount,
+                    token: token,
+                    cancelable: false,
+                    transferable: true,
+                    timestamps: Lockup.Timestamps({start: schedule.start, end: schedule.end}),
+                    shape: ""
+                }),
+                LockupLinear.UnlockAmounts({
+                        start: units * schedule.unitStartUnlock, cliff: units * schedule.unitCliffUnlock
+                    }),
+                schedule.granularity,
+                schedule.cliff
+            );
+            streamIds[i] = streamId;
+            _emitStreamDeposited(streamId, allocation.nearAccount);
+        }
     }
 
     /// @notice Deposits `amount` of an ERC-20 cash token for `nearAccount`, earmarked for round `roundId`.
@@ -408,6 +511,22 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             revert InsufficientFee(msg.value, feePaid);
         }
         withdrawn = LOCKUP.withdrawMax{value: feePaid}(streamId, to);
+    }
+
+    /// @dev Mirrors Sablier's LL creation checks (`LockupHelpers.checkCreateLL`, tag lockup v4.0.1) so a bad cohort
+    /// fails with one legible error before any token moves, and additionally refuses a schedule that has already
+    /// ended.
+    function _checkSchedule(CohortSchedule calldata schedule) private view {
+        uint40 streamableFrom = schedule.cliff == 0 ? schedule.start : schedule.cliff;
+        bool validTimes = schedule.start > 0 && schedule.start < schedule.end && schedule.end > block.timestamp
+            && (schedule.cliff == 0 || (schedule.start < schedule.cliff && schedule.cliff < schedule.end))
+            && schedule.granularity > 0 && schedule.granularity <= schedule.end - streamableFrom;
+        bool validAmounts = schedule.unitAmount > 0
+            && schedule.unitStartUnlock + schedule.unitCliffUnlock <= schedule.unitAmount
+            && (schedule.cliff != 0 || schedule.unitCliffUnlock == 0);
+        if (!validTimes || !validAmounts) {
+            revert InvalidSchedule();
+        }
     }
 
     function _emitStreamDeposited(uint256 streamId, string calldata nearAccount) private {

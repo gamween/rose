@@ -769,6 +769,230 @@ contract RoseVaultTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////////////////
+                                  COHORT CREATION
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev Same timestamps and unlock ratio as `_lockedStream`: a `DEPOSIT` allocation unlocks `DEPOSIT / 10` at the
+    /// cliff, so its log is byte-identical to a `depositStream` of a locked stream.
+    function _cohort() internal pure returns (RoseVault.CohortSchedule memory) {
+        return RoseVault.CohortSchedule({
+            start: NOW - 30 days,
+            cliff: NOW + 30 days,
+            end: NOW + 365 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 0,
+            unitCliffUnlock: 1
+        });
+    }
+
+    function _allocations(uint256 count, uint128 amount) internal pure returns (RoseVault.Allocation[] memory list) {
+        list = new RoseVault.Allocation[](count);
+        for (uint256 i; i < count; ++i) {
+            list[i] = RoseVault.Allocation({
+                nearAccount: string.concat("holder", vm.toString(i), ".rose-app.testnet"), amount: amount
+            });
+        }
+    }
+
+    function _fundIssuer(uint256 amount) internal {
+        token.mint(alice, amount);
+        vm.prank(alice);
+        token.approve(address(vault), amount);
+    }
+
+    function test_createStreams_createsVaultHeldStreamsAndEmits() public {
+        RoseVault.Allocation[] memory list = _allocations(3, DEPOSIT);
+        list[1].amount = 2 * DEPOSIT;
+        list[2].amount = 3 * DEPOSIT;
+        _fundIssuer(6 * DEPOSIT);
+        uint256 firstId = lockupMock.nextStreamId();
+        uint256 lockupBefore = token.balanceOf(address(lockup));
+
+        for (uint256 i; i < 3; ++i) {
+            vm.expectEmit(true, true, true, true, address(vault));
+            emit RoseVault.StreamDeposited({
+                sender: alice,
+                nearAccount: list[i].nearAccount,
+                lockup: address(lockup),
+                streamId: firstId + i,
+                token: address(token),
+                deposited: list[i].amount,
+                withdrawn: 0,
+                start: NOW - 30 days,
+                cliff: NOW + 30 days,
+                end: NOW + 365 days,
+                granularity: 1,
+                startUnlock: 0,
+                cliffUnlock: list[i].amount / 10,
+                cancelable: false,
+                transferable: true,
+                timestamp: NOW
+            });
+        }
+        vm.prank(alice);
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), _cohort(), list);
+
+        assertEq(ids.length, 3);
+        for (uint256 i; i < 3; ++i) {
+            assertEq(ids[i], firstId + i);
+            assertEq(lockup.ownerOf(ids[i]), address(vault));
+            assertFalse(lockup.isCancelable(ids[i]));
+            assertTrue(lockup.isTransferable(ids[i]));
+            assertEq(uint8(lockup.getLockupModel(ids[i])), uint8(Lockup.Model.LOCKUP_LINEAR));
+            assertEq(lockup.getDepositedAmount(ids[i]), list[i].amount);
+            assertEq(lockup.getWithdrawnAmount(ids[i]), 0);
+            assertEq(lockup.getUnlockAmounts(ids[i]).cliff, list[i].amount / 10);
+        }
+        assertEq(token.balanceOf(alice), 0);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(token.balanceOf(address(lockup)), lockupBefore + 6 * DEPOSIT);
+        assertEq(token.allowance(address(vault), address(lockup)), 0);
+    }
+
+    function test_createStreams_withoutCliff() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: NOW,
+            cliff: 0,
+            end: NOW + 100 days,
+            granularity: 1 days,
+            unitAmount: 1,
+            unitStartUnlock: 0,
+            unitCliffUnlock: 0
+        });
+        _fundIssuer(7);
+        vm.prank(alice);
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), schedule, _allocations(1, 7));
+        assertEq(lockup.ownerOf(ids[0]), address(vault));
+        assertEq(lockup.getCliffTime(ids[0]), 0);
+        assertEq(lockup.getGranularity(ids[0]), 1 days);
+    }
+
+    /// @dev The engine rebuilds both logs with the same code: a cohort stream and a deposited stream with the same
+    /// schedule, deposit and sender produce byte-identical topics (but the stream id) and data.
+    function test_createStreams_rawLogIsIdenticalToDepositStream() public {
+        RoseVault.Allocation[] memory list = new RoseVault.Allocation[](1);
+        list[0] = RoseVault.Allocation({nearAccount: NEAR_ACCOUNT, amount: DEPOSIT});
+        _fundIssuer(DEPOSIT);
+        vm.recordLogs();
+        vm.prank(alice);
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), _cohort(), list);
+        Vm.Log[] memory created = vm.getRecordedLogs();
+        Vm.Log memory cohortLog = created[created.length - 1];
+
+        uint256 streamId = _lockedStream(alice);
+        vm.recordLogs();
+        _deposit(alice, streamId);
+        Vm.Log[] memory deposited = vm.getRecordedLogs();
+        Vm.Log memory depositLog = deposited[deposited.length - 1];
+
+        assertEq(cohortLog.emitter, address(vault));
+        assertEq(depositLog.emitter, address(vault));
+        assertEq(cohortLog.topics.length, 3);
+        assertEq(cohortLog.topics[0], depositLog.topics[0]);
+        assertEq(cohortLog.topics[1], depositLog.topics[1]);
+        assertEq(cohortLog.topics[2], bytes32(ids[0]));
+        assertEq(depositLog.topics[2], bytes32(streamId));
+        assertEq(cohortLog.data, depositLog.data);
+        assertEq(_word(cohortLog.data, 4), 0);
+    }
+
+    function test_createStreams_rejectsEmptyList() public {
+        vm.expectRevert(RoseVault.NoAllocations.selector);
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), _cohort(), new RoseVault.Allocation[](0));
+    }
+
+    function test_createStreams_rejectsTooManyAllocations() public {
+        uint256 count = vault.MAX_ALLOCATIONS() + 1;
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.TooManyAllocations.selector, count));
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), _cohort(), _allocations(count, DEPOSIT));
+    }
+
+    function test_createStreams_acceptsMaxAllocations() public {
+        uint256 count = vault.MAX_ALLOCATIONS();
+        _fundIssuer(count * 10);
+        vm.prank(alice);
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), _cohort(), _allocations(count, 10));
+        assertEq(ids.length, count);
+        assertEq(lockup.ownerOf(ids[count - 1]), address(vault));
+    }
+
+    function test_createStreams_rejectsZeroAmount() public {
+        RoseVault.Allocation[] memory list = _allocations(2, DEPOSIT);
+        list[1].amount = 0;
+        vm.expectRevert(RoseVault.ZeroAmount.selector);
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), _cohort(), list);
+    }
+
+    function test_createStreams_rejectsAmountNotMultipleOfUnit() public {
+        RoseVault.Allocation[] memory list = _allocations(2, DEPOSIT);
+        list[1].amount = 15;
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.AmountNotMultiple.selector, 1, 15, 10));
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), _cohort(), list);
+    }
+
+    function test_createStreams_rejectsInvalidNearAccount() public {
+        RoseVault.Allocation[] memory list = _allocations(2, DEPOSIT);
+        list[1].nearAccount = "Holder.testnet";
+        vm.expectRevert(RoseVault.InvalidNearAccount.selector);
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), _cohort(), list);
+    }
+
+    function test_createStreams_rejectsInvalidSchedules() public {
+        RoseVault.CohortSchedule memory s = _cohort();
+        s.start = 0;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.end = s.start;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.start = NOW - 100 days;
+        s.cliff = 0;
+        s.end = NOW;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.cliff = s.start;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.cliff = s.end;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.granularity = 0;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.granularity = 335 days + 1;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.unitAmount = 0;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.unitStartUnlock = 10;
+        _expectInvalidSchedule(s);
+        s = _cohort();
+        s.cliff = 0;
+        _expectInvalidSchedule(s);
+    }
+
+    function _expectInvalidSchedule(RoseVault.CohortSchedule memory schedule) internal {
+        vm.expectRevert(RoseVault.InvalidSchedule.selector);
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), schedule, _allocations(1, DEPOSIT));
+    }
+
+    function test_createStreams_revertsWithoutFundsAndMintsNothing() public {
+        uint256 nextBefore = lockupMock.nextStreamId();
+        vm.expectRevert();
+        vm.prank(alice);
+        vault.createStreams(IERC20(address(token)), _cohort(), _allocations(2, DEPOSIT));
+        assertEq(lockupMock.nextStreamId(), nextBefore);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
                                     CASH, ATTEST
     //////////////////////////////////////////////////////////////////////////*/
 

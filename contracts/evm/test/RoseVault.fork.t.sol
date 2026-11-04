@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.29;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {DemoStreamFaucet} from "../src/DemoStreamFaucet.sol";
@@ -202,6 +202,96 @@ contract RoseVaultForkTest is Test {
         vault.executeTransfer(payout, v, r, s);
         assertEq(token.balanceOf(claimant), vested);
         assertEq(token.balanceOf(address(vault)), 0);
+    }
+
+    /// @dev Issuer path against the real Lockup: three cohort streams minted straight into the vault, with the exact
+    /// `StreamDeposited` layout the engine parses (same words as the `depositStream` log).
+    function test_fork_createStreamsCohort() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: t0 - 180 days,
+            cliff: t0 + 185 days,
+            end: t0 + 915 days,
+            granularity: 1,
+            unitAmount: 4,
+            unitStartUnlock: 0,
+            unitCliffUnlock: 1
+        });
+        RoseVault.Allocation[] memory list = new RoseVault.Allocation[](3);
+        list[0] = RoseVault.Allocation({nearAccount: "holder1.rose-app.testnet", amount: 100_000e18});
+        list[1] = RoseVault.Allocation({nearAccount: "holder2.rose-app.testnet", amount: 40_000e18});
+        list[2] = RoseVault.Allocation({nearAccount: "holder3.rose-app.testnet", amount: 8_000e18});
+        uint256 total = 148_000e18;
+        uint256 sablierBefore = token.balanceOf(address(SABLIER));
+        uint256 issuerBefore = token.balanceOf(address(this));
+        token.approve(address(vault), total);
+
+        vm.recordLogs();
+        uint256[] memory ids = vault.createStreams(IERC20(address(token)), schedule, list);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(ids.length, 3);
+        uint256 found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(vault)) {
+                continue;
+            }
+            Vm.Log memory log = logs[i];
+            uint256 streamId = ids[found];
+            bytes memory nearAccount = bytes(list[found].nearAccount);
+            assertEq(log.topics.length, 3);
+            assertEq(
+                log.topics[0],
+                keccak256(
+                    "StreamDeposited(address,string,address,uint256,address,uint128,uint128,uint40,uint40,uint40,uint40,uint128,uint128,bool,bool,uint40)"
+                )
+            );
+            assertEq(log.topics[1], bytes32(uint256(uint160(address(this)))));
+            assertEq(log.topics[2], bytes32(streamId));
+            assertEq(log.data.length, 15 * 32 + 32);
+            assertEq(_word(log.data, 0), 14 * 32);
+            assertEq(_word(log.data, 1), uint256(uint160(address(SABLIER))));
+            assertEq(_word(log.data, 2), uint256(uint160(address(token))));
+            assertEq(_word(log.data, 3), list[found].amount);
+            assertEq(_word(log.data, 4), 0);
+            assertEq(_word(log.data, 5), t0 - 180 days);
+            assertEq(_word(log.data, 6), t0 + 185 days);
+            assertEq(_word(log.data, 7), t0 + 915 days);
+            assertEq(_word(log.data, 8), 1);
+            assertEq(_word(log.data, 9), 0);
+            assertEq(_word(log.data, 10), list[found].amount / 4);
+            assertEq(_word(log.data, 11), 0);
+            assertEq(_word(log.data, 12), 1);
+            assertEq(_word(log.data, 13), t0);
+            assertEq(_word(log.data, 14), nearAccount.length);
+            assertLe(nearAccount.length, 32);
+            // forge-lint: disable-next-line(unsafe-typecast)
+            assertEq(_word(log.data, 15), uint256(bytes32(nearAccount)));
+            ++found;
+        }
+        assertEq(found, 3);
+
+        for (uint256 i; i < 3; ++i) {
+            assertEq(SABLIER.ownerOf(ids[i]), address(vault));
+            assertFalse(SABLIER.isCancelable(ids[i]));
+            assertTrue(SABLIER.isTransferable(ids[i]));
+            assertFalse(SABLIER.wasCanceled(ids[i]));
+            assertFalse(SABLIER.isDepleted(ids[i]));
+            assertEq(uint8(SABLIER.getLockupModel(ids[i])), uint8(Lockup.Model.LOCKUP_LINEAR));
+            assertEq(SABLIER.getDepositedAmount(ids[i]), list[i].amount);
+            assertEq(SABLIER.getWithdrawnAmount(ids[i]), 0);
+            assertEq(SABLIER.getUnlockAmounts(ids[i]).cliff, list[i].amount / 4);
+            assertEq(SABLIER.withdrawableAmountOf(ids[i]), 0);
+        }
+        assertEq(token.balanceOf(address(SABLIER)), sablierBefore + total);
+        assertEq(token.balanceOf(address(this)), issuerBefore - total);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(token.allowance(address(vault), address(SABLIER)), 0);
+    }
+
+    function _word(bytes memory data, uint256 index) internal pure returns (uint256 value) {
+        assembly {
+            value := mload(add(data, add(32, mul(index, 32))))
+        }
     }
 
     function test_fork_anyoneWithdrawsVaultStreamToVault() public {
