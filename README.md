@@ -79,7 +79,7 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    Sepolia ETH and Solana devnet SOL for gas. You see each action succeed with its explorer link and the balances update.
 4. **Deposit a position.** Open `/app/deposit`, choose Base, pick the demo Sablier stream and
    deposit it. You see the wait for Base's `safe` head (about 3 minutes), then the MPC network's
-   attestation of the deposit (about 10 seconds), then your units minted. The Solana tab does the
+   attestation of the deposit (6 to 9 seconds when measured), then your units minted. The Solana tab does the
    same for the Streamflow position in three engine calls.
 5. **Open a round and sell, sealed.** On `/app/rounds`, **Create Exit round** on the class of your
    position with a short window, then **Place ask**. You see your ask in the sealed book: its locked
@@ -131,7 +131,7 @@ this README says. Where to look for each:
 | Design | The app (`/app`, `/app/rounds/<id>`, `/app/issuer`, `/status`, `/docs`), reviewed at 1470 px and 375 px; the landing's scroll sequence |
 | Impact | The problem and its evidence in [spec section 1](./docs/spec.md#1-problem-evidence); users and jobs in [spec section 2](./docs/spec.md#2-users-and-jobs) |
 | Originality | No live sealed tender for locked tokens exists in crypto ([spec section 1](./docs/spec.md#1-problem-evidence)); sealed uniform-price rounds on positions that never leave their chain |
-| Sustainability | [Limits and roadmap](#limits-and-roadmap); the final engine is keyless with no upgrade path and `@rose/sdk` reaches it without the app, so it keeps running without its authors |
+| Sustainability | [Limits and roadmap](#limits-and-roadmap); the engine has no upgrade path, its final deployment deletes every access key after init (rehearsed on testnet, see [Deployed contracts](#deployed-contracts) for which deployment is keyless) and `@rose/sdk` reaches it without the app, so a keyless engine keeps running without its authors |
 
 ## How it works
 
@@ -209,9 +209,13 @@ normative version):
 
 - **NEAR MPC network:** threshold signing and CKD in TEEs. A threshold of colluding nodes breaks
   custody and sealing; foreign state is trusted to the nodes' RPC quorum.
-- **rose-engine:** the final engine is keyless after init (`view_access_key_list` returns `[]`), with
-  no upgrade, migrate, delete-account or generic call method, and the CKD request reachable only
-  after the deadline. **The staging engines listed below keep a key.**
+- **rose-engine:** no upgrade, migrate, delete-account or generic call method, and the CKD request
+  reachable only after the deadline. The final deployment deletes every access key after init:
+  `deploy-engine.sh --role final` refuses to run without `--keyless`, checks the deployed code
+  hash before deleting any key, and records the engine as keyless only once
+  `view_access_key_list` at `final` returns `[]`.
+  [Deployed contracts](#deployed-contracts) says whether the listed engine is that keyless one;
+  **a staging engine keeps a key and is not this trust model.**
 - **RoseVault:** immutable, no owner, no pause, no upgrade; Sablier Lockup and the signer fixed in
   the constructor. A stream sent with a plain `transferFrom` is unattributed and can only leave
   through a Release authorization.
@@ -221,7 +225,8 @@ normative version):
 - **Third-party programs:** Sablier's withdrawal fee is admin-controlled (0 today); Streamflow's
   program is upgradeable and its on-chain source is not public.
 - **Gas:** every user-facing method stays under the 300 Tgas wallet cap (the highest, a verified
-  opening, burns about 132 Tgas).
+  opening, burns about 132 Tgas); the 1 PGas protocol limit is used only by the scripts and the
+  in-app demo wallet.
 - No other party can move funds, see bids early or stop a round. Not audited.
 
 ## Every claim, verified
@@ -234,7 +239,7 @@ Every row links the testnet transactions that show it; all of them, with the com
 | Claim | Evidence | Result |
 |---|---|---|
 | The MPC network releases a round's key only after close, in seconds | `close` of the Tender [4qwvyUSD…](https://testnet.near.rocks/tx/4qwvyUSDoTSroGVnB9Nq5mSqVy8HNHYuFGZBfX17uHoV), the Exit [CSx8irE1…](https://testnet.near.rocks/tx/CSx8irE17biGuHmLRSJWChgLH5qa5VP56JFJ2SWmxwa7), the Advance [DeAgBYGD…](https://testnet.near.rocks/tx/DeAgBYGD6MoT2YhiEHZh49T35oQbCo5PLjtqDxJbj35o) | Key stored by the callback 4.2, 4.1 and 4.3 s after `close`, each equal to the offline unwrap of the MPC response |
-| Openings are fully verified on chain, by anyone | `open_bid` by a third party, e.g. [FjA2x3Z2…](https://testnet.near.rocks/tx/FjA2x3Z28YfdjrDMnSnavS8aEmj47WTMyELEum3cZZMB) | 9 openings at 132.1 Tgas, each equal to what the bidder sealed |
+| Openings are fully verified on chain, by anyone | `open_bid` sent by `rose-app.testnet`, which placed no order and created no round (it deployed the engine), e.g. [FjA2x3Z2…](https://testnet.near.rocks/tx/FjA2x3Z28YfdjrDMnSnavS8aEmj47WTMyELEum3cZZMB) | 9 openings at 132.1 Tgas, each equal to what the bidder sealed |
 | A malformed bid can be opened by nobody and is slashed | its author's own opening refused [2kUWSs1V…](https://testnet.near.rocks/tx/2kUWSs1VVBDgZuHs1SwkDjeZw2xrULj92Pz1dhAkvc8u); settlement [E5rDKqno…](https://testnet.near.rocks/tx/E5rDKqnoMMUC9qDxrw4rCM95kCHL9PZfxXfpvdTyCXf1) | "Opening does not match the ciphertext"; 1 tUSDC bond slashed |
 | On-chain clearing equals the reference implementation | `clear` of the Tender [CJBBaNdH…](https://testnet.near.rocks/tx/CJBBaNdHLatJCamxktdHVmEMMqxLzKJWejnmv86GhpHm), the Exit [AFWLZaN4…](https://testnet.near.rocks/tx/AFWLZaN4cpPWQ3ziat5Ef9BsQiQvBYqVysYcBDAwTaHe), the Advance [21cjmHff…](https://testnet.near.rocks/tx/21cjmHffw8Dp4rtn2xrYg335rcMTx1ELSxJqHMzTHZP7) | 0.036, 0.027 and 0.0375 tUSDC with every fill equal to `@rose/sdk` run on the opened orders |
 | A round without a key is cancelled and refunded | `close` refused after the timeout [Br6r994g…](https://testnet.near.rocks/tx/Br6r994g8h9Sfxt8tbjBUhnZFEx2FPvnJJbpUyizzUdo), `cancel_no_key` [73EpPXUb…](https://testnet.near.rocks/tx/73EpPXUb8SnhN3pdraqHEPBhWTKeT1XbqUrwFQ4YGyAc), refund [CuUdn9Ap…](https://testnet.near.rocks/tx/CuUdn9Ap1QiJQvu6AzNcSCVcq5uQVuok3aPPkTFP9JwG) | Escrow and bond refunded |
@@ -260,13 +265,20 @@ Every row links the testnet transactions that show it; all of them, with the com
 - **Browser sealing:** 11.7 to 16.5 ms per encryption (Node and headless Chromium) against the live
   CKD key, 192-byte ciphertexts.
 - **Sablier port:** 197 of 197 live `streamedAmountOf` reads reproduced exactly by the Rust unlock
-  function, including cliffs and a stream with a one-day granularity.
+  function in the spike (a scratch binary, command in `docs/verification.md`), including cliffs and
+  a stream with a one-day granularity; twelve of those streams are replayed on every test run by
+  `contracts/engine/tests/sablier_live.rs` and by the TypeScript port's tests.
 - **ForeignTx:** a mismatch with `expected_payload_hash` is a silent 2-minute timeout, so the engine
   omits it and recomputes the hash itself (measured both ways).
 - **A failing durable-nonce transaction still advances its nonce** (measured on devnet), which is why
   Solana payouts are two-phase.
 - **Keyless Test USDC:** keys deleted [EjiBFUNB…](https://testnet.near.rocks/tx/EjiBFUNB8CmiY8qTERPvaqYc8jFkBds51iTSAGShq1MG);
   `view_access_key_list` on `tusdc.rose-app.testnet` returns `[]`.
+- **Keyless deployment, rehearsed:** the exact helpers of `deploy-engine.sh --keyless` ran on a
+  throwaway account with two full-access keys: code hash checked, both keys deleted in one
+  transaction [LajMMx8z…](https://testnet.near.rocks/tx/LajMMx8zpF2HRvnYsDA4WMikPCnM75z52DBowXUSbTC),
+  then `view_access_key_list` at `final` returned `[]` on
+  `keyless-rehearsal-1793801863.rose-app.testnet`.
 - **Gas:** every user-facing call measured live and in the sandbox stays under 300 Tgas.
 
 Tests: `cargo test --workspace` (unit, property and recorded live vectors), the NEAR sandbox suites
@@ -275,12 +287,17 @@ with the real engine wasm, `forge test` (128 tests, fork tests against the live 
 
 ## Deployed contracts
 
-The deployment below is the **staging** engine `engine-s4.rose-app.testnet` and its RoseVault: the
-engine **keeps a full-access key**, so it is a test deployment, not the trust model above. It was
-deployed with the exact flow of the final deployment (`--keyless` aside); the final engine is deployed
-keyless with its own RoseVault and replaces this table. Earlier staging deployments (`engine-s1`,
-`engine-s2`, `engine-s3`) are recorded in
-[`deployments/testnet.json`](./deployments/testnet.json), from which this table is generated.
+The table lists the deployment the app at https://rose-rounds.vercel.app uses. It is generated
+from [`deployments/testnet.json`](./deployments/testnet.json), which also records every earlier
+deployment; the engine row says whether the engine keeps an access key, and `/status` shows the
+same `view_access_key_list` result live.
+
+**Listed now: a staging deployment.** `engine-s4.rose-app.testnet` **keeps a full-access key**, so
+it is a test deployment, not the trust model above. It was deployed with the same scripts as the
+final deployment, with `--role staging` and without `--keyless`, reusing the demo assets of
+`engine-s3` (`deploy-base.sh --demo-assets-from`); the final deployment runs
+`deploy-engine.sh --role final --keyless` with its own RoseVault. Earlier staging deployments:
+`engine-s1`, `engine-s2`, `engine-s3`.
 
 | Chain | Contract | Address | Deployment |
 |---|---|---|---|
@@ -365,6 +382,8 @@ pnpm 10. Secrets never enter the repository; [`.env.example`](./.env.example) do
 variable.
 
 ```sh
+git clone --recurse-submodules https://github.com/gamween/rose && cd rose
+# (in an existing clone: git submodule update --init --recursive, for the Foundry libraries)
 pnpm install --frozen-lockfile
 cargo test --workspace         # NEAR contracts, clearing and unlock property tests, recorded live vectors
 forge test                     # RoseVault and the demo contracts (fork tests at a pinned block)
@@ -382,13 +401,18 @@ pnpm --filter @rose/web dev
 ```
 
 The demo faucet route needs its own testnet hot wallets (`BASE_FAUCET_PRIVATE_KEY`,
-`SOLANA_FAUCET_SECRET_KEY`, `NEAR_FAUCET_ACCOUNT_ID`, `NEAR_FAUCET_PRIVATE_KEY`,
-`FAUCET_COOKIE_SECRET`); without them every other page works.
+`SOLANA_FAUCET_SECRET_KEY` and `FAUCET_COOKIE_SECRET`; `NEAR_FAUCET_ACCOUNT_ID` and
+`NEAR_FAUCET_PRIVATE_KEY` only as a fallback when the NEAR account helper is down); without them
+every other page works.
 
-Deploy your own engine and replay the demo story on the real testnets (keys in `~/.config/rose/`,
-see [`scripts/README.md`](./scripts/README.md)):
+Deploy your own engine and replay the demo story on the real testnets, from your own testnet
+account: its key in the near-cli legacy keychain, `ROSE_ROOT_ACCOUNT` set to it (the cast's
+accounts are created under it and funded from it), and your Base and Solana keys in
+`~/.config/rose/` (see [`scripts/README.md`](./scripts/README.md)). The engine account is a
+sub-account of the root account, for example `engine.<your account>`:
 
 ```sh
+export ROSE_ROOT_ACCOUNT=<your testnet account>
 cd contracts/engine && cargo near build non-reproducible-wasm && cd ../..
 scripts/deploy-base.sh --engine <engine account> --role final
 scripts/deploy-engine.sh <engine account> --role final --keyless
@@ -397,6 +421,11 @@ node scripts/seed.ts all --env deployments/<engine account>.env       # Cindral 
 node scripts/e2e-live.ts all --env deployments/<engine account>.env   # close, open, clear, settle, every payout path
 ```
 
+From another account, `deploy-base.sh` deploys its own TestUSDC, DemoToken and DemoStreamFaucet:
+the seed's Cindral treasury on Base is your deployer key, which then holds the CINDR supply. The
+project's own final deployment instead keeps the deployed demo assets, so positions minted from
+the app stay in the seeded classes:
+`scripts/deploy-base.sh --engine <engine account> --role final --demo-assets-from engine-s4.rose-app.testnet`.
 Each script records every transaction under `deployments/` and resumes where it stopped.
 
 ## Third-party code and AI assistance

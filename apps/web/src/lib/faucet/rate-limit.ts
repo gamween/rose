@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { FaucetChain } from "./validate";
+import { FAUCET_CHAINS, type FaucetChain } from "./validate";
+
+function isFaucetChain(value: string): value is FaucetChain {
+  return (FAUCET_CHAINS as readonly string[]).includes(value);
+}
 
 /** One request per funded address (or account id) per chain per window. */
 export const ADDRESS_LIMIT = 1;
@@ -73,7 +77,7 @@ export function verifyCookie(value: string | null | undefined, secret: string): 
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
     const payload: CookiePayload = {};
     for (const [chain, at] of Object.entries(parsed)) {
-      if ((chain === "base" || chain === "solana" || chain === "near") && typeof at === "number" && Number.isFinite(at)) {
+      if (isFaucetChain(chain) && typeof at === "number" && Number.isFinite(at)) {
         payload[chain] = at;
       }
     }

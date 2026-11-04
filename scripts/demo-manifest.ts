@@ -3,7 +3,8 @@
  *
  *   node scripts/demo-manifest.ts [--env deployments/<engine>.env]
  *
- * Reads `deployments/e2e/cindral.json`, `deployments/e2e/<engine>.seed.json` and
+ * Reads the cast journal (`deployments/e2e/cindral.json`, or `cindral.<root>.json` under another
+ * `ROSE_ROOT_ACCOUNT`), `deployments/e2e/<engine>.seed.json` and
  * `deployments/e2e/<engine>.live.json` (written by `seed.ts` and `e2e-live.ts`), builds the
  * manifest with the web app's own builder (`apps/web/src/lib/demo/manifest.ts`, so the file is
  * validated by the same code that reads it), writes `apps/web/src/content/demo/<engine>.json`,
@@ -16,7 +17,8 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { buildDemoManifest, type Journal } from "../apps/web/src/lib/demo/manifest.ts";
-import { DEFAULT_ENV_FILE, log, parseArgs, readEnvFile, ROOT } from "./lib/env.ts";
+import { DEFAULT_ENV_FILE, loadDeployment, log, parseArgs, ROOT } from "./lib/env.ts";
+import { identityJournalPath } from "./lib/identity.ts";
 
 const USAGE = "usage: node scripts/demo-manifest.ts [--env deployments/<engine>.env]";
 const OUT_DIR = join(ROOT, "apps", "web", "src", "content", "demo");
@@ -54,9 +56,8 @@ function main(): void {
   const args = parseArgs(process.argv.slice(2), USAGE);
   if (args.step !== "all") throw new Error(`unexpected argument ${args.step}\n${USAGE}`);
   const envFile = args.flags.get("env") ?? DEFAULT_ENV_FILE;
-  const engine = readEnvFile(join(ROOT, envFile)).get("NEXT_PUBLIC_ENGINE_ACCOUNT");
-  if (!engine) throw new Error(`${envFile} has no NEXT_PUBLIC_ENGINE_ACCOUNT`);
-  const paths = ["deployments/e2e/cindral.json", `deployments/e2e/${engine}.seed.json`, `deployments/e2e/${engine}.live.json`] as const;
+  const { engine } = loadDeployment(envFile);
+  const paths = [identityJournalPath(), `deployments/e2e/${engine}.seed.json`, `deployments/e2e/${engine}.live.json`] as const;
   const manifest = buildDemoManifest({
     cast: readJournal(join(ROOT, paths[0])),
     seed: readJournal(join(ROOT, paths[1])),

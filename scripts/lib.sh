@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034 # the constants and EVM_* variables are read by the sourcing scripts
 # Shared helpers of the rose deployment scripts. Sourced, never executed. Testnet only.
 #
 # Conventions: every script is bash + near-cli-rs (NEAR), forge/cast (Base) and jq; python3 is used
 # only to decode base58. Keys are read from ~/.config/rose/*.env and ~/.near-credentials and never
-# printed. Every deployment is recorded in deployments/testnet.json (addresses, transaction hashes,
-# block numbers: no secrets).
+# printed or passed on a command line (EVM keys go to cast and forge through an encrypted keystore
+# and a password file, see evm_signer). Every deployment is recorded in deployments/testnet.json
+# (addresses, transaction hashes, block numbers: no secrets).
 
 set -euo pipefail
 
@@ -13,6 +15,8 @@ ROSE_CONFIG_DIR="${ROSE_CONFIG_DIR:-$HOME/.config/rose}"
 DEPLOYMENTS_FILE="$ROSE_ROOT/deployments/testnet.json"
 
 NEAR_NETWORK="testnet"
+# Parent of the demo accounts and default funder (ROSE_ROOT_ACCOUNT; its key must be in the legacy keychain).
+ROSE_ROOT_ACCOUNT="${ROSE_ROOT_ACCOUNT:-rose-app.testnet}"
 NEAR_RPC_URL="${NEAR_RPC_URL:-https://test.rpc.fastnear.com}"
 NEAR_EXPLORER_TX="https://testnet.near.rocks/tx"
 BASE_RPC_URL="${BASE_SEPOLIA_RPC_URL:-https://sepolia.base.org}"
@@ -23,7 +27,6 @@ MPC_ACCOUNT="v1.signer-prod.testnet"
 MPC_DOMAIN_SECP256K1=0
 MPC_DOMAIN_ED25519=1
 MPC_DOMAIN_CKD=2
-MPC_DOMAIN_FOREIGN_TX=3
 
 SABLIER_LOCKUP="0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e"
 CIRCLE_USDC_BASE_SEPOLIA="0x036cbd53842c5426634e7929541ec2318f3dcf7e"
@@ -40,14 +43,17 @@ require_tools() {
   done
 }
 
-# Loads KEY=value lines of ~/.config/rose/<name>.env into the environment without echoing them.
-load_env() {
-  local file="$ROSE_CONFIG_DIR/$1.env"
-  [[ -f "$file" ]] || die "missing $file"
-  set -a
-  # shellcheck disable=SC1090
-  source "$file"
-  set +a
+# evm_signer <name>: signs with the EVM key of ~/.config/rose/<name>.env (EVM_PRIVATE_KEY or
+# EVM_DEPLOYER_PRIVATE_KEY) through its encrypted keystore, which scripts/evm-keystore.ts writes
+# once, so the key never appears on a command line. Sets EVM_ADDRESS and EVM_WALLET_ARGS, the
+# cast and forge flags `--keystore <file> --password-file <file>` (both files mode 600).
+evm_signer() {
+  local out keystore password_file
+  out="$(node "$ROSE_ROOT/scripts/evm-keystore.ts" "$1")" || die "cannot open the EVM key of $1.env"
+  keystore="$(sed -n 's/^keystore=//p' <<<"$out")"
+  password_file="$(sed -n 's/^password_file=//p' <<<"$out")"
+  EVM_ADDRESS="$(sed -n 's/^address=//p' <<<"$out")"
+  EVM_WALLET_ARGS=(--keystore "$keystore" --password-file "$password_file")
 }
 
 # near_view <account> <method> [json args]: a view call through the RPC, printing the JSON result.
@@ -68,11 +74,97 @@ near_account_exists() {
     | jq -e '.result.amount' >/dev/null 2>&1
 }
 
-# near_access_keys <account>: the account's access key list as JSON.
+# near_access_keys <account>: the account's access key list at `final`, as compact JSON.
 near_access_keys() {
   curl -sS "$NEAR_RPC_URL" -H 'content-type: application/json' -d "$(jq -cn --arg account "$1" \
     '{jsonrpc:"2.0",id:1,method:"query",params:{request_type:"view_access_key_list",finality:"final",account_id:$account}}')" \
-    | jq -e '.result.keys'
+    | jq -ce '.result.keys'
+}
+
+# near_code_sha256 <account>: lowercase hex sha256 of the deployed code (view_account `code_hash`
+# at `final`, base58-decoded and left-padded to 32 bytes; all zeros when no code is deployed).
+near_code_sha256() {
+  local code_hash hex
+  code_hash="$(curl -sS "$NEAR_RPC_URL" -H 'content-type: application/json' -d "$(jq -cn --arg account "$1" \
+    '{jsonrpc:"2.0",id:1,method:"query",params:{request_type:"view_account",finality:"final",account_id:$account}}')" \
+    | jq -er '.result.code_hash')" || die "view_account $1 failed"
+  hex="$(b58_to_hex "$code_hash")"
+  while [[ ${#hex} -lt 64 ]]; do hex="0$hex"; done
+  printf '%s\n' "$hex"
+}
+
+# near_require_code <account> <wasm file>: dies unless the code deployed on <account> is exactly
+# <wasm file> (on-chain code hash == local sha256). Run it before deleting any key: a keyless
+# account can never be redeployed.
+near_require_code() {
+  local expected actual
+  expected="$(shasum -a 256 "$2" | awk '{print $1}')"
+  actual="$(near_code_sha256 "$1")"
+  [[ "$actual" == "$expected" ]] || die "the code on $1 (sha256 $actual) is not $2 (sha256 $expected): refusing to continue"
+  log "code on $1 equals $(basename "$2"): sha256 $expected"
+}
+
+# near_keychain_public_keys <account>: the public keys of <account> held in the legacy keychain
+# (<account>.json and <account>/*.json), sorted, one per line.
+near_keychain_public_keys() {
+  local dir="$HOME/.near-credentials/$NEAR_NETWORK" file
+  {
+    if [[ -f "$dir/$1.json" ]]; then jq -r '.public_key' "$dir/$1.json"; fi
+    for file in "$dir/$1"/*.json; do
+      if [[ -f "$file" ]]; then jq -r '.public_key' "$file"; fi
+    done
+  } | sort -u
+}
+
+# near_delete_all_keys <account>: deletes every access key of <account> in ONE transaction signed
+# with a legacy keychain key, the keychain keys listed last, and prints the transaction hash.
+# Prints nothing when the account has no key left. The actions of one transaction apply together
+# or not at all, so a failure leaves every key in place and the call can simply be repeated.
+near_delete_all_keys() {
+  local account="$1" listed on_chain signing others keys out hash
+  listed="$(near_access_keys "$account")" || die "view_access_key_list $account failed"
+  on_chain="$(jq -r '.[].public_key' <<<"$listed" | sort -u)"
+  [[ -n "$on_chain" ]] || return 0
+  signing="$(comm -12 <(printf '%s\n' "$on_chain") <(near_keychain_public_keys "$account"))"
+  [[ -n "$signing" ]] || die "no access key of $account is in the legacy keychain: nothing can sign the deletion"
+  others="$(comm -23 <(printf '%s\n' "$on_chain") <(printf '%s\n' "$signing"))"
+  keys="$(printf '%s\n%s\n' "$others" "$signing" | sed '/^$/d' | paste -sd, -)"
+  log "deleting $(jq 'length' <<<"$listed") access key(s) of $account in one transaction: $keys"
+  out="$(near account delete-keys "$account" public-keys "$keys" network-config "$NEAR_NETWORK" \
+    sign-with-legacy-keychain send 2>&1)" || { log "$out"; die "deleting the access keys of $account failed"; }
+  hash="$(near_tx_hash "$out")"
+  [[ -n "$hash" ]] || { log "$out"; die "no transaction id in the near-cli output"; }
+  printf '%s\n' "$hash"
+}
+
+# near_wait_keyless <account> [seconds, default 60]: polls view_access_key_list at `final` until
+# it returns []. near-cli-rs returns once the transaction executed optimistically, a few blocks
+# before `final`, so a single read right after the deletion can still list the keys.
+near_wait_keyless() {
+  local account="$1" deadline=$((SECONDS + ${2:-60})) keys last="(no answer from $NEAR_RPC_URL)"
+  while :; do
+    # A failed read (rate limit, timeout) is retried; only a successful one is reported.
+    if keys="$(near_access_keys "$account" 2>/dev/null)"; then
+      [[ "$keys" == "[]" ]] && return 0
+      last="$keys"
+    fi
+    if [[ $SECONDS -ge $deadline ]]; then
+      log "view_access_key_list $account at final still returns $last"
+      return 1
+    fi
+    sleep 3
+  done
+}
+
+# near_secure_keychain <account>: mode 600 on the account's legacy keychain files and 700 on its
+# key directory (near-cli-rs writes them world-readable).
+near_secure_keychain() {
+  local dir="$HOME/.near-credentials/$NEAR_NETWORK"
+  if [[ -f "$dir/$1.json" ]]; then chmod 600 "$dir/$1.json"; fi
+  if [[ -d "$dir/$1" ]]; then
+    chmod 700 "$dir/$1"
+    find "$dir/$1" -type f -name '*.json' -exec chmod 600 {} +
+  fi
 }
 
 # near_tx_hash <near-cli output>: the transaction id printed by near-cli-rs.
@@ -163,10 +255,18 @@ deployments_set() {
   mv "$tmp" "$DEPLOYMENTS_FILE"
 }
 
-# deployments_get <engine account> <jq path under the deployment>
+# deployments_get <engine account> <jq path under the deployment>: the recorded JSON value; exits
+# non-zero when it is absent or null.
 deployments_get() {
   [[ -f "$DEPLOYMENTS_FILE" ]] || return 1
   jq -e --arg engine "$1" ".deployments[\$engine]$2" "$DEPLOYMENTS_FILE"
+}
+
+# deployments_value <engine account> <jq path under the deployment>: the recorded value as raw
+# text, or an empty string when it is absent or null (never the string "null").
+deployments_value() {
+  [[ -f "$DEPLOYMENTS_FILE" ]] || return 0
+  jq -r --arg engine "$1" "(.deployments[\$engine]$2) // empty" "$DEPLOYMENTS_FILE"
 }
 
 # env_snippet <engine account>: NEXT_PUBLIC_* lines for the web app from the deployments file.

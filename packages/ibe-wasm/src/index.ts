@@ -43,26 +43,48 @@ export interface OpenedOrder {
 
 export type WasmSource = Parameters<typeof init>[0];
 
-let ready: Promise<void> | null = null;
+/** Where the wasm module stands: never asked for, being fetched and compiled, or usable. */
+export type IbeLoadState = "idle" | "loading" | "ready";
+
+let loaded = false;
+let loading: Promise<void> | null = null;
+
+export function ibeLoadState(): IbeLoadState {
+  if (loaded) return "ready";
+  return loading === null ? "idle" : "loading";
+}
 
 /**
  * Loads the wasm module once. In the browser the default resolves `rose_ibe_bg.wasm` next to the
  * glue through `import.meta.url`; pass a URL or bytes to load it from elsewhere (for example the
- * copy the web app serves from `/ibe/rose_ibe_bg.wasm`).
+ * copy the web app serves from `/ibe/rose_ibe_bg.wasm`). Concurrent calls share one load; a load
+ * that fails (a network error fetching the wasm, for example) is forgotten, so the next call
+ * tries again instead of returning the same rejection forever.
  */
 export function loadIbe(source?: WasmSource): Promise<void> {
-  ready ??= init(source === undefined ? undefined : { module_or_path: source }).then(() => undefined);
-  return ready;
+  if (loaded) return Promise.resolve();
+  loading ??= init(source === undefined ? undefined : { module_or_path: source }).then(
+    () => {
+      loaded = true;
+      loading = null;
+    },
+    (error: unknown) => {
+      loading = null;
+      throw error;
+    },
+  );
+  return loading;
 }
 
 /** Synchronous loader for tests and workers that already hold the wasm bytes. */
 export function loadIbeSync(bytes: BufferSource | WebAssembly.Module): void {
   initSync({ module: bytes });
-  ready = Promise.resolve();
+  loaded = true;
 }
 
 function assertLoaded(): void {
-  if (ready === null) throw new Error("Call loadIbe() before using the IBE functions.");
+  if (loaded) return;
+  throw new Error(loading === null ? "Call loadIbe() before using the IBE functions." : "The IBE module is still loading: await loadIbe() before using the IBE functions.");
 }
 
 export function sideByte(side: IbeSide): number {

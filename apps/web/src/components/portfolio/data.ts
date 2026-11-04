@@ -4,15 +4,16 @@
  * its NEP-145 storage, token symbols from Base and the account's slice of the event history.
  */
 
-import { isAuthorizationUsed, readNonceAccount, readStreamflowStream, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type StorageBalance, type StoredEvent } from "@rose/sdk";
+import { isAuthorizationUsed, readNonceAccount, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type StorageBalance, type StoredEvent } from "@rose/sdk";
 import { PublicKey } from "@solana/web3.js";
-import { deployed, deployedAddress } from "@/lib/deployment";
+import { deployedAddress } from "@/lib/deployment";
 import { readEventRange } from "@/lib/event-pages";
+import { blockhashActionState, isBlockhashAction } from "@/lib/payouts";
 import { requireEngine, nearRpc } from "@/lib/engine-client";
 import { tokenSymbols } from "@/lib/token-symbols";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
-import { accountEvents, orderRoundIds, payoutState, type PayoutState } from "./transforms";
+import { accountEvents, orderRoundIds, payoutState, type ForeignState, type PayoutState } from "./transforms";
 
 const PAGE = 50;
 const EVENTS_WINDOW = 400;
@@ -24,8 +25,10 @@ export type PortfolioData = {
   config: ConfigView;
   classes: Map<string, ClassInfo>;
   portfolio: Portfolio;
-  /** Held positions of the classes the account holds units of (candidates for an in-kind redeem). */
+  /** Held positions of the classes the account holds free units of (candidates for an in-kind redeem). */
   positions: Position[];
+  /** Claimable tokens a Solana redeem of each candidate position takes now (`get_sol_streams` `redeem_claimable`), by position id. */
+  redeemOwed: Map<string, bigint>;
   retiredLots: RetiredLot[];
   rounds: Map<string, Round>;
   payouts: PayoutEntry[];
@@ -85,27 +88,28 @@ async function accountPayouts(account: string, signal: AbortSignal): Promise<Pay
   }
 }
 
-/** Whether a signed payout was already executed on its chain (null when that cannot be read). */
-async function payoutSubmitted(payout: PayoutView): Promise<boolean | null> {
+/**
+ * Where a signed payout stands on its own chain (null when that cannot be read): RoseVault's
+ * replay bitmap on Base, the advanced nonce of a durable-nonce Solana action, and the signature
+ * status (or the expired blockhash) of a deposit move or a refused-deposit return.
+ */
+async function payoutForeign(payout: PayoutView): Promise<ForeignState> {
   if (payout.status !== "Signed") return null;
   try {
     if (payout.chain === "Base") {
       const vault = deployedAddress("roseVault");
       if (!vault) return null;
-      return await isAuthorizationUsed(basePublicClient(), vault, BigInt(payout.id));
+      return (await isAuthorizationUsed(basePublicClient(), vault, BigInt(payout.id))) ? "executed" : "pending";
     }
-    // A deposit move is signed against a recent blockhash, not a nonce: it ran once the stream's recipient is the vault.
-    if ("SolMove" in payout.kind) {
-      const vault = deployed("solanaVault");
-      if (!vault) return null;
-      const stream = await readStreamflowStream(solanaConnection(), new PublicKey(payout.kind.SolMove.metadata), "confirmed");
-      return stream.metadata.recipient.toBase58() === vault;
+    if (isBlockhashAction(payout)) {
+      const state = await blockhashActionState(solanaConnection(), payout);
+      return state === "executed" ? "executed" : state === "pending" ? "pending" : "lapsed";
     }
     const nonceAccount = payout.solana?.nonce_account;
     const nonceValue = payout.solana?.nonce_value;
     if (!nonceAccount || !nonceValue) return null;
     const state = await readNonceAccount(solanaConnection(), new PublicKey(nonceAccount), "confirmed");
-    return state.nonce !== nonceValue;
+    return state.nonce !== nonceValue ? "executed" : "pending";
   } catch {
     return null;
   }
@@ -134,11 +138,13 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
   ]);
   const heldClassIds = new Set(portfolio.holdings.filter((holding) => holding.balance > 0n).map((holding) => holding.classId));
   const roundIds = orderRoundIds(portfolio.bids);
-  const [positions, retiredLots, roundList, submissions] = await Promise.all([
+  const solanaClassIds = [...heldClassIds].filter((classId) => classes.get(classId)?.chain === "Solana");
+  const [positions, retiredLots, roundList, foreign, solStreams] = await Promise.all([
     heldPositions(heldClassIds, signal),
     retiredLotsOf(account, signal),
     Promise.all(roundIds.map((roundId) => views.getRound(roundId, { signal }))),
-    Promise.all(payoutsRaw.map(payoutSubmitted)),
+    Promise.all(payoutsRaw.map(payoutForeign)),
+    Promise.all(solanaClassIds.map((classId) => views.getSolStreams(classId, { signal }))),
   ]);
   const symbols = await tokenSymbols([
     ...[...classes.values()].map((info) => ({ chain: info.chain, token: info.token })),
@@ -156,9 +162,10 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
     classes,
     portfolio,
     positions,
+    redeemOwed: new Map(solStreams.flat().map((entry) => [entry.position_id, BigInt(entry.redeem_claimable)])),
     retiredLots,
     rounds,
-    payouts: payoutsRaw.map((payout, index) => ({ payout, state: payoutState(payout, submissions[index] ?? null, blockHeight) })),
+    payouts: payoutsRaw.map((payout, index) => ({ payout, state: payoutState(payout, foreign[index] ?? null, blockHeight) })),
     storage,
     storageMinimum,
     symbols,

@@ -9,7 +9,7 @@ import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { describePayout } from "@/lib/payouts";
 import { classLabel } from "@/lib/token-symbols";
 import type { PayoutEntry, PortfolioData } from "./data";
-import type { CashRow, TokenClaim } from "./transforms";
+import { pendingHint, settledPayout, type CashRow, type TokenClaim } from "./transforms";
 
 const STATE_LABEL: Record<PayoutEntry["state"], { text: string; tone: "neutral" | "ember" | "success" | "warning" | "danger" }> = {
   requested: { text: "Signature pending", tone: "ember" },
@@ -19,6 +19,7 @@ const STATE_LABEL: Record<PayoutEntry["state"], { text: string; tone: "neutral" 
   submitted: { text: "Executed", tone: "success" },
   awaiting_gas: { text: "Gas signature missing", tone: "warning" },
   failed: { text: "Failed, refunded", tone: "danger" },
+  lapsed: { text: "Not executed (blockhash expired)", tone: "neutral" },
 };
 
 export type ClaimsActions = {
@@ -32,7 +33,7 @@ export type ClaimsActions = {
 
 /** Claimable cash per venue and tokens per chain, with the payouts still waiting for the claimant. */
 export function ClaimsSection({ data, cash, tokens, actions }: { data: PortfolioData; cash: CashRow[]; tokens: { base: TokenClaim[]; solana: TokenClaim[] }; actions: ClaimsActions }) {
-  const pending = data.payouts.filter((entry) => entry.state !== "submitted" && entry.state !== "failed");
+  const pending = data.payouts.filter((entry) => !settledPayout(entry.state));
   const nothing = cash.length === 0 && tokens.base.length === 0 && tokens.solana.length === 0 && pending.length === 0;
   return (
     <Card data-claims>
@@ -100,7 +101,7 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
                       </p>
                       <p className="flex items-center gap-2 text-[12px] text-ink-400">
                         <Badge tone={label.tone}>{label.text}</Badge>
-                        {state === "requested" ? "The MPC callback has not run yet; it takes about 5 s, up to 2 min when a provider lags." : null}
+                        {pendingHint(payout, state, data.blockHeight)}
                       </p>
                     </div>
                     {state === "signed" ? (

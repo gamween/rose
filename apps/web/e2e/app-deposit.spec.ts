@@ -188,8 +188,11 @@ test.describe("deposit wizard (mocked chains)", () => {
         if (state.replayPolls >= 3) state.registered = true;
         return state.replayPolls >= 3 ? "Consumed" : { Pending: { since_block: 276_200_000 } };
       case "get_refused_deposit":
-      case "get_sol_deposit":
         return null;
+      case "get_sol_deposit":
+        return args.metadata === STREAM_C
+          ? { metadata: STREAM_C, account: state.nearAccount, class_id: STRATEGIC, path: `dep/${state.nearAccount}/${STRATEGIC}`, deposit_address: DEPOSIT_ADDRESS, mint: "3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w", decimals: 9, return_to: state.owner, stage: "Attributed", attributed_at: `${String(NOW)}000000000` }
+          : null;
       case "deposit_path_of":
         return `dep/${String(args.account)}/${String(args.class_id)}`;
       default:
@@ -252,21 +255,35 @@ test.describe("deposit wizard (mocked chains)", () => {
     return Uint8Array.from(out.slice(-32));
   }
 
-  const solanaState = { owner: "" };
+  const solanaState = { owner: "", streams: true, lamports: 1_000_000_000 };
   const STREAM_A = "5bWqgE2tDNrdsnR3kQh3Vbz5xN4nM8wYJ9vLkPq1Xy7f";
   const STREAM_B = "9fQ2hJkL4mN7pR3sT6vW8xY1zA5bC9dE2fG4hJ6kM8nP";
+  /** A stream this browser started depositing: it already left the wallet for the deposit address. */
+  const STREAM_C = "GH14umV9ZwkQvayYoptimVc6YYpGzYWCAm4tJe2WM1Fb";
+  const DEMO_MINT = process.env.NEXT_PUBLIC_SOLANA_DEMO_MINT ?? "";
 
   const solanaRequest: MockOverrides["solanaRequest"] = (method, params) => {
     const account = (owner: string, data: string, space: number) => ({ data: [data, "base64"], executable: false, lamports: 2_039_280, owner, rentEpoch: 0, space });
+    const context = { slot: 518_422_893, apiVersion: "4.4.0" };
     switch (method) {
       case "getProgramAccounts":
-        return [
-          { pubkey: STREAM_A, account: account("HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ", metadataBytes(solanaState.owner, { cancelableBySender: false, canTopup: false }), 1104) },
-          { pubkey: STREAM_B, account: account("HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ", metadataBytes(solanaState.owner, { cancelableBySender: true, canTopup: true }), 1104) },
-        ];
+        return solanaState.streams
+          ? [
+              { pubkey: STREAM_A, account: account("HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ", metadataBytes(solanaState.owner, { cancelableBySender: false, canTopup: false }), 1104) },
+              { pubkey: STREAM_B, account: account("HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ", metadataBytes(solanaState.owner, { cancelableBySender: true, canTopup: true }), 1104) },
+            ]
+          : [];
+      case "getBalance":
+        return { context, value: solanaState.lamports };
+      case "getTokenAccountsByOwner":
+        return { context, value: [] };
       case "getAccountInfo": {
         const target = params[0] as string;
-        const context = { slot: 518_422_893, apiVersion: "4.4.0" };
+        const encoding = (params[1] as { encoding?: string } | undefined)?.encoding;
+        if (target === DEMO_MINT && encoding === "jsonParsed") {
+          return { context, value: { data: { parsed: { info: { decimals: 9, freezeAuthority: null, isInitialized: true, mintAuthority: MOCK.gasSol, supply: "1" }, type: "mint" }, program: "spl-token", space: 82 }, executable: false, lamports: 1_066_800, owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", rentEpoch: 0, space: 82 } };
+        }
+        if (target === STREAM_C) return { context, value: account("HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ", metadataBytes(DEPOSIT_ADDRESS, { cancelableBySender: false, canTopup: false }), 1104) };
         if (target === "3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w") {
           const mint = new Uint8Array(82);
           mint[44] = 9;
@@ -275,6 +292,8 @@ test.describe("deposit wizard (mocked chains)", () => {
         if (target === STREAM_A) return { context, value: account("HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ", metadataBytes(solanaState.owner, { cancelableBySender: false, canTopup: false }), 1104) };
         return { context, value: null };
       }
+      case "getSignaturesForAddress":
+        return [{ signature: "4Vw2CJ8ovmS9r4z5x6YzbXk3Ck1nQ7rmT8uGv1pA2bC3dE4fG5hJ6kL7mN8pQ9rS1tU2vW3xY4zA5bC6dE7fG8h", slot: 518_422_000, err: null, memo: null, blockTime: NOW, confirmationStatus: "finalized" }];
       case "getLatestBlockhash":
         return { context: { slot: 518_422_893 }, value: { blockhash: "EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N", lastValidBlockHeight: 500_000_000 } };
       case "sendTransaction":
@@ -317,6 +336,7 @@ test.describe("deposit wizard (mocked chains)", () => {
 
   test.beforeEach(async ({ page }) => {
     Object.assign(state, { owner: "", nearAccount: "", blockNumber: 38_990_010n, replayPolls: 0, registered: false, deposited: false, registerSent: false });
+    Object.assign(solanaState, { streams: true, lamports: 1_000_000_000 });
     await page.addInitScript(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await mockChains(page, { engineView, nearRequest, baseRequest, solanaRequest });
     await page.goto("/app/prices");
@@ -401,6 +421,50 @@ test.describe("deposit wizard (mocked chains)", () => {
     await expect(flow.locator("[data-step='transfer']")).toHaveAttribute("data-status", "running");
     await snap(page, "solana-flow");
     await flow.getByRole("button", { name: "Stop waiting" }).click();
+  });
+
+  test("Solana: an interrupted deposit whose stream left the wallet is listed with its stage and resumes where it stopped", async ({ page }) => {
+    await connectDemoWallets(page, ["NEAR", "Solana"]);
+    await page.evaluate(
+      ({ metadata, nearAccount, classId }) =>
+        localStorage.setItem("rose.deposits.attempted", JSON.stringify([{ key: { SolStream: { metadata } }, chain: "solana", label: "Streamflow stream GH14um…WM1Fb", nearAccount, attemptedAt: Date.now(), solClassId: classId }])),
+      { metadata: STREAM_C, nearAccount: state.nearAccount, classId: STRATEGIC },
+    );
+    await page.goto("/app/deposit");
+    await page.locator("[data-chain='solana']").click();
+    const pending = page.locator("[data-pending-solana-deposits]");
+    await expect(pending.locator(`[data-pending-deposit='${STREAM_C}']`)).toContainText("Attributed to you: the move into the vault is next.", { timeout: 60_000 });
+    await snap(page, "solana-pending");
+    await pending.locator("[data-resume-deposit]").click();
+    const flow = page.locator("[data-deposit-flow]");
+    await expect(flow.locator("[data-step='transfer']")).toContainText("The stream already sits at your deposit address.", { timeout: 30_000 });
+    await expect(flow.locator("[data-step='attribute']")).toContainText(`Already attributed to ${state.nearAccount} (stage Attributed).`, { timeout: 30_000 });
+    await expect(flow.locator("[data-step='move']")).toHaveAttribute("data-status", /running|error/, { timeout: 30_000 });
+  });
+
+  test("Solana: the demo position asks for SOL first, then for the faucet's demo tokens", async ({ page }) => {
+    test.skip(DEMO_MINT === "", "NEXT_PUBLIC_SOLANA_DEMO_MINT is not set for this build");
+    solanaState.streams = false;
+    solanaState.lamports = 2_000_000;
+    const faucetBodies: unknown[] = [];
+    await page.route("**/api/faucet", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      faucetBodies.push(route.request().postDataJSON());
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "This solana-demo-token faucet was already used by this address in the last 24 hours. Try again in about 24 hours." }) });
+    });
+    await connectDemoWallets(page, ["NEAR", "Solana"]);
+    await page.goto("/app/deposit");
+    await page.locator("[data-chain='solana']").click();
+    const create = page.locator("[data-mint-demo]");
+    await create.click({ timeout: 60_000 });
+    const alert = page.locator("[data-mint-demo] ~ p[role='alert']");
+    await expect(alert).toContainText("Not enough SOL: Creating the stream costs about 0.012 SOL", { timeout: 30_000 });
+    expect(faucetBodies).toEqual([]);
+    solanaState.lamports = 50_000_000;
+    await create.click();
+    await expect(alert).toContainText("Demo tokens already sent: This solana-demo-token faucet was already used", { timeout: 30_000 });
+    expect(faucetBodies).toEqual([{ chain: "solana-demo-token", address: solanaState.owner }]);
+    await snap(page, "solana-demo-faucet");
   });
 
   test("Base: the empty list offers the demo vesting position", async ({ page }) => {

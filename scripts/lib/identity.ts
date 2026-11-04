@@ -13,7 +13,24 @@
  * claimed token in the Advance).
  */
 
-export const ROOT_ACCOUNT = "rose-app.testnet";
+export const DEFAULT_ROOT_ACCOUNT = "rose-app.testnet";
+
+/**
+ * Parent of the cast's NEAR accounts and funder of every run (`ROSE_ROOT_ACCOUNT`, default
+ * `rose-app.testnet`); its full-access key must be in the near-cli legacy keychain. Anyone can
+ * replay the demo story from their own testnet account this way.
+ */
+export const ROOT_ACCOUNT = process.env.ROSE_ROOT_ACCOUNT ?? DEFAULT_ROOT_ACCOUNT;
+if (!/^[a-z0-9_-]+(\.[a-z0-9_-]+)*\.testnet$/.test(ROOT_ACCOUNT)) throw new Error(`ROSE_ROOT_ACCOUNT must be a testnet account, got "${ROOT_ACCOUNT}"`);
+
+/**
+ * The engine-independent journal of the cast (accounts, addresses, the devnet mint), relative to
+ * the repository root: `deployments/e2e/cindral.json` for the default root account,
+ * `deployments/e2e/cindral.<root>.json` for any other, so two casts never share a record.
+ */
+export function identityJournalPath(root: string = ROOT_ACCOUNT): string {
+  return root === DEFAULT_ROOT_ACCOUNT ? "deployments/e2e/cindral.json" : `deployments/e2e/cindral.${root}.json`;
+}
 
 export const TOKEN = { name: "Cindral", symbol: "CINDR", solanaDecimals: 9 } as const;
 

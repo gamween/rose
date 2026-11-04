@@ -1,11 +1,22 @@
 .env
 .env.*
 !.env.example
+*.env
+!deployments/*.env
+*.pem
+*.password
+id.json
+*keypair*.json
+solana-*.json
+seed-accounts.json
+seed-orders/
+keystores/
 node_modules/
 target/
 .next/
 out/
 dist/
+coverage/
 .DS_Store
 contracts/evm/out/
 contracts/evm/cache/
@@ -14,3 +25,4 @@ broadcast/
 .vercel/
 playwright-report/
 test-results/
+.claude/worktrees/
