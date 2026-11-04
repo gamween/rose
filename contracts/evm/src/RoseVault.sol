@@ -24,8 +24,8 @@ import {NearAccountId} from "./libraries/NearAccountId.sol";
 ///
 /// Streams must enter only through `depositStream`. A stream sent with a plain `transferFrom` (which bypasses
 /// `onERC721Received`) emits no `StreamDeposited` log, so the engine never registers it and never attributes it to
-/// anyone; such a stream can only leave through a `Release` authorization, which the engine never issues for an
-/// unregistered stream.
+/// anyone, and no entry record in `streamEntries`; such a stream can only leave through a `Release` authorization,
+/// which the engine never issues for an unregistered stream, and that release would forward nothing extra.
 ///
 /// Sablier's Lockup withdrawal fee is controlled by its admin and a price oracle through the comptroller
 /// (0x0000008ABbFf7a84a2fE09f9A9b74D3BC2072399 on Base Sepolia, where the fee is currently zero). Callers of
@@ -89,6 +89,14 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         uint128 unitCliffUnlock;
     }
 
+    /// @notice What the vault recorded when a stream entered it through `depositStream` or `createStreams`.
+    /// @param recorded Whether the stream entered through one of those two functions and has not left since.
+    /// @param withdrawnAtEntry Sablier's `getWithdrawnAmount` right after the entry-time vested withdrawal.
+    struct StreamEntry {
+        bool recorded;
+        uint128 withdrawnAtEntry;
+    }
+
     /// @notice One stream of a cohort: the NEAR account credited with its units and the deposit of the stream.
     struct Allocation {
         string nearAccount;
@@ -113,6 +121,13 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     address public immutable SIGNER;
 
     mapping(uint256 wordIndex => uint256 word) private _usedAuthorizations;
+
+    /// @notice Entry record of every stream the vault took in and still holds; cleared when the stream leaves.
+    /// @dev After entry, the only withdrawals of a vault stream are calls of `withdrawMax` or `withdraw` by anyone,
+    /// which Sablier forces to pay the recipient (this vault), and the vault's own withdrawal in `executeRelease`.
+    /// `getWithdrawnAmount(streamId) - withdrawnAtEntry`, read before that release withdrawal, is therefore exactly
+    /// what third parties pushed into the vault's token balance for this stream while it was held.
+    mapping(uint256 streamId => StreamEntry entry) public streamEntries;
 
     /// @dev Stream id expected by `onERC721Received` while `depositStream` pulls the NFT; zero otherwise.
     /// Sablier stream ids start at 1, so zero never matches a real stream.
@@ -188,16 +203,23 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
 
     /// @notice A stream release authorization was used. `vestedWithdrawn` is the vested balance withdrawn to
     /// `vestedTo` (the vault, or `to` for a refused stream returned) immediately before the NFT left the vault.
+    /// `vestedForwarded` is, for a refused stream returned, what third parties had already withdrawn to the vault
+    /// for this stream since it entered, sent from the vault's balance of the stream's token to `to`; it is always
+    /// zero for a registered position, whose vested tokens stay in the vault for unit holders.
     /// @dev `vestedWithdrawn` is informational only: it is legitimately zero when a third party already called
     /// `withdrawMax(streamId, vault)` (open to anyone, since the vault is the recipient), so the engine must not
-    /// account from this field; it accrues from the stream's withdrawn amount instead.
+    /// account from this field; it accrues from the stream's withdrawn amount instead. For a refused stream
+    /// returned, `vestedWithdrawn + vestedForwarded` is everything that vested while the vault held it.
+    /// Static layout: topics[1] = id, topics[2] = streamId, topics[3] = to; data words 0..3 = lockup, vestedTo,
+    /// vestedWithdrawn, vestedForwarded.
     event ReleaseExecuted(
         uint256 indexed id,
         uint256 indexed streamId,
         address indexed to,
         address lockup,
         address vestedTo,
-        uint128 vestedWithdrawn
+        uint128 vestedWithdrawn,
+        uint128 vestedForwarded
     );
 
     error ZeroAddress();
@@ -284,13 +306,14 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         }
 
         (, uint256 feePaid) = _withdrawVested(streamId, msg.sender, msg.value);
-        _checkRemaining(streamId, minimum);
+        uint128 withdrawn = _checkRemaining(streamId, minimum);
 
         _pendingStreamId = streamId;
         LOCKUP.safeTransferFrom(msg.sender, address(this), streamId);
         _pendingStreamId = 0;
 
-        _emitStreamDeposited(streamId, nearAccount, decimals);
+        streamEntries[streamId] = StreamEntry({recorded: true, withdrawnAtEntry: withdrawn});
+        _emitStreamDeposited(streamId, nearAccount, decimals, withdrawn);
         _refund(msg.value - feePaid);
     }
 
@@ -373,9 +396,10 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             );
             (, uint256 feePaid) = _withdrawVested(streamId, msg.sender, msg.value - feesPaid);
             feesPaid += feePaid;
-            _checkRemaining(streamId, minimum);
+            uint128 withdrawn = _checkRemaining(streamId, minimum);
             streamIds[i] = streamId;
-            _emitStreamDeposited(streamId, allocation.nearAccount, decimals);
+            streamEntries[streamId] = StreamEntry({recorded: true, withdrawnAtEntry: withdrawn});
+            _emitStreamDeposited(streamId, allocation.nearAccount, decimals, withdrawn);
         }
         token.forceApprove(address(LOCKUP), 0);
         uint256 balanceAfter = token.balanceOf(address(this));
@@ -470,7 +494,11 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     /// @dev Any vested balance is withdrawn first: to the vault for a registered position, so tokens accrued while
     /// the stream was held stay with unit holders; to `to` for a refused stream returned, so its owner keeps what
     /// vested while the vault held it (the vault, being the recipient, may withdraw to any address). That withdrawal
-    /// pays Sablier's minimum fee out of `msg.value`; the rest is refunded.
+    /// pays Sablier's minimum fee out of `msg.value`; the rest is refunded. Because anyone may withdraw a vault
+    /// stream to the vault, a refused stream returned also receives, in its underlying token, what such calls pushed
+    /// into the vault since the stream's entry (see `streamEntries`); nothing extra is sent for a registered
+    /// position, whose pushed tokens belong to unit holders and are accounted by the engine. The entry record is
+    /// cleared either way.
     function executeRelease(Release calldata authorization, uint8 v, bytes32 r, bytes32 s)
         external
         payable
@@ -484,12 +512,23 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         }
         _useAuthorization(authorization.id, hashRelease(authorization), v, r, s);
 
+        uint256 streamId = authorization.streamId;
+        StreamEntry memory entry = streamEntries[streamId];
+        delete streamEntries[streamId];
+        uint128 forwarded;
+        if (authorization.vestedToRecipient && entry.recorded) {
+            forwarded = LOCKUP.getWithdrawnAmount(streamId) - entry.withdrawnAtEntry;
+        }
+
         address vestedTo = authorization.vestedToRecipient ? authorization.to : address(this);
-        (uint128 withdrawn, uint256 feePaid) = _withdrawVested(authorization.streamId, vestedTo, msg.value);
-        LOCKUP.transferFrom(address(this), authorization.to, authorization.streamId);
+        (uint128 withdrawn, uint256 feePaid) = _withdrawVested(streamId, vestedTo, msg.value);
+        LOCKUP.transferFrom(address(this), authorization.to, streamId);
+        if (forwarded != 0) {
+            LOCKUP.getUnderlyingToken(streamId).safeTransfer(authorization.to, forwarded);
+        }
 
         emit ReleaseExecuted(
-            authorization.id, authorization.streamId, authorization.to, address(LOCKUP), vestedTo, withdrawn
+            authorization.id, streamId, authorization.to, address(LOCKUP), vestedTo, withdrawn, forwarded
         );
         _refund(msg.value - feePaid);
     }
@@ -584,12 +623,14 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     }
 
     /// @dev After the vested withdrawal, `streamId` must still hold at least `minimum` locked: the engine refuses
-    /// smaller remainders, and a depleted stream has nothing left to custody.
-    function _checkRemaining(uint256 streamId, uint128 minimum) private view {
+    /// smaller remainders, and a depleted stream has nothing left to custody. Returns the stream's withdrawn amount,
+    /// which the entry record and the `StreamDeposited` log carry.
+    function _checkRemaining(uint256 streamId, uint128 minimum) private view returns (uint128 withdrawn) {
         if (LOCKUP.isDepleted(streamId)) {
             revert StreamDepleted(streamId);
         }
-        uint128 remaining = LOCKUP.getDepositedAmount(streamId) - LOCKUP.getWithdrawnAmount(streamId);
+        withdrawn = LOCKUP.getWithdrawnAmount(streamId);
+        uint128 remaining = LOCKUP.getDepositedAmount(streamId) - withdrawn;
         if (remaining < minimum) {
             revert AmountBelowMinimum(remaining, minimum);
         }
@@ -637,8 +678,11 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     }
 
     /// @dev `decimals` is the value the caller read once for the minimum check, so the log can never disagree with
-    /// the rule that admitted the stream even if the token answers differently later in the same call.
-    function _emitStreamDeposited(uint256 streamId, string calldata nearAccount, uint8 decimals) private {
+    /// the rule that admitted the stream even if the token answers differently later in the same call; `withdrawn`
+    /// is the amount the entry record stores.
+    function _emitStreamDeposited(uint256 streamId, string calldata nearAccount, uint8 decimals, uint128 withdrawn)
+        private
+    {
         LockupLinear.UnlockAmounts memory unlockAmounts = LOCKUP.getUnlockAmounts(streamId);
         emit StreamDeposited({
             sender: msg.sender,
@@ -648,7 +692,7 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
             token: address(LOCKUP.getUnderlyingToken(streamId)),
             decimals: decimals,
             deposited: LOCKUP.getDepositedAmount(streamId),
-            withdrawn: LOCKUP.getWithdrawnAmount(streamId),
+            withdrawn: withdrawn,
             start: LOCKUP.getStartTime(streamId),
             cliff: LOCKUP.getCliffTime(streamId),
             end: LOCKUP.getEndTime(streamId),

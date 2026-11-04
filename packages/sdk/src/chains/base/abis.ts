@@ -528,6 +528,30 @@ export const roseVaultAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "streamEntries",
+    "inputs": [
+      {
+        "name": "streamId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "recorded",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "withdrawnAtEntry",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "event",
     "name": "CashDeposited",
     "inputs": [
@@ -612,6 +636,12 @@ export const roseVaultAbi = [
       },
       {
         "name": "vestedWithdrawn",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "vestedForwarded",
         "type": "uint128",
         "indexed": false,
         "internalType": "uint128"

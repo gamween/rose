@@ -114,6 +114,12 @@ contract RoseVaultTest is Test {
         usdc.mint(address(vault), amount);
     }
 
+    function _assertEntry(uint256 streamId, bool recorded, uint128 withdrawnAtEntry) internal view {
+        (bool isRecorded, uint128 atEntry) = vault.streamEntries(streamId);
+        assertEq(isRecorded, recorded);
+        assertEq(atEntry, withdrawnAtEntry);
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                                     CONSTRUCTION
     //////////////////////////////////////////////////////////////////////////*/
@@ -170,8 +176,9 @@ contract RoseVaultTest is Test {
 
     function test_hashRelease_matchesManualDigest() public view {
         RoseVault.Release memory auth = RoseVault.Release(address(lockup), 9, bob, false, 43);
-        bytes32 structHash =
-            keccak256(abi.encode(vault.RELEASE_TYPEHASH(), auth.lockup, auth.streamId, auth.to, auth.vestedToRecipient, auth.id));
+        bytes32 structHash = keccak256(
+            abi.encode(vault.RELEASE_TYPEHASH(), auth.lockup, auth.streamId, auth.to, auth.vestedToRecipient, auth.id)
+        );
         bytes32 expected = keccak256(abi.encodePacked("\x19\x01", vault.domainSeparator(), structHash));
         assertEq(vault.hashRelease(auth), expected);
     }
@@ -423,6 +430,7 @@ contract RoseVaultTest is Test {
         assertEq(lockup.getWithdrawnAmount(streamId), vested);
         assertEq(lockup.withdrawableAmountOf(streamId), 0);
         assertEq(lockup.ownerOf(streamId), address(vault));
+        _assertEntry(streamId, true, vested);
         assertEq(address(lockup).balance, FEE);
         assertEq(alice.balance, ethBefore - FEE);
         assertEq(address(vault).balance, 0);
@@ -758,7 +766,7 @@ contract RoseVaultTest is Test {
         uint256 ethBefore = alice.balance;
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit RoseVault.ReleaseExecuted(11, streamId, bob, address(lockup), address(vault), vested);
+        emit RoseVault.ReleaseExecuted(11, streamId, bob, address(lockup), address(vault), vested, 0);
         vm.prank(alice);
         vault.executeRelease{value: 1 ether / 10}(auth, v, r, s);
 
@@ -783,7 +791,7 @@ contract RoseVaultTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit RoseVault.ReleaseExecuted(25, streamId, bob, address(lockup), bob, vested);
+        emit RoseVault.ReleaseExecuted(25, streamId, bob, address(lockup), bob, vested, 0);
         vm.prank(alice);
         vault.executeRelease{value: FEE}(auth, v, r, s);
 
@@ -813,7 +821,7 @@ contract RoseVaultTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit RoseVault.ReleaseExecuted(12, streamId, bob, address(lockup), address(vault), 0);
+        emit RoseVault.ReleaseExecuted(12, streamId, bob, address(lockup), address(vault), 0, 0);
         vault.executeRelease(auth, v, r, s);
         assertEq(lockup.ownerOf(streamId), bob);
     }
@@ -930,6 +938,162 @@ contract RoseVaultTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////////////////
+                          THIRD-PARTY WITHDRAWALS TO THE VAULT
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev Deposits a vesting stream (its entry withdrawal pays alice), lets bob push 30 days of vesting into the
+    /// vault with `withdrawMax(streamId, vault)`, then lets 30 more days vest. The vault also holds unrelated tokens
+    /// of the same kind, which no release may touch.
+    function _depositAndPush() internal returns (uint256 streamId, uint128 pushed, uint128 vestedSince) {
+        streamId = _vestingStream(alice);
+        _deposit(alice, streamId);
+        uint128 atEntry = lockup.getWithdrawnAmount(streamId);
+        assertGt(atEntry, 0);
+        _assertEntry(streamId, true, atEntry);
+        token.mint(address(vault), 500e18);
+
+        vm.warp(NOW + 30 days);
+        vm.prank(bob);
+        pushed = lockup.withdrawMax{value: FEE}(streamId, address(vault));
+        assertGt(pushed, 0);
+        vm.warp(NOW + 60 days);
+        vestedSince = lockup.withdrawableAmountOf(streamId);
+        assertGt(vestedSince, 0);
+    }
+
+    function test_executeRelease_vestedToRecipient_forwardsThirdPartyWithdrawals() public {
+        (uint256 streamId, uint128 pushed, uint128 vestedSince) = _depositAndPush();
+        address returnee = makeAddr("returnee");
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, returnee, true, 27);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(27, streamId, returnee, address(lockup), returnee, vestedSince, pushed);
+        vm.prank(alice);
+        vault.executeRelease{value: FEE}(auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), returnee);
+        assertEq(token.balanceOf(returnee), pushed + vestedSince);
+        assertEq(token.balanceOf(address(vault)), 500e18);
+        assertEq(lockup.withdrawableAmountOf(streamId), 0);
+        _assertEntry(streamId, false, 0);
+    }
+
+    function test_executeRelease_registeredPosition_forwardsNothingAfterThirdPartyWithdrawal() public {
+        (uint256 streamId, uint128 pushed, uint128 vestedSince) = _depositAndPush();
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 28);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(28, streamId, bob, address(lockup), address(vault), vestedSince, 0);
+        vm.prank(alice);
+        vault.executeRelease{value: FEE}(auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), bob);
+        assertEq(token.balanceOf(bob), 0);
+        assertEq(token.balanceOf(address(vault)), 500e18 + pushed + vestedSince);
+        _assertEntry(streamId, false, 0);
+    }
+
+    /// @dev A third party drains a refused stream after its end: nothing is left to withdraw, so the return pays no
+    /// fee and forwards everything that vested since the entry.
+    function test_executeRelease_vestedToRecipient_afterThirdPartyDepletedTheStream() public {
+        uint256 streamId = _vestingStream(alice);
+        _deposit(alice, streamId);
+        uint128 atEntry = lockup.getWithdrawnAmount(streamId);
+        vm.warp(NOW + 266 days);
+        vm.prank(bob);
+        lockup.withdrawMax{value: FEE}(streamId, address(vault));
+        assertTrue(lockup.isDepleted(streamId));
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, true, 29);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(29, streamId, bob, address(lockup), bob, 0, DEPOSIT - atEntry);
+        vault.executeRelease(auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), bob);
+        assertEq(token.balanceOf(bob), DEPOSIT - atEntry);
+        assertEq(token.balanceOf(address(vault)), 0);
+    }
+
+    /// @dev A stream sent with a plain `transferFrom` has no entry record, so even a return forwards nothing from
+    /// the vault's balance: the engine never registers such a stream and cannot know what belongs to it.
+    function test_executeRelease_unrecordedStreamForwardsNothing() public {
+        uint256 streamId = _lockedStream(alice);
+        vm.prank(alice);
+        lockup.transferFrom(alice, address(vault), streamId);
+        _assertEntry(streamId, false, 0);
+        vm.warp(NOW + 60 days);
+        vm.prank(bob);
+        uint128 pushed = lockup.withdrawMax{value: FEE}(streamId, address(vault));
+        vm.warp(NOW + 90 days);
+        uint128 vestedSince = lockup.withdrawableAmountOf(streamId);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, alice, true, 30);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(30, streamId, alice, address(lockup), alice, vestedSince, 0);
+        vm.prank(alice);
+        vault.executeRelease{value: FEE}(auth, v, r, s);
+
+        assertEq(token.balanceOf(alice), vestedSince);
+        assertEq(token.balanceOf(address(vault)), pushed);
+    }
+
+    /// @dev A stream that left and came back is measured from its latest entry: what was pushed during the first
+    /// stay stays with unit holders.
+    function test_executeRelease_redepositedStreamForwardsOnlySinceItsLatestEntry() public {
+        uint256 streamId = _vestingStream(alice);
+        _deposit(alice, streamId);
+        vm.warp(NOW + 30 days);
+        vm.prank(bob);
+        uint128 firstPush = lockup.withdrawMax{value: FEE}(streamId, address(vault));
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, alice, false, 31);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+        vault.executeRelease(auth, v, r, s);
+        _assertEntry(streamId, false, 0);
+
+        vm.warp(NOW + 40 days);
+        _deposit(alice, streamId);
+        _assertEntry(streamId, true, lockup.getWithdrawnAmount(streamId));
+        vm.warp(NOW + 50 days);
+        vm.prank(bob);
+        uint128 secondPush = lockup.withdrawMax{value: FEE}(streamId, address(vault));
+        uint256 aliceBefore = token.balanceOf(alice);
+        auth = RoseVault.Release(address(lockup), streamId, alice, true, 32);
+        (v, r, s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(32, streamId, alice, address(lockup), alice, 0, secondPush);
+        vault.executeRelease(auth, v, r, s);
+
+        assertEq(token.balanceOf(alice), aliceBefore + secondPush);
+        assertEq(token.balanceOf(address(vault)), firstPush);
+        assertEq(lockup.ownerOf(streamId), alice);
+    }
+
+    /// @dev If the pushed tokens were already paid out, the return cannot forward them and reverts as a whole: the
+    /// NFT stays in the vault and the authorization id stays unused.
+    function test_executeRelease_vestedToRecipient_revertsWhenPushedTokensAreGone() public {
+        (uint256 streamId, uint128 pushed,) = _depositAndPush();
+        RoseVault.Transfer memory payout = RoseVault.Transfer(address(token), bob, 500e18 + pushed, 33);
+        (uint8 v, bytes32 r, bytes32 s) = _signTransfer(SIGNER_KEY, payout);
+        vault.executeTransfer(payout, v, r, s);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, alice, true, 34);
+        (v, r, s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(vault), 0, pushed)
+        );
+        vm.prank(alice);
+        vault.executeRelease{value: FEE}(auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), address(vault));
+        assertFalse(vault.isAuthorizationUsed(34));
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
                                   COHORT CREATION
     //////////////////////////////////////////////////////////////////////////*/
 
@@ -1005,6 +1169,7 @@ contract RoseVaultTest is Test {
             assertEq(lockup.getDepositedAmount(ids[i]), list[i].amount);
             assertEq(lockup.getWithdrawnAmount(ids[i]), 0);
             assertEq(lockup.getUnlockAmounts(ids[i]).cliff, list[i].amount / 10);
+            _assertEntry(ids[i], true, 0);
         }
         assertEq(token.balanceOf(alice), 0);
         assertEq(token.balanceOf(address(vault)), 0);
@@ -1185,6 +1350,7 @@ contract RoseVaultTest is Test {
             assertEq(lockup.getWithdrawnAmount(ids[i]), vested);
             assertEq(lockup.withdrawableAmountOf(ids[i]), 0);
             assertEq(lockup.ownerOf(ids[i]), address(vault));
+            _assertEntry(ids[i], true, vested);
             totalVested += vested;
         }
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -1203,6 +1369,48 @@ contract RoseVaultTest is Test {
         assertEq(alice.balance, ethBefore - 2 * FEE);
         assertEq(address(lockup).balance, 2 * FEE);
         assertEq(address(vault).balance, 0);
+    }
+
+    /// @dev A cohort stream whose creation withdrew its vested balance to the issuer, then pushed into the vault by a
+    /// third party: its return forwards exactly the push, measured from the withdrawn amount recorded at creation.
+    function test_createStreams_returnForwardsThirdPartyWithdrawalsSinceCreation() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: NOW - 10 days,
+            cliff: 0,
+            end: NOW + 355 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 1,
+            unitCliffUnlock: 0
+        });
+        _fundIssuer(DEPOSIT);
+        vm.prank(alice);
+        uint256 streamId =
+            vault.createStreams{value: FEE}(IERC20(address(token)), schedule, _allocations(1, DEPOSIT))[0];
+        uint128 atEntry = lockup.getWithdrawnAmount(streamId);
+        assertGt(atEntry, DEPOSIT / 10);
+        _assertEntry(streamId, true, atEntry);
+
+        vm.warp(NOW + 30 days);
+        vm.prank(bob);
+        uint128 pushed = lockup.withdrawMax{value: FEE}(streamId, address(vault));
+        vm.warp(NOW + 60 days);
+        uint128 vestedSince = lockup.withdrawableAmountOf(streamId);
+        assertGt(pushed, 0);
+        assertGt(vestedSince, 0);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, true, 35);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(35, streamId, bob, address(lockup), bob, vestedSince, pushed);
+        vm.prank(alice);
+        vault.executeRelease{value: FEE}(auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), bob);
+        assertEq(token.balanceOf(bob), pushed + vestedSince);
+        assertEq(token.balanceOf(alice), atEntry);
+        assertEq(token.balanceOf(address(vault)), 0);
+        _assertEntry(streamId, false, 0);
     }
 
     function test_createStreams_passedCliffWithdrawsCliffUnlockToIssuer() public {

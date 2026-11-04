@@ -465,6 +465,132 @@ contract RoseVaultForkTest is Test {
         assertEq(token.balanceOf(address(vault)), vested);
     }
 
+    /// @dev Deposits a KOL position (its entry withdrawal pays the holder), lets the claimant push 30 days of vesting
+    /// into the vault with the real `withdrawMax(streamId, vault)`, then lets 30 more days vest.
+    function _depositAndPush() internal returns (uint256 streamId, uint128 pushed, uint128 vestedSince) {
+        vm.prank(holder);
+        streamId = faucet.mintPosition(DemoStreamFaucet.Class.Kol);
+        uint256 fee = SABLIER.calculateMinFeeWei(streamId);
+        vm.startPrank(holder);
+        SABLIER.approve(address(vault), streamId);
+        vault.depositStream{value: fee}(SABLIER, streamId, NEAR_ACCOUNT);
+        vm.stopPrank();
+        uint128 atEntry = SABLIER.getWithdrawnAmount(streamId);
+        assertGt(atEntry, 2_000e18);
+        (bool recorded, uint128 withdrawnAtEntry) = vault.streamEntries(streamId);
+        assertTrue(recorded);
+        assertEq(withdrawnAtEntry, atEntry);
+
+        vm.warp(t0 + 30 days);
+        fee = SABLIER.calculateMinFeeWei(streamId);
+        vm.prank(claimant);
+        pushed = SABLIER.withdrawMax{value: fee}(streamId, address(vault));
+        assertGt(pushed, 0);
+        assertEq(token.balanceOf(address(vault)), pushed);
+        vm.warp(t0 + 60 days);
+        vestedSince = SABLIER.withdrawableAmountOf(streamId);
+        assertGt(vestedSince, 0);
+    }
+
+    function _release(uint256 streamId, address to, bool vestedToRecipient, uint256 id) internal {
+        RoseVault.Release memory release = RoseVault.Release(address(SABLIER), streamId, to, vestedToRecipient, id);
+        (uint8 v, bytes32 r, bytes32 s) = MpcSignature.sign(SIGNER_KEY, vault.hashRelease(release));
+        uint256 fee = SABLIER.calculateMinFeeWei(streamId);
+        vm.prank(claimant);
+        vault.executeRelease{value: fee}(release, v, r, s);
+    }
+
+    /// @dev m1: a third party's `withdrawMax(streamId, vault)` before the return of a refused stream no longer costs
+    /// the returnee what it pushed; the return forwards it along with what vested since.
+    function test_fork_returnForwardsThirdPartyWithdrawal() public {
+        (uint256 streamId, uint128 pushed, uint128 vestedSince) = _depositAndPush();
+        uint256 holderBefore = token.balanceOf(holder);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(5, streamId, holder, address(SABLIER), holder, vestedSince, pushed);
+        _release(streamId, holder, true, 5);
+
+        assertEq(SABLIER.ownerOf(streamId), holder);
+        assertEq(token.balanceOf(holder), holderBefore + pushed + vestedSince);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(SABLIER.withdrawableAmountOf(streamId), 0);
+        (bool recorded, uint128 withdrawnAtEntry) = vault.streamEntries(streamId);
+        assertFalse(recorded);
+        assertEq(withdrawnAtEntry, 0);
+    }
+
+    function test_fork_registeredReleaseKeepsThirdPartyWithdrawalInVault() public {
+        (uint256 streamId, uint128 pushed, uint128 vestedSince) = _depositAndPush();
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(6, streamId, claimant, address(SABLIER), address(vault), vestedSince, 0);
+        _release(streamId, claimant, false, 6);
+
+        assertEq(SABLIER.ownerOf(streamId), claimant);
+        assertEq(token.balanceOf(claimant), 0);
+        assertEq(token.balanceOf(address(vault)), pushed + vestedSince);
+    }
+
+    /// @dev The real Lockup lets a depleted stream change hands: a refused stream drained by a third party after its
+    /// end still returns, with everything that vested since its entry forwarded from the vault.
+    function test_fork_returnAfterThirdPartyDepletedTheStream() public {
+        uint256 streamId = _mintAndDeposit(DemoStreamFaucet.Class.Seed, 0);
+        assertEq(SABLIER.getWithdrawnAmount(streamId), 0);
+        vm.warp(t0 + 916 days);
+        uint256 fee = SABLIER.calculateMinFeeWei(streamId);
+        vm.prank(claimant);
+        SABLIER.withdrawMax{value: fee}(streamId, address(vault));
+        assertTrue(SABLIER.isDepleted(streamId));
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(7, streamId, holder, address(SABLIER), holder, 0, 100_000e18);
+        _release(streamId, holder, true, 7);
+
+        assertEq(SABLIER.ownerOf(streamId), holder);
+        assertEq(token.balanceOf(holder), 100_000e18);
+        assertEq(token.balanceOf(address(vault)), 0);
+    }
+
+    /// @dev Issuer path against the real Lockup: the creation withdraws the started schedule's vested balance to the
+    /// issuer, a third party later pushes more into the vault, and the return forwards exactly that push.
+    function test_fork_createdStreamReturnForwardsThirdPartyWithdrawal() public {
+        RoseVault.CohortSchedule memory schedule = RoseVault.CohortSchedule({
+            start: t0 - 30 days,
+            cliff: 0,
+            end: t0 + 335 days,
+            granularity: 1,
+            unitAmount: 10,
+            unitStartUnlock: 1,
+            unitCliffUnlock: 0
+        });
+        RoseVault.Allocation[] memory list = new RoseVault.Allocation[](1);
+        list[0] = RoseVault.Allocation({nearAccount: NEAR_ACCOUNT, amount: 20_000e18});
+        token.approve(address(vault), 20_000e18);
+        uint256 streamId = vault.createStreams(IERC20(address(token)), schedule, list)[0];
+        uint128 atEntry = SABLIER.getWithdrawnAmount(streamId);
+        assertGt(atEntry, 2_000e18);
+        (bool recorded, uint128 withdrawnAtEntry) = vault.streamEntries(streamId);
+        assertTrue(recorded);
+        assertEq(withdrawnAtEntry, atEntry);
+
+        vm.warp(t0 + 30 days);
+        uint256 fee = SABLIER.calculateMinFeeWei(streamId);
+        vm.prank(claimant);
+        uint128 pushed = SABLIER.withdrawMax{value: fee}(streamId, address(vault));
+        vm.warp(t0 + 60 days);
+        uint128 vestedSince = SABLIER.withdrawableAmountOf(streamId);
+        assertGt(pushed, 0);
+        assertGt(vestedSince, 0);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(8, streamId, holder, address(SABLIER), holder, vestedSince, pushed);
+        _release(streamId, holder, true, 8);
+
+        assertEq(SABLIER.ownerOf(streamId), holder);
+        assertEq(token.balanceOf(holder), pushed + vestedSince);
+        assertEq(token.balanceOf(address(vault)), 0);
+    }
+
     function _createDirect(bool cancelable, bool transferable) internal returns (uint256) {
         token.approve(address(SABLIER), 1_000e18);
         return SABLIER.createWithTimestampsLL(
