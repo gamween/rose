@@ -1,0 +1,14 @@
+{
+ "description": "Durable-nonce SOL payout built by the sign spike, signed by the MPC (NEAR tx 2EnjBoZADxx2GoBng8XHRq4LDbagHjKwB1exhasZtgxH) and broadcast on Solana devnet",
+ "explorer": "https://explorer.solana.com/tx/4CrVjw75paRmX7Uopaoeyfv1D83oLKpyJBLM6AbNziMkuPGQ4ykxgUBGT3TZ8vxZeajR7XqsAvnEMtutNBuTL9Wy?cluster=devnet",
+ "signature": "4CrVjw75paRmX7Uopaoeyfv1D83oLKpyJBLM6AbNziMkuPGQ4ykxgUBGT3TZ8vxZeajR7XqsAvnEMtutNBuTL9Wy",
+ "keys": {
+  "vault": "ERKmrj6yveQaKExLsfuiJZW19MYnwFhUUwdLBPniG6GL",
+  "gas": "CBx96X3pThHzNJYjfXBKjdKktZxVApRaiNS8Ej6G7Qwz",
+  "nonce": "4X9oUfBiS6x99yUUkr2fENd19Vojphg4gnisq3evE5Z6",
+  "dest": "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n",
+  "nonce_value": "GgeR3Y84ZMEPzwMs4MSN9hR7MpgQrN9EiyxAWAEmCvDK"
+ },
+ "lamports": 10000000,
+ "message_hex": "02000206a63eb5f6834080da3453b340263208e7e879f8884d8be34c5525e810f4bab3b1c76318bbb5cf7b08087f92dbd95a0cd5ac6e4fc21be19bac6dd3d03f1db11fb5344c6fce4b9e6d4e30376c715c49e1367246ee16b9f6e01e0c7578425acdc0cd57b457bd2d0c395140edb9196fc047fb35157cc1d9731a90ee6de7fd4e8d8a31000000000000000000000000000000000000000000000000000000000000000006a7d517192c568ee08a845f73d29788cf035c3145b21ab344d8062ea9400000e907429d49e4643945055e5a04a9e5ca4a03e5fa1302667d1a0bf6e9147452960204030205010404000000040201030c020000008096980000000000"
+}

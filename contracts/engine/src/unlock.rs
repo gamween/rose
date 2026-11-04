@@ -37,6 +37,8 @@
 
 use core::fmt;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use crate::math::{self, Rounding, ONE};
 
 /// Unix timestamp in seconds.
@@ -317,7 +319,9 @@ impl StreamflowStream {
 }
 
 /// Normalized schedule of a class: the schedule part of the class key and its unlock function.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize,
+)]
 pub enum ClassSchedule {
     /// A class of Sablier Lockup Linear streams.
     Linear(LinearClass),
@@ -370,7 +374,9 @@ impl ClassSchedule {
 /// at least `D * (u0 + ONE * n * g * a / (d * total)) / ONE - 1` base units, `D * f(t) / ONE` never
 /// exceeds its streamed amount. With `min_deposit` one whole token, the margin is at most one base
 /// unit per whole token held (`1e-18` of the allocation for an 18-decimal token).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize,
+)]
 pub struct LinearClass {
     start: Timestamp,
     cliff: Timestamp,
@@ -485,7 +491,9 @@ impl LinearClass {
 /// Streamflow's unlocked amount is an exact multiple of the reduced schedule (`min` of two
 /// multiples, no rounding), so `f(t) = floor(ONE * unlocked(t) / net_amount_deposited)` is the same
 /// for every member and needs no margin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize,
+)]
 pub struct SteppedClass {
     start: Timestamp,
     end: Timestamp,

@@ -1,0 +1,43 @@
+{
+  "description": "Real MPC signature (v1.signer-prod.testnet 3.18.0, domain 0) over an EIP-712 RoseVault Transfer digest",
+  "mpcContract": "v1.signer-prod.testnet",
+  "nearTx": "57TzcvbHbkBrZioL6Dg2jLnTxGGbYEYBY7oACbXv87MT",
+  "predecessor": "c.rose-sign-1793752785.testnet",
+  "path": "vault/base",
+  "domainId": 0,
+  "derivedPublicKey": "secp256k1:4D8Exx2unEhfBkEa3EcjMKYrEUJgfMbecYd4nG9zE6T49hepuCvMrFEVofBWUVnFkYbjJs2MgaeD7hp72gLAjP65",
+  "derivedPublicKeyHex": "0xa081ca993a8635502da9df45bc9c31a1b3307e87cfd141ea1d6450776dac1c8dff8edb7d089160d8ada815b8a437442e92cbe63591c896ec32447813b08b177e",
+  "signer": "0x556e29bce7c6ab74a8B36b3c754D3Ac2842223b5",
+  "eip712": {
+    "domain": {
+      "name": "RoseVault",
+      "version": "1",
+      "chainId": 84532,
+      "verifyingContract": "0x1111111111111111111111111111111111111111"
+    },
+    "type": "Transfer(address token,address to,uint256 amount,uint256 id)",
+    "message": {
+      "token": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "to": "0x241974b841C4A41e880B935f42A89c0bcB88C66A",
+      "amount": "1000000",
+      "id": "1"
+    },
+    "domainSeparator": "0xb4d3e09b5dd155ffb971b1bfb0c0997befb66314837a7478b7e5c0e82ec2775d",
+    "structHash": "0xfeba2e44058d27107ddca44ae0f70aaae4eed096e78f6d110c60263416d59387"
+  },
+  "digest": "0x50082754a6fac1ef5903aa07f91c8db9b1d180a6ff13ecf22469889b07c71921",
+  "mpcResponse": {
+    "scheme": "Secp256k1",
+    "big_r": {
+      "affine_point": "026df93ecb5f24b0743b4fbe61c20facf62f86e008e5ff8db7d4604b781d89e50e"
+    },
+    "s": {
+      "scalar": "67807abd08d31ba24158b3afad7414de13b6a58e3f0a7949cab3b9e26a082bea"
+    },
+    "recovery_id": 0
+  },
+  "r": "0x6df93ecb5f24b0743b4fbe61c20facf62f86e008e5ff8db7d4604b781d89e50e",
+  "s": "0x67807abd08d31ba24158b3afad7414de13b6a58e3f0a7949cab3b9e26a082bea",
+  "v": 27,
+  "signature": "0x6df93ecb5f24b0743b4fbe61c20facf62f86e008e5ff8db7d4604b781d89e50e67807abd08d31ba24158b3afad7414de13b6a58e3f0a7949cab3b9e26a082bea1b"
+}
