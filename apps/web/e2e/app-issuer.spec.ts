@@ -13,7 +13,7 @@ const NOW_SEC = 1_762_200_000;
 const DAY = 86_400;
 const ns = (seconds: number) => `${String(seconds)}000000000`;
 const E18 = "000000000000000000";
-const SCREENS = "/private/tmp/claude-501/-Users-fianso-Development-hackathons-rose/6cc8abbd-3178-458c-9233-e2e466b50371/scratchpad/screens";
+const SCREENS = process.env.ROSE_SCREENSHOT_DIR;
 
 const ROUND_7 = {
   round_id: "7",
@@ -73,11 +73,17 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
     engineView: (method, args) => {
       switch (method) {
         case "get_limits":
-          return { bid_storage_deposit: "20000000000000000000000", round_storage_deposit: "50000000000000000000000", bond_floor: "1000000", fee_bps: 30, max_bids_per_round: 64, max_distribution_receivers: 50 };
+          return { bid_storage_deposit: "20000000000000000000000", round_storage_deposit: "50000000000000000000000", bond_floor: "1000000", fee_bps: 30, max_bids_per_round: 64, max_distribution_receivers: 50, min_key_timeout: ns(60), max_key_timeout: ns(7 * 86_400), min_reveal_window: ns(300), max_reveal_window: ns(7 * 86_400), max_round_horizon: ns(30 * 86_400) };
         case "get_holding":
           return { class_id: args.class_id, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" };
         case "get_cash":
           return [{ venue: "Near", amount: "1000000000" }];
+        case "storage_balance_of":
+          return { total: "0", available: "0" };
+        case "storage_balance_bounds":
+          return { min: "6190000000000000000000", max: null };
+        case "get_portfolio":
+          return { holdings: [{ class_id: SEED, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" }], bids: [], liens_held: [], lien_shares: [], cash: [{ venue: "Near", amount: "1000000000" }] };
         case "registration_deposit_for":
           return String(args.account).startsWith("halden") ? "0" : "3360000000000000000000";
         case "compute_base_class_id":
@@ -148,6 +154,7 @@ async function dismissToasts(page: Page): Promise<void> {
 }
 
 async function shot(page: Page, name: string): Promise<void> {
+  if (!SCREENS) return;
   const width = page.viewportSize()?.width ?? 1470;
   await page.screenshot({ path: `${SCREENS}/app-issuer-${name}-${width >= 1000 ? "1470" : "375"}.png`, fullPage: true });
 }
@@ -252,9 +259,12 @@ test.describe("issuer console", () => {
     state.account = await connectNearDemo(page);
     await expect(page.locator("[data-issuer-tab='fund']")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("[data-preview]")).toContainText("1,000.00 USDC", { timeout: 30_000 });
+    await expect(page.locator("[data-storage-notice='top_up']")).toContainText("storage top-up of 0.00619 NEAR", { timeout: 30_000 });
     await shot(page, "fund");
     await page.locator("[data-fund-near]").click();
     await expect(page.locator("[data-action-success]")).toContainText("1,000.00 tUSDC credited", { timeout: 30_000 });
+    expect(state.sent).toHaveLength(2);
+    await expect(page.locator("[data-action-success]").getByRole("link", { name: "Storage deposit on near.rocks" })).toBeVisible();
     await dismissToasts(page);
     await page.getByRole("tab", { name: "Results" }).click();
     const row = page.locator("[data-tender-row='7']");

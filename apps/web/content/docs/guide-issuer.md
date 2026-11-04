@@ -39,7 +39,7 @@ On `/app/issuer`, choose "Launch Tender".
 
 1. Select the class.
 2. Set the budget in the cash token, and either a max price per locked token or a max discount to a reference price you declare. If you declare a reference price, the Prices page labels the resulting discount as "to the issuer-declared reference".
-3. Set the window (`opens_at`, `closes_at`). The round's `key_timeout` (1 h) and `reveal_window` (10 min in the demo) are shown.
+3. Set the window (`opens_at`, `closes_at`, at most 30 days after creation), the `key_timeout` (1 min to 7 d, default 1 h) and the `reveal_window` (5 min to 7 d, default 10 min in the demo, 24 h suggested in production). The form checks each bound as you type; the engine reports them in `get_limits`.
 4. Set where the retired units' unlocked tokens go: an address you choose or a burn address (RoseVault and the engine's own addresses are refused).
 5. The preview shows the escrow: budget plus 30 bps.
 6. Confirm. You see the round at `/app/rounds/[id]` in state `Scheduled` or `Open`, with the public parameters, a countdown and an empty sealed book.

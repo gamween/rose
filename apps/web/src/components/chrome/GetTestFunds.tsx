@@ -221,7 +221,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title="Mint 1,000 tUSDC on NEAR"
               description={
                 <>
-                  Public capped mint on {NEAR_TUSDC_ACCOUNT}: 10,000 tUSDC per account per rolling 24 h. Attaches 0.00125 NEAR of storage on first use.
+                  Public capped mint on {NEAR_TUSDC_ACCOUNT}: 10,000 tUSDC per account per 24-hour window, which starts at your first mint after the previous window ended. Attaches 0.00125 NEAR of storage on first use.
                   {wallets.balances.nearTusdc !== null ? ` Balance: ${formatUnits(wallets.balances.nearTusdc, 6)} tUSDC.` : ""}
                 </>
               }

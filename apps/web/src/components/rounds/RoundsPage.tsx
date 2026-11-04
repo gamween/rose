@@ -5,12 +5,13 @@
  * cursor pagination and the "Create Exit round" action.
  */
 
-import type { ConfigView, RoundKind, RoundStatus } from "@rose/sdk";
+import type { ConfigView, Limits, RoundKind, RoundStatus } from "@rose/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/cn";
+import { toActionError } from "@/lib/errors";
 import { ROUTES } from "@/lib/routes";
 import { CreateExitModal } from "./CreateExitModal";
 import { symbolOf } from "./engine";
@@ -43,7 +44,9 @@ function Chip({ active, onClick, children, count }: { active: boolean; onClick: 
 export function RoundsPage({ configured, demo }: { configured: boolean; demo: boolean }) {
   const [filter, setFilter] = useState<RoundsFilterState>(EMPTY_FILTER);
   const [createOpen, setCreateOpen] = useState(false);
-  const [config, setConfig] = useState<ConfigView | null>(null);
+  const [settings, setSettings] = useState<{ config: ConfigView; limits: Limits } | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsAttempt, setSettingsAttempt] = useState(0);
   const list = useRoundsList(filter);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -53,18 +56,21 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
 
   const data = list.state.status === "ok" ? list.state.value : null;
   useEffect(() => {
-    if (!data || config) return;
+    if (!data || settings || !createOpen) return;
     let cancelled = false;
-    void data.engine.views
-      .getConfig()
-      .then((value) => {
-        if (!cancelled) setConfig(value);
+    void Promise.all([data.engine.views.getConfig(), data.engine.views.getLimits()])
+      .then(([config, limits]) => {
+        if (cancelled) return;
+        setSettings({ config, limits });
+        setSettingsError(null);
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        if (!cancelled) setSettingsError(toActionError(error).message);
+      });
     return () => {
       cancelled = true;
     };
-  }, [config, data]);
+  }, [createOpen, data, settings, settingsAttempt]);
 
   const classesById = useMemo(() => new Map((data?.classes ?? []).map((cls) => [cls.classId, cls])), [data]);
   const rounds = useMemo(() => [...(data?.rounds ?? []), ...list.extra], [data, list.extra]);
@@ -189,7 +195,10 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
               </>
             )
           ) : null}
-          {data ? <CreateExitModal open={createOpen} onClose={() => setCreateOpen(false)} engine={data.engine} classes={data.classes} symbols={data.symbols} config={config} /> : null}
+          {data ? <CreateExitModal open={createOpen} onClose={() => setCreateOpen(false)} engine={data.engine} classes={data.classes} symbols={data.symbols} settings={settings} settingsError={settingsError} onRetrySettings={() => {
+                setSettingsError(null);
+                setSettingsAttempt((attempt) => attempt + 1);
+              }} /> : null}
         </>
       )}
     </div>

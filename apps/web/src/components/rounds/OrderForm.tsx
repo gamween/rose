@@ -2,8 +2,9 @@
 
 /**
  * "Place bid" / "Place ask" (spec 8.3): live fee (30 bps) and collateral preview, bond
- * `max(1 USDC, 1%)`, storage deposit, the cash venue, NEP-145 registration when the order can
- * receive units, cash deposit when the venue balance is short, encryption in the browser with
+ * `max(1 USDC, 1%)`, storage deposit, the cash venue, the round's largest buy quantity (spec
+ * 5.2), the NEP-145 storage an Exit bid needs for the units it buys (sent first, from the same
+ * click), cash deposit when the venue balance is short, encryption in the browser with
  * `@rose/ibe-wasm` bound to (engine, round, bidder, side), and one order per side.
  */
 
@@ -14,7 +15,9 @@ import { Button } from "@/components/ui/Button";
 import { Field, NumberInput } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { useWallets } from "@/components/wallet/WalletProvider";
+import { readStorageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { formatUnits } from "@/lib/format";
+import { formatStorageNear } from "@/lib/near-cash";
 import { useNearAction } from "./actions";
 import { CashDeposit } from "./CashDeposit";
 import { orderIdentity, sealOrder } from "./ibe";
@@ -71,11 +74,19 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   const sellPreview = side === "Sell" && qty !== null && qty > 0n && limit !== null && limit > 0n && lockUnits !== null && lockUnits > 0n ? previewSell(pricing, lockUnits, qty, limit, round.maxPrice, bondFloor) : null;
   const cashNeeded = side === "Buy" ? (buyPreview?.total ?? 0n) : (sellPreview?.bond ?? 0n);
   const shortfall = cashNeeded > venueCash ? cashNeeded - venueCash : 0n;
-  const needsRegistration = side === "Buy" && round.kind === "Exit" && viewer !== null && viewer.storage === null;
+  const bidStorage = side === "Buy" ? (viewer?.bidStorage ?? null) : null;
   const freeUnits = viewer?.holding.balance ?? 0n;
+  const maxBuy = round.maxBuyQuantity ?? (round.kind === "Advance" ? round.advanceClaim : null);
 
   const errors = {
-    quantity: qty !== null && qty <= 0n ? "Enter a positive quantity." : side === "Buy" && round.kind === "Advance" && qty !== null && round.advanceClaim !== null && qty > round.advanceClaim ? `At most ${formatQty(round.advanceClaim, decimals)} claimed tokens are on offer.` : side === "Sell" && lockUnits !== null && qty !== null && qty > lockUnits ? "The sealed quantity cannot exceed the units you lock." : null,
+    quantity:
+      qty !== null && qty <= 0n
+        ? "Enter a positive quantity."
+        : side === "Buy" && maxBuy !== null && qty !== null && qty > maxBuy
+          ? `At most ${formatQty(maxBuy, decimals)} ${round.kind === "Advance" ? "claimed tokens are on offer" : "units (the class supply when the round was created)"}: a larger bid is void at opening and its bond slashed.`
+          : side === "Sell" && lockUnits !== null && qty !== null && qty > lockUnits
+            ? "The sealed quantity cannot exceed the units you lock."
+            : null,
     price:
       limit !== null && limit <= 0n
         ? "Enter a positive price."
@@ -87,12 +98,25 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   };
   const hasError = Object.values(errors).some((e) => e !== null);
   const preview = side === "Buy" ? buyPreview : sellPreview;
-  const ready = open && viewer !== null && existing === null && preview !== null && !hasError && shortfall === 0n && !needsRegistration && !sealing && status.status !== "busy";
+  const ready = open && viewer !== null && existing === null && preview !== null && !hasError && shortfall === 0n && !sealing && status.status !== "busy";
 
-  const register = async () => {
-    const minimum = await engine.views.storageMinimum();
-    const result = await run({ label: "Registering your account in the engine (NEP-145)", call: engine.calls.storageDeposit(minimum), success: "Account registered: it can now receive units", receipt: { engine: engine.account, roundId: round.roundId, kind: "cash", label: "storage_deposit (NEP-145)" } });
-    if (result.ok) onPlaced();
+  /** Sends the storage deposit an Exit bid needs for the units it buys (spec 4), read live; false when it could not be sent. */
+  const ensureBidStorage = async (account: string): Promise<boolean> => {
+    let need: StorageNeed | null;
+    try {
+      need = await readStorageNeed(engine.views, account, { classId: round.classId });
+    } catch (error) {
+      setSealError(error instanceof Error ? `Your engine storage could not be read: ${error.message}` : "Your engine storage could not be read.");
+      return false;
+    }
+    if (!need) return true;
+    const stored = await run({
+      label: need.kind === "register" ? "Registering your account in the engine (NEP-145)" : "Adding engine storage for the units you buy (NEP-145)",
+      call: engine.calls.storageDeposit(need.deposit),
+      success: `${formatStorageNear(need.deposit)} NEAR of storage deposited: the units you buy have room`,
+      receipt: { engine: engine.account, roundId: round.roundId, kind: "cash", label: "storage_deposit (NEP-145)" },
+    });
+    return stored.ok;
   };
 
   const submit = async () => {
@@ -107,8 +131,9 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
       setSealError(error instanceof Error ? `The order could not be sealed in this browser: ${error.message}` : "The order could not be sealed in this browser.");
       return;
     }
-    setSealing(false);
     saveLocalOrder(engine.account, round.roundId, viewer.account, { side, quantity: qty.toString(), limitPrice: limit.toString(), salt: sealed.salt, ciphertextHex: sealed.ciphertextHex, bidId: null, txHash: null });
+    setSealing(false);
+    if (side === "Buy" && round.kind === "Exit" && !(await ensureBidStorage(viewer.account))) return;
     const call =
       side === "Buy"
         ? engine.calls.placeBid(round.roundId, sealed.ciphertextHex, buyPreview ? (escrowInput !== null && escrowInput >= buyPreview.escrowRequired ? escrowInput : buyPreview.escrowRequired) : 0n)
@@ -175,7 +200,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
           </p>
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={side === "Buy" ? (round.kind === "Advance" ? "Claimed tokens" : "Quantity (units)") : "Quantity to sell (units)"} hint={side === "Sell" && round.kind !== "Advance" ? `Free units: ${formatQty(freeUnits, decimals)}` : undefined} error={errors.quantity}>
+          <Field label={side === "Buy" ? (round.kind === "Advance" ? "Claimed tokens" : "Quantity (units)") : "Quantity to sell (units)"} hint={side === "Sell" && round.kind !== "Advance" ? `Free units: ${formatQty(freeUnits, decimals)}` : maxBuy !== null ? `At most ${formatQty(maxBuy, decimals)} per bid` : undefined} error={errors.quantity}>
             {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={quantity} onValueChange={setQuantity} decimals={decimals} placeholder="1000" unit={round.kind === "Advance" ? "tokens" : "units"} data-order-quantity />}
           </Field>
           <Field label={side === "Buy" ? "Limit price" : "Minimum price"} hint={`Per ${round.kind === "Advance" ? "claimed" : "locked"} token · max ${formatUsdc(round.maxPrice)}`} error={errors.price}>
@@ -211,6 +236,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
             </>
           )}
           <Row label="Storage deposit" value={`${formatUnits(BID_STORAGE_DEPOSIT, 24, 2)} NEAR`} hint="returned when the order settles" />
+          {bidStorage ? <Row label={bidStorage.kind === "register" ? "Engine registration (NEP-145)" : "Engine storage top-up (NEP-145)"} value={`${formatStorageNear(bidStorage.deposit)} NEAR`} hint="room for the units you buy, sent first; withdrawable" /> : null}
           <Row label="Your cash in the venue" value={viewer ? `${formatUsdc(venueCash)} USDC` : "—"} />
         </dl>
 
@@ -225,21 +251,13 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
             {showDeposit ? <CashDeposit engine={engine} venue={round.venue} roundId={round.roundId} shortfall={shortfall} nearCashToken={config.near_cash_token} onDeposited={onPlaced} /> : null}
           </div>
         ) : null}
-        {viewer && open && needsRegistration && existing === null ? (
-          <Notice tone="warning">
-            Exit buyers receive units, so the account must be registered in the engine (NEP-145, about 0.0022 NEAR, withdrawable).{" "}
-            <Button type="button" size="sm" variant="secondary" className="ml-2" onClick={() => void register()} loading={status.status === "busy"} loadingLabel="Signing…" data-register>
-              Register
-            </Button>
-          </Notice>
-        ) : null}
         {sealError ? <Notice tone="danger">{sealError}</Notice> : null}
         {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <LearnMore topic="fees" label="Fees and bonds" />
           <Button type="submit" disabled={!ready} loading={sealing || status.status === "busy"} loadingLabel={sealing ? "Sealing in the browser…" : "Signing…"} data-order-submit>
-            {side === "Buy" ? "Seal and place bid" : "Seal and place ask"}
+            {side === "Buy" ? (bidStorage ? "Add storage, seal and place bid" : "Seal and place bid") : "Seal and place ask"}
           </Button>
         </div>
       </form>

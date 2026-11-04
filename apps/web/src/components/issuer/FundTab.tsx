@@ -1,6 +1,6 @@
 "use client";
 
-import { approveToken, decodeCashDeposited, depositCash, depositNearCashCall, erc20Abi, waitForSafeHead, type Cash, type CashDepositedLog } from "@rose/sdk";
+import { approveToken, decodeCashDeposited, depositCash, erc20Abi, waitForSafeHead, type Cash, type CashDepositedLog } from "@rose/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +12,7 @@ import { formatUsdc, parseAmount, venueLabel } from "@/lib/amounts";
 import { deployedAddress, NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { RoseActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
+import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
 import { useAction, useFlow } from "@/lib/use-action";
 import { registerCashLog } from "./base-registration";
 import { ActionFeedback, FieldLabel, Hint, Preview, useVenueOptions, type IssuerBase, baseClient } from "./shared";
@@ -29,6 +30,7 @@ export function FundTab({ base }: { base: IssuerBase }) {
   const [cash, setCash] = useState<Cash[] | null>(null);
   const near = useAction();
   const flow = useFlow();
+  const storageNeed = useNearCashStorageNeed(base.engine, wallets.near.accountId, near.state.status);
   const option = venues.find((item) => item.id === venueId) ?? venues[0]!;
   const amountUnits = parseAmount(amount, USDC);
 
@@ -54,8 +56,10 @@ export function FundTab({ base }: { base: IssuerBase }) {
       if (amountUnits === null || amountUnits <= 0n) throw new RoseActionError("contract", "Enter an amount", "The amount must be positive.");
       const balance = wallets.balances.nearTusdc;
       if (balance !== null && balance < amountUnits) throw new RoseActionError("insufficient_balance", "Not enough tUSDC", `Your NEAR wallet holds ${formatUsdc(balance)} tUSDC. Mint more from "Get test funds".`);
-      const outcome = await wallets.sendNearCall(depositNearCashCall(NEAR_TUSDC_ACCOUNT, base.engine.account, amountUnits));
-      return { message: `${formatUsdc(amountUnits)} tUSDC credited to your NEAR cash`, links: txLinks("near", outcome.transaction.hash) };
+      const account = wallets.near.accountId;
+      if (!account) throw new RoseActionError("no_wallet", "No NEAR wallet", "Connect a NEAR wallet first.");
+      const result = await depositNearCash({ send: wallets.sendNearCall, engine: base.engine, token: NEAR_TUSDC_ACCOUNT, account, amount: amountUnits });
+      return { message: `${formatUsdc(amountUnits)} tUSDC credited to your NEAR cash`, links: result.links };
     });
 
   const fundBase = async () => {
@@ -139,6 +143,11 @@ export function FundTab({ base }: { base: IssuerBase }) {
               <Hint>
                 ft_transfer_call on {NEAR_TUSDC_ACCOUNT} credits the engine&apos;s NEAR cash ledger for your account. Wallet balance: {wallets.balances.nearTusdc === null ? "—" : `${formatUsdc(wallets.balances.nearTusdc)} tUSDC`}; mint more from the testnet banner.
               </Hint>
+              {storageNeed ? (
+                <Hint tone="warning">
+                  <span data-storage-notice={storageNeed.kind}>{storageNotice(storageNeed)}</span>
+                </Hint>
+              ) : null}
               <div className="flex flex-wrap items-center gap-3">
                 <Button onClick={() => void fundNear()} disabled={!wallets.near.accountId || amountUnits === null || amountUnits <= 0n || near.state.status === "loading"} loading={near.state.status === "loading"} loadingLabel="Depositing" data-fund-near>
                   Deposit tUSDC

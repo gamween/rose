@@ -69,9 +69,9 @@ function overrides(state: { account: string; withdrawn: boolean }): MockOverride
         case "get_payout":
           return PAYOUTS.map(withAccount).find((item) => item.id === String(args.payout_id)) ?? null;
         case "storage_balance_of":
-          return { total: "5000000000000000000000", available: "2840000000000000000000" };
+          return { total: "9000000000000000000000", available: "2810000000000000000000" };
         case "storage_balance_bounds":
-          return { min: "2160000000000000000000", max: null };
+          return { min: "6190000000000000000000", max: null };
         case "get_positions":
           return Number(args.from_index ?? 0) === 0
             ? [

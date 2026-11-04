@@ -1,22 +1,25 @@
 "use client";
 
-import { depositNearCashCall, ONE, type Venue } from "@rose/sdk";
-import { useState } from "react";
+import { ONE, type Venue } from "@rose/sdk";
+import { useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { amountToText, formatAmount, formatFraction, formatUsdc, formatDate, nsToMs, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
+import { amountToText, formatAmount, formatFraction, formatUsdc, formatDate, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
 import { USDC_DECIMALS } from "@/lib/engine";
 import { requireEngine } from "@/lib/engine-client";
-import { txLinks } from "@/lib/explorer";
+import { RoseActionError } from "@/lib/errors";
+import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
+import { defaultDurations, formatBound, minutesToNs } from "@/lib/round-window";
 import { useAction } from "@/lib/use-action";
 import { fractionAt } from "@/lib/unlock-schedule";
 import { classLabel } from "@/components/portfolio/data";
+import { RoundTimingFields, type RoundTimingValue } from "@/components/rounds/RoundTimingFields";
 import type { AdvanceData } from "./data";
 import { holderBond, maxClaim, validateAdvance } from "./math";
 
-export type AdvanceSubmission = { classId: string; venue: Venue; units: bigint; claim: bigint; minFill: bigint; maxPrice: bigint; reserve: bigint; closesAtNs: bigint };
+export type AdvanceSubmission = { classId: string; venue: Venue; units: bigint; claim: bigint; minFill: bigint; maxPrice: bigint; reserve: bigint; closesAtNs: bigint; keyTimeoutNs: bigint; revealWindowNs: bigint };
 
 const selectClass = "h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 focus:border-ember-500 focus:outline-none";
 
@@ -40,6 +43,7 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
   const [maxPrice, setMaxPrice] = useState("");
   const [venueKey, setVenueKey] = useState("near");
   const [closesAt, setClosesAt] = useState(() => defaultCloseLocal(Number(data.blockTimeSec) * 1000));
+  const [timing, setTiming] = useState<RoundTimingValue>(() => defaultDurations(data.config));
   const [touched, setTouched] = useState(false);
 
   const holding = holdings.find((item) => item.classId === classId) ?? null;
@@ -61,11 +65,13 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
     minFill: parseAmount(minFill, decimals),
     maxPrice: parseAmount(maxPrice, USDC_DECIMALS),
     closesAtMs: Number.isFinite(closesAtMs) ? closesAtMs : null,
+    keyTimeout: minutesToNs(timing.keyTimeout),
+    revealWindow: minutesToNs(timing.revealWindow),
   };
   const kMax = form.units !== null && fTs !== null ? maxClaim(form.units, fTs) : null;
   const bond = form.claim !== null && form.maxPrice !== null && form.claim > 0n && form.maxPrice > 0n ? holderBond(form.claim, form.maxPrice, decimals, data.limits.bondFloor) : null;
   const cash = data.cash.find((entry) => sameVenue(entry.venue, venue))?.amount ?? 0n;
-  const errors = holding && fTs !== null ? validateAdvance(form, { freeUnits: holding.balance, fTs, nowMs: Number(data.blockTimeSec) * 1000, cash, bond, decimals }) : { units: "Choose a class you hold free units of" };
+  const errors = holding && fTs !== null ? validateAdvance(form, { freeUnits: holding.balance, fTs, nowMs: Number(data.blockTimeSec) * 1000, cash, bond, decimals, limits: data.limits }) : { units: "Choose a class you hold free units of" };
   const valid = Object.keys(errors).length === 0 && holding !== null && info !== null && closesAtSec !== null;
   const show = (key: keyof typeof errors) => (touched ? errors[key] : undefined);
 
@@ -84,8 +90,8 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
       onSubmit={(event) => {
         event.preventDefault();
         setTouched(true);
-        if (!valid || !holding || form.units === null || form.claim === null || form.minFill === null || form.maxPrice === null || form.reserve === null || closesAtSec === null) return;
-        onSubmit({ classId: holding.classId, venue, units: form.units, claim: form.claim, minFill: form.minFill, maxPrice: form.maxPrice, reserve: form.reserve, closesAtNs: closesAtSec * 1_000_000_000n });
+        if (!valid || !holding || form.units === null || form.claim === null || form.minFill === null || form.maxPrice === null || form.reserve === null || closesAtSec === null || form.keyTimeout === null || form.revealWindow === null) return;
+        onSubmit({ classId: holding.classId, venue, units: form.units, claim: form.claim, minFill: form.minFill, maxPrice: form.maxPrice, reserve: form.reserve, closesAtNs: closesAtSec * 1_000_000_000n, keyTimeoutNs: form.keyTimeout, revealWindowNs: form.revealWindow });
       }}
     >
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -103,7 +109,7 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
             </select>
           )}
         </Field>
-        <Field label="Bidding closes at (settlement time ts)" error={show("closesAtMs")} hint={fTs !== null ? `f(ts) = ${formatFraction(fTs, 2)} unlocked at settlement` : undefined}>
+        <Field label="Bidding closes at (settlement time ts)" error={show("closesAtMs")} hint={`${fTs !== null ? `f(ts) = ${formatFraction(fTs, 2)} unlocked at settlement · ` : ""}at most ${formatBound(data.limits.maxRoundHorizon)} from now`}>
           {({ inputId, invalid }) => <Input id={inputId} type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} invalid={invalid} />}
         </Field>
         <Field label="Units to encumber (X)" error={show("units")} hint="Encumbered units cannot be transferred or enter another round until the claim is delivered.">
@@ -147,10 +153,11 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
           )}
         </Field>
       </div>
+      <RoundTimingFields value={timing} onChange={setTiming} errors={{ keyTimeout: show("keyTimeout") ?? null, revealWindow: show("revealWindow") ?? null }} limits={data.limits} />
       {bond !== null && cash < bond ? <BondShortfall venue={venue} shortfall={bond - cash} nearCashToken={data.config.near_cash_token} onDeposited={onCashDeposited} /> : null}
       <div className="rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px] text-ink-300" data-advance-preview>
         <p>
-          Round storage deposit 0.05 NEAR (kept with the round record) plus 0.02 NEAR for the sealed ask (refunded at settlement). Key timeout {Math.round(nsToMs(BigInt(data.config.default_key_timeout)) / 60_000)} min, reveal window {Math.round(nsToMs(BigInt(data.config.default_reveal_window)) / 60_000)} min.
+          Round storage deposit 0.05 NEAR (kept with the round record) plus 0.02 NEAR for the sealed ask (refunded at settlement). Key timeout {form.keyTimeout !== null ? formatBound(form.keyTimeout) : "—"}, reveal window {form.revealWindow !== null ? formatBound(form.revealWindow) : "—"}.
           {Number.isFinite(closesAtMs) ? ` Closes ${formatDate(closesAtMs)}.` : ""}
         </p>
         <p className="mt-1">
@@ -169,12 +176,15 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
 
 /**
  * The holder's bond is taken from their cash in the venue: on NEAR the shortfall is deposited
- * right here (`ft_transfer_call` of tUSDC); Base cash is deposited for a round, so it is funded
- * from a round page or the issuer console once the Advance exists.
+ * right here (the storage deposit the cash row needs, then `ft_transfer_call` of tUSDC); Base
+ * cash is deposited for a round, so it is funded from a round page or the issuer console once
+ * the Advance exists.
  */
 function BondShortfall({ venue, shortfall, nearCashToken, onDeposited }: { venue: Venue; shortfall: bigint; nearCashToken: string; onDeposited: () => void }) {
   const wallets = useWallets();
   const deposit = useAction({ onSuccess: onDeposited });
+  const engine = useMemo(() => (venue === "Near" ? requireEngine() : null), [venue]);
+  const storageNeed = useNearCashStorageNeed(engine, wallets.near.accountId, deposit.state.status);
   const wallet = wallets.balances.nearTusdc;
   if (venue !== "Near") {
     return (
@@ -188,6 +198,11 @@ function BondShortfall({ venue, shortfall, nearCashToken, onDeposited }: { venue
       <p>
         Your cash in NEAR tUSDC is short by <span className="tabular text-ink-50">{formatUsdc(shortfall)} USDC</span> for the bond.
         {wallet !== null ? ` Wallet balance ${formatUsdc(wallet)} tUSDC.` : ""}
+        {storageNeed ? (
+          <span className="mt-1 block text-ink-300" data-storage-notice={storageNeed.kind}>
+            {storageNotice(storageNeed)}
+          </span>
+        ) : null}
         {deposit.state.status === "error" ? <span className="block text-danger-400" role="alert">{deposit.state.error.title}: {deposit.state.error.message}</span> : null}
       </p>
       <Button
@@ -200,10 +215,11 @@ function BondShortfall({ venue, shortfall, nearCashToken, onDeposited }: { venue
         loadingLabel="Signing…"
         onClick={() =>
           void deposit.run(`Depositing ${formatUsdc(shortfall)} tUSDC`, async () => {
-            const { account } = requireEngine();
-            const outcome = await wallets.sendNearCall(depositNearCashCall(nearCashToken, account, shortfall));
+            const account = wallets.near.accountId;
+            if (!account) throw new RoseActionError("no_wallet", "No NEAR wallet", "Connect a NEAR wallet first.");
+            const result = await depositNearCash({ send: wallets.sendNearCall, engine: engine ?? requireEngine(), token: nearCashToken, account, amount: shortfall });
             void wallets.refreshBalances();
-            return { message: `${formatUsdc(shortfall)} tUSDC credited to your cash`, links: txLinks("near", outcome.transaction.hash) };
+            return { message: `${formatUsdc(shortfall)} tUSDC credited to your cash`, links: result.links };
           })
         }
         data-deposit-bond

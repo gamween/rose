@@ -3,11 +3,12 @@
 /**
  * Everything the round detail page reads, in one query: the round, its sealed book, its class,
  * the engine limits and config (the CKD public key seals orders), and the viewer's own state
- * (cash in the round's venue, NEP-145 registration, holding, existing orders). Polls faster
- * while the MPC key is in flight.
+ * (cash in the round's venue, NEP-145 storage and what an Exit bid needs of it, holding,
+ * existing orders). Polls faster while the MPC key is in flight.
  */
 
 import type { Bid, Cash, ClassInfo, ConfigView, Holding, Limits, Round, StorageBalance } from "@rose/sdk";
+import { storageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveQuery, type QueryState } from "@/components/status/useLiveQuery";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -17,6 +18,8 @@ export interface ViewerState {
   account: string;
   cash: Cash[];
   storage: StorageBalance | null;
+  /** The storage deposit an Exit bid needs first (room for the holding row it buys, spec 4); null when covered or not an Exit. */
+  bidStorage: StorageNeed | null;
   holding: Holding;
   buyOrderId: number | null;
   sellOrderId: number | null;
@@ -61,14 +64,16 @@ async function fetchDetail(roundId: bigint, viewerAccount: string | null, signal
     const symbols = await classSymbols([cls]);
     let viewer: ViewerState | null = null;
     if (viewerAccount) {
-      const [cash, storage, holding, buyOrderId, sellOrderId] = await Promise.all([
-        engine.views.getCash(viewerAccount, { signal }),
+      const [portfolio, storage, minimum, holding, buyOrderId, sellOrderId] = await Promise.all([
+        engine.views.getPortfolio(viewerAccount, { signal }),
         engine.views.storageBalanceOf(viewerAccount, { signal }),
+        engine.views.storageMinimum({ signal }),
         engine.views.getHolding(viewerAccount, round.classId, { signal }),
         engine.views.getOrderId(roundId, viewerAccount, "Buy", { signal }),
         engine.views.getOrderId(roundId, viewerAccount, "Sell", { signal }),
       ]);
-      viewer = { account: viewerAccount, cash, storage, holding, buyOrderId, sellOrderId };
+      const bidStorage = round.kind === "Exit" ? storageNeed({ storage, minimum, portfolio, change: { classId: round.classId } }) : null;
+      viewer = { account: viewerAccount, cash: portfolio.cash, storage, bidStorage, holding, buyOrderId, sellOrderId };
     }
     return { engine, round, bids, cls, symbol: symbolOf(symbols, cls), limits, config, viewer, blockTimeMs: Number(BigInt(block.header.timestamp_nanosec) / 1_000_000n) };
   } catch (error) {

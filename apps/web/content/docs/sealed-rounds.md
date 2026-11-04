@@ -23,6 +23,8 @@ Every transition is a public method. There is no keeper, no relayer and no privi
 | `Settled` | Units and cash have moved inside the NEAR ledger. Each participant pulls their cash, units or refunds. | Each participant claims. |
 | `Cancelled` | No crossing, no sealed order at close, cancelled by the creator before the first bid, or no key in time. Every escrow, bond and locked unit is refundable. | Each participant claims their refund. |
 
+Creation bounds every duration the creator chooses (`get_limits` reports them): `closes_at` in the future and at most 30 days after creation, `key_timeout` between 1 minute and 7 days, `reveal_window` between 5 minutes and 7 days. Without them any creator (an Exit is open to anyone) could freeze a round forever, since `clear` waits for the end of the reveal window, or slash every bond with a window too short to land an opening. The minimum key timeout leaves time for a `close` sent right after `closes_at`; the minimum reveal window leaves time to open a full book of 64 orders. The create forms check every bound inline.
+
 ## Sealing
 
 Bids are encrypted in the browser with Boneh-Franklin identity-based encryption (IBE) over BLS12-381, against the NEAR MPC network's Confidential Key Derivation (CKD) key, domain 2. The identity is on G1, the master key on G2. The implementation is ported from Sealwell (`Godwin-web3/sealwell`, MIT OR Apache-2.0) with attribution. The same crate compiles to wasm for the browser and into the NEAR contract, so encryption and verification share one implementation.
@@ -32,7 +34,7 @@ Bids are encrypted in the browser with Boneh-Franklin identity-based encryption 
 
 ## Key release after the deadline only
 
-The key request (`request_app_private_key` on `v1.signer-prod.testnet`, `AppPublicKeyPV` variant with a public scalar, 1 yocto) exists in exactly one function of the engine, `close`. It is callable by anyone and guarded by `require!(now >= round.closes_at)`; retries are unbounded until `closes_at + key_timeout`. Gas (measured): the MPC's live config requires 15 Tgas attached, but the request itself burns about 11.6 Tgas on top of the 7 Tgas reserved for the yield return, so the measured minimum is 19 Tgas and the engine attaches 25. `close` attaches about 60 Tgas in total. The MPC network derives the private key for the round identity and returns it to the contract.
+The key request (`request_app_private_key` on `v1.signer-prod.testnet`, `AppPublicKeyPV` variant with a public scalar, 1 yocto) exists in exactly one function of the engine, `close`. It is callable by anyone and guarded by `require!(now >= round.closes_at)`; retries are unbounded until `closes_at + key_timeout`. Gas (measured): the MPC's live config requires 15 Tgas attached, but the request itself burns about 11.6 Tgas on top of the 7 Tgas reserved for the yield return, so the measured minimum is 19 Tgas and the engine attaches 25. The app attaches 80 Tgas to `close`. The MPC network derives the private key for the round identity and returns it to the contract.
 
 Because the engine is keyless and has no upgrade method, there is no code path by which anyone, including the operator, can obtain the key before the deadline.
 
@@ -45,7 +47,7 @@ Measured on testnet (rose, consistent with Sealwell's 4.3 to 6.1 s): 4.2 to 4.8 
 1. Once the key is public, anyone can open any bid by submitting `(plaintext, sigma)`. The contract fully verifies the opening: it recomputes `V` from the public key with one pairing in wasm and checks `U`, `V` and `W` (Sealwell measured 119.8 Tgas, 124 Tgas per receipt; rose measured 124.3 to 124.4 Tgas per transaction), so each opening fits in one transaction under the 300 Tgas wallet cap.
 2. A ciphertext with an inconsistent `V` can be opened by nobody, its author included. This matters: a bidder cannot submit a malformed bid and then decide after seeing the book whether to reveal it. There is no free option, so no challenge window is needed.
 3. The key being public, every participant's browser can decrypt every bid locally. The app opens all remaining bids in sequence for whoever clicks "Finalize". Each opening is a separate transaction prepaid with 200 Tgas, about 1.5 times the 132 Tgas the staging engine burns, because prepaid gas is charged up front at the pessimistic gas price; the opener pays about 0.0132 NEAR of gas per bid.
-4. After the reveal window, bids that nobody opened (malformed) are void and their bond is slashed. An opened bid is also void and slashed if a buyer's `limit * quantity` exceeds its escrow or a seller's quantity exceeds its locked units.
+4. After the reveal window, bids that nobody opened (malformed) are void and their bond is slashed. An opened bid is also void and slashed if a buyer's `limit * quantity` exceeds its escrow, a buyer's quantity exceeds the round's largest buy quantity (`max_buy_quantity`, fixed at creation and shown with the round: the class supply then in an Exit, the claim in an Advance, so a redeem after the bid was sealed never voids a covered bid), or a seller's quantity exceeds its locked units.
 
 ## Collateral, bonds and slashing
 

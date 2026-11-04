@@ -12,7 +12,7 @@ This guide is for a fund, an OTC desk or a long-term holder who wants to buy loc
 Everything runs on testnets. Open the testnet banner and use "Get test funds":
 
 - NEAR: a testnet account and NEAR for gas. The in-app demo wallet creates one for you.
-- Test USDC: minted on-chain by anyone, on NEAR testnet (`tusdc.rose-app.testnet`) and on Base Sepolia. The mint is capped at 10,000 tUSDC per account per rolling 24 h, and the token is labeled "Test USDC". Circle's Base Sepolia USDC is also accepted as a Base cash token when you already have it.
+- Test USDC: minted on-chain by anyone, on NEAR testnet (`tusdc.rose-app.testnet`) and on Base Sepolia. The mint is capped at 10,000 tUSDC per account per 24-hour window, which starts at the account's first mint after the previous window ended, and the token is labeled "Test USDC". Circle's Base Sepolia USDC is also accepted as a Base cash token when you already have it.
 - Base Sepolia gas: a little ETH from the `/api/faucet` route (a demo convenience, not part of the protocol).
 - Solana devnet SOL, for the Solana deposit flow.
 - "Mint me a demo vesting position": a Sablier stream of the demo token on Base, or a Streamflow stream on Solana, if you want to try the holder side too.
@@ -32,7 +32,7 @@ Check the venue: your escrow, bond and, if you win, your refund live there. Fund
 1. Click "Place bid".
 2. Enter your escrow (public): the cash you lock for the bid. Then, sealed, your limit price per locked token (per claimed token in an Advance) and your quantity. The sealed `limit * quantity` plus its 30 bps fee must not exceed your escrow, or the bid is void and its bond is slashed at clearing.
 3. The form shows the live fee (30 bps of the notional, on top of the price), the bond (`max(1 USDC, 1% of the escrow)`), the venue and the total collateral.
-4. Sign. In an Exit you receive units, so your account needs a NEP-145 storage registration on the engine first (`storage_deposit`, about 0.00216 NEAR minimum; the form offers it). Each order also attaches 0.02 NEAR of storage, refunded at settlement net of the bytes kept for its outcome. Your bid is encrypted in the browser against the round's identity before it leaves your machine. The round page lists it under "my bids" with its ciphertext hash. Nobody can read the limit or the quantity before the round closes, not the operator and not the MPC nodes individually.
+4. Sign. In an Exit you receive units, so your engine storage needs room for the class's holding row (NEP-145 `storage_deposit`, 0.00619 NEAR minimum, which covers one class and one cash venue; 0.0031 NEAR more per further class). When it is short, the form shows the top-up and sends it before the bid, from the same click; it stays yours and is withdrawable. Your quantity cannot exceed the round's largest bid quantity (shown with the round: the class supply when an Exit was created, the claim in an Advance); a larger bid is void at opening and its bond slashed. Each order also attaches 0.02 NEAR of storage, refunded at settlement net of the bytes kept for its outcome. Your bid is encrypted in the browser against the round's identity before it leaves your machine. The round page lists it under "my bids" with its ciphertext hash. Nobody can read the limit or the quantity before the round closes, not the operator and not the MPC nodes individually.
 
 You cannot change or withdraw a bid once placed.
 

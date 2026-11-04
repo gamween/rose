@@ -177,7 +177,7 @@ export function AdvancePage() {
           run: async () => {
             if (holder.roundId !== null) return { message: `Round #${holder.roundId.toString()} already created` };
             const { calls } = requireEngine();
-            const outcome = await wallets.sendNearCall(calls.createAdvance({ classId: submission.classId, venue: submission.venue, units: submission.units, claim: submission.claim, minFill: submission.minFill, maxPrice: submission.maxPrice, window: { closesAt: submission.closesAtNs } }));
+            const outcome = await wallets.sendNearCall(calls.createAdvance({ classId: submission.classId, venue: submission.venue, units: submission.units, claim: submission.claim, minFill: submission.minFill, maxPrice: submission.maxPrice, window: { closesAt: submission.closesAtNs, keyTimeout: submission.keyTimeoutNs, revealWindow: submission.revealWindowNs } }));
             const value = outcomeValue(outcome);
             if (typeof value !== "string") throw new RoseActionError("contract", "No round id returned", "create_advance did not return the round id.");
             holder.roundId = BigInt(value);

@@ -29,7 +29,7 @@ The fee recipient is fixed when the engine is initialized and cannot be changed 
 
 - Bonds: `max(1 USDC, 1% of the bid's escrow or of its locked units valued at the round's max price)`, posted with each bid and refunded on a valid opening. Only a bid that is never opened, or that exceeds its collateral, loses its bond.
 - Gas: NEAR gas for your own transactions; about 0.0132 NEAR per bid for whoever opens the book after close (each opening is prepaid with 200 Tgas and burns about 132 Tgas); Base Sepolia gas for submitting a RoseVault authorization; Solana fees are paid by the engine's `gas/sol` address. A Solana claimant pays the rent of their durable nonce account once (80 bytes, 1,056,640 lamports when measured); it is reused for later claims.
-- Storage deposits on NEAR: a NEP-145 registration to hold units (minimum about 0.00216 NEAR, one more row per class held), 0.02 NEAR per sealed order (refunded at settlement net of the bytes kept for its outcome), 0.05 NEAR per round (kept with the round record), 0.025 NEAR per signed custody action and 0.015 NEAR per deposit attribution or registration.
+- Storage deposits on NEAR: a NEP-145 registration to hold units and cash (minimum 0.00619 NEAR for one class and one cash venue; 0.0031 NEAR per further class held and 0.00172 NEAR per further cash venue with a balance; withdrawable), 0.02 NEAR per sealed order (refunded at settlement net of the bytes kept for its outcome), 0.05 NEAR per round (kept with the round record), 0.025 NEAR per signed custody action and 0.015 NEAR per deposit attribution or registration.
 - Sablier's withdrawal fee, when Sablier's comptroller sets one, is forwarded at withdrawal time (it was 0 on Base Sepolia when measured).
 
 ## Worked numbers

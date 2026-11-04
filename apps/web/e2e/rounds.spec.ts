@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { demoWalletScript, mockRounds, ROUNDS_MOCK } from "./fixtures/rounds-mock";
+import { BYTE_COST, demoWalletScript, mockRounds, ROUNDS_MOCK } from "./fixtures/rounds-mock";
 
 /**
  * Rounds list and round detail (spec 8.3). The mocked suite needs a build whose engine account
@@ -67,6 +67,20 @@ test.describe("rounds with a mocked engine", () => {
     await expect(dialog).toContainText("0.05 NEAR");
     await expect(dialog.getByRole("combobox").first()).toContainText("CINDR");
     await dialog.getByPlaceholder("8.50").fill("9");
+    await expect(dialog.locator("[data-key-timeout]")).toHaveValue("60");
+    await expect(dialog.locator("[data-reveal-window]")).toHaveValue("10");
+    await expect(dialog.locator("[data-round-timing]")).toContainText("Key timeout 1 min to 7 d; reveal window 5 min to 7 d.");
+    await dialog.locator("[data-reveal-window]").fill("4");
+    await expect(dialog.getByRole("alert")).toHaveText("The reveal window must be at least 5 min.");
+    await dialog.locator("[data-reveal-window]").fill("1440");
+    await dialog.locator("[data-key-timeout]").fill("10081");
+    await expect(dialog.getByRole("alert")).toHaveText("The key timeout must be at most 7 d.");
+    await dialog.locator("[data-key-timeout]").fill("60");
+    await dialog.getByRole("button", { name: "Custom" }).click();
+    const far = new Date(Date.now() + 31 * 86_400_000);
+    const local = new Date(far.getTime() - far.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    await dialog.locator("input[type='datetime-local']").fill(local);
+    await expect(dialog.getByRole("alert")).toHaveText("A round closes at most 30 d after it is created: pick an earlier close.");
     await expect(dialog.locator("[data-create-exit-submit]")).toBeDisabled();
     expect(errors).toEqual([]);
   });
@@ -134,15 +148,17 @@ test.describe("rounds with a mocked engine", () => {
     await expect(form).toContainText("Cash short by 113.965875 USDC");
 
     await form.locator("[data-show-deposit]").click();
+    await expect(form.locator("[data-storage-notice='register']")).toContainText("storage deposit of 0.00619 NEAR", { timeout: 20_000 });
     await form.locator("[data-deposit-near]").click();
     await expect(page.getByRole("status").filter({ hasText: "credited to your cash" })).toBeVisible({ timeout: 20_000 });
     await expect(form).not.toContainText("Cash short", { timeout: 20_000 });
-    await form.locator("[data-register]").click();
-    await expect(page.getByRole("status").filter({ hasText: "Account registered" })).toBeVisible({ timeout: 20_000 });
+    await expect(form.locator("[data-order-preview]")).not.toContainText("NEP-145");
     await expect(form.locator("[data-order-submit]")).toBeEnabled({ timeout: 20_000 });
+    await expect(form.locator("[data-order-submit]")).toHaveText("Seal and place bid");
     await form.locator("[data-order-submit]").click();
     await expect(page.getByRole("status").filter({ hasText: "Sealed bid #2 placed" })).toBeVisible({ timeout: 30_000 });
-    expect(state.sent.map((s) => s.method)).toEqual(["ft_transfer_call", "storage_deposit", "place_bid"]);
+    expect(state.sent.map((s) => s.method)).toEqual(["storage_deposit", "ft_transfer_call", "place_bid"]);
+    expect(state.sent[0]?.deposit).toBe(619n * BYTE_COST);
     const mine = page.locator("[data-my-order='2']");
     await expect(mine).toContainText("20 @ 7.50 USDC", { timeout: 20_000 });
     await expect(page.locator("[data-sealed-book] tbody tr")).toHaveCount(3);
@@ -166,7 +182,46 @@ test.describe("rounds with a mocked engine", () => {
     await page.locator("[data-verify-run]").click();
     await expect(page.locator("[data-verify-status='match']")).toBeVisible();
     await expect(page.locator("[data-receipts] li")).toHaveCount(11);
-    expect(state.sent.map((s) => s.method)).toEqual(["ft_transfer_call", "storage_deposit", "place_bid", "close", "open_bid", "open_bid", "open_bid", "clear", "settle_bid", "settle_bid", "settle_bid"]);
+    expect(state.sent.map((s) => s.method)).toEqual(["storage_deposit", "ft_transfer_call", "place_bid", "close", "open_bid", "open_bid", "open_bid", "clear", "settle_bid", "settle_bid", "settle_bid"]);
+    expect(errors).toEqual([]);
+  });
+
+  test("an account holding other classes tops up its storage from the deposit and bid buttons", async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = await collectErrors(page);
+    const state = await mockRounds(page);
+    state.otherHoldings = { ["b".repeat(64)]: 5n * 10n ** 18n, ["c".repeat(64)]: 7n * 10n ** 18n };
+    state.storage = (137n + 2n * 310n) * BYTE_COST;
+    await page.addInitScript(demoWalletScript());
+    await page.goto("/app/rounds/1");
+    await expect(page.locator("[data-next-action='bid']")).toBeVisible({ timeout: 20_000 });
+    const form = page.locator("[data-order-form]");
+    await form.getByRole("tab", { name: "Bid (buy units)" }).click();
+    await expect(form).toContainText("At most 400 per bid");
+    await form.locator("[data-order-quantity]").fill("401");
+    await expect(form.getByRole("alert")).toContainText("At most 400 units (the class supply when the round was created)");
+    await form.locator("[data-order-quantity]").fill("300");
+    await form.locator("[data-order-price]").fill("5");
+    await form.locator("[data-show-deposit]").click();
+    const amount = form.getByRole("textbox", { name: "Amount to deposit" });
+    await expect(amount).toHaveValue("1139.65875");
+    await expect(form.locator("[data-cash-deposit]").getByRole("alert")).toHaveText("Not enough tUSDC in the wallet: mint some with “Get test funds” in the banner, then retry.");
+    await form.locator("[data-order-quantity]").fill("10");
+    await expect(amount).toHaveValue("38.6125");
+    await expect(form.locator("[data-storage-notice='top_up']")).toContainText("storage top-up of 0.00172 NEAR", { timeout: 20_000 });
+    await form.locator("[data-deposit-near]").click();
+    await expect(page.getByRole("status").filter({ hasText: "credited to your cash" })).toBeVisible({ timeout: 20_000 });
+    await expect(form.locator("[data-order-preview]")).toContainText("Engine storage top-up (NEP-145)", { timeout: 20_000 });
+    await expect(form.locator("[data-order-preview]")).toContainText("0.00310 NEAR");
+    await expect(form.locator("[data-order-submit]")).toHaveText("Add storage, seal and place bid");
+    await form.locator("[data-order-submit]").click();
+    await expect(page.getByRole("status").filter({ hasText: "Sealed bid #2 placed" })).toBeVisible({ timeout: 30_000 });
+    expect(state.sent.map((s) => [s.method, s.deposit])).toEqual([
+      ["storage_deposit", 172n * BYTE_COST],
+      ["ft_transfer_call", 1n],
+      ["storage_deposit", 310n * BYTE_COST],
+      ["place_bid", 20_000_000_000_000_000_000_000n],
+    ]);
     expect(errors).toEqual([]);
   });
 

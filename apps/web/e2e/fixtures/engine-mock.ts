@@ -221,9 +221,12 @@ export type MockOverrides = {
   solanaRequest?: (method: string, params: unknown[]) => unknown;
 };
 
-/** Routes every chain RPC the pages call to the fixture above. */
+/**
+ * Routes every chain RPC the pages call to the fixture above. Both NEAR endpoints are mocked: the
+ * app moves to the fallback once the primary's request budget is spent, which a long test does.
+ */
 export async function mockChains(page: Page, overrides: MockOverrides = {}): Promise<void> {
-  await page.route("https://test.rpc.fastnear.com/**", async (route) => {
+  const near = async (route: Route) => {
     const request = route.request().postDataJSON() as { id: string; method: string; params: Record<string, string> };
     const params = request.params;
     if (params.request_type !== "call_function" && params.request_type !== "view_access_key_list" && params.request_type !== "view_account") {
@@ -247,7 +250,9 @@ export async function mockChains(page: Page, overrides: MockOverrides = {}): Pro
     const args = JSON.parse(Buffer.from(params.args_base64!, "base64").toString("utf8")) as Record<string, unknown>;
     const custom = overrides.engineView?.(params.method_name!, args);
     return fulfil(route, { jsonrpc: "2.0", id: request.id, result: viewResult(custom !== undefined ? custom : engineView(params.method_name!, args)) });
-  });
+  };
+  await page.route("https://test.rpc.fastnear.com/**", near);
+  await page.route("https://rpc.testnet.near.org/**", near);
   await page.route("https://sepolia.base.org/**", async (route) => {
     const request = route.request().postDataJSON() as { id: number; method: string; params: unknown[] };
     const custom = overrides.baseRequest?.(request.method, request.params);

@@ -74,7 +74,7 @@ Every lifecycle step is a public method, so a round only stalls if nobody calls 
 - The MPC testnet network's liveness and latency are those of a test deployment. Measured CKD latency was 4.2 to 4.8 s from the close transaction to the stored key (Sealwell measured 4.3 to 6.1 s).
 - Staging engines are not keyless: the staging deployments keep a full-access key held by the team, and one was updated in place. Treat every staging engine as a test deployment; only the final engine is deployed keyless, and the [status page](/status) shows the live access key check.
 - Demo helpers are not part of the protocol: the `/api/faucet` route sends a little gas from a server-side testnet wallet, and the in-app demo wallets hold keys in the browser. Do not reuse demo keys anywhere.
-- Default windows are short in the demo (10 min reveal window). In production a 24 h reveal window is suggested.
+- Default windows are short in the demo (10 min reveal window). In production a 24 h reveal window is suggested. Every creator-chosen duration is bounded at creation (`closes_at` at most 30 days away, `key_timeout` 1 min to 7 d, `reveal_window` 5 min to 7 d), so no creator can freeze a round forever or slash every bond with a window too short to land an opening.
 
 ## Unaudited
 

@@ -102,7 +102,7 @@ export function trezuTemplate(input: TrezuTemplateInput): TrezuManifest {
       { name: "budget", label: "Budget (cash base units, 6 decimals)", type: "amount", required: true, default: tender.budget.toString(), help: "The issuer escrows the budget plus 30 bps." },
       { name: "max_price", label: "Max price per whole locked token (cash base units)", type: "amount", required: true, default: tender.maxPrice.toString() },
       ...(reference !== undefined ? [{ name: "reference_price", label: "Declared reference price (cash base units)", type: "amount", required: true, default: reference.toString() } as TrezuField] : []),
-      { name: "closes_at", label: "Closes at (unix nanoseconds)", type: "uint", required: true, default: tender.window.closesAt.toString() },
+      { name: "closes_at", label: "Closes at (unix nanoseconds)", type: "uint", required: true, default: tender.window.closesAt.toString(), help: "In the future, and within the engine's round horizon (get_limits max_round_horizon) of the moment the proposal executes." },
     ],
     args: {
       params: {
@@ -112,7 +112,7 @@ export function trezuTemplate(input: TrezuTemplateInput): TrezuManifest {
         max_price: "{{max_price}}",
         reference_price: reference !== undefined ? "{{reference_price}}" : null,
         retire_to: tender.retireTo,
-        window: { opens_at: null, closes_at: "{{closes_at}}", key_timeout: null, reveal_window: null },
+        window: { opens_at: null, closes_at: "{{closes_at}}", key_timeout: tender.window.keyTimeout?.toString() ?? null, reveal_window: tender.window.revealWindow?.toString() ?? null },
       },
     },
   };

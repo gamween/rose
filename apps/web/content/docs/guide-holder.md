@@ -19,7 +19,7 @@ Go to `/app/deposit` and choose Base.
 1. The wizard lists your Sablier v4 streams and flags each as eligible or not. Ineligible reasons are explained: not Lockup Linear, cancelable, not transferable, canceled, depleted, less than one whole token left to lock, or a token or schedule that does not match an existing class and cannot create one.
 2. Approve RoseVault for the stream NFT. You see the approval transaction and its explorer link.
 3. Deposit. RoseVault first withdraws any already vested balance to your EVM address, then takes the NFT and emits `StreamDeposited`. You see the deposit transaction and your withdrawn balance, if any.
-4. The wizard waits until Base's safe head has passed your deposit (about 3 minutes), then registers the deposit on NEAR: it calls the engine, which asks the MPC network to verify the Base transaction. You see the proof progress (MPC verification) and then "units minted": `D` units of the class, where `D` is the stream's deposited amount, with a checkpoint at the deposit time.
+4. The wizard waits until Base's safe head has passed your deposit (about 3 minutes), then registers the deposit on NEAR: it calls the engine, which asks the MPC network to verify the Base transaction. You see the proof progress (MPC verification) and then "units minted": `D` units of the class, where `D` is the stream's deposited amount, with a checkpoint at the deposit time. If the engine refuses the stream instead, the wizard lists it under refused deposits with a "Return my stream" action: the engine signs a `Release` with `vestedToRecipient = true` and `executeRelease` sends the stream back to your address together with what vested while the vault held it.
 5. Your portfolio (`/app`) now shows the class, your units, the locked and claimable amounts, and the unlock timeline.
 
 ## Deposit on Solana
@@ -73,7 +73,7 @@ An authorization that was signed but not submitted stays in your portfolio until
 If you hold at least `D_p` units of a class, where `D_p` is the allocation of a position in that class, you can take the position itself back out.
 
 1. In your portfolio, choose to redeem the position (`redeem(position_id, to)`). The engine burns `D_p` units from your free units.
-2. On Base, the engine authorizes an ERC-721 `Release`; any withdrawable balance is first withdrawn to the vault so accrued tokens stay with unit holders. Submit `executeRelease` from your EVM wallet. You see the stream NFT in your wallet.
+2. On Base, the engine authorizes an ERC-721 `Release` with `vestedToRecipient = false`: any withdrawable balance is first withdrawn to the vault so accrued tokens stay with unit holders. Submit `executeRelease` from your EVM wallet. You see the stream NFT in your wallet.
 3. On Solana, the stream must carry no unconfirmed payout, and you also pay, from your claimable tokens of the class, what the stream still owes the unit holders. The engine builds `AdvanceNonceAccount` then `transfer_recipient` from the vault to your address, the app broadcasts it, then confirms it on NEAR (`confirm_sol_redeem`). You see the stream with your address as recipient.
 
 Units locked in a round and encumbered units cannot be redeemed.

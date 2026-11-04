@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * "Create Exit round" (spec 8.3): `create_exit` is open to anyone. Class, cash venue, max price
- * and bidding window, with the round storage deposit (0.05 NEAR, kept with the round record)
- * shown before signing, then the full transaction flow and a jump to the new round.
+ * "Create Exit round" (spec 8.3): `create_exit` is open to anyone. Class, cash venue, max price,
+ * bidding window, key timeout and reveal window (checked against the `get_limits` bounds, spec
+ * 5.6), with the round storage deposit (0.05 NEAR, kept with the round record) shown before
+ * signing, then the full transaction flow and a jump to the new round.
  */
 
-import { ONE, outcomeValue, ROUND_STORAGE_DEPOSIT, type ClassInfo, type ConfigView, type Venue } from "@rose/sdk";
+import { ONE, outcomeValue, ROUND_STORAGE_DEPOSIT, type ClassInfo, type ConfigView, type Limits, type Venue } from "@rose/sdk";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
@@ -15,11 +16,13 @@ import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatUnits } from "@/lib/format";
+import { defaultDurations, durationErrors, horizonError, minutesToNs } from "@/lib/round-window";
 import { ROUTES } from "@/lib/routes";
 import { useNearAction } from "./actions";
 import type { RoundsEngine } from "./engine";
 import { symbolOf } from "./engine";
-import { classLabel, formatDuration, parseDecimal, secondsToNs, shortHex, USDC_DECIMALS } from "./model";
+import { classLabel, msToNs, parseDecimal, secondsToNs, shortHex, USDC_DECIMALS } from "./model";
+import { RoundTimingFields, type RoundTimingValue } from "./RoundTimingFields";
 import { Notice } from "./shared";
 
 const WINDOWS: { label: string; seconds: number }[] = [
@@ -71,15 +74,20 @@ export function CreateExitModal({
   engine,
   classes,
   symbols,
-  config,
+  settings,
+  settingsError,
+  onRetrySettings,
 }: {
   open: boolean;
   onClose: () => void;
   engine: RoundsEngine;
   classes: ClassInfo[];
   symbols: ReadonlyMap<string, string>;
-  config: ConfigView | null;
+  settings: { config: ConfigView; limits: Limits } | null;
+  settingsError: string | null;
+  onRetrySettings: () => void;
 }) {
+  const config = settings?.config ?? null;
   const router = useRouter();
   const { near } = useWallets();
   const { run, status } = useNearAction();
@@ -90,6 +98,8 @@ export function CreateExitModal({
   const [windowSeconds, setWindowSeconds] = useState(3600);
   const [customCloses, setCustomCloses] = useState("");
   const [useCustom, setUseCustom] = useState(false);
+  const [chosenTiming, setTiming] = useState<RoundTimingValue | null>(null);
+  const timing = chosenTiming ?? (config ? defaultDurations(config) : { keyTimeout: "", revealWindow: "" });
 
   const eligible = useMemo(() => classes.filter((cls) => cls.fractionNow < ONE), [classes]);
   const classId = chosenClassId || (eligible[0]?.classId ?? "");
@@ -108,16 +118,21 @@ export function CreateExitModal({
   const fTs = cls && closesValid ? fractionAt(cls, Math.floor(closesAtMs / 1000)) : null;
   const fullyUnlocked = fTs !== null && fTs >= ONE;
 
+  const keyTimeout = minutesToNs(timing.keyTimeout);
+  const revealWindow = minutesToNs(timing.revealWindow);
+  const durations = settings ? durationErrors({ keyTimeout, revealWindow }, settings.limits) : { keyTimeout: null, revealWindow: null };
+  const tooFar = settings && closesValid ? horizonError(msToNs(closesAtMs), msToNs(now), settings.limits) : null;
+
   const errors = {
     price: maxPrice !== "" && (price === null || price <= 0n) ? "Enter a positive price in USDC per locked token." : null,
-    closes: useCustom && customCloses !== "" && !closesValid ? "The close must be at least 30 seconds in the future." : null,
+    closes: useCustom && customCloses !== "" && !closesValid ? "The close must be at least 30 seconds in the future." : tooFar,
     cls: fullyUnlocked ? "This class is fully unlocked at the close time: there is nothing locked to price. Pick an earlier close or another class." : null,
   };
-  const ready = near.status === "connected" && cls !== null && price !== null && price > 0n && closesValid && !fullyUnlocked && status.status !== "busy";
+  const ready = near.status === "connected" && settings !== null && cls !== null && price !== null && price > 0n && closesValid && tooFar === null && durations.keyTimeout === null && durations.revealWindow === null && keyTimeout !== null && revealWindow !== null && !fullyUnlocked && status.status !== "busy";
 
   const submit = async () => {
-    if (!ready || !cls || price === null) return;
-    const call = engine.calls.createExit({ classId: cls.classId, venue: selectedVenue, maxPrice: price, window: { closesAt: secondsToNs(Math.floor(closesAtMs / 1000)) } });
+    if (!ready || !cls || price === null || keyTimeout === null || revealWindow === null) return;
+    const call = engine.calls.createExit({ classId: cls.classId, venue: selectedVenue, maxPrice: price, window: { closesAt: secondsToNs(Math.floor(closesAtMs / 1000)), keyTimeout, revealWindow } });
     const result = await run({
       label: "Creating the Exit round",
       call,
@@ -158,6 +173,14 @@ export function CreateExitModal({
         }}
       >
         {near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or use the demo wallet) to create a round.</Notice> : null}
+        {settingsError ? (
+          <Notice tone="danger">
+            The engine settings (cash venues and round bounds) could not be read: {settingsError}{" "}
+            <button type="button" className="underline underline-offset-2" onClick={onRetrySettings} data-retry-settings>
+              Retry
+            </button>
+          </Notice>
+        ) : null}
         {eligible.length === 0 ? <Notice tone="info">No class with locked tokens exists yet. Deposit a position first; the class appears here once it is registered.</Notice> : null}
         <Field label="Class" error={errors.cls}>
           {({ inputId, describedBy, invalid }) => (
@@ -187,11 +210,7 @@ export function CreateExitModal({
             <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={maxPrice} onValueChange={setMaxPrice} unit="USDC" decimals={USDC_DECIMALS} placeholder="8.50" />
           )}
         </Field>
-        <Field
-          label="Bidding window"
-          hint={config ? `Key timeout ${formatDuration(Number(config.default_key_timeout) / 1e9)} and reveal window ${formatDuration(Number(config.default_reveal_window) / 1e9)} follow the engine defaults.` : undefined}
-          error={errors.closes}
-        >
+        <Field label="Bidding window" hint="Bids and asks are accepted until the close; settlement prices are taken at that time." error={errors.closes}>
           {({ inputId, describedBy, invalid }) => (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Bidding window presets">
@@ -218,6 +237,7 @@ export function CreateExitModal({
             </div>
           )}
         </Field>
+        {settings ? <RoundTimingFields value={timing} onChange={setTiming} errors={durations} limits={settings.limits} /> : null}
         <dl className="grid grid-cols-2 gap-3 rounded-md border border-ink-750 bg-ink-900 p-3 text-[12px]">
           <div>
             <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Storage deposit</dt>

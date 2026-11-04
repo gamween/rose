@@ -22,8 +22,10 @@ describe("holderBond", () => {
 
 describe("validateAdvance", () => {
   const now = 1_762_200_000_000;
-  const base = { units: 1000n, claim: 400n, reserve: 5_000_000n, minFill: 100n, maxPrice: 9_000_000n, closesAtMs: now + 86_400_000 };
-  const context = { freeUnits: 1000n, fTs: HALF, nowMs: now, cash: 100_000_000n, bond: 1_000_000n, decimals: 0 };
+  const second = 1_000_000_000n;
+  const limits = { minKeyTimeout: 60n * second, maxKeyTimeout: 7n * 86_400n * second, minRevealWindow: 300n * second, maxRevealWindow: 7n * 86_400n * second, maxRoundHorizon: 30n * 86_400n * second };
+  const base = { units: 1000n, claim: 400n, reserve: 5_000_000n, minFill: 100n, maxPrice: 9_000_000n, closesAtMs: now + 86_400_000, keyTimeout: 3_600n * second, revealWindow: 600n * second };
+  const context = { freeUnits: 1000n, fTs: HALF, nowMs: now, cash: 100_000_000n, bond: 1_000_000n, decimals: 0, limits };
   it("accepts a well-formed Advance", () => {
     expect(validateAdvance(base, context)).toEqual({});
   });
@@ -37,5 +39,12 @@ describe("validateAdvance", () => {
     expect(validateAdvance(base, { ...context, fTs: ONE }).closesAtMs).toMatch(/fully unlocked/);
     expect(validateAdvance({ ...base, closesAtMs: now }, context).closesAtMs).toMatch(/at least a minute/);
     expect(validateAdvance(base, { ...context, cash: 0n }).maxPrice).toBe("Your cash in the venue (0.00 USDC) does not cover the 1.00 USDC bond");
+  });
+  it("enforces the engine's round bounds", () => {
+    expect(validateAdvance({ ...base, closesAtMs: now + 30 * 86_400_000 }, context)).toEqual({});
+    expect(validateAdvance({ ...base, closesAtMs: now + 30 * 86_400_000 + 60_000 }, context).closesAtMs).toBe("A round closes at most 30 d after it is created: pick an earlier close.");
+    expect(validateAdvance({ ...base, keyTimeout: 59n * second }, context).keyTimeout).toBe("The key timeout must be at least 1 min.");
+    expect(validateAdvance({ ...base, revealWindow: 240n * second }, context).revealWindow).toBe("The reveal window must be at least 5 min.");
+    expect(validateAdvance({ ...base, revealWindow: null }, context).revealWindow).toBe("Enter the reveal window in whole minutes.");
   });
 });

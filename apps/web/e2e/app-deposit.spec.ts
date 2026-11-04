@@ -181,7 +181,7 @@ test.describe("deposit wizard (mocked chains)", () => {
       case "get_holding":
         return { class_id: args.class_id, balance: state.registered ? (100n * 10n ** 18n).toString() : "0", locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "0" };
       case "registration_deposit_for":
-        return "2160000000000000000000";
+        return "21190000000000000000000";
       case "get_replay":
         if (!state.registerSent) return null;
         state.replayPolls += 1;

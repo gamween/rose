@@ -48,7 +48,7 @@ export async function submitBasePayout(wallet: SignerClient, vault: Address, pay
   }
   if ("BaseRelease" in payout.kind) {
     const kind = payout.kind.BaseRelease;
-    return executeRelease(wallet, { vault, authorization: { lockup: kind.lockup as Address, streamId: BigInt(kind.stream_id), to: kind.to as Address, id }, ...signature });
+    return executeRelease(wallet, { vault, authorization: { lockup: kind.lockup as Address, streamId: BigInt(kind.stream_id), to: kind.to as Address, vestedToRecipient: kind.vested_to_recipient, id }, ...signature });
   }
   throw new RoseActionError("contract", "Not a Base payout", "This payout is not a RoseVault authorization.");
 }

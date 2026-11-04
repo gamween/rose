@@ -9,12 +9,14 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input, NumberInput } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { formatDuration, formatUsdc, nsToMs, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
+import { formatUsdc, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
 import { nearRpc } from "@/lib/engine-client";
 import { toActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
+import { defaultDurations, durationErrors, formatBound, minutesToNs } from "@/lib/round-window";
 import { ROUTES } from "@/lib/routes";
 import { useAction } from "@/lib/use-action";
+import { RoundTimingFields, type RoundTimingValue } from "@/components/rounds/RoundTimingFields";
 import { secondsToDateTime } from "./class-schedule";
 import { sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate } from "./dao";
 import { ActionFeedback, ClassPicker, ClassSummary, classSymbol, CopyButton, FieldLabel, formatNear, Hint, Preview, useVenueOptions, type IssuerBase } from "./shared";
@@ -42,6 +44,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
   const [opensNow, setOpensNow] = useState(true);
   const [opensAt, setOpensAt] = useState(() => secondsToDateTime(Math.floor(Date.now() / 1000) + 3600));
   const [closesAt, setClosesAt] = useState(() => secondsToDateTime(Math.floor(Date.now() / 1000) + 86_400));
+  const [timing, setTiming] = useState<RoundTimingValue>(() => defaultDurations(base.config));
   const [cash, setCash] = useState<Cash[] | null>(null);
   const [dao, setDao] = useState("");
   const [policy, setPolicy] = useState<DaoPolicy | null>(null);
@@ -97,11 +100,14 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
       discountBps: percentToBps(discount),
       retireTo: retireTo.trim(),
       window: { opensNow, opensAt, closesAt },
+      keyTimeout: minutesToNs(timing.keyTimeout),
+      revealWindow: minutesToNs(timing.revealWindow),
     };
-    const result = tenderArgsFromForm(values, now);
+    const result = tenderArgsFromForm(values, now, base.limits);
     if ("error" in result) return result;
     return { args: result.args, call: base.engine.calls.createTender(result.args) };
-  }, [base.engine.calls, budget, closesAt, cls, discount, maxPrice, mode, now, opensAt, opensNow, reference, retireTo, venue]);
+  }, [base.engine.calls, base.limits, budget, closesAt, cls, discount, maxPrice, mode, now, opensAt, opensNow, reference, retireTo, timing, venue]);
+  const timingErrors = durationErrors({ keyTimeout: minutesToNs(timing.keyTimeout), revealWindow: minutesToNs(timing.revealWindow) }, base.limits);
 
   const budgetUnits = parseAmount(budget, USDC) ?? 0n;
   const escrow = tenderEscrow(budgetUnits);
@@ -228,8 +234,10 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="tender-closes">Closes (UTC)</FieldLabel>
               <Input id="tender-closes" type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} />
+              <Hint>At most {formatBound(base.limits.maxRoundHorizon)} after the Tender is created.</Hint>
             </div>
           </div>
+          <RoundTimingFields value={timing} onChange={setTiming} errors={timingErrors} limits={base.limits} />
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="tender-retire">Retired units pay to ({cls?.chain ?? "foreign"} address)</FieldLabel>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -250,7 +258,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
               { label: `Your cash in ${venueLabel(venue, base.symbols)}`, value: venueCash === null ? "—" : `${formatUsdc(venueCash)} USDC` },
               { label: "Max price", value: built && !("error" in built) ? `${formatUsdc(built.args.maxPrice, 6)} USDC per locked token` : "—" },
               { label: "Round storage deposit", value: `${formatNear(base.limits.roundStorageDeposit)} NEAR (kept with the round record)` },
-              { label: "Key timeout · reveal window", value: `${formatDuration(nsToMs(BigInt(base.config.default_key_timeout)) / 1000)} · ${formatDuration(nsToMs(BigInt(base.config.default_reveal_window)) / 1000)}` },
+              { label: "Key timeout · reveal window", value: built && !("error" in built) && built.args.window.keyTimeout !== undefined && built.args.window.revealWindow !== undefined ? `${formatBound(built.args.window.keyTimeout)} · ${formatBound(built.args.window.revealWindow)}` : "—" },
             ]}
           />
           {built && "error" in built ? <Hint tone="warning">{built.error}</Hint> : null}
@@ -258,7 +266,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
             <Button onClick={() => void launchTender()} disabled={disabledReason !== null || launch.state.status === "loading"} loading={launch.state.status === "loading"} loadingLabel="Creating" title={disabledReason ?? undefined} data-create-tender>
               Create the Tender
             </Button>
-            {disabledReason ? <Hint>{disabledReason}</Hint> : null}
+            {disabledReason && !(built && "error" in built && built.error === disabledReason) ? <Hint>{disabledReason}</Hint> : null}
           </div>
           <ActionFeedback state={launch.state} onRetry={() => void launchTender()} />
           <p className="text-[12px] text-ink-400">

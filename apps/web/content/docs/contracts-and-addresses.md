@@ -26,10 +26,10 @@ Every lifecycle transition is a public method; there is no keeper.
 | Method | Who | Guard | Effect |
 |---|---|---|---|
 | `bootstrap` | anyone, once | | Reads `derived_public_key` from the MPC contract and fills the derived foreign addresses (`vault/base`, `vault/sol`, `gas/sol`). |
-| `create_tender`, `create_exit`, `create_advance` | issuer, anyone, holder | parameters valid; Tender escrow (budget + 30 bps) and Advance units available | Round `Scheduled` or `Open` |
-| `place_bid`, `place_ask` | anyone | `opens_at <= now < closes_at`, at most `MAX_BIDS_PER_ROUND = 64` orders, one per side per account; 0.02 NEAR of storage attached | Stores the ciphertext, escrows cash or locks units, takes the bond |
+| `create_tender`, `create_exit`, `create_advance` | issuer, anyone, holder | parameters valid; `closes_at` at most 30 days away, `key_timeout` 1 min to 7 d, `reveal_window` 5 min to 7 d (`get_limits`); Tender escrow (budget + 30 bps) and Advance units available | Round `Scheduled` or `Open`, with its largest buy quantity fixed |
+| `place_bid`, `place_ask` | anyone | `opens_at <= now < closes_at`, at most `MAX_BIDS_PER_ROUND = 64` orders, one per side per account; 0.02 NEAR of storage attached; an Exit buyer's NEP-145 storage has room for the class's holding row | Stores the ciphertext, escrows cash or locks units, takes the bond |
 | `cancel_round` | creator | before the first bid | `Cancelled`, everything refundable |
-| `close` | anyone | `closes_at <= now < closes_at + key_timeout` | Requests the round key from CKD (retries unbounded, about 60 Tgas); a round without any sealed order is cancelled instead |
+| `close` | anyone | `closes_at <= now < closes_at + key_timeout` | Requests the round key from CKD (retries unbounded, 80 Tgas attached); a round without any sealed order is cancelled instead |
 | `on_round_key` (callback), `submit_key` | MPC, anyone | key verifies with one pairing check | `Revealing` from `key_received_at` |
 | `cancel_no_key` | anyone | no key by `closes_at + key_timeout`, and no key request in flight (250 blocks after the last `close`) | `Cancelled`, everything refundable |
 | `open_bid` | anyone | `Revealing`, inside the window | Full verification of `(plaintext, sigma)`; the bid is opened, or void if it exceeds its collateral |
@@ -67,7 +67,7 @@ Units follow NEP-245 (`mt_transfer`, `mt_transfer_call` and the batch variants; 
 
 - Domain: RoseVault on chain 84532.
 - `Transfer(address token, address to, uint256 amount, uint256 id)`: ERC-20 payout.
-- `Release(address lockup, uint256 streamId, address to, uint256 id)`: stream NFT release; `lockup` must be the canonical Sablier contract.
+- `Release(address lockup, uint256 streamId, address to, bool vestedToRecipient, uint256 id)`: stream NFT release; `lockup` must be the canonical Sablier contract. The withdrawable balance goes first to the vault (`vestedToRecipient = false`, an in-kind redeem) or to `to` (`true`, the return of a refused stream).
 - Signature from the MPC response: `v = 27 + recovery_id`, `r = big_R.x`, `s` (low-s). One replay bitmap for both types, 256 ids per storage word. No deadline.
 
 ### Events verified by the engine

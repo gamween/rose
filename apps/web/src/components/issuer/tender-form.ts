@@ -1,11 +1,12 @@
 /**
- * Launch Tender math and validation (spec 5.4, 5.5): the max price from a declared reference
- * and a max discount, the escrow (`budget + 30 bps`), the window in nanoseconds and the
- * `retire_to` address checked against the class chain.
+ * Launch Tender math and validation (spec 5.4, 5.5, 5.6): the max price from a declared
+ * reference and a max discount, the escrow (`budget + 30 bps`), the window in nanoseconds within
+ * the engine's bounds and the `retire_to` address checked against the class chain.
  */
 
 import { BPS_DENOMINATOR, fee, type Chain, type TenderArgs, type Venue } from "@rose/sdk";
 import { isEvmAddress, isSolanaAddress, msToNs } from "@/lib/amounts";
+import { durationErrors, horizonError, type WindowBounds } from "@/lib/round-window";
 import { dateTimeToSeconds } from "./class-schedule";
 
 /** The EVM burn address convention (`0x…dEaD`) and the Solana incinerator, as retire-to shortcuts. */
@@ -49,13 +50,18 @@ export type WindowInput = { opensNow: boolean; opensAt: string; closesAt: string
 
 export type WindowResult = { opensAt: bigint | undefined; closesAt: bigint } | { error: string };
 
-/** Validates the window: `closes_at` after `opens_at` (or now) and in the future, as nanosecond timestamps. */
-export function windowFromInput(input: WindowInput, nowMs: number): WindowResult {
+/**
+ * Validates the window: `closes_at` after `opens_at` (or now), in the future and at most the
+ * engine's round horizon away, as nanosecond timestamps.
+ */
+export function windowFromInput(input: WindowInput, nowMs: number, limits: WindowBounds): WindowResult {
   const closes = dateTimeToSeconds(input.closesAt);
   if (closes === null) return { error: "Enter when the round closes." };
   const closesNs = closes * 1_000_000_000n;
   const nowNs = msToNs(nowMs);
   if (closesNs <= nowNs) return { error: "The round must close in the future." };
+  const tooFar = horizonError(closesNs, nowNs, limits);
+  if (tooFar) return { error: tooFar };
   if (input.opensNow) return { opensAt: undefined, closesAt: closesNs };
   const opens = dateTimeToSeconds(input.opensAt);
   if (opens === null) return { error: "Enter when the round opens." };
@@ -76,12 +82,15 @@ export type TenderFormValues = {
   discountBps: number | null;
   retireTo: string;
   window: WindowInput;
+  /** Nanoseconds; null when the field does not hold whole minutes. */
+  keyTimeout: bigint | null;
+  revealWindow: bigint | null;
 };
 
 export type TenderFormResult = { args: TenderArgs } | { error: string };
 
 /** Turns the form into `create_tender` arguments, or the first error to fix. */
-export function tenderArgsFromForm(values: TenderFormValues, nowMs: number): TenderFormResult {
+export function tenderArgsFromForm(values: TenderFormValues, nowMs: number, limits: WindowBounds): TenderFormResult {
   if (values.budget <= 0n) return { error: "Enter a positive budget." };
   let maxPrice: bigint;
   if (values.mode === "price") {
@@ -95,8 +104,12 @@ export function tenderArgsFromForm(values: TenderFormValues, nowMs: number): Ten
   }
   const retireError = validateRetireTo(values.chain, values.retireTo);
   if (retireError) return { error: retireError };
-  const window = windowFromInput(values.window, nowMs);
+  const window = windowFromInput(values.window, nowMs, limits);
   if ("error" in window) return { error: window.error };
+  const durations = durationErrors({ keyTimeout: values.keyTimeout, revealWindow: values.revealWindow }, limits);
+  if (durations.keyTimeout) return { error: durations.keyTimeout };
+  if (durations.revealWindow) return { error: durations.revealWindow };
+  if (values.keyTimeout === null || values.revealWindow === null) return { error: "Enter the key timeout and reveal window." };
   return {
     args: {
       classId: values.classId,
@@ -105,7 +118,7 @@ export function tenderArgsFromForm(values: TenderFormValues, nowMs: number): Ten
       maxPrice,
       ...(values.referencePrice !== null && values.referencePrice > 0n ? { referencePrice: values.referencePrice } : {}),
       retireTo: canonicalRetireTo(values.chain, values.retireTo),
-      window: { closesAt: window.closesAt, ...(window.opensAt !== undefined ? { opensAt: window.opensAt } : {}) },
+      window: { closesAt: window.closesAt, ...(window.opensAt !== undefined ? { opensAt: window.opensAt } : {}), keyTimeout: values.keyTimeout, revealWindow: values.revealWindow },
     },
   };
 }

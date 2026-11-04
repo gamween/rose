@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Page, Route } from "@playwright/test";
 import { encryptBid, loadIbeSync } from "@rose/ibe-wasm";
-import { exit, tender, type Order } from "../../../../packages/sdk/dist/clearing.js";
-import { ONE } from "../../../../packages/sdk/dist/math.js";
+import { exit, tender, type Order } from "@rose/sdk/clearing";
+import { ONE } from "@rose/sdk/math";
 import { decodeSignedTransaction, KeyPair } from "near-api-js";
 
 /**
@@ -11,8 +11,10 @@ import { decodeSignedTransaction, KeyPair } from "near-api-js";
  * to the live round-1 identity of `rose-ckd-1793753433.testnet` (whose round key is public in
  * `packages/ibe-wasm/test`), and transactions sent by the in-app demo wallet decoded with
  * near-api-js and applied to the state: place_bid, close, open_bid, clear, settle_bid,
- * create_exit, cash deposits and NEP-145 registration. Clearing runs the SDK reference, so the
- * Verify panel sees a consistent on-chain result.
+ * create_exit, cash deposits and NEP-145 storage. Storage follows the engine's rule (spec 4): a
+ * NEAR cash deposit and an Exit bid are refused unless the deposit covers the account's rows
+ * plus the new one (record 137 bytes, holding row 310, cash row 172, 1e19 yoctoNEAR per byte).
+ * Clearing runs the SDK reference, so the Verify panel sees a consistent on-chain result.
  */
 
 export const ROUNDS_MOCK = {
@@ -31,6 +33,8 @@ const DAY = 86_400;
 const E18 = 10n ** 18n;
 const USDC = 1_000_000n;
 const QUARTER = 250_000_000_000_000_000n;
+/** Units of a class when its rounds were created: the largest buy quantity of an Exit (spec 5.2). */
+const CLASS_SUPPLY = 400n * E18;
 
 type Side = "Buy" | "Sell";
 
@@ -200,10 +204,14 @@ function round(round_id: number, kind: MockRound["kind"], now: number, overrides
 export interface RoundsMockState {
   rounds: Map<number, MockRound>;
   cash: bigint;
-  registered: boolean;
+  /** NEP-145 deposit of the demo account in the engine; null while it is not registered. */
+  storage: bigint | null;
   walletTusdc: bigint;
+  /** Units of the seed class (round 1's class). */
   holding: bigint;
-  sent: { method: string; args: Record<string, unknown> }[];
+  /** Units of other classes, each a holding row the storage pays for. */
+  otherHoldings: Record<string, bigint>;
+  sent: { method: string; args: Record<string, unknown>; deposit: bigint }[];
 }
 
 function settledTender(id: number, now: number): MockRound {
@@ -332,7 +340,7 @@ function buildState(now: number): RoundsMockState {
       }),
     );
   }
-  return { rounds, cash: 0n, registered: false, walletTusdc: 1_000n * USDC, holding: 0n, sent: [] };
+  return { rounds, cash: 0n, storage: null, walletTusdc: 1_000n * USDC, holding: 0n, otherHoldings: {}, sent: [] };
 }
 
 function status(r: MockRound, now: number): string {
@@ -398,6 +406,7 @@ function roundView(r: MockRound, now: number): Record<string, unknown> {
     advance_units: r.advance_units?.toString() ?? null,
     advance_claim: r.advance_claim?.toString() ?? null,
     advance_min_fill: r.advance_min_fill?.toString() ?? null,
+    max_buy_quantity: r.kind === "Exit" ? CLASS_SUPPLY.toString() : r.kind === "Advance" ? (r.advance_claim?.toString() ?? null) : null,
     lien_id: null,
     close_requested_at: r.close_requested_at === null ? null : ns(r.close_requested_at),
     key: r.key,
@@ -497,10 +506,31 @@ function clearExit(r: MockRound): void {
   }
 }
 
+export const BYTE_COST = 10n ** 19n;
+export const STORAGE_MIN = 619n * BYTE_COST;
+
+/** Bytes the engine charges the demo account for: its record, holding rows and cash row. */
+function usedBytes(state: RoundsMockState): bigint {
+  const holdings = (state.holding > 0n ? 1n : 0n) + BigInt(Object.values(state.otherHoldings).filter((units) => units > 0n).length);
+  return 137n + holdings * 310n + (state.cash > 0n ? 172n : 0n);
+}
+
+/** The engine's `require_storage_capacity`. */
+function requireCapacity(state: RoundsMockState, extraBytes: bigint): void {
+  if (state.storage === null) throw new Error(`Account ${ROUNDS_MOCK.demoAccount} is not registered: call storage_deposit first`);
+  if ((usedBytes(state) + extraBytes) * BYTE_COST > state.storage) throw new Error(`Insufficient storage deposit for ${ROUNDS_MOCK.demoAccount}: top up with storage_deposit`);
+}
+
+function storageView(state: RoundsMockState): { total: string; available: string } | null {
+  if (state.storage === null) return null;
+  const floor = usedBytes(state) * BYTE_COST > STORAGE_MIN ? usedBytes(state) * BYTE_COST : STORAGE_MIN;
+  return { total: state.storage.toString(), available: (state.storage > floor ? state.storage - floor : 0n).toString() };
+}
+
 /** Applies one decoded function call to the state and returns the JSON return value. */
-function apply(state: RoundsMockState, method: string, args: Record<string, unknown>, receiver: string): unknown {
+function apply(state: RoundsMockState, method: string, args: Record<string, unknown>, receiver: string, deposit: bigint): unknown {
   const now = Math.floor(Date.now() / 1000);
-  state.sent.push({ method, args });
+  state.sent.push({ method, args, deposit });
   const roundOf = () => {
     const r = state.rounds.get(Number(args.round_id));
     if (!r) throw new Error(`Round ${String(args.round_id)} does not exist`);
@@ -508,16 +538,19 @@ function apply(state: RoundsMockState, method: string, args: Record<string, unkn
   };
   if (receiver === ROUNDS_MOCK.tusdc && method === "ft_transfer_call") {
     const amount = BigInt(String(args.amount));
+    requireCapacity(state, state.cash > 0n ? 0n : 172n);
     state.walletTusdc -= amount;
     state.cash += amount;
     return "0";
   }
   switch (method) {
     case "storage_deposit":
-      state.registered = true;
-      return { total: "2160000000000000000000", available: "0" };
+      if (state.storage === null && deposit < STORAGE_MIN) throw new Error(`Attach the storage deposit for ${ROUNDS_MOCK.demoAccount}: ${STORAGE_MIN.toString()} yoctoNEAR`);
+      state.storage = (state.storage ?? 0n) + deposit;
+      return storageView(state);
     case "place_bid": {
       const r = roundOf();
+      if (r.kind === "Exit") requireCapacity(state, (r.class_id === SEED ? state.holding : (state.otherHoldings[r.class_id] ?? 0n)) > 0n ? 0n : 310n);
       const escrow = BigInt(String(args.escrow));
       const b = bid(r.bids.length, ROUNDS_MOCK.demoAccount, "Buy", escrow, String(args.ciphertext_hex));
       state.cash -= escrow + b.bond;
@@ -612,7 +645,7 @@ function view(state: RoundsMockState, method: string, args: Record<string, unkno
         derived_addresses: null,
       };
     case "get_limits":
-      return { bid_storage_deposit: "20000000000000000000000", round_storage_deposit: "50000000000000000000000", bond_floor: "1000000", fee_bps: 30, max_bids_per_round: 64, max_distribution_receivers: 50 };
+      return { bid_storage_deposit: "20000000000000000000000", round_storage_deposit: "50000000000000000000000", bond_floor: "1000000", fee_bps: 30, max_bids_per_round: 64, max_distribution_receivers: 50, min_key_timeout: ns(60), max_key_timeout: ns(7 * 86_400), min_reveal_window: ns(300), max_reveal_window: ns(7 * 86_400), max_round_horizon: ns(30 * 86_400) };
     case "get_classes": {
       const from = Number(args.from_index ?? 0);
       return classes(now).slice(from, from + Number(args.limit ?? 50));
@@ -667,11 +700,22 @@ function view(state: RoundsMockState, method: string, args: Record<string, unkno
     case "get_cash":
       return args.account === ROUNDS_MOCK.demoAccount ? [{ venue: "Near", amount: state.cash.toString() }] : [];
     case "storage_balance_of":
-      return args.account_id === ROUNDS_MOCK.demoAccount && state.registered ? { total: "2160000000000000000000", available: "0" } : null;
+      return args.account_id === ROUNDS_MOCK.demoAccount ? storageView(state) : null;
     case "storage_balance_bounds":
-      return { min: "2160000000000000000000", max: null };
+      return { min: STORAGE_MIN.toString(), max: null };
+    case "get_portfolio": {
+      if (args.account !== ROUNDS_MOCK.demoAccount) return { holdings: [], bids: [], liens_held: [], lien_shares: [], cash: [{ venue: "Near", amount: "0" }] };
+      const held: [string, bigint][] = [[SEED, state.holding], ...Object.entries(state.otherHoldings)];
+      return {
+        holdings: held.filter(([, units]) => units > 0n).map(([class_id, units]) => ({ class_id, balance: units.toString(), locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "0" })),
+        bids: [],
+        liens_held: [],
+        lien_shares: [],
+        cash: [{ venue: "Near", amount: state.cash.toString() }],
+      };
+    }
     case "get_holding":
-      return { class_id: args.class_id, balance: state.holding.toString(), locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "0" };
+      return { class_id: args.class_id, balance: (args.class_id === SEED ? state.holding : (state.otherHoldings[String(args.class_id)] ?? 0n)).toString(), locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "0" };
     case "get_events":
       return { events: [], total: "0", oldest: "0" };
     case "stats":
@@ -724,7 +768,7 @@ export async function mockRounds(page: Page): Promise<RoundsMockState> {
       const hash = randomHash();
       let value: unknown;
       try {
-        value = apply(state, call.methodName, args, signed.transaction.receiverId);
+        value = apply(state, call.methodName, args, signed.transaction.receiverId, BigInt(call.deposit.toString()));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return fulfil(route, {

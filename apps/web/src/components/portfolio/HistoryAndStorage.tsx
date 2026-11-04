@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Field, NumberInput } from "@/components/ui/Input";
 import { amountToText, formatAmount, formatDate, nsToMs, parseAmount } from "@/lib/amounts";
+import { CASH_ROW_BYTES, HOLDING_ROW_BYTES, STORAGE_BYTE_COST } from "@/lib/engine-storage";
 import { nearAccountUrl } from "@/lib/explorer";
 import { eventAmountFormat } from "@/lib/event-format";
 import { describePayout } from "@/lib/payouts";
@@ -111,7 +112,7 @@ export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: Po
     <Card data-storage>
       <CardHeader
         title="Storage (NEP-145)"
-        description="Every holding row costs 0.0012 NEAR of storage paid by its owner. Receiving units, buying in an Exit or getting a distribution requires a registered account with a free row."
+        description={`The minimum covers your account, one class and one cash venue; each further class held costs ${formatAmount(HOLDING_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR and each further cash venue ${formatAmount(CASH_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR. Receiving units, buying in an Exit, depositing NEAR cash or getting a distribution needs room for the row; the app adds the top-up to those actions.`}
         action={registered ? <Badge tone="success">Registered</Badge> : <Badge tone="warning">Not registered</Badge>}
       />
       <CardBody className="flex flex-col gap-3">

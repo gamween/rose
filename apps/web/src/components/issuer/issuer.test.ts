@@ -9,6 +9,10 @@ import { maxPriceFromDiscount, percentToBps, tenderArgsFromForm, tenderEscrow, v
 const DAY = 86_400n;
 const T0 = 1_762_200_000n;
 
+const SECOND = 1_000_000_000n;
+/** The engine's `get_limits` bounds (spec 5.6): key timeout 1 min to 7 d, reveal window 5 min to 7 d, horizon 30 d. */
+const BOUNDS = { minKeyTimeout: 60n * SECOND, maxKeyTimeout: 7n * 86_400n * SECOND, minRevealWindow: 300n * SECOND, maxRevealWindow: 7n * 86_400n * SECOND, maxRoundHorizon: 30n * 86_400n * SECOND };
+
 describe("class schedules", () => {
   it("normalizes a Sablier schedule by the gcd of its amounts", () => {
     const schedule = normalizeLinear({ start: T0, cliff: T0 + 30n * DAY, end: T0 + 365n * DAY, granularity: 1n, deposited: 1_000n * 10n ** 18n, startUnlock: 0n, cliffUnlock: 100n * 10n ** 18n }, 18);
@@ -83,18 +87,21 @@ describe("tender form", () => {
   });
   it("validates the window and converts it to nanoseconds", () => {
     const now = Date.UTC(2026, 10, 4, 12, 0);
-    expect(windowFromInput({ opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, now)).toEqual({ opensAt: undefined, closesAt: BigInt(Date.UTC(2026, 10, 5, 12, 0)) * 1_000_000n });
-    expect(windowFromInput({ opensNow: true, opensAt: "", closesAt: "2026-11-03T12:00" }, now)).toEqual({ error: "The round must close in the future." });
-    expect(windowFromInput({ opensNow: false, opensAt: "2026-11-06T12:00", closesAt: "2026-11-05T12:00" }, now)).toEqual({ error: "The round must close after it opens." });
+    expect(windowFromInput({ opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, now, BOUNDS)).toEqual({ opensAt: undefined, closesAt: BigInt(Date.UTC(2026, 10, 5, 12, 0)) * 1_000_000n });
+    expect(windowFromInput({ opensNow: true, opensAt: "", closesAt: "2026-11-03T12:00" }, now, BOUNDS)).toEqual({ error: "The round must close in the future." });
+    expect(windowFromInput({ opensNow: false, opensAt: "2026-11-06T12:00", closesAt: "2026-11-05T12:00" }, now, BOUNDS)).toEqual({ error: "The round must close after it opens." });
+    expect(windowFromInput({ opensNow: true, opensAt: "", closesAt: "2026-12-04T12:00" }, now, BOUNDS)).toEqual({ opensAt: undefined, closesAt: BigInt(Date.UTC(2026, 11, 4, 12, 0)) * 1_000_000n });
+    expect(windowFromInput({ opensNow: true, opensAt: "", closesAt: "2026-12-04T12:01" }, now, BOUNDS)).toEqual({ error: "A round closes at most 30 d after it is created: pick an earlier close." });
   });
   it("turns the form into create_tender arguments", () => {
     const now = Date.UTC(2026, 10, 4, 12, 0);
-    const result = tenderArgsFromForm(
-      { classId: "c", chain: "Base", venue: "Near", budget: 950_000_000n, mode: "discount", maxPrice: null, referencePrice: 10_000_000n, discountBps: 1000, retireTo: "0x000000000000000000000000000000000000DEAD", window: { opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" } },
-      now,
-    );
-    expect(result).toMatchObject({ args: { maxPrice: 9_000_000n, referencePrice: 10_000_000n, retireTo: "0x000000000000000000000000000000000000dead" } });
-    expect(tenderArgsFromForm({ classId: "c", chain: "Base", venue: "Near", budget: 0n, mode: "price", maxPrice: 1n, referencePrice: null, discountBps: null, retireTo: "", window: { opensNow: true, opensAt: "", closesAt: "" } }, now)).toEqual({ error: "Enter a positive budget." });
+    const form = { classId: "c", chain: "Base" as const, venue: "Near" as const, budget: 950_000_000n, mode: "discount" as const, maxPrice: null, referencePrice: 10_000_000n, discountBps: 1000, retireTo: "0x000000000000000000000000000000000000DEAD", window: { opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND };
+    const result = tenderArgsFromForm(form, now, BOUNDS);
+    expect(result).toMatchObject({ args: { maxPrice: 9_000_000n, referencePrice: 10_000_000n, retireTo: "0x000000000000000000000000000000000000dead", window: { keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND } } });
+    expect(tenderArgsFromForm({ ...form, budget: 0n }, now, BOUNDS)).toEqual({ error: "Enter a positive budget." });
+    expect(tenderArgsFromForm({ ...form, keyTimeout: 30n * SECOND }, now, BOUNDS)).toEqual({ error: "The key timeout must be at least 1 min." });
+    expect(tenderArgsFromForm({ ...form, revealWindow: 8n * 86_400n * SECOND }, now, BOUNDS)).toEqual({ error: "The reveal window must be at most 7 d." });
+    expect(tenderArgsFromForm({ ...form, revealWindow: null }, now, BOUNDS)).toEqual({ error: "Enter the reveal window in whole minutes." });
   });
 });
 

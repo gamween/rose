@@ -4,7 +4,8 @@
  */
 
 import { charge, ONE, perClaimedToken } from "@rose/sdk";
-import { formatAmount, formatUsdc } from "@/lib/amounts";
+import { formatAmount, formatUsdc, msToNs } from "@/lib/amounts";
+import { durationErrors, horizonError, type WindowBounds } from "@/lib/round-window";
 
 /** `K_max = floor(X * (1 - f(ts)) / ONE)`: the tokens still locked at settlement by `units`. */
 export function maxClaim(units: bigint, fTs: bigint): bigint {
@@ -26,12 +27,15 @@ export type AdvanceForm = {
   minFill: bigint | null;
   maxPrice: bigint | null;
   closesAtMs: number | null;
+  /** Nanoseconds; null when the field does not hold whole minutes. */
+  keyTimeout: bigint | null;
+  revealWindow: bigint | null;
 };
 
 export type AdvanceFormErrors = Partial<Record<keyof AdvanceForm, string>>;
 
-/** Validation of the create form against the holder's free units, `f(ts)` and the clock. */
-export function validateAdvance(form: AdvanceForm, context: { freeUnits: bigint; fTs: bigint; nowMs: number; cash: bigint; bond: bigint | null; decimals: number }): AdvanceFormErrors {
+/** Validation of the create form against the holder's free units, `f(ts)`, the clock and the engine's round bounds. */
+export function validateAdvance(form: AdvanceForm, context: { freeUnits: bigint; fTs: bigint; nowMs: number; cash: bigint; bond: bigint | null; decimals: number; limits: WindowBounds }): AdvanceFormErrors {
   const errors: AdvanceFormErrors = {};
   if (form.units === null) errors.units = "Enter the units to encumber";
   else if (form.units === 0n) errors.units = "Units must be positive";
@@ -48,6 +52,13 @@ export function validateAdvance(form: AdvanceForm, context: { freeUnits: bigint;
   else if (form.maxPrice !== null && form.reserve > form.maxPrice) errors.reserve = "The reserve cannot exceed the price ceiling (it would never fill)";
   if (form.closesAtMs === null) errors.closesAtMs ??= "Choose when bidding closes";
   else if (form.closesAtMs <= context.nowMs + 60_000) errors.closesAtMs ??= "Bidding must close at least a minute from now";
+  else {
+    const tooFar = horizonError(msToNs(form.closesAtMs), msToNs(context.nowMs), context.limits);
+    if (tooFar) errors.closesAtMs ??= tooFar;
+  }
+  const durations = durationErrors({ keyTimeout: form.keyTimeout, revealWindow: form.revealWindow }, context.limits);
+  if (durations.keyTimeout) errors.keyTimeout = durations.keyTimeout;
+  if (durations.revealWindow) errors.revealWindow = durations.revealWindow;
   if (context.bond !== null && context.cash < context.bond) errors.maxPrice ??= `Your cash in the venue (${formatUsdc(context.cash)} USDC) does not cover the ${formatUsdc(context.bond)} USDC bond`;
   return errors;
 }

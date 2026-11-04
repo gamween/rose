@@ -71,20 +71,27 @@ function jsonArgsOf(signed: Buffer): string {
 /** The live CKD master public key of the engine's domain (the ibe-wasm vectors), so sealing in the browser works against the mock. */
 const CKD_PUBLIC_KEY = "bls12381g2:25NCZcAVKGVLiFjrkVd7cxhSxcahEcDhSZCjeWMuEBbyZkdn9FddJQgXnJLjuvVvWTd1LmSqfrfgeJ8G35vJLWYXPG5UWbKjAiNaD4j76MV8otrTwCcGtft5y1ryN3PvfWAu";
 
-function overrides(): MockOverrides {
+/** `nearCash`: the holder's NEAR cash in the engine (base units); `registered`: whether it has a NEP-145 storage deposit. */
+function overrides(options: { nearCash?: string; registered?: boolean } = {}): MockOverrides {
+  const nearCash = options.nearCash ?? "250000000";
+  const registered = options.registered ?? true;
   return {
     engineView: (method, args) => {
       switch (method) {
         case "get_config":
           return { ...MOCK_CONFIG, ckd_public_key: CKD_PUBLIC_KEY };
         case "get_limits":
-          return { bid_storage_deposit: "20000000000000000000000", round_storage_deposit: "50000000000000000000000", bond_floor: "1000000", fee_bps: 30, max_bids_per_round: 64, max_distribution_receivers: 50 };
+          return { bid_storage_deposit: "20000000000000000000000", round_storage_deposit: "50000000000000000000000", bond_floor: "1000000", fee_bps: 30, max_bids_per_round: 64, max_distribution_receivers: 50, min_key_timeout: ns(60), max_key_timeout: ns(7 * 86_400), min_reveal_window: ns(300), max_reveal_window: ns(7 * 86_400), max_round_horizon: ns(30 * 86_400) };
         case "get_rounds": {
           const filter = args.filter as { status?: string } | null;
           return { rounds: ROUNDS.filter((round) => round.status === filter?.status), next: null };
         }
         case "get_portfolio":
-          return { holdings: [{ class_id: SEED, balance: `100${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "0" }], bids: [], liens_held: [], lien_shares: [], cash: [{ venue: "Near", amount: "250000000" }] };
+          return { holdings: [{ class_id: SEED, balance: `100${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "0" }], bids: [], liens_held: [], lien_shares: [], cash: [{ venue: "Near", amount: nearCash }] };
+        case "storage_balance_of":
+          return registered ? { total: "6190000000000000000000", available: "0" } : null;
+        case "storage_balance_bounds":
+          return { min: "6190000000000000000000", max: null };
         case "get_liens":
           return [[{ lien_id: "4", round_id: "6", class_id: SEED, holder: String(args.account), units: `10${E18}`, claim_total: `4${E18}`, delivered: `1${E18}`, pending_excess: "0", created_at: ns(NOW_SEC - 8 * 86_400), released: false }], []];
         default:
@@ -97,7 +104,7 @@ function overrides(): MockOverrides {
       if (method === "block") return { header: { height: 276_200_700, hash: "6zKgP7tApq19qYQnbWw4FtzA6hnrnoWWLti88pM6jGYS", timestamp: NOW_SEC * 1e9, timestamp_nanosec: ns(NOW_SEC) } };
       if (method === "send_tx") {
         const signed = Buffer.from(String(params.signed_tx_base64), "base64");
-        const method_name = signed.includes("create_advance") ? "create_advance" : signed.includes("place_ask") ? "place_ask" : "unknown";
+        const method_name = ["create_advance", "place_ask", "storage_deposit", "ft_transfer_call"].find((name) => signed.includes(name)) ?? "unknown";
         sent.push({ method: method_name, args: JSON.parse(jsonArgsOf(signed)) as Record<string, unknown> });
         const value = Buffer.from(method_name === "create_advance" ? JSON.stringify("13") : "0").toString("base64");
         const outcome = { id: "r", outcome: { logs: [], receipt_ids: [], gas_burnt: 1, tokens_burnt: "0", executor_id: MOCK.engine, status: { SuccessValue: value } } };
@@ -183,6 +190,44 @@ test.describe("advance", () => {
     expect(ask.ciphertext_hex).toHaveLength(384);
     await page.locator("[data-flow-close]").click();
     await expect(page.locator("[data-advance-created]").getByRole("link")).toHaveAttribute("href", "/app/rounds/13");
+  });
+
+  test("funds a short bond from the form: registration first, then the tUSDC deposit, from one click", async ({ page }) => {
+    sent.length = 0;
+    await mockChains(page, overrides({ nearCash: "0", registered: false }));
+    await page.goto("/app/advance");
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await page.getByRole("tab", { name: "Create an Advance" }).click();
+    await connectNearDemo(page);
+    const form = page.locator("[data-advance-form]");
+    await expect(form).toBeVisible({ timeout: 60_000 });
+    await form.getByRole("textbox", { name: /Claim \(K\)/ }).fill("10");
+    await form.getByRole("textbox", { name: /Public price ceiling/ }).fill("9");
+    const shortfall = form.locator("[data-bond-shortfall]");
+    await expect(shortfall).toContainText("short by 1.00 USDC");
+    await expect(shortfall.locator("[data-storage-notice='register']")).toContainText("storage deposit of 0.00619 NEAR", { timeout: 30_000 });
+    await shot(page, "bond-storage");
+    await shortfall.locator("[data-deposit-bond]").click();
+    await expect(page.getByRole("status").filter({ hasText: "1.00 tUSDC credited to your cash" })).toBeVisible({ timeout: 30_000 });
+    expect(sent.map((call) => call.method)).toEqual(["storage_deposit", "ft_transfer_call"]);
+  });
+
+  test("checks the round bounds inline", async ({ page }) => {
+    await mockChains(page, overrides());
+    await page.goto("/app/advance");
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await page.getByRole("tab", { name: "Create an Advance" }).click();
+    await connectNearDemo(page);
+    const form = page.locator("[data-advance-form]");
+    await expect(form).toBeVisible({ timeout: 60_000 });
+    await expect(form.locator("[data-key-timeout]")).toHaveValue("60");
+    await expect(form.locator("[data-reveal-window]")).toHaveValue("10");
+    await form.locator("[data-reveal-window]").fill("2");
+    await form.locator("[data-advance-submit]").click();
+    await expect(form.getByText("The reveal window must be at least 5 min.")).toBeVisible();
+    await expect(page.locator("[data-flow-dialog]")).toBeHidden();
   });
 
   test("shows the account's liens", async ({ page }) => {

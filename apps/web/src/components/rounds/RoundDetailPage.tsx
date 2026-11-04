@@ -72,6 +72,7 @@ function Parameters({ detail }: { detail: RoundDetail }) {
             {round.lienId !== null ? <Param label="Lien">#{round.lienId.toString()}</Param> : null}
           </>
         ) : null}
+        {round.kind !== "Tender" && round.maxBuyQuantity !== null && round.maxBuyQuantity !== undefined ? <Param label="Largest bid quantity">{formatQty(round.maxBuyQuantity, cls.decimals)}{round.kind === "Advance" ? " tokens" : ""}</Param> : null}
         <Param label="Opens">{formatDateTime(nsToMs(round.opensAt))}</Param>
         <Param label="Closes">{formatDateTime(nsToMs(round.closesAt))}</Param>
         <Param label="Identity (app_id)">
