@@ -1,0 +1,1122 @@
+{
+  "header": {
+    "engine": "engine-s5.rose-app.testnet",
+    "env_file": "deployments/engine-s5.rose-app.testnet.env"
+  },
+  "steps": {
+    "near-top-ups": {
+      "at": "2026-11-04T16:44:58.876Z",
+      "txs": [
+        {
+          "label": "top up cindral-foundation.rose-app.testnet to 0.6 NEAR",
+          "chain": "near",
+          "hash": "895xFnG7aWsjCfE2SU8YQzT6izy37yW2ZTTfEgneQa4u",
+          "link": "https://testnet.near.rocks/tx/895xFnG7aWsjCfE2SU8YQzT6izy37yW2ZTTfEgneQa4u"
+        },
+        {
+          "label": "top up halden-ventures.rose-app.testnet to 0.35 NEAR",
+          "chain": "near",
+          "hash": "2qaEKfMJMxU19f8SywaZwqfVwuGsC4yj1jRo3qxyNGVB",
+          "link": "https://testnet.near.rocks/tx/2qaEKfMJMxU19f8SywaZwqfVwuGsC4yj1jRo3qxyNGVB"
+        },
+        {
+          "label": "top up ines-marlow.rose-app.testnet to 0.45 NEAR",
+          "chain": "near",
+          "hash": "788dBGP7ucBvwWp2fR16XSdMdVzg3zCoPdM8q8HUa1Bk",
+          "link": "https://testnet.near.rocks/tx/788dBGP7ucBvwWp2fR16XSdMdVzg3zCoPdM8q8HUa1Bk"
+        },
+        {
+          "label": "top up varick-partners.rose-app.testnet to 0.45 NEAR",
+          "chain": "near",
+          "hash": "6fkgNvSDJsyu4fzf7LWQZJi9pYN1f4gi8JsdJgvU6iSD",
+          "link": "https://testnet.near.rocks/tx/6fkgNvSDJsyu4fzf7LWQZJi9pYN1f4gi8JsdJgvU6iSD"
+        },
+        {
+          "label": "top up teodor-vance.rose-app.testnet to 0.35 NEAR",
+          "chain": "near",
+          "hash": "DfWYqzuoLP9mvJNfbDycyYMhPTnBwXGNHzipjtvCVDR9",
+          "link": "https://testnet.near.rocks/tx/DfWYqzuoLP9mvJNfbDycyYMhPTnBwXGNHzipjtvCVDR9"
+        }
+      ],
+      "done": true,
+      "data": {
+        "cindral-foundation.rose-app.testnet": "0.4078",
+        "halden-ventures.rose-app.testnet": "0.2114",
+        "tessaro-capital.rose-app.testnet": "0.3345",
+        "ines-marlow.rose-app.testnet": "0.3216",
+        "varick-partners.rose-app.testnet": "0.3460",
+        "teodor-vance.rose-app.testnet": "0.2945",
+        "nadia-solvik.rose-app.testnet": "0.5761"
+      }
+    },
+    "gas-top-ups": {
+      "at": "2026-11-04T16:45:00.985Z",
+      "txs": [
+        {
+          "label": "0.002 ETH to Nadia Solvik's wallet",
+          "chain": "base",
+          "hash": "0x745be250a385834e4fce08b2b57e0a898ac6d8781d5a57e50973a88fcef14b28",
+          "link": "https://sepolia.basescan.org/tx/0x745be250a385834e4fce08b2b57e0a898ac6d8781d5a57e50973a88fcef14b28",
+          "gasUsed": "21000"
+        },
+        {
+          "label": "SOL to the Strategic Round holders and gas/sol",
+          "chain": "solana",
+          "hash": "3TG49ChqVAVJV8eBdR5d4bves1Hz5WmvwVFYMnRxNGP1SaWkav5MFZb6FGPBp1CTUVH1tCmSXFG5BPzRWhQw1Xoc",
+          "link": "https://explorer.solana.com/tx/3TG49ChqVAVJV8eBdR5d4bves1Hz5WmvwVFYMnRxNGP1SaWkav5MFZb6FGPBp1CTUVH1tCmSXFG5BPzRWhQw1Xoc?cluster=devnet"
+        }
+      ],
+      "done": true,
+      "data": {
+        "kol_wallet": "nadia-s5",
+        "kol_wallet_address": "0x8fa533e4dea28ecBcd6fF8b70D944574406BaFE2",
+        "solana_transfers": [
+          {
+            "to": "AhW7b4UDXAiURcA912d5uSy9cwvwjR5sb6KqUG1NnXcx",
+            "sol": 0.1
+          }
+        ]
+      }
+    },
+    "base-cohort:seed-base": {
+      "at": "2026-11-04T16:45:03.317Z",
+      "txs": [
+        {
+          "label": "Cindral Foundation: approve RoseVault for Seed Round",
+          "chain": "base",
+          "hash": "0x83b876dd6bea9bd7ed66d4c4f5ee2000c846a66234067aac9689010eea82b589",
+          "link": "https://sepolia.basescan.org/tx/0x83b876dd6bea9bd7ed66d4c4f5ee2000c846a66234067aac9689010eea82b589",
+          "gasUsed": "45978"
+        },
+        {
+          "label": "Cindral Foundation: createStreams (Seed Round)",
+          "chain": "base",
+          "hash": "0xb87e1f4256248d13fe5d893985a48f3e11dfb69cf6f66b7b52291999549ec985",
+          "link": "https://sepolia.basescan.org/tx/0xb87e1f4256248d13fe5d893985a48f3e11dfb69cf6f66b7b52291999549ec985",
+          "gasUsed": "620691"
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "who": "halden",
+          "streamId": "101",
+          "args": {
+            "location": {
+              "tx_hash": "0xb87e1f4256248d13fe5d893985a48f3e11dfb69cf6f66b7b52291999549ec985",
+              "block_hash": "0xa80264b7395b994d6a197d164d86f3572330460cbc232c24de9d71d7b6e95161",
+              "block_number": 54444172,
+              "transaction_index": 5,
+              "log_index": 9
+            },
+            "fields": {
+              "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+              "stream_id": 101,
+              "near_account": "halden-ventures.rose-app.testnet",
+              "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+              "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+              "decimals": 18,
+              "deposited": "400000000000000000000000",
+              "withdrawn": "0",
+              "start": 1778209008,
+              "cliff": 1809745008,
+              "end": 1872817008,
+              "granularity": 1,
+              "start_unlock": "0",
+              "cliff_unlock": "100000000000000000000000",
+              "cancelable": false,
+              "transferable": true,
+              "timestamp": 1793810703
+            }
+          },
+          "selfDeposit": false
+        },
+        {
+          "who": "tessaro",
+          "streamId": "102",
+          "args": {
+            "location": {
+              "tx_hash": "0xb87e1f4256248d13fe5d893985a48f3e11dfb69cf6f66b7b52291999549ec985",
+              "block_hash": "0xa80264b7395b994d6a197d164d86f3572330460cbc232c24de9d71d7b6e95161",
+              "block_number": 54444172,
+              "transaction_index": 5,
+              "log_index": 14
+            },
+            "fields": {
+              "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+              "stream_id": 102,
+              "near_account": "tessaro-capital.rose-app.testnet",
+              "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+              "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+              "decimals": 18,
+              "deposited": "250000000000000000000000",
+              "withdrawn": "0",
+              "start": 1778209008,
+              "cliff": 1809745008,
+              "end": 1872817008,
+              "granularity": 1,
+              "start_unlock": "0",
+              "cliff_unlock": "62500000000000000000000",
+              "cancelable": false,
+              "transferable": true,
+              "timestamp": 1793810703
+            }
+          },
+          "selfDeposit": false
+        }
+      ]
+    },
+    "base-cohort:kol-base": {
+      "at": "2026-11-04T16:45:05.526Z",
+      "txs": [
+        {
+          "label": "Cindral Foundation: approve RoseVault for KOL Round",
+          "chain": "base",
+          "hash": "0x46e33ed0b9c6a0f936191d1faae522a54a71ace1d5b4ff9e5573dbadbefd0ac9",
+          "link": "https://sepolia.basescan.org/tx/0x46e33ed0b9c6a0f936191d1faae522a54a71ace1d5b4ff9e5573dbadbefd0ac9",
+          "gasUsed": "45966"
+        },
+        {
+          "label": "Cindral Foundation: createStreams (KOL Round)",
+          "chain": "base",
+          "hash": "0x17698d087bc7eec9effaff624e2dd06c2de8b11b2f2b062fe11edcda78e6023b",
+          "link": "https://sepolia.basescan.org/tx/0x17698d087bc7eec9effaff624e2dd06c2de8b11b2f2b062fe11edcda78e6023b",
+          "gasUsed": "639056"
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "who": "teodor",
+          "streamId": "103",
+          "args": {
+            "location": {
+              "tx_hash": "0x17698d087bc7eec9effaff624e2dd06c2de8b11b2f2b062fe11edcda78e6023b",
+              "block_hash": "0x2057114b556654fdc7dd93b810f969404ab77e1caca8e21d063510d5cacbb874",
+              "block_number": 54444183,
+              "transaction_index": 5,
+              "log_index": 13
+            },
+            "fields": {
+              "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+              "stream_id": 103,
+              "near_account": "teodor-vance.rose-app.testnet",
+              "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+              "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+              "decimals": 18,
+              "deposited": "60000000000000000000000",
+              "withdrawn": "10523453767123287671232",
+              "start": 1791169008,
+              "cliff": 0,
+              "end": 1822705008,
+              "granularity": 1,
+              "start_unlock": "6000000000000000000000",
+              "cliff_unlock": "0",
+              "cancelable": false,
+              "transferable": true,
+              "timestamp": 1793810705
+            }
+          },
+          "selfDeposit": false
+        },
+        {
+          "who": "nadia",
+          "streamId": "104",
+          "args": {
+            "location": {
+              "tx_hash": "0x17698d087bc7eec9effaff624e2dd06c2de8b11b2f2b062fe11edcda78e6023b",
+              "block_hash": "0x2057114b556654fdc7dd93b810f969404ab77e1caca8e21d063510d5cacbb874",
+              "block_number": 54444183,
+              "transaction_index": 5,
+              "log_index": 21
+            },
+            "fields": {
+              "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+              "stream_id": 104,
+              "near_account": "nadia-solvik.rose-app.testnet",
+              "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+              "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+              "decimals": 18,
+              "deposited": "20000000000000000000000",
+              "withdrawn": "3507817922374429223744",
+              "start": 1791169008,
+              "cliff": 0,
+              "end": 1822705008,
+              "granularity": 1,
+              "start_unlock": "2000000000000000000000",
+              "cliff_unlock": "0",
+              "cancelable": false,
+              "transferable": true,
+              "timestamp": 1793810705
+            }
+          },
+          "selfDeposit": false
+        }
+      ]
+    },
+    "base-self-deposit:nadia": {
+      "at": "2026-11-04T16:45:08.980Z",
+      "txs": [
+        {
+          "label": "Nadia Solvik: DemoStreamFaucet.mintPosition(KOL)",
+          "chain": "base",
+          "hash": "0x5b5c541825f2a0030f98280372e6095ccbded50352ce02538a014aa225f66ce1",
+          "link": "https://sepolia.basescan.org/tx/0x5b5c541825f2a0030f98280372e6095ccbded50352ce02538a014aa225f66ce1",
+          "gasUsed": "267723"
+        },
+        {
+          "label": "Nadia Solvik: approve RoseVault for the stream",
+          "chain": "base",
+          "hash": "0xb1ac44344d257dbf896e3aea2096159931193c63b56ea68a14031e2646dc0dc0",
+          "link": "https://sepolia.basescan.org/tx/0xb1ac44344d257dbf896e3aea2096159931193c63b56ea68a14031e2646dc0dc0",
+          "gasUsed": "48365"
+        },
+        {
+          "label": "Nadia Solvik: depositStream",
+          "chain": "base",
+          "hash": "0xb8756b7c1a90ea2cf653f25ac94b2674612910841ab3aefaca71f686fc83e6f9",
+          "link": "https://sepolia.basescan.org/tx/0xb8756b7c1a90ea2cf653f25ac94b2674612910841ab3aefaca71f686fc83e6f9",
+          "gasUsed": "248959"
+        }
+      ],
+      "done": true,
+      "data": {
+        "who": "nadia",
+        "streamId": "105",
+        "args": {
+          "location": {
+            "tx_hash": "0xb8756b7c1a90ea2cf653f25ac94b2674612910841ab3aefaca71f686fc83e6f9",
+            "block_hash": "0x0137031c8e537c7732188f8a573bc9f33249343765a01d787a79d5bd0e77f30f",
+            "block_number": 54444200,
+            "transaction_index": 3,
+            "log_index": 20
+          },
+          "fields": {
+            "sender": "0x8fa533e4dea28ecbcd6ff8b70d944574406bafe2",
+            "stream_id": 105,
+            "near_account": "nadia-solvik.rose-app.testnet",
+            "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+            "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+            "decimals": 18,
+            "deposited": "20000000000000000000000",
+            "withdrawn": "3507819634703196347031",
+            "start": 1791169008,
+            "cliff": 0,
+            "end": 1822705008,
+            "granularity": 1,
+            "start_unlock": "2000000000000000000000",
+            "cliff_unlock": "0",
+            "cancelable": false,
+            "transferable": true,
+            "timestamp": 1793810708
+          }
+        },
+        "selfDeposit": true
+      }
+    },
+    "base-cash": {
+      "at": "2026-11-04T16:45:14.131Z",
+      "txs": [
+        {
+          "label": "Cindral Foundation: mint Base tUSDC",
+          "chain": "base",
+          "hash": "0x196cf0e75374493f42d12e9ca18db1dda48cff9e641d7b7f8e9bbc9d78755ef5",
+          "link": "https://sepolia.basescan.org/tx/0x196cf0e75374493f42d12e9ca18db1dda48cff9e641d7b7f8e9bbc9d78755ef5",
+          "gasUsed": "58470"
+        },
+        {
+          "label": "Cindral Foundation: approve RoseVault for tUSDC",
+          "chain": "base",
+          "hash": "0x9c80c5531309de99998a3b35d9396b6fb0f552feb0d5b7a4f459485fc64c972b",
+          "link": "https://sepolia.basescan.org/tx/0x9c80c5531309de99998a3b35d9396b6fb0f552feb0d5b7a4f459485fc64c972b",
+          "gasUsed": "45918"
+        },
+        {
+          "label": "depositCash 1505 tUSDC for cindral-foundation.rose-app.testnet",
+          "chain": "base",
+          "hash": "0xa967041ee949f3c925c273659d3347272840212ddde5160d33487339a8cca493",
+          "link": "https://sepolia.basescan.org/tx/0xa967041ee949f3c925c273659d3347272840212ddde5160d33487339a8cca493",
+          "gasUsed": "74921"
+        },
+        {
+          "label": "depositCash 20 tUSDC for halden-ventures.rose-app.testnet",
+          "chain": "base",
+          "hash": "0xf3f49700a2213273b7b1d5486b85f7c0f2ef90ad7134598274bce9280a8af495",
+          "link": "https://sepolia.basescan.org/tx/0xf3f49700a2213273b7b1d5486b85f7c0f2ef90ad7134598274bce9280a8af495",
+          "gasUsed": "56807"
+        },
+        {
+          "label": "depositCash 15 tUSDC for tessaro-capital.rose-app.testnet",
+          "chain": "base",
+          "hash": "0x3188a9298c72ba7d34d76b2e7b76f190fcdc6fc342e08a8587adc119ea4e30d8",
+          "link": "https://sepolia.basescan.org/tx/0x3188a9298c72ba7d34d76b2e7b76f190fcdc6fc342e08a8587adc119ea4e30d8",
+          "gasUsed": "47207"
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "who": "issuer",
+          "args": {
+            "location": {
+              "tx_hash": "0xa967041ee949f3c925c273659d3347272840212ddde5160d33487339a8cca493",
+              "block_hash": "0xdb7a8b2c62fb59580a5d301f550eda429aafa2933ec582a1f91ed1d27f55bc47",
+              "block_number": 54444216,
+              "transaction_index": 3,
+              "log_index": 3
+            },
+            "fields": {
+              "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+              "token": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "round_id": 0,
+              "near_account": "cindral-foundation.rose-app.testnet",
+              "amount": "1505000000",
+              "timestamp": 1793810712
+            }
+          }
+        },
+        {
+          "who": "halden",
+          "args": {
+            "location": {
+              "tx_hash": "0xf3f49700a2213273b7b1d5486b85f7c0f2ef90ad7134598274bce9280a8af495",
+              "block_hash": "0x588f4e71bea90a3d8313b4e5959704bf807cadad9cf438fd7b9444893736c0d1",
+              "block_number": 54444221,
+              "transaction_index": 5,
+              "log_index": 3
+            },
+            "fields": {
+              "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+              "token": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "round_id": 0,
+              "near_account": "halden-ventures.rose-app.testnet",
+              "amount": "20000000",
+              "timestamp": 1793810713
+            }
+          }
+        },
+        {
+          "who": "tessaro",
+          "args": {
+            "location": {
+              "tx_hash": "0x3188a9298c72ba7d34d76b2e7b76f190fcdc6fc342e08a8587adc119ea4e30d8",
+              "block_hash": "0x378dbb4c9135b19ed34f4d2d4ada63de551fed70a6d47979cba64796958867df",
+              "block_number": 54444226,
+              "transaction_index": 4,
+              "log_index": 12
+            },
+            "fields": {
+              "sender": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+              "token": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "round_id": 0,
+              "near_account": "tessaro-capital.rose-app.testnet",
+              "amount": "15000000",
+              "timestamp": 1793810714
+            }
+          }
+        }
+      ]
+    },
+    "sol-stream:ines": {
+      "at": "2026-11-04T16:45:17.095Z",
+      "txs": [
+        {
+          "label": "Cindral Foundation: Streamflow stream of 300,000 CINDR to Ines Marlow: mintTo treasury",
+          "chain": "solana",
+          "hash": "3Az8KGNzN9etAcRByED9YcFUWKgx3CBzxzFrVMMevUJUWGPxDE7zivZBkLTnFXeauQkSTrHEsgLKJ38woKNsSajw",
+          "link": "https://explorer.solana.com/tx/3Az8KGNzN9etAcRByED9YcFUWKgx3CBzxzFrVMMevUJUWGPxDE7zivZBkLTnFXeauQkSTrHEsgLKJ38woKNsSajw?cluster=devnet"
+        },
+        {
+          "label": "Cindral Foundation: Streamflow stream of 300,000 CINDR to Ines Marlow",
+          "chain": "solana",
+          "hash": "67XFonAbsiyr7osTGVQ8TAbMXzArKChjQzVTKmQVcqpyJVBAFEoqSVBShe4x7fwHcVppEU2DUb4TDrPEnQdXUFnB",
+          "link": "https://explorer.solana.com/tx/67XFonAbsiyr7osTGVQ8TAbMXzArKChjQzVTKmQVcqpyJVBAFEoqSVBShe4x7fwHcVppEU2DUb4TDrPEnQdXUFnB?cluster=devnet"
+        }
+      ],
+      "done": true,
+      "data": {
+        "metadata": "7QktAHWCtG2Mnd9pFHxxmAskaadDbwrRH5du1XzTZGdP"
+      }
+    },
+    "sol-deposit:ines": {
+      "at": "2026-11-04T16:45:57.884Z",
+      "txs": [
+        {
+          "label": "Ines Marlow: transfer_recipient to the deposit address C6upwP92WJhX6UZs2WciZsLubSNaT12uvcoNGgt8hNcG",
+          "chain": "solana",
+          "hash": "2dxdZqHXn144Z1wb2gtQG1boUHC7TWay35PgkJYn7X6tXyYPHMtYi6AnJsyMAcPd4TT9x119oCT7qG2Fa6m61APr",
+          "link": "https://explorer.solana.com/tx/2dxdZqHXn144Z1wb2gtQG1boUHC7TWay35PgkJYn7X6tXyYPHMtYi6AnJsyMAcPd4TT9x119oCT7qG2Fa6m61APr?cluster=devnet"
+        },
+        {
+          "label": "Ines Marlow: attribute_sol_deposit",
+          "chain": "near",
+          "hash": "8sfST8FtfsRPQKxuSnMiN5sFEhCjyXxfymAj6RFh6r3g",
+          "link": "https://testnet.near.rocks/tx/8sfST8FtfsRPQKxuSnMiN5sFEhCjyXxfymAj6RFh6r3g",
+          "gasTgas": 26.89
+        },
+        {
+          "label": "Ines Marlow: move_sol_deposit",
+          "chain": "near",
+          "hash": "29CLJMBmsKT9oMTAuaVwi5TTv3rtWkji25KnExoUmQKT",
+          "link": "https://testnet.near.rocks/tx/29CLJMBmsKT9oMTAuaVwi5TTv3rtWkji25KnExoUmQKT",
+          "gasTgas": 29.18
+        },
+        {
+          "label": "Ines Marlow: move to the vault (engine-signed, broadcast)",
+          "chain": "solana",
+          "hash": "5WSByfg4zjFccrsBNcXhqrPY6YYjdywjoC85CCVsxDhwA6KxBaSQD8AkMXmyxM6BhTcZwZdW66vDTjFLBmhkKKJe",
+          "link": "https://explorer.solana.com/tx/5WSByfg4zjFccrsBNcXhqrPY6YYjdywjoC85CCVsxDhwA6KxBaSQD8AkMXmyxM6BhTcZwZdW66vDTjFLBmhkKKJe?cluster=devnet",
+          "note": "30097 CU"
+        },
+        {
+          "label": "Ines Marlow: register_sol_deposit",
+          "chain": "near",
+          "hash": "744LoCaNHcgQZnZjUYREDmGbsQVRVJMgCP9BLiihUYG3",
+          "link": "https://testnet.near.rocks/tx/744LoCaNHcgQZnZjUYREDmGbsQVRVJMgCP9BLiihUYG3",
+          "gasTgas": 22.41
+        }
+      ],
+      "done": true,
+      "data": {
+        "metadata": "7QktAHWCtG2Mnd9pFHxxmAskaadDbwrRH5du1XzTZGdP",
+        "classId": "f91b52ceab7a9f40e6578513ddb7478ef251e90dc2ef94c5e08c6db1d04a1a42",
+        "depositAddress": "C6upwP92WJhX6UZs2WciZsLubSNaT12uvcoNGgt8hNcG",
+        "positionId": "0",
+        "units": "300000000000000"
+      }
+    },
+    "sol-stream:varick": {
+      "at": "2026-11-04T16:46:01.167Z",
+      "txs": [
+        {
+          "label": "Cindral Foundation: Streamflow stream of 200,000 CINDR to Varick Partners: mintTo treasury",
+          "chain": "solana",
+          "hash": "4oQwMUukQYDwHQ89m8E5UmAZLH9CNff6eHJXntmW7i33T15nwzbzxXSNS3cLXzVR9e51QT3fsAeSCEdQAGQCj6Zr",
+          "link": "https://explorer.solana.com/tx/4oQwMUukQYDwHQ89m8E5UmAZLH9CNff6eHJXntmW7i33T15nwzbzxXSNS3cLXzVR9e51QT3fsAeSCEdQAGQCj6Zr?cluster=devnet"
+        },
+        {
+          "label": "Cindral Foundation: Streamflow stream of 200,000 CINDR to Varick Partners",
+          "chain": "solana",
+          "hash": "5aG5TxDaoo4A9wJq6bwWjLSe6wBq6MXnscsUQyBfkhuHsxV69Nw3cHFaP4dU8Nzw4GuL9LMh3Gfv84CZFJZn7rAZ",
+          "link": "https://explorer.solana.com/tx/5aG5TxDaoo4A9wJq6bwWjLSe6wBq6MXnscsUQyBfkhuHsxV69Nw3cHFaP4dU8Nzw4GuL9LMh3Gfv84CZFJZn7rAZ?cluster=devnet"
+        }
+      ],
+      "done": true,
+      "data": {
+        "metadata": "ChEjeL4APcL27WtJYDvic7ta7SDPVfneTpLSLXVivXKX"
+      }
+    },
+    "sol-deposit:varick": {
+      "at": "2026-11-04T16:46:35.743Z",
+      "txs": [
+        {
+          "label": "Varick Partners: transfer_recipient to the deposit address G32fbUCMdNDstmRgBHNu9oJk9vb16mQUBaeWSS9SVVFR",
+          "chain": "solana",
+          "hash": "27Rj6HrQzXYBPgmoaThohUt6Bz55KZKbUuGkzck6F1s9hUQRVZ1JtwottWoonDL6PsC3qzFkVnGPnDqNW3rx3Nb3",
+          "link": "https://explorer.solana.com/tx/27Rj6HrQzXYBPgmoaThohUt6Bz55KZKbUuGkzck6F1s9hUQRVZ1JtwottWoonDL6PsC3qzFkVnGPnDqNW3rx3Nb3?cluster=devnet"
+        },
+        {
+          "label": "Varick Partners: attribute_sol_deposit",
+          "chain": "near",
+          "hash": "DGXuCcCH5Vxmkjvn2nC2qrCxTtk965sLigVgeck9H8w7",
+          "link": "https://testnet.near.rocks/tx/DGXuCcCH5Vxmkjvn2nC2qrCxTtk965sLigVgeck9H8w7",
+          "gasTgas": 26.9
+        },
+        {
+          "label": "Varick Partners: move_sol_deposit",
+          "chain": "near",
+          "hash": "GCzK4uVK5KaeuKr39tbgLfP29xdspxxVutuTtJM8ceWQ",
+          "link": "https://testnet.near.rocks/tx/GCzK4uVK5KaeuKr39tbgLfP29xdspxxVutuTtJM8ceWQ",
+          "gasTgas": 29.16
+        },
+        {
+          "label": "Varick Partners: move to the vault (engine-signed, broadcast)",
+          "chain": "solana",
+          "hash": "2LWR8MgukZwQgmHUiv1ap6r9yUBkEVuqv82ouSDKG1Rx455uk5FqSfDTLVkXuSxeh8PFiAmXfnfrFe55BbfELTUx",
+          "link": "https://explorer.solana.com/tx/2LWR8MgukZwQgmHUiv1ap6r9yUBkEVuqv82ouSDKG1Rx455uk5FqSfDTLVkXuSxeh8PFiAmXfnfrFe55BbfELTUx?cluster=devnet",
+          "note": "21017 CU"
+        },
+        {
+          "label": "Varick Partners: register_sol_deposit",
+          "chain": "near",
+          "hash": "3SbQPW7Wjap1ZQMpv7D7tj1cYSzAybVXEwQ46x6e6uAq",
+          "link": "https://testnet.near.rocks/tx/3SbQPW7Wjap1ZQMpv7D7tj1cYSzAybVXEwQ46x6e6uAq",
+          "gasTgas": 22.1
+        }
+      ],
+      "done": true,
+      "data": {
+        "metadata": "ChEjeL4APcL27WtJYDvic7ta7SDPVfneTpLSLXVivXKX",
+        "classId": "f91b52ceab7a9f40e6578513ddb7478ef251e90dc2ef94c5e08c6db1d04a1a42",
+        "depositAddress": "G32fbUCMdNDstmRgBHNu9oJk9vb16mQUBaeWSS9SVVFR",
+        "positionId": "1",
+        "units": "200000000000000"
+      }
+    },
+    "base-register": {
+      "at": "2026-11-04T16:48:34.953Z",
+      "txs": [
+        {
+          "label": "register_base_deposit: stream 101 for Halden Ventures",
+          "chain": "near",
+          "hash": "H5NLXuneb9WgEUtPQ4ppC8Ku592YpVCcb3wBUbc6imoG",
+          "link": "https://testnet.near.rocks/tx/H5NLXuneb9WgEUtPQ4ppC8Ku592YpVCcb3wBUbc6imoG",
+          "gasTgas": 19.22
+        },
+        {
+          "label": "register_base_deposit: stream 102 for Tessaro Capital",
+          "chain": "near",
+          "hash": "HgwwexS56TVXbU8qdW9kjX7o8SuyQzQNDbKNiB4B73gg",
+          "link": "https://testnet.near.rocks/tx/HgwwexS56TVXbU8qdW9kjX7o8SuyQzQNDbKNiB4B73gg",
+          "gasTgas": 19.02
+        },
+        {
+          "label": "register_base_deposit: stream 103 for Teodor Vance",
+          "chain": "near",
+          "hash": "wTEZbfvD4GgzxdPG9Sjri9s9c4YfKxLDnS6xuxtSbzv",
+          "link": "https://testnet.near.rocks/tx/wTEZbfvD4GgzxdPG9Sjri9s9c4YfKxLDnS6xuxtSbzv",
+          "gasTgas": 19.29
+        },
+        {
+          "label": "register_base_deposit: stream 104 for Nadia Solvik",
+          "chain": "near",
+          "hash": "5YQ1CzRzSUCMAcpGkuYqnKXkAS2Xv6k9ecLvWkSZ8WRj",
+          "link": "https://testnet.near.rocks/tx/5YQ1CzRzSUCMAcpGkuYqnKXkAS2Xv6k9ecLvWkSZ8WRj",
+          "gasTgas": 19.08
+        },
+        {
+          "label": "register_base_deposit: stream 105 for Nadia Solvik",
+          "chain": "near",
+          "hash": "F8kDiZqPmcfejcrSTNbQxm5DwVVE24nstqTHELSEumNj",
+          "link": "https://testnet.near.rocks/tx/F8kDiZqPmcfejcrSTNbQxm5DwVVE24nstqTHELSEumNj",
+          "gasTgas": 19.17
+        },
+        {
+          "label": "register_base_cash: 1505 tUSDC for Cindral Foundation",
+          "chain": "near",
+          "hash": "13Hx5PrHnNFPnuKAu2iVybZhUUaGL4kEScqytGafydhB",
+          "link": "https://testnet.near.rocks/tx/13Hx5PrHnNFPnuKAu2iVybZhUUaGL4kEScqytGafydhB",
+          "gasTgas": 16.89
+        },
+        {
+          "label": "register_base_cash: 20 tUSDC for Halden Ventures",
+          "chain": "near",
+          "hash": "4CS3CmpwKsWi2MqHJBwjEquCVqMf6hEKcEszXcv86oB9",
+          "link": "https://testnet.near.rocks/tx/4CS3CmpwKsWi2MqHJBwjEquCVqMf6hEKcEszXcv86oB9",
+          "gasTgas": 16.8
+        },
+        {
+          "label": "register_base_cash: 15 tUSDC for Tessaro Capital",
+          "chain": "near",
+          "hash": "BaWQHuDz9rF35UgAMTSXYgvN3AwUuLLm24jX7tzeSGAS",
+          "link": "https://testnet.near.rocks/tx/BaWQHuDz9rF35UgAMTSXYgvN3AwUuLLm24jX7tzeSGAS",
+          "gasTgas": 16.81
+        }
+      ],
+      "done": true,
+      "data": {
+        "classes": {
+          "seed-base": "0d06a458ae0073d43d0cdc54d8a85d202250bcf33762a17658e84db3c9c3f894",
+          "kol-base": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba"
+        },
+        "positions": [
+          {
+            "who": "halden",
+            "streamId": "101",
+            "positionId": "2",
+            "classId": "0d06a458ae0073d43d0cdc54d8a85d202250bcf33762a17658e84db3c9c3f894",
+            "selfDeposit": false
+          },
+          {
+            "who": "tessaro",
+            "streamId": "102",
+            "positionId": "3",
+            "classId": "0d06a458ae0073d43d0cdc54d8a85d202250bcf33762a17658e84db3c9c3f894",
+            "selfDeposit": false
+          },
+          {
+            "who": "teodor",
+            "streamId": "103",
+            "positionId": "4",
+            "classId": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+            "selfDeposit": false
+          },
+          {
+            "who": "nadia",
+            "streamId": "104",
+            "positionId": "5",
+            "classId": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+            "selfDeposit": false
+          },
+          {
+            "who": "nadia",
+            "streamId": "105",
+            "positionId": "6",
+            "classId": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+            "selfDeposit": true
+          }
+        ]
+      }
+    },
+    "near-cash": {
+      "at": "2026-11-04T16:50:18.806Z",
+      "txs": [
+        {
+          "label": "tUSDC storage_deposit for engine-s5.rose-app.testnet",
+          "chain": "near",
+          "hash": "fKKJhJeCXwgkcQZ8Janxek6kQTDHLHJtWcVmoj9ULC9",
+          "link": "https://testnet.near.rocks/tx/fKKJhJeCXwgkcQZ8Janxek6kQTDHLHJtWcVmoj9ULC9",
+          "gasTgas": 2.08
+        },
+        {
+          "label": "Halden Ventures: tUSDC mint 2050",
+          "chain": "near",
+          "hash": "3CHZstrXJhL6Ht8i7ezpppjeFHw9TohSwm7mHsKrWmHh",
+          "link": "https://testnet.near.rocks/tx/3CHZstrXJhL6Ht8i7ezpppjeFHw9TohSwm7mHsKrWmHh",
+          "gasTgas": 2.4
+        },
+        {
+          "label": "Halden Ventures: ft_transfer_call to the engine",
+          "chain": "near",
+          "hash": "5jJNbnHrerrR7fM7WxBnWMvTfdYy6LD6N2dhVQ9WVsJi",
+          "link": "https://testnet.near.rocks/tx/5jJNbnHrerrR7fM7WxBnWMvTfdYy6LD6N2dhVQ9WVsJi",
+          "gasTgas": 7.93
+        },
+        {
+          "label": "Tessaro Capital: tUSDC mint 900",
+          "chain": "near",
+          "hash": "7sDUr6SUkxGxGqquv5o5pAEqHqrg3fWxehdgeqs4YAJX",
+          "link": "https://testnet.near.rocks/tx/7sDUr6SUkxGxGqquv5o5pAEqHqrg3fWxehdgeqs4YAJX",
+          "gasTgas": 2.4
+        },
+        {
+          "label": "Tessaro Capital: ft_transfer_call to the engine",
+          "chain": "near",
+          "hash": "68aFCQLMwoLgS9CcdjtFxpgs5Vbntgm3eHLCACfGeKR4",
+          "link": "https://testnet.near.rocks/tx/68aFCQLMwoLgS9CcdjtFxpgs5Vbntgm3eHLCACfGeKR4",
+          "gasTgas": 7.94
+        },
+        {
+          "label": "Ines Marlow: engine storage for the cash row",
+          "chain": "near",
+          "hash": "BSddjcHAo1dpiAD2EB5gdhyPr6jPKj7Twc8oUaAPdWmp",
+          "link": "https://testnet.near.rocks/tx/BSddjcHAo1dpiAD2EB5gdhyPr6jPKj7Twc8oUaAPdWmp",
+          "gasTgas": 3.37
+        },
+        {
+          "label": "Ines Marlow: ft_transfer_call to the engine",
+          "chain": "near",
+          "hash": "4uLgGgLTucpLM34Zm3W7LRF77jqEDBGuTJYiDfetkh4j",
+          "link": "https://testnet.near.rocks/tx/4uLgGgLTucpLM34Zm3W7LRF77jqEDBGuTJYiDfetkh4j",
+          "gasTgas": 7.91
+        },
+        {
+          "label": "Varick Partners: engine storage for the cash row",
+          "chain": "near",
+          "hash": "DD1yzEfrQXdUgfi2czcg7BhTnuCkm5aJBLvP5dPhewyp",
+          "link": "https://testnet.near.rocks/tx/DD1yzEfrQXdUgfi2czcg7BhTnuCkm5aJBLvP5dPhewyp",
+          "gasTgas": 3.38
+        },
+        {
+          "label": "Varick Partners: tUSDC mint 150",
+          "chain": "near",
+          "hash": "ENpy8k1L62uPvm567WsZsUszdhVSuhDTv9RJ62JnKnoC",
+          "link": "https://testnet.near.rocks/tx/ENpy8k1L62uPvm567WsZsUszdhVSuhDTv9RJ62JnKnoC",
+          "gasTgas": 2.4
+        },
+        {
+          "label": "Varick Partners: ft_transfer_call to the engine",
+          "chain": "near",
+          "hash": "DWcbKHtFDJsoiXTXtYNAoa6HnG8b7qfMwUtREdSM2g1m",
+          "link": "https://testnet.near.rocks/tx/DWcbKHtFDJsoiXTXtYNAoa6HnG8b7qfMwUtREdSM2g1m",
+          "gasTgas": 7.94
+        },
+        {
+          "label": "Teodor Vance: engine storage for the cash row",
+          "chain": "near",
+          "hash": "5wT448S6unm5GGFJ2HAMqtd4aRfZJPF2EZVcuzTBATCi",
+          "link": "https://testnet.near.rocks/tx/5wT448S6unm5GGFJ2HAMqtd4aRfZJPF2EZVcuzTBATCi",
+          "gasTgas": 3.37
+        },
+        {
+          "label": "Teodor Vance: tUSDC mint 10",
+          "chain": "near",
+          "hash": "BVQ7smo8EE3VQeo13TV25Hha6xunrUqmPGVxnBMVbFcq",
+          "link": "https://testnet.near.rocks/tx/BVQ7smo8EE3VQeo13TV25Hha6xunrUqmPGVxnBMVbFcq",
+          "gasTgas": 2.4
+        },
+        {
+          "label": "Teodor Vance: ft_transfer_call to the engine",
+          "chain": "near",
+          "hash": "9MxYrfDevnBbbG38ccVJ5MtqqyDsge1Xd3R61DdFTZmM",
+          "link": "https://testnet.near.rocks/tx/9MxYrfDevnBbbG38ccVJ5MtqqyDsge1Xd3R61DdFTZmM",
+          "gasTgas": 7.92
+        },
+        {
+          "label": "Nadia Solvik: engine storage for the cash row",
+          "chain": "near",
+          "hash": "GsTSiRxaJtAsTeuG8BGSUSbq87KmH252yhHzPNg6QJGM",
+          "link": "https://testnet.near.rocks/tx/GsTSiRxaJtAsTeuG8BGSUSbq87KmH252yhHzPNg6QJGM",
+          "gasTgas": 3.37
+        },
+        {
+          "label": "Nadia Solvik: tUSDC mint 150",
+          "chain": "near",
+          "hash": "AjpiKiqkRZce7t5YBaxrL2xrV1YvCKiyRXUnWQtxWxsj",
+          "link": "https://testnet.near.rocks/tx/AjpiKiqkRZce7t5YBaxrL2xrV1YvCKiyRXUnWQtxWxsj",
+          "gasTgas": 2.4
+        },
+        {
+          "label": "Nadia Solvik: ft_transfer_call to the engine",
+          "chain": "near",
+          "hash": "GAaFnak5vcgAaN4raMMTzjiNT48rDotR7D7My6S784w4",
+          "link": "https://testnet.near.rocks/tx/GAaFnak5vcgAaN4raMMTzjiNT48rDotR7D7My6S784w4",
+          "gasTgas": 7.92
+        }
+      ],
+      "done": true,
+      "data": {
+        "halden-ventures.rose-app.testnet": "2050",
+        "tessaro-capital.rose-app.testnet": "900",
+        "ines-marlow.rose-app.testnet": "150",
+        "varick-partners.rose-app.testnet": "150",
+        "teodor-vance.rose-app.testnet": "10",
+        "nadia-solvik.rose-app.testnet": "150"
+      }
+    },
+    "round:tender": {
+      "at": "2026-11-04T16:50:22.387Z",
+      "txs": [
+        {
+          "label": "Cindral Foundation: create_tender (Seed Round, Base tUSDC)",
+          "chain": "near",
+          "hash": "87y6SWD8SzXuS8WVJBX4vC98nCNcYVkYBJF57Tevs7MN",
+          "link": "https://testnet.near.rocks/tx/87y6SWD8SzXuS8WVJBX4vC98nCNcYVkYBJF57Tevs7MN",
+          "gasTgas": 3.85
+        }
+      ],
+      "done": true,
+      "data": {
+        "roundId": "0",
+        "kind": "Tender",
+        "classId": "0d06a458ae0073d43d0cdc54d8a85d202250bcf33762a17658e84db3c9c3f894",
+        "creator": "cindral-foundation.rose-app.testnet",
+        "closesAt": "1793811738807000000",
+        "revealWindow": "300000000000"
+      }
+    },
+    "round:exit": {
+      "at": "2026-11-04T16:50:26.935Z",
+      "txs": [
+        {
+          "label": "Ines Marlow: create_exit (Strategic Round, NEAR tUSDC)",
+          "chain": "near",
+          "hash": "3Lip3SQuMh6E4irYCynzSByKT5KyXE3XFj7hHQtvwjG1",
+          "link": "https://testnet.near.rocks/tx/3Lip3SQuMh6E4irYCynzSByKT5KyXE3XFj7hHQtvwjG1",
+          "gasTgas": 3.53
+        }
+      ],
+      "done": true,
+      "data": {
+        "roundId": "1",
+        "kind": "Exit",
+        "classId": "f91b52ceab7a9f40e6578513ddb7478ef251e90dc2ef94c5e08c6db1d04a1a42",
+        "creator": "ines-marlow.rose-app.testnet",
+        "closesAt": "1793811738807000000",
+        "revealWindow": "300000000000"
+      }
+    },
+    "round:advance": {
+      "at": "2026-11-04T16:50:30.805Z",
+      "txs": [
+        {
+          "label": "Teodor Vance: create_advance (KOL Round, NEAR tUSDC)",
+          "chain": "near",
+          "hash": "7kkm35mzeqjHFej4c5e6jPKBE1vWiEG4XzwY58DYkoib",
+          "link": "https://testnet.near.rocks/tx/7kkm35mzeqjHFej4c5e6jPKBE1vWiEG4XzwY58DYkoib",
+          "gasTgas": 4.04
+        }
+      ],
+      "done": true,
+      "data": {
+        "roundId": "2",
+        "kind": "Advance",
+        "classId": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+        "creator": "teodor-vance.rose-app.testnet",
+        "closesAt": "1793811738807000000",
+        "revealWindow": "300000000000"
+      }
+    },
+    "orders:tender": {
+      "at": "2026-11-04T16:50:38.132Z",
+      "txs": [
+        {
+          "label": "Halden Ventures: place_ask",
+          "chain": "near",
+          "hash": "7RWBHd4H7m8SggCKH7iBHzQVpC7Ejtb8yszgsUVQJ5Yb",
+          "link": "https://testnet.near.rocks/tx/7RWBHd4H7m8SggCKH7iBHzQVpC7Ejtb8yszgsUVQJ5Yb",
+          "gasTgas": 4.69
+        },
+        {
+          "label": "Tessaro Capital: place_ask",
+          "chain": "near",
+          "hash": "7grf8sFzpi25VL2ohthMxtmnuMM2HxTdksrAnJa4vR9s",
+          "link": "https://testnet.near.rocks/tx/7grf8sFzpi25VL2ohthMxtmnuMM2HxTdksrAnJa4vR9s",
+          "gasTgas": 4.7
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "roundId": "0",
+          "bidId": 0,
+          "who": "halden",
+          "bidder": "halden-ventures.rose-app.testnet",
+          "side": "Sell",
+          "collateral": "40000000000000000000000",
+          "ciphertextSha256": "99a63885a84582c5975c4c49fbab18b984ab8105b4c27b36eceea1b51f5aef7b",
+          "malformed": false
+        },
+        {
+          "roundId": "0",
+          "bidId": 1,
+          "who": "tessaro",
+          "bidder": "tessaro-capital.rose-app.testnet",
+          "side": "Sell",
+          "collateral": "30000000000000000000000",
+          "ciphertextSha256": "7eed131fee762e88299d315163c96db5260111a887618ba82d83f524d56390cc",
+          "malformed": false
+        }
+      ]
+    },
+    "orders:exit": {
+      "at": "2026-11-04T16:51:10.148Z",
+      "txs": [
+        {
+          "label": "Ines Marlow: place_ask",
+          "chain": "near",
+          "hash": "BJSrYBbmdsD47otLLXiLsMBfXMYyLZAgiwhSWwLmwzYy",
+          "link": "https://testnet.near.rocks/tx/BJSrYBbmdsD47otLLXiLsMBfXMYyLZAgiwhSWwLmwzYy",
+          "gasTgas": 4.64
+        },
+        {
+          "label": "Varick Partners: place_ask",
+          "chain": "near",
+          "hash": "8pbwdvWEhLiBMM4YEyEV2Qhkot9MFGPHbkY7TnLoD6H3",
+          "link": "https://testnet.near.rocks/tx/8pbwdvWEhLiBMM4YEyEV2Qhkot9MFGPHbkY7TnLoD6H3",
+          "gasTgas": 4.67
+        },
+        {
+          "label": "Halden Ventures: engine storage for the bought units' holding row",
+          "chain": "near",
+          "hash": "47q1TPmjd7jxnxzuFrPXPHm21umUxLTBX6NuJ2BvG4AK",
+          "link": "https://testnet.near.rocks/tx/47q1TPmjd7jxnxzuFrPXPHm21umUxLTBX6NuJ2BvG4AK",
+          "gasTgas": 3.38
+        },
+        {
+          "label": "Halden Ventures: place_bid",
+          "chain": "near",
+          "hash": "FuGtZUEt9VYJKfmymJgdXf4ZN2VABupiEdVm1uM26UzN",
+          "link": "https://testnet.near.rocks/tx/FuGtZUEt9VYJKfmymJgdXf4ZN2VABupiEdVm1uM26UzN",
+          "gasTgas": 4.62
+        },
+        {
+          "label": "Tessaro Capital: engine storage for the bought units' holding row",
+          "chain": "near",
+          "hash": "GUqXbnLWm7QSVtpLjUnnRSbNDitF6Cp1HEHw9j4KwMMJ",
+          "link": "https://testnet.near.rocks/tx/GUqXbnLWm7QSVtpLjUnnRSbNDitF6Cp1HEHw9j4KwMMJ",
+          "gasTgas": 3.38
+        },
+        {
+          "label": "Tessaro Capital: place_bid",
+          "chain": "near",
+          "hash": "2wQJAGHmMtYnSjSSoLQkip9v4KiSFWYeVtmj9rcoNCrr",
+          "link": "https://testnet.near.rocks/tx/2wQJAGHmMtYnSjSSoLQkip9v4KiSFWYeVtmj9rcoNCrr",
+          "gasTgas": 4.63
+        },
+        {
+          "label": "Nadia Solvik: engine storage for the bought units' holding row",
+          "chain": "near",
+          "hash": "GfwALJoXpoN2XwifWmqm4rcbAuFmx3eErP3nJJU4hAeU",
+          "link": "https://testnet.near.rocks/tx/GfwALJoXpoN2XwifWmqm4rcbAuFmx3eErP3nJJU4hAeU",
+          "gasTgas": 3.37
+        },
+        {
+          "label": "Nadia Solvik: place_bid (malformed ciphertext)",
+          "chain": "near",
+          "hash": "Es7oPoxXMWGUbV98Gq3K5BBmY4WXebNJjQmXoEPxMGCK",
+          "link": "https://testnet.near.rocks/tx/Es7oPoxXMWGUbV98Gq3K5BBmY4WXebNJjQmXoEPxMGCK",
+          "gasTgas": 4.59
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "roundId": "1",
+          "bidId": 0,
+          "who": "ines",
+          "bidder": "ines-marlow.rose-app.testnet",
+          "side": "Sell",
+          "collateral": "60000000000000",
+          "ciphertextSha256": "8e24a503bfb73ceb5753e45f8fd3af1ad7aa027d2faef7378f84fc7288f9b9d5",
+          "malformed": false
+        },
+        {
+          "roundId": "1",
+          "bidId": 1,
+          "who": "varick",
+          "bidder": "varick-partners.rose-app.testnet",
+          "side": "Sell",
+          "collateral": "50000000000000",
+          "ciphertextSha256": "1f9ed20a6b382b6bcbb1c9b606d0e5c347209585184c691db2004d5d01d1aacb",
+          "malformed": false
+        },
+        {
+          "roundId": "1",
+          "bidId": 2,
+          "who": "halden",
+          "bidder": "halden-ventures.rose-app.testnet",
+          "side": "Buy",
+          "collateral": "1966000000",
+          "ciphertextSha256": "ef1353b97f996fde783903cfaf470048d9b0b6f4b4c0911a408d613b676780e6",
+          "malformed": false
+        },
+        {
+          "roundId": "1",
+          "bidId": 3,
+          "who": "tessaro",
+          "bidder": "tessaro-capital.rose-app.testnet",
+          "side": "Buy",
+          "collateral": "883000000",
+          "ciphertextSha256": "e14af04ea83da60401a2d86458dca3011b139b115e1caf6e4762d0b1e1e1d8c3",
+          "malformed": false
+        },
+        {
+          "roundId": "1",
+          "bidId": 4,
+          "who": "nadia",
+          "bidder": "nadia-solvik.rose-app.testnet",
+          "side": "Buy",
+          "collateral": "100000000",
+          "ciphertextSha256": "71ab2240e232899d8e457f68cd5b2314db8d8ab59b0038eaa4b04735bcdb5363",
+          "malformed": true
+        }
+      ]
+    },
+    "orders:advance": {
+      "at": "2026-11-04T16:51:22.124Z",
+      "txs": [
+        {
+          "label": "Teodor Vance: place_ask",
+          "chain": "near",
+          "hash": "fCDPtmMaDU3FLjEt8e39dhQ8vMLwfjbFahxn6ntVQgD",
+          "link": "https://testnet.near.rocks/tx/fCDPtmMaDU3FLjEt8e39dhQ8vMLwfjbFahxn6ntVQgD",
+          "gasTgas": 4.34
+        },
+        {
+          "label": "Varick Partners: place_bid",
+          "chain": "near",
+          "hash": "AdwkP9DhxPiusc26qgvd3tTbi1SrYVAPu1nbz3jyGyhR",
+          "link": "https://testnet.near.rocks/tx/AdwkP9DhxPiusc26qgvd3tTbi1SrYVAPu1nbz3jyGyhR",
+          "gasTgas": 4.33
+        },
+        {
+          "label": "Ines Marlow: place_bid",
+          "chain": "near",
+          "hash": "9V6dPXsP2DpGkwPCKv6T2j6prL27LtCHcU7CHBzDqDn",
+          "link": "https://testnet.near.rocks/tx/9V6dPXsP2DpGkwPCKv6T2j6prL27LtCHcU7CHBzDqDn",
+          "gasTgas": 4.32
+        }
+      ],
+      "done": true,
+      "data": [
+        {
+          "roundId": "2",
+          "bidId": 0,
+          "who": "teodor",
+          "bidder": "teodor-vance.rose-app.testnet",
+          "side": "Sell",
+          "collateral": "3000000000000000000000",
+          "ciphertextSha256": "8caddc98407905799cd79586ade230e964ec6a4b507ecba46f9663f05b2b9edf",
+          "malformed": false
+        },
+        {
+          "roundId": "2",
+          "bidId": 1,
+          "who": "varick",
+          "bidder": "varick-partners.rose-app.testnet",
+          "side": "Buy",
+          "collateral": "91000000",
+          "ciphertextSha256": "7dc1a259e41dd7df8ec43d6dbd7472a3fcfc8f0f70f1d0382fe1388c30d2e028",
+          "malformed": false
+        },
+        {
+          "roundId": "2",
+          "bidId": 2,
+          "who": "ines",
+          "bidder": "ines-marlow.rose-app.testnet",
+          "side": "Buy",
+          "collateral": "81000000",
+          "ciphertextSha256": "0e24d370a70cd3f7cceded37f4a49543569f8f0f793f2d5ec025fd5c9194507b",
+          "malformed": false
+        }
+      ]
+    },
+    "classes": {
+      "at": "2026-11-04T16:51:22.305Z",
+      "txs": [],
+      "data": {
+        "seed-base": {
+          "class_id": "0d06a458ae0073d43d0cdc54d8a85d202250bcf33762a17658e84db3c9c3f894",
+          "label": "Seed Round",
+          "chain": "Base",
+          "total_units": "650000000000000000000000",
+          "positions": 2
+        },
+        "kol-base": {
+          "class_id": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+          "label": "KOL Round",
+          "chain": "Base",
+          "total_units": "100000000000000000000000",
+          "positions": 3
+        },
+        "strategic-sol": {
+          "class_id": "f91b52ceab7a9f40e6578513ddb7478ef251e90dc2ef94c5e08c6db1d04a1a42",
+          "label": "Strategic Round",
+          "chain": "Solana",
+          "total_units": "500000000000000",
+          "positions": 2
+        }
+      },
+      "done": true
+    },
+    "rounds": {
+      "at": "2026-11-04T16:51:22.444Z",
+      "txs": [],
+      "data": {
+        "tender": {
+          "round_id": "0",
+          "kind": "Tender",
+          "status": "Open",
+          "bids": 2,
+          "closes_at": "2026-11-04T17:02:18.807Z"
+        },
+        "exit": {
+          "round_id": "1",
+          "kind": "Exit",
+          "status": "Open",
+          "bids": 5,
+          "closes_at": "2026-11-04T17:02:18.807Z"
+        },
+        "advance": {
+          "round_id": "2",
+          "kind": "Advance",
+          "status": "Open",
+          "bids": 3,
+          "closes_at": "2026-11-04T17:02:18.807Z"
+        }
+      },
+      "done": true
+    }
+  }
+}
