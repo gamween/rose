@@ -1084,8 +1084,9 @@ impl StreamflowMetadata {
 
     /// Parses an attested account state and requires a stream the engine may register: owned by
     /// `program`, recipient `vault`, open, not canceled, transferable by its recipient (so the
-    /// vault can release or return it), without automatic withdrawals (only the engine withdraws
-    /// vault streams, so its per-stream accounting stays exact) and with none of the sender-side
+    /// vault can release or return it), without automatic withdrawals (the engine sizes its own
+    /// withdrawals; Streamflow's auto-claim at the end, which ignores the flag, is booked by
+    /// `sync_sol_stream`) and with none of the sender-side
     /// or schedule-changing permissions (`cancelable_by_sender`, `transferable_by_sender`,
     /// `pausable`, `can_update_rate`, `can_topup`), so that the registered schedule stays exact,
     /// and without Streamflow or partner fees (see [`StreamflowError::Fees`]).
