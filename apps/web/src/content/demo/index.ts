@@ -3,10 +3,8 @@
  * JSON files next to this one; run the script again instead of editing this file.
  */
 
-import engineS3RoseAppTestnet from "./engine-s3.rose-app.testnet.json";
 import engineS4RoseAppTestnet from "./engine-s4.rose-app.testnet.json";
 
 export const DEMO_MANIFESTS: Readonly<Record<string, unknown>> = {
-  "engine-s3.rose-app.testnet": engineS3RoseAppTestnet,
   "engine-s4.rose-app.testnet": engineS4RoseAppTestnet,
 };

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_MANIFESTS } from "@/content/demo";
+import recordedS3 from "./fixtures/engine-s3.manifest.json";
 import { stepEvents, type HistoryEvent } from "./events";
 import { parseDemoManifest } from "./manifest";
 import { clampStep, keyCommand, scenarioFromQuery, stepFromQuery, totalDuration, walkthrough } from "./walkthrough";
 
-const manifest = parseDemoManifest(DEMO_MANIFESTS["engine-s3.rose-app.testnet"]);
+/** The manifest of the retired staging engine `engine-s3`, a fixture of the walkthrough's rules. */
+const manifest = parseDemoManifest(recordedS3);
 
 function scenario(key: string) {
   const found = manifest.scenarios.find((candidate) => candidate.key === key);

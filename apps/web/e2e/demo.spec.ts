@@ -5,7 +5,7 @@ import { DEMO_RECORDING, mockDemoEngine } from "./fixtures/demo-mock";
 /**
  * "Watch a full round" (spec 9). The demo exists only for an engine with a committed manifest,
  * so the suite needs a build configured with a seeded staging engine that has a recording
- * (`deployments/engine-s4.rose-app.testnet.env` or `engine-s3`); the engine views are served from
+ * (`deployments/engine-s4.rose-app.testnet.env`); the engine views are served from
  * that recording (`fixtures/demo-mock.ts`), the explorer links come from the manifest.
  */
 

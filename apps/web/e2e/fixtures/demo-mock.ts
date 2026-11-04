@@ -6,8 +6,7 @@ import { mockChains } from "./engine-mock";
 /**
  * The engine views the guided demo reads, recorded after the seed and the live end-to-end run of
  * each seeded staging engine (`get_round`, `get_bids`, `get_class`, `get_position`, `get_config`
- * and every readable `get_events` entry): `demo-engine-s3.json` (2026-11-04; `engine-s3` cannot
- * deserialize seq 19, which is left out as it is on chain) and `demo-engine-s4.json` (2026-11-04).
+ * and every readable `get_events` entry): `demo-engine-s4.json` (2026-11-04).
  * The suite uses the recording of the engine the app is built with (`NEXT_PUBLIC_ENGINE_ACCOUNT`).
  * `expected` holds the values of that run the walkthrough must show.
  */
@@ -36,7 +35,7 @@ interface Recording {
   };
 }
 
-const RECORDINGS = ["demo-engine-s4.json", "demo-engine-s3.json"].map(
+const RECORDINGS = ["demo-engine-s4.json"].map(
   (file) => JSON.parse(readFileSync(resolve(import.meta.dirname, file), "utf8")) as Recording,
 );
 

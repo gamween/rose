@@ -1,10 +1,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { DEMO_MANIFESTS } from "@/content/demo";
+import recordedS3 from "./fixtures/engine-s3.manifest.json";
 import { buildDemoManifest, ManifestError, parseDemoManifest, type Journal, type ManifestSources, type SolanaJournal } from "./manifest";
 
 const ROOT = fileURLToPath(new URL("../../../../../", import.meta.url));
+/**
+ * The builder runs on the journals of the retired staging engine `engine-s3` (2026-11-04), kept in
+ * `deployments/e2e` as a historical record; its manifest is a fixture here, not an app demo.
+ */
 const ENGINE = "engine-s3.rose-app.testnet";
 
 function journal(path: string): Journal {
@@ -25,7 +29,7 @@ describe("buildDemoManifest on the recorded engine-s3 journals", () => {
   const manifest = buildDemoManifest(sources());
 
   it("is exactly the committed data file, so regenerating it is a no-op", () => {
-    expect(JSON.parse(JSON.stringify(manifest))).toEqual(DEMO_MANIFESTS[ENGINE]);
+    expect(JSON.parse(JSON.stringify(manifest))).toEqual(recordedS3);
   });
 
   it("names the engine, the issuer, the token and the cast", () => {
@@ -128,7 +132,7 @@ describe("buildDemoManifest edge cases", () => {
 });
 
 describe("parseDemoManifest", () => {
-  const valid = DEMO_MANIFESTS[ENGINE];
+  const valid: unknown = recordedS3;
 
   it("accepts the committed manifest", () => {
     expect(parseDemoManifest(valid).scenarios).toHaveLength(4);
