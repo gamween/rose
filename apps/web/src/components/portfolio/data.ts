@@ -123,10 +123,10 @@ async function payoutForeign(payout: PayoutView): Promise<ForeignState> {
   }
 }
 
-/** `amount_withdrawn` of an ended stream's metadata (`confirmed`): what Streamflow's auto-claim took shows here first. */
+/** `amount_withdrawn` of an ended stream's metadata at `finalized`, the commitment the engine's sync proves. */
 async function onChainWithdrawn(entry: SolStreamStateView): Promise<bigint | null> {
   try {
-    return (await readStreamflowStream(solanaConnection(), new PublicKey(entry.stream.metadata), "confirmed")).metadata.amountWithdrawn;
+    return (await readStreamflowStream(solanaConnection(), new PublicKey(entry.stream.metadata), "finalized")).metadata.amountWithdrawn;
   } catch {
     return null;
   }

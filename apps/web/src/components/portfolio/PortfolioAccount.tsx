@@ -38,9 +38,18 @@ const SOL_REDEEM_UNAVAILABLE = {
   ended: "Its stream has ended",
 } as const;
 
-/** Solana positions whose stream takes no redeem now (spec 7.3), with the reason, by position id. */
+/**
+ * Solana positions whose stream takes no redeem now (spec 7.3), with the reason, by position id.
+ * A held position missing from its class's `get_sol_streams` had its stream pruned: fully
+ * withdrawn by payouts, or ended and synced.
+ */
 function solRedeemUnavailable(data: PortfolioData): Map<string, string> {
   const reasons = new Map<string, string>();
+  const listed = new Set(data.solClasses.flatMap((view) => view.streams.map((row) => row.entry.position_id)));
+  const viewed = new Set(data.solClasses.map((view) => view.classId));
+  for (const position of data.positions) {
+    if (position.source.kind === "SolanaStream" && viewed.has(position.classId) && !listed.has(position.positionId.toString())) reasons.set(position.positionId.toString(), "Its stream is fully withdrawn (ended and synced)");
+  }
   for (const row of data.solClasses.flatMap((view) => view.streams)) if (row.phase !== "open") reasons.set(row.entry.position_id, SOL_REDEEM_UNAVAILABLE[row.phase]);
   return reasons;
 }
@@ -162,7 +171,9 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
     setFlow({ title: `Retry signature of payout #${payout.id}`, steps: () => (payout.chain === "Base" ? retryBaseSignatureSteps(deps(), payout) : retrySolPayoutSteps(deps(), payout)) });
   const confirmPayout = (payout: PayoutView) => setFlow({ title: `Confirm payout #${payout.id}`, steps: () => confirmPayoutSteps(deps(), payout) });
   const syncStream = (view: SolClassView, row: SolStreamRow) => {
-    const decimals = data.classes.get(view.classId)?.decimals ?? 0;
+    const info = data.classes.get(view.classId);
+    if (!info) return;
+    const decimals = info.decimals;
     setFlow({ title: `Sync position #${row.entry.position_id}`, summary: `Streamflow stream ${row.entry.stream.metadata.slice(0, 8)}… → swept balance`, steps: () => syncSolStreamSteps(deps(), row.entry, decimals) });
   };
   const releaseLien = (lienId: bigint) =>

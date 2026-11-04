@@ -291,6 +291,21 @@ describe("ended Solana streams", () => {
     expect(retry.ctx.details).toContain("Reading the stream again at finality…");
   });
 
+  it("reads the stream again after the engine refused the sync call, instead of resending the same proof", async () => {
+    const flow = deps({ solana: chainWithAutoClaim(1000n).connection(), vaultSol: SOL_VAULT.toBase58() });
+    let calls = 0;
+    flow.sendNearCall = () => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(new Error("Smart contract panicked: A payout drawing on this stream is not confirmed yet")) : Promise.resolve(outcome("near2", [sweptLog("600")]));
+    };
+    const [read, sync] = syncSolStreamSteps(flow, entry, 0);
+    await run(read!);
+    await expect(run(sync!)).rejects.toThrow("not confirmed yet");
+    const retry = await run(sync!);
+    expect(retry.ctx.details).toContain("Reading the stream again at finality…");
+    expect(retry.message).toBe("600 booked in the swept balance; claims pay from it");
+  });
+
   it("plans a claim from the swept balance first, with no stream drawn when it covers the claim", async () => {
     const flow = deps();
     flow.views.getSolSwept = () => Promise.resolve({ balance: 9n, pending: 2n, available: 7n });

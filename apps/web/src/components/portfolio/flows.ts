@@ -109,16 +109,23 @@ function mpcWait(deps: FlowDeps, holder: PayoutHolder, label = "MPC signature (a
  * MPC"), so this polls until the view catches up instead of failing.
  */
 async function signedPayout(deps: FlowDeps, payoutId: bigint, context: StepContext): Promise<PayoutView> {
-  return waitForPayout(deps.views, payoutId, { signal: context.signal, onPoll: (elapsed) => context.setDetail(`Waiting for the RPC to show the signed payout… ${String(Math.round(elapsed / 1000))} s`) });
+  try {
+    return await waitForPayout(deps.views, payoutId, { signal: context.signal, onPoll: (elapsed) => context.setDetail(`Waiting for the RPC to show the signed payout… ${String(Math.round(elapsed / 1000))} s`) });
+  } catch (error) {
+    // Refunded meanwhile (a confirmation from elsewhere found it did not execute): there is nothing left to submit.
+    const payout = error instanceof PayoutRefusedError ? await deps.views.getPayout(payoutId, { signal: context.signal }) : null;
+    if (payout && typeof payout.status === "object") throw refundedVerdict(payout);
+    throw error;
+  }
 }
 
-function requestStep(deps: FlowDeps, id: string, label: string, build: () => FunctionCall, holder: PayoutHolder): StepDefinition {
+function requestStep(deps: FlowDeps, id: string, label: string, build: (context: StepContext) => FunctionCall | Promise<FunctionCall>, holder: PayoutHolder): StepDefinition {
   return {
     id,
     label,
     run: async (context) => {
       if (holder.payoutId !== null) return { message: `Payout #${holder.payoutId.toString()} already requested` };
-      const outcome = await deps.sendNearCall(build());
+      const outcome = await deps.sendNearCall(await build(context));
       context.addLinks(txLinks("near", outcome.transaction.hash));
       const payoutId = payoutIdFromOutcome(outcome);
       if (payoutId === null) throw new RoseActionError("contract", "No payout recorded", "The engine did not announce a payout id in the transaction logs.");
@@ -405,16 +412,17 @@ export function claimSolTokensSteps(deps: FlowDeps, source: ClaimSource, mint: s
       holder.plan = null;
     },
   };
+  const planNow = async (context: StepContext): Promise<SolClaimPlan> => {
+    const [streams, swept] = await Promise.all([deps.views.getSolStreams(source.classId, { signal: context.signal }), deps.views.getSolSwept(source.classId, { signal: context.signal })]);
+    return planSolClaim(streams, swept.available, source.amount, decimals);
+  };
   const steps: StepDefinition[] = [
     nonceStep(deps, nonce, { owner: toOwner, mint }),
     {
       id: "draws",
       label: "Plan the payout: the class's swept balance first, then the fewest streams",
       run: async (context) => {
-        if (!holder.plan) {
-          const [streams, swept] = await Promise.all([deps.views.getSolStreams(source.classId, { signal: context.signal }), deps.views.getSolSwept(source.classId, { signal: context.signal })]);
-          holder.plan = planSolClaim(streams, swept.available, source.amount, decimals);
-        }
+        holder.plan = await planNow(context);
         return { message: describeSolPlan(holder.plan, decimals) };
       },
     },
@@ -422,9 +430,15 @@ export function claimSolTokensSteps(deps: FlowDeps, source: ClaimSource, mint: s
       deps,
       "request",
       "Request the payout (nonce and receipt proof, Streamflow withdraws, SPL transfer and receipt advance in one transaction)",
-      () => {
-        if (!nonce.proof || !holder.plan) throw new RoseActionError("contract", "No nonce", "Create the nonce account first.");
-        return deps.calls.claimSolTokens(claimSourceArgs(source), holder.plan.draws, toOwner, nonce.proof, holder.plan.swept === 0n ? undefined : holder.plan.swept);
+      async (context) => {
+        if (!nonce.proof) throw new RoseActionError("contract", "No nonce", "Create the nonce account first.");
+        // Planned again right before every request: the swept balance is shared by the class's
+        // claimants and a stream can enter its last 5 minutes or start carrying another payout, so
+        // a retry must not resend a plan the engine already refused.
+        const plan = await planNow(context);
+        if (holder.plan && describeSolPlan(plan, decimals) !== describeSolPlan(holder.plan, decimals)) context.setDetail(`Plan updated: ${describeSolPlan(plan, decimals)}`);
+        holder.plan = plan;
+        return deps.calls.claimSolTokens(claimSourceArgs(source), plan.draws, toOwner, nonce.proof, plan.swept === 0n ? undefined : plan.swept);
       },
       payout,
     ),
@@ -474,11 +488,12 @@ export function syncSolStreamSteps(deps: FlowDeps, entry: SolStreamStateView, de
           context.setDetail("Reading the stream again at finality…");
           holder.proof = await readProof(context);
         }
-        const outcome = await deps.sendNearCall(deps.calls.syncSolStream(BigInt(entry.position_id), holder.proof.anchor, holder.proof.metadataData));
+        const proof = holder.proof;
+        holder.proof = null;
+        const outcome = await deps.sendNearCall(deps.calls.syncSolStream(BigInt(entry.position_id), proof.anchor, proof.metadataData));
         context.addLinks(txLinks("near", outcome.transaction.hash));
         const swept = decodeEventLogs(outcomeLogs(outcome)).find((decoded) => decoded.standard === "rose" && decoded.event.event === "sol_stream_swept");
         if (!swept) {
-          holder.proof = null;
           throw new RoseActionError("mpc_timeout", "Proof not accepted", "The engine did not book the sync: the stream changed between the read and the proof, a payout started drawing on it, or the MPC failed. Nothing changed; retry reads the stream again.", true);
         }
         const amount = BigInt((swept.event.data as { amount: string }).amount);
