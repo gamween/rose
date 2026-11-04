@@ -629,6 +629,21 @@ pub fn is_valid_ecdsa_payload(digest: &Word) -> bool {
     digest < &SECP256K1_N
 }
 
+/// `a - b` for big-endian words with `a >= b`.
+fn sub_words(a: &Word, b: &Word) -> Word {
+    let mut out = [0u8; 32];
+    let mut borrow = 0i16;
+    for i in (0..32).rev() {
+        let mut digit = i16::from(a[i]) - i16::from(b[i]) - borrow;
+        borrow = i16::from(digit < 0);
+        if digit < 0 {
+            digit += 256;
+        }
+        out[i] = digit as u8;
+    }
+    out
+}
+
 /// `true` when `s <= n / 2` (EIP-2, enforced by OpenZeppelin `ECDSA` and RoseVault).
 pub fn is_low_s(s: &Word) -> bool {
     s <= &SECP256K1_HALF_N
@@ -639,10 +654,8 @@ pub fn is_low_s(s: &Word) -> bool {
 pub enum SignatureError {
     /// `big_r` is not a compressed point (prefix `02` or `03`).
     BigRPrefix,
-    /// `r` or `s` is zero or `r >= n`.
+    /// `r` or `s` is zero, or not below `n`.
     ZeroOrOutOfRange,
-    /// `s > n / 2`, which the vault rejects (`InvalidSignatureS`).
-    HighS,
     /// `recovery_id > 1` cannot be expressed as `v` in `{27, 28}`.
     RecoveryId,
 }
@@ -663,28 +676,35 @@ impl EvmSignature {
     ///
     /// `recovery_id` is taken from the response and never derived from the prefix of `big_r`:
     /// across live signatures all four prefix and id combinations occur, because the nodes
-    /// normalize `s` to its low form, which flips the id. Anything the vault would reject is
-    /// refused here rather than normalized, since a valid response never needs normalization.
+    /// normalize `s` to its low form, which flips the id. A high `s` (which the live contract
+    /// never returns) is normalized the same way, `s' = n - s` with the recovery id flipped,
+    /// since the vault only accepts low-s signatures and both forms prove the same signer.
     pub fn from_mpc(signature: &Secp256k1Signature) -> Result<Self, SignatureError> {
         let big_r = signature.big_r.affine_point;
         if big_r[0] != 0x02 && big_r[0] != 0x03 {
             return Err(SignatureError::BigRPrefix);
         }
         let r: Word = big_r[1..].try_into().expect("32 bytes after the prefix");
-        let s = signature.s.scalar;
-        if r == [0; 32] || s == [0; 32] || r >= SECP256K1_N {
+        Self::from_parts(r, signature.s.scalar, signature.recovery_id)
+    }
+
+    /// `(r, s, recovery_id)` checked and normalized to low `s` (see [`Self::from_mpc`]).
+    pub fn from_parts(r: Word, s: Word, recovery_id: u8) -> Result<Self, SignatureError> {
+        if r == [0; 32] || s == [0; 32] || r >= SECP256K1_N || s >= SECP256K1_N {
             return Err(SignatureError::ZeroOrOutOfRange);
         }
-        if !is_low_s(&s) {
-            return Err(SignatureError::HighS);
-        }
-        if signature.recovery_id > 1 {
+        if recovery_id > 1 {
             return Err(SignatureError::RecoveryId);
         }
+        let (s, recovery_id) = if is_low_s(&s) {
+            (s, recovery_id)
+        } else {
+            (sub_words(&SECP256K1_N, &s), recovery_id ^ 1)
+        };
         Ok(Self {
             r,
             s,
-            v: 27 + signature.recovery_id,
+            v: 27 + recovery_id,
         })
     }
 

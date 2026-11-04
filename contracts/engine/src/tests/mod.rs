@@ -6,6 +6,7 @@
 mod accrual;
 mod advance;
 mod custody;
+mod custody_solana;
 mod exit;
 mod guards;
 mod liens;

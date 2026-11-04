@@ -25,7 +25,7 @@ export type BidStatus = "Sealed" | "Opened" | "Void" | "Settled";
 export type CancelReason = "Creator" | "NoKey" | "NoCrossing" | "Empty";
 export type KeySource = "Callback" | "Submitted";
 export type VoidReason = "Unopened" | "EscrowTooSmall" | "QuantityAboveSupply" | "QuantityAboveLocked" | "ClaimMismatch";
-export type PositionState = "Held" | "Released";
+export type PositionState = "Held" | "Releasing" | "Released";
 
 /** Cash venue: the NEP-141 tUSDC on NEAR, or an ERC-20 held by RoseVault on Base. */
 export type Venue = "Near" | { Base: { token: string } };
@@ -330,6 +330,25 @@ export interface RoseEventData {
   lien_created: { lien_id: U64; round_id: U64; class_id: ClassId; holder: AccountId; units: U128; claim_total: U128 };
   lien_released: { lien_id: U64; holder: AccountId; units: U128 };
   claimable_taken: { class_id: ClassId; source: string; amount: U128 };
+  /** Unit variant: the engine serializes it without `data`; parsing fills an empty object. */
+  bootstrap_requested: Record<string, never>;
+  bootstrapped: { vault_base: string; vault_sol: string; gas_sol: string };
+  /** Unit variant, as `bootstrap_requested`. */
+  bootstrap_failed: Record<string, never>;
+  deposit_verification_requested: { key: ReplayKey };
+  deposit_verification_failed: { key: ReplayKey };
+  deposit_mismatch: { key: ReplayKey };
+  deposit_refused: { key: ReplayKey; reason: string };
+  deposit_registered: { key: ReplayKey; chain: Chain; position_id: U64; class_id: ClassId; account: AccountId; units: U128; checkpoint: U128 };
+  base_cash_registered: { key: ReplayKey; account: AccountId; token: string; amount: U128; round_id: U64; accepted: boolean };
+  sol_deposit_attributed: { metadata: string; account: AccountId; class_id: ClassId; deposit_address: string };
+  payout_requested: { payout_id: U64; chain: Chain; requester: AccountId };
+  payout_signed: { payout_id: U64 };
+  payout_awaiting_gas_signature: { payout_id: U64 };
+  payout_failed: { payout_id: U64; reason: string };
+  payout_landed: { payout_id: U64 };
+  payout_cancelling: { payout_id: U64 };
+  position_release_requested: { position_id: U64; payout_id: U64; account: AccountId };
 }
 
 export type RoseEventName = keyof RoseEventData;
@@ -522,11 +541,23 @@ export interface EventsPage { events: StoredEvent[]; total: bigint; oldest: bigi
 
 export type ClaimSourceArgs = { Holding: { class_id: ClassId } } | { Retired: { round_id: U64 } } | { LienShare: { lien_id: U64 } };
 
-/** A Solana durable nonce account proven before a payout: `data` is the 80 raw bytes as hex. */
+/**
+ * The accounts a Solana payout or redeem is built on, proven in one ForeignTx request before
+ * signing: the durable nonce account (`data`, the 80 raw bytes as hex, authority = vault) and the
+ * recipient's existing associated token account for the mint (`recipient_tokens_data`, its 165
+ * bytes as hex). Both are read at `finalized` right before the call.
+ */
 export interface SolNonceProof {
   account: string;
   anchor_tx: string;
   data: string;
+  recipient_tokens_data: string;
+}
+
+/** One stream a Solana payout draws on (`claim_sol_tokens`): at most what `get_sol_streams` reports as withdrawable. */
+export interface SolDrawArgs {
+  position_id: U64;
+  amount: U128;
 }
 
 export type ReplayKey = { BaseLog: { tx_hash: string; log_index: number } } | { SolStream: { metadata: string } } | { SolNonce: { account: string; value: string } };
@@ -540,7 +571,8 @@ export type PayoutKindView =
   | { SolMove: { metadata: string; from: string; to_owner: string } }
   | { SolReturn: { metadata: string; from: string; to_owner: string } };
 
-export type PayoutStatusView = "Requested" | "Signed" | "AwaitingGasSignature" | { Failed: { reason: string } };
+/** `Signed` Solana payouts and redeems become `Landed` or `Failed` once confirmed (`confirm_sol_payout`, `confirm_sol_redeem`). */
+export type PayoutStatusView = "Requested" | "Signed" | "AwaitingGasSignature" | "Landed" | { Failed: { reason: string } };
 
 export interface BaseSignatureView {
   r: string;
@@ -548,20 +580,25 @@ export interface BaseSignatureView {
   v: number;
 }
 
-/** A Streamflow `withdraw` placed inside a payout message, feeding the vault's token account. */
-export interface StreamWithdrawView { position_id: U64; amount: U128 }
+/** A Streamflow `withdraw` inside a payout; `expected_withdrawn` is the stream's `amount_withdrawn` once it executed. */
+export interface SolDrawView { position_id: U64; amount: U128; expected_withdrawn: U128 }
 
+/** Bytes are base64. */
 export interface SolTransactionView {
   message: string;
-  withdraws: StreamWithdrawView[];
-  pool_used: U128;
-  pool_credit: U128;
+  draws: SolDrawView[];
   authority_path: string;
+  /** Address (base58) the authority signature verifies against. */
+  authority: string;
   nonce_account?: string | null;
   nonce_value?: string | null;
   authority_signature?: string | null;
   gas_signature?: string | null;
-  /** Wire transaction (`[2] || sig(gas) || sig(vault) || message`) as hex, once both signatures exist. */
+  /** The message only advances the nonce: the action is being cancelled after its authority signature failed. */
+  cancel: boolean;
+  /** Block of the first proof that the transaction did not execute (a second one 150 blocks later settles it). */
+  not_executed_seen_at?: U64 | null;
+  /** Wire transaction (`[2] || sig(gas) || sig(authority) || message`), once both signatures exist. */
   transaction?: string | null;
 }
 
@@ -578,8 +615,10 @@ export interface PayoutView {
   solana?: SolTransactionView | null;
   created_at: U64;
   updated_at: U64;
-  /** Block of the latest signature request (`retry_base_signature` waits 600 blocks past it). */
+  /** Block of the latest proof or signature request (`retry_base_signature` and `retry_sol_payout` wait 600 blocks past it). */
   requested_block: U64;
+  /** Signature requests issued; after a retry a payout is never refunded. */
+  sign_requests: number;
 }
 
 export type RefusedAssetView = { BaseStream: { lockup: string; stream_id: number } } | { SolStream: { metadata: string; held_by: string; held_by_path: string } };
@@ -613,7 +652,9 @@ export interface SolStreamInfoView {
   metadata: string;
   mint: string;
   escrow_tokens: string;
+  streamflow_treasury_tokens: string;
   partner: string;
+  partner_tokens: string;
   start_time: number;
   end_time: number;
   net_amount_deposited: number;
@@ -621,6 +662,23 @@ export interface SolStreamInfoView {
   amount_per_period: number;
   cliff: number;
   cliff_amount: number;
+  /** Withdrawals proven on chain. */
+  engine_withdrawn: number;
+  /** `amount_withdrawn` attested at registration. */
+  registered_withdrawn: number;
+  /** Accrual checkpoint the position's units were minted from. */
+  checkpoint: U128;
+  /** The one unconfirmed payout drawing on the stream, if any. */
+  drawing?: U64 | null;
+  pending_withdraw: number;
+}
+
+/** A Solana stream of a class with what a payout can draw from it now and the claimable a redeem of it takes now (`get_sol_streams`). */
+export interface SolStreamStateView {
+  position_id: U64;
+  withdrawable: U128;
+  redeem_claimable: U128;
+  stream: SolStreamInfoView;
 }
 
 export interface SablierScheduleArgs {

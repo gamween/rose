@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { AccountId, RoseEventName, RoseEventView, U128, Venue } from "./types.js";
+import type { AccountId, ReplayKey, RoseEventName, RoseEventView, U128, Venue } from "./types.js";
 
 export const EVENT_JSON_PREFIX = "EVENT_JSON:";
 export const ROSE_EVENT_STANDARD = "rose";
@@ -61,6 +61,23 @@ const ROSE_EVENT_NAMES: ReadonlySet<string> = new Set<RoseEventName>([
   "lien_created",
   "lien_released",
   "claimable_taken",
+  "bootstrap_requested",
+  "bootstrapped",
+  "bootstrap_failed",
+  "deposit_verification_requested",
+  "deposit_verification_failed",
+  "deposit_mismatch",
+  "deposit_refused",
+  "deposit_registered",
+  "base_cash_registered",
+  "sol_deposit_attributed",
+  "payout_requested",
+  "payout_signed",
+  "payout_awaiting_gas_signature",
+  "payout_failed",
+  "payout_landed",
+  "payout_cancelling",
+  "position_release_requested",
 ]);
 
 /** Whether `name` is one of the engine's documented event names. */
@@ -84,6 +101,10 @@ export function decodeEventLog(log: string): DecodedEvent | null {
   const event = record["event"];
   if (typeof standard !== "string" || typeof version !== "string" || typeof event !== "string") return null;
   const data = record["data"];
+  // Unit variants of the engine's events (`bootstrap_requested`, `bootstrap_failed`) carry no `data`.
+  if (standard === ROSE_EVENT_STANDARD && isRoseEventName(event) && data === undefined) {
+    return { standard: ROSE_EVENT_STANDARD, version, event: { event, data: {} } as RoseEventView };
+  }
   if (standard === ROSE_EVENT_STANDARD && isRoseEventName(event) && typeof data === "object" && data !== null) {
     return { standard: ROSE_EVENT_STANDARD, version, event: { event, data } as RoseEventView };
   }
@@ -108,8 +129,19 @@ export function nep245Events(logs: readonly string[]): Nep245Event[] {
   return decodeEventLogs(logs).flatMap((decoded) => (decoded.standard === NEP245_STANDARD ? [decoded.event as Nep245Event] : []));
 }
 
+/** Formats the raw integer amounts of an event; the defaults print them as stored on chain. */
+export interface EventAmountFormat {
+  /** Cash amounts and prices (USDC, 6 decimals in every venue rose accepts). */
+  cash: (amount: string) => string;
+  /** Units of a class (and the tokens they claim). */
+  units: (amount: string, classId: string) => string;
+}
+
+const RAW_AMOUNTS: EventAmountFormat = { cash: (amount) => amount, units: (amount) => amount };
+
 /** A short, human-readable line for an engine event (activity feed and toasts). */
-export function describeRoseEvent(event: RoseEventView): string {
+export function describeRoseEvent(event: RoseEventView, format: EventAmountFormat = RAW_AMOUNTS): string {
+  const { cash, units } = format;
   switch (event.event) {
     case "class_created": {
       const d = event.data;
@@ -117,7 +149,7 @@ export function describeRoseEvent(event: RoseEventView): string {
     }
     case "position_registered": {
       const d = event.data;
-      return `Position #${d.position_id} registered by ${d.depositor} (${d.allocation} units)`;
+      return `Position #${d.position_id} registered by ${d.depositor} (${units(d.allocation, d.class_id)} units)`;
     }
     case "position_released": {
       const d = event.data;
@@ -125,27 +157,27 @@ export function describeRoseEvent(event: RoseEventView): string {
     }
     case "units_minted": {
       const d = event.data;
-      return `${d.units} units of ${short(d.class_id)} minted to ${d.account}`;
+      return `${units(d.units, d.class_id)} units of ${short(d.class_id)} minted to ${d.account}`;
     }
     case "units_burned": {
       const d = event.data;
-      return `${d.units} units of ${short(d.class_id)} burned from ${d.account}`;
+      return `${units(d.units, d.class_id)} units of ${short(d.class_id)} burned from ${d.account}`;
     }
     case "units_transferred": {
       const d = event.data;
-      return `${d.units} units of ${short(d.class_id)} moved from ${d.from} to ${d.to}`;
+      return `${units(d.units, d.class_id)} units of ${short(d.class_id)} moved from ${d.from} to ${d.to}`;
     }
     case "cash_deposited": {
       const d = event.data;
-      return `${d.account} deposited ${d.amount} cash on ${venueLabel(d.venue)}`;
+      return `${d.account} deposited ${cash(d.amount)} cash on ${venueLabel(d.venue)}`;
     }
     case "cash_withdrawn": {
       const d = event.data;
-      return `${d.account} withdrew ${d.amount} cash on ${venueLabel(d.venue)}`;
+      return `${d.account} withdrew ${cash(d.amount)} cash on ${venueLabel(d.venue)}`;
     }
     case "cash_withdrawal_failed": {
       const d = event.data;
-      return `Cash withdrawal of ${d.amount} by ${d.account} failed and was re-credited`;
+      return `Cash withdrawal of ${cash(d.amount)} by ${d.account} failed and was re-credited`;
     }
     case "round_created": {
       const d = event.data;
@@ -197,7 +229,7 @@ export function describeRoseEvent(event: RoseEventView): string {
     }
     case "round_cleared": {
       const d = event.data;
-      return `Round #${d.round_id} cleared at ${d.price} (volume ${d.volume})`;
+      return `Round #${d.round_id} cleared at ${cash(d.price)} per locked token`;
     }
     case "bid_settled": {
       const d = event.data;
@@ -205,17 +237,73 @@ export function describeRoseEvent(event: RoseEventView): string {
     }
     case "lien_created": {
       const d = event.data;
-      return `Lien #${d.lien_id} on ${d.units} units of ${d.holder} (claim ${d.claim_total})`;
+      return `Lien #${d.lien_id} on ${units(d.units, d.class_id)} units of ${d.holder} (claim ${units(d.claim_total, d.class_id)})`;
     }
     case "lien_released": {
       const d = event.data;
-      return `Lien #${d.lien_id} released, ${d.units} units back to ${d.holder}`;
+      return `Lien #${d.lien_id} released, the encumbered units are back with ${d.holder}`;
     }
     case "claimable_taken": {
       const d = event.data;
-      return `${d.amount} claimed from ${d.source} (${short(d.class_id)})`;
+      return `${units(d.amount, d.class_id)} claimed from ${d.source} (${short(d.class_id)})`;
+    }
+    case "bootstrap_requested":
+      return "Engine bootstrap requested (MPC-derived foreign addresses)";
+    case "bootstrapped": {
+      const d = event.data;
+      return `Engine bootstrapped: Base vault ${d.vault_base}, Solana vault ${d.vault_sol}`;
+    }
+    case "bootstrap_failed":
+      return "Engine bootstrap failed, retry bootstrap";
+    case "deposit_verification_requested":
+      return `Deposit ${replayKeyLabel(event.data.key)} sent to the MPC for verification`;
+    case "deposit_verification_failed":
+      return `Verification of deposit ${replayKeyLabel(event.data.key)} failed, retry`;
+    case "deposit_mismatch":
+      return `Deposit ${replayKeyLabel(event.data.key)} does not match its attestation`;
+    case "deposit_refused": {
+      const d = event.data;
+      return `Deposit ${replayKeyLabel(d.key)} refused (${d.reason})`;
+    }
+    case "deposit_registered": {
+      const d = event.data;
+      return `${d.chain} position #${d.position_id} registered: ${units(d.units, d.class_id)} units of ${short(d.class_id)} to ${d.account}`;
+    }
+    case "base_cash_registered": {
+      const d = event.data;
+      return `${cash(d.amount)} Base cash registered for ${d.account}${d.accepted ? "" : " (token not accepted)"}`;
+    }
+    case "sol_deposit_attributed": {
+      const d = event.data;
+      return `Solana stream ${d.metadata.slice(0, 8)}… attributed to ${d.account}`;
+    }
+    case "payout_requested": {
+      const d = event.data;
+      return `${d.chain} payout #${d.payout_id} requested by ${d.requester}`;
+    }
+    case "payout_signed":
+      return `Payout #${event.data.payout_id} signed by the MPC`;
+    case "payout_awaiting_gas_signature":
+      return `Payout #${event.data.payout_id} awaiting its gas signature`;
+    case "payout_failed": {
+      const d = event.data;
+      return `Payout #${d.payout_id} failed (${d.reason})`;
+    }
+    case "payout_landed":
+      return `Payout #${event.data.payout_id} landed on Solana`;
+    case "payout_cancelling":
+      return `Payout #${event.data.payout_id} is being cancelled on Solana (its signature failed)`;
+    case "position_release_requested": {
+      const d = event.data;
+      return `Position #${d.position_id} release requested by ${d.account} (payout #${d.payout_id})`;
     }
   }
+}
+
+function replayKeyLabel(key: ReplayKey): string {
+  if ("BaseLog" in key) return `${key.BaseLog.tx_hash.slice(0, 10)}…#${String(key.BaseLog.log_index)}`;
+  if ("SolStream" in key) return `${key.SolStream.metadata.slice(0, 8)}…`;
+  return `nonce ${key.SolNonce.account.slice(0, 8)}…`;
 }
 
 function short(classId: string): string {

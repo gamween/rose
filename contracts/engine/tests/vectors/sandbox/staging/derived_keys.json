@@ -1,0 +1,20 @@
+{
+  "description": "Keys v1.signer-prod.testnet derives for engine-s1.rose-app.testnet (derived_public_key, read 2026-11-04 at block 276155629 with `near contract call-function as-read-only v1.signer-prod.testnet derived_public_key json-args '{\"path\":\"<path>\",\"predecessor\":\"engine-s1.rose-app.testnet\",\"domain_id\":<domain>}' network-config testnet now`): the staging replay needs the real vault keys, since the engine verifies every signature it stores against them.",
+  "keys": [
+    {
+      "path": "vault/base",
+      "domain_id": 0,
+      "key": "secp256k1:5yxTg4vNDMTiFmfGtzdxKASHS79uPSTMVSs7MMGjZpDKPQtLr2A2iiCeT1wmgbQzPq7EVAXYb9rbDME7j4ga7sTN"
+    },
+    {
+      "path": "vault/sol",
+      "domain_id": 1,
+      "key": "ed25519:77DPmxotR35D3zAWGSCJ1UxN6T4KYVkSkkEkZS59AHad"
+    },
+    {
+      "path": "gas/sol",
+      "domain_id": 1,
+      "key": "ed25519:36jQEj7ZbZsS1huRPZCZiKW4kijMJJWeDJdDoAJg5PRH"
+    }
+  ]
+}

@@ -20,6 +20,10 @@ use crate::{Contract, ContractExt, RoseEvent};
 const GAS_FOR_CKD_REQUEST: Gas = Gas::from_tgas(25);
 /// Static gas of the CKD callback (12.4 Tgas measured: unwrap plus pairing check).
 const GAS_FOR_CKD_CALLBACK: Gas = Gas::from_tgas(20);
+/// Blocks a CKD request may stay in flight: the MPC yield times out after 200 blocks and the
+/// callback runs right after. `cancel_no_key` waits for them, so a key cannot arrive (and become
+/// public in the MPC's receipt) for a round already cancelled.
+pub const KEY_REQUEST_FLIGHT_BLOCKS: u64 = 250;
 
 #[derive(Serialize)]
 #[serde(crate = "near_sdk::serde")]
@@ -53,8 +57,9 @@ pub struct CkdResponse {
 impl Contract {
     /// Requests the round key from the MPC (CKD, `AppPublicKeyPV` with the round's public
     /// scalar, 1 yoctoNEAR paid by the engine). Anyone, once `now >= closes_at`; callable again
-    /// while no key has arrived (the key is deterministic). A round without any sealed order is
-    /// cancelled instead: there is nothing to reveal. Attach about 60 Tgas.
+    /// while no key has arrived (the key is deterministic) until `closes_at + key_timeout`, when
+    /// the round becomes cancellable instead. A round without any sealed order is cancelled
+    /// instead: there is nothing to reveal. Attach about 60 Tgas.
     pub fn close(&mut self, round_id: U64) -> Option<Promise> {
         let round = self.round(round_id.0).clone();
         require!(
@@ -65,10 +70,16 @@ impl Contract {
             env::block_timestamp() >= round.closes_at,
             "Round is still open"
         );
+        require!(
+            round.bid_count == 0
+                || env::block_timestamp() < round.closes_at.saturating_add(round.key_timeout),
+            "Key timeout reached: the round can only be cancelled (cancel_no_key)"
+        );
         if round.bid_count == 0 {
             self.cancel(round_id.0, CancelReason::Empty);
             return None;
         }
+        Self::require_mpc_reserve();
         let engine = env::current_account_id();
         let scalar = rose_ibe::app_scalar(engine.as_str(), round_id.0);
         let (pk1, pk2) = rose_ibe::host::app_public_key_pv_host(&scalar);
@@ -86,6 +97,7 @@ impl Contract {
             let round = self.round_mut(round_id.0);
             round.phase = Phase::KeyRequested;
             round.close_requested_at = Some(env::block_timestamp());
+            round.close_requested_block = Some(env::block_height());
         }
         self.emit(RoseEvent::KeyRequested { round_id });
         Some(
@@ -158,8 +170,9 @@ impl Contract {
         self.store_key(round_id.0, key, KeySource::Submitted);
     }
 
-    /// Cancels a round whose key has not arrived by `closes_at + key_timeout`. Anyone. Every
-    /// escrow, bond and locked unit becomes refundable through `settle_bid`.
+    /// Cancels a round whose key has not arrived by `closes_at + key_timeout`, once no key
+    /// request is in flight ([`KEY_REQUEST_FLIGHT_BLOCKS`] after the last `close`). Anyone.
+    /// Every escrow, bond and locked unit becomes refundable through `settle_bid`.
     pub fn cancel_no_key(&mut self, round_id: U64) {
         let round = self.round(round_id.0).clone();
         require!(
@@ -170,6 +183,12 @@ impl Contract {
         require!(
             env::block_timestamp() >= round.closes_at.saturating_add(round.key_timeout),
             "Key timeout not reached"
+        );
+        require!(
+            round.close_requested_block.is_none_or(|block| {
+                env::block_height() >= block.saturating_add(KEY_REQUEST_FLIGHT_BLOCKS)
+            }),
+            "A key request is in flight: cancel once it has resolved"
         );
         self.cancel(round_id.0, CancelReason::NoKey);
     }

@@ -149,7 +149,7 @@ step_register() {
   deposit="$(near_view "$engine" registration_deposit_for "$(jq -cn --arg a "$holder" --arg c "$class" '{account:$a,class_id:$c}')" | jq -r .)"
   log "class $class, registration deposit $deposit yoctoNEAR"
   local hash status
-  hash="$(near_call "$issuer" "$engine" register_base_deposit "$args" '60 Tgas' "$(python3 -c "print(int('$deposit') / 1e24)") NEAR")"
+  hash="$(near_call "$issuer" "$engine" register_base_deposit "$args" '80 Tgas' "$(python3 -c "print(int('$deposit') / 1e24)") NEAR")"
   status="$(record_near register "$hash" "$(jq -cn --arg c "$class" '{class_id:$c}')")"
   near_tx_logs "$status" | grep -o '"event":"[a-z_]*"' | tr '\n' ' ' >&2; echo >&2
   local replay
@@ -287,7 +287,7 @@ step_claim() {
   [[ "$claimable" != "0" ]] || die "nothing claimable yet (the stream unlocks continuously: wait a little)"
   to="$(deployments_get "$engine" ".base.deployer" | jq -r .)"
   hash="$(near_call "$holder" "$engine" claim_base_tokens "$(jq -cn --arg c "$class" --arg a "$claimable" --arg t "$to" \
-    '{source:{Holding:{class_id:$c}},amount:$a,to:$t}')" '40 Tgas' '0.02 NEAR')"
+    '{source:{Holding:{class_id:$c}},amount:$a,to:$t}')" '80 Tgas' '0.025 NEAR')"
   status="$(record_near claim "$hash" "$(jq -cn --arg a "$claimable" --arg t "$to" '{amount:$a,to:$t}')")"
   payout="$(near_view "$engine" get_payout "$(jq -cn --argjson id "$(near_view "$engine" payouts_total | jq -r . | sed 's/"//g')" '{payout_id:(($id|tonumber)-1|tostring)}')")"
   [[ "$(jq -r .status <<<"$payout")" == "Signed" ]] || die "payout not signed: $(jq -c .status <<<"$payout")"

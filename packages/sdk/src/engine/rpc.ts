@@ -88,11 +88,101 @@ export interface BlockView { header: { height: number; hash: string; timestamp: 
 export type TxWaitUntil = "NONE" | "INCLUDED" | "EXECUTED_OPTIMISTIC" | "INCLUDED_FINAL" | "EXECUTED" | "FINAL";
 
 
+/** Requests in flight at once across every `NearRpc` of this page (public RPCs rate limit bursts per IP). */
+export const MAX_CONCURRENT_RPC_REQUESTS = 4;
+
+let active = 0;
+const waiting: (() => void)[] = [];
+
+/**
+ * Runs `task` once fewer than `MAX_CONCURRENT_RPC_REQUESTS` requests are in flight. A page that
+ * mounts a dozen views at once otherwise fires them in one burst.
+ */
+export async function withRpcSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (active >= MAX_CONCURRENT_RPC_REQUESTS) await new Promise<void>((resolve) => waiting.push(resolve));
+  active += 1;
+  try {
+    return await task();
+  } finally {
+    active -= 1;
+    waiting.shift()?.();
+  }
+}
+
+/**
+ * Request budget of one RPC endpoint. FastNEAR and rpc.testnet.near.org both answer about 30
+ * requests per IP and then HTTP 429 for several seconds (measured 2026-11-04: 30 of 60 parallel
+ * requests refused, 33 of 50 at 5 per second), and their 429 carries no CORS header, so the
+ * browser logs a blocked request. The budget keeps a page under that line.
+ */
+export class TokenBucket {
+  private tokens: number;
+  private last: number;
+
+  constructor(
+    private readonly capacity: number,
+    private readonly refillPerSecond: number,
+    private readonly now: () => number = () => Date.now(),
+  ) {
+    this.tokens = capacity;
+    this.last = now();
+  }
+
+  private refill(): void {
+    const at = this.now();
+    this.tokens = Math.min(this.capacity, this.tokens + ((at - this.last) / 1000) * this.refillPerSecond);
+    this.last = at;
+  }
+
+  /** Milliseconds until a token is available (0 when one is available now). */
+  waitMs(): number {
+    this.refill();
+    return this.tokens >= 1 ? 0 : Math.ceil(((1 - this.tokens) / this.refillPerSecond) * 1000);
+  }
+
+  /** Takes a token, waiting for it when the budget is spent. */
+  async take(): Promise<void> {
+    for (let wait = this.waitMs(); wait > 0; wait = this.waitMs()) await new Promise((resolve) => setTimeout(resolve, wait));
+    this.tokens -= 1;
+  }
+}
+
+/** 20 requests at once, then 2.5 per second per endpoint: below the measured public limits. */
+export const RPC_BUCKET_CAPACITY = 20;
+export const RPC_REFILL_PER_SECOND = 2.5;
+
+const buckets = new Map<string, TokenBucket>();
+
+/** The budget of a public endpoint whose limits were measured; other endpoints (private RPCs, tests) have none. */
+function bucketOf(endpoint: string): TokenBucket | null {
+  if (!/^https:\/\/(test\.rpc\.fastnear\.com|rpc\.testnet\.near\.org)\/?$/.test(endpoint)) return null;
+  let bucket = buckets.get(endpoint);
+  if (!bucket) {
+    bucket = new TokenBucket(RPC_BUCKET_CAPACITY, RPC_REFILL_PER_SECOND);
+    buckets.set(endpoint, bucket);
+  }
+  return bucket;
+}
+
+/** Waits for a request token of `endpoint` (immediate for endpoints without a measured limit), for callers that fetch the RPC themselves. */
+export async function takeRpcBudget(endpoint: string): Promise<void> {
+  await bucketOf(endpoint)?.take();
+}
+
+/** The endpoints in failover order, starting with the first one that has budget left now. */
+export function endpointOrder(endpoints: readonly string[], waitMs: (endpoint: string) => number = (endpoint) => bucketOf(endpoint)?.waitMs() ?? 0): string[] {
+  const ready = endpoints.find((endpoint) => waitMs(endpoint) === 0);
+  return ready === undefined ? [...endpoints] : [ready, ...endpoints.filter((endpoint) => endpoint !== ready)];
+}
+
 function isRetriable(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
-/** JSON-RPC client for NEAR testnet with endpoint fallback and typed errors. */
+/** Requests in flight, by endpoints, method and params (see `NearRpc.request`). */
+const inFlight = new Map<string, Promise<unknown>>();
+
+/** JSON-RPC client for NEAR testnet with endpoint fallback, a per-endpoint request budget and typed errors. */
 export class NearRpc {
   readonly endpoints: readonly string[];
   private readonly fetchImpl: typeof globalThis.fetch;
@@ -106,25 +196,64 @@ export class NearRpc {
     if (this.endpoints.length === 0) throw new NearRpcError("rpc", "At least one RPC endpoint is required.");
   }
 
-  /** Sends one JSON-RPC request, falling over to the next endpoint on network or server failures. */
-  async request<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
+  /**
+   * Sends one JSON-RPC request, falling over to the next endpoint on network or server failures.
+   * Identical requests in flight share one round trip (several components of a page read the
+   * same view at mount); each caller's `signal` still aborts its own wait.
+   */
+  request<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
+    const key = method === "send_tx" ? null : `${this.endpoints.join(",")}|${method}|${JSON.stringify(params)}`;
+    let shared = key === null ? undefined : inFlight.get(key);
+    if (!shared) {
+      shared = this.send(method, params);
+      if (key !== null) {
+        inFlight.set(key, shared);
+        const forget = () => {
+          inFlight.delete(key);
+        };
+        shared.then(forget, forget);
+      }
+    }
+    if (!signal) return shared as Promise<T>;
+    if (signal.aborted) return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        reject(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      (shared as Promise<T>).then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
+    });
+  }
+
+  private async send(method: string, params: unknown): Promise<unknown> {
     let lastError: NearRpcError | null = null;
-    for (const endpoint of this.endpoints) {
+    for (const endpoint of endpointOrder(this.endpoints)) {
+      await bucketOf(endpoint)?.take();
       const controller = new AbortController();
-      const timer = setTimeout(() => { controller.abort(); }, this.timeoutMs);
-      const onAbort = () => { controller.abort(); };
-      signal?.addEventListener("abort", onAbort, { once: true });
+      const timer = setTimeout(() => {
+        controller.abort();
+      }, this.timeoutMs);
       try {
         let response: Response;
         try {
-          response = await this.fetchImpl(endpoint, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: "rose", method, params }),
-            signal: controller.signal,
-          });
+          response = await withRpcSlot(() =>
+            this.fetchImpl(endpoint, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: "rose", method, params }),
+              signal: controller.signal,
+            }),
+          );
         } catch (error) {
-          if (signal?.aborted) throw error;
           lastError = new NearRpcError("unreachable", `${endpoint} could not be reached.`, error);
           continue;
         }
@@ -142,10 +271,9 @@ export class NearRpc {
         }
         if (body.error) throw NearRpc.toError(body.error);
         if (body.result === undefined) throw new NearRpcError("invalid_response", "The RPC returned no result.");
-        return body.result as T;
+        return body.result;
       } finally {
         clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
       }
     }
     throw lastError ?? new NearRpcError("unreachable", "No RPC endpoint answered.");

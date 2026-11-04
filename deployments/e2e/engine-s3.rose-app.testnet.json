@@ -1,0 +1,149 @@
+{
+  "engine": "engine-s3.rose-app.testnet",
+  "holder": "b1.rose-ckd-1793753433.testnet",
+  "issuer": "rose-app.testnet",
+  "steps": {
+    "mint": {
+      "stream_id": 88,
+      "base_tx": "0x07e88c84785c496d9e9909649b6f48e35521afe226197032f5580b6175be2b59",
+      "link": "https://sepolia.basescan.org/tx/0x07e88c84785c496d9e9909649b6f48e35521afe226197032f5580b6175be2b59"
+    },
+    "deposit": {
+      "location": {
+        "tx_hash": "0x9d0e0335741dd936cd494958e14c147f8ab649a5d548e2b9a4ab8051fb5eab68",
+        "block_hash": "0x1fc39037320ef592a45620f18cda8b57d49c6ed5d96dc245f2ac063d74adb256",
+        "block_number": 54258271,
+        "transaction_index": 2,
+        "log_index": 5
+      },
+      "fields": {
+        "sender": "0x241974b841c4a41e880b935f42a89c0bcb88c66a",
+        "stream_id": 88,
+        "near_account": "b1.rose-ckd-1793753433.testnet",
+        "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+        "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+        "decimals": 18,
+        "deposited": "20000000000000000000000",
+        "withdrawn": "3486595319634703196347",
+        "start": 1791169008,
+        "cliff": 0,
+        "end": 1822705008,
+        "granularity": 1,
+        "start_unlock": "2000000000000000000000",
+        "cliff_unlock": "0",
+        "cancelable": false,
+        "transferable": true,
+        "timestamp": 1793773523
+      },
+      "base_tx": "0x9d0e0335741dd936cd494958e14c147f8ab649a5d548e2b9a4ab8051fb5eab68",
+      "link": "https://sepolia.basescan.org/tx/0x9d0e0335741dd936cd494958e14c147f8ab649a5d548e2b9a4ab8051fb5eab68",
+      "gas_used": 239658
+    },
+    "register": {
+      "near_tx": "GNRGjVYwLVTxnaSFSYdtn9M5eiB5MS7EUcnYsA8TyZLH",
+      "link": "https://testnet.near.rocks/tx/GNRGjVYwLVTxnaSFSYdtn9M5eiB5MS7EUcnYsA8TyZLH",
+      "gas_tgas": 19.16,
+      "class_id": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+      "units": "20000000000000000000000"
+    },
+    "fund_issuer": {
+      "near_tx": "HNaFSudSGf5DyXCEqyfzvuxbtGujGriUo2Xi6REsdF5y",
+      "link": "https://testnet.near.rocks/tx/HNaFSudSGf5DyXCEqyfzvuxbtGujGriUo2Xi6REsdF5y",
+      "gas_tgas": 7.65,
+      "amount": "20000000"
+    },
+    "fund_holder": {
+      "near_tx": "GMxi72jFdhbVwpzhZfVW7bPvnyWwWLHvFxWzix2zbpJb",
+      "link": "https://testnet.near.rocks/tx/GMxi72jFdhbVwpzhZfVW7bPvnyWwWLHvFxWzix2zbpJb",
+      "gas_tgas": 7.67,
+      "amount": "2000000"
+    },
+    "tender": {
+      "near_tx": "GJkPRCk95JqsKr5Q4kkcuEKUxu5urrBVhczi9gu6LVks",
+      "link": "https://testnet.near.rocks/tx/GJkPRCk95JqsKr5Q4kkcuEKUxu5urrBVhczi9gu6LVks",
+      "gas_tgas": 3.76,
+      "round_id": "0",
+      "closes_at": "1793773768000000000"
+    },
+    "ask": {
+      "sealed": {
+        "ciphertext_hex": "80c440a8ce58a00cdadf90173521b1d79f706d06c3f9b8f96cf6571d6e251d50f39ed93c20e576b58f2b8b7050e353150cdbe0ab5451fef1c57ed9e5087c98a4d0d1f6a1c6165f2e251d6fb77d2f44ac7240b176c82c70119de7056bedf0ef1b2efb53bc4609406e6ec9ce6d04783df8be27cbb5f07ef086149fc57844efa9717d8857dd797e8f199e2dbdb4724e848443fa5e6946d564727703db2e3fd9b0ee475022b415a48dcb368130b3d1a603236d2900717d985ffb1131261e9036f7c8",
+        "salt": "ffdf33411e178398351f28e5345b8314"
+      },
+      "near_tx": "GWcF75yxLeqiK4dEbqWfBqximMUA3rwNFcbvWnkoQXGt",
+      "link": "https://testnet.near.rocks/tx/GWcF75yxLeqiK4dEbqWfBqximMUA3rwNFcbvWnkoQXGt",
+      "gas_tgas": 4.65,
+      "quantity": "1000000000000000000000",
+      "price": "5000",
+      "bid_id": 0
+    },
+    "close": {
+      "near_tx": "TjwnQH5A2a9nFPouk9dmgKZ7jufrwXcbKtDkVTy1hop",
+      "link": "https://testnet.near.rocks/tx/TjwnQH5A2a9nFPouk9dmgKZ7jufrwXcbKtDkVTy1hop",
+      "gas_tgas": 37.39,
+      "ckd_response": {
+        "big_y": "bls12381g1:7KzVTWqpwgHFVFWqJTVKHdZxgsi6g71eJyjVT721CVQUyAPabdzrzY1iLev9H78EP3",
+        "big_c": "bls12381g1:6PrEzLpYHYx9Rfk1Ht78xjeDF7PiFmukwdy2FwSFTsN7v1Fc2gWitSHjBVYueqJa5g"
+      },
+      "key": "bls12381g1:6V2JhsDzWD4qSB5GBmxuVhhxPmE9JjgSjx7yxej8WVSodtpNxpf3wxyrdc5TuABDfS",
+      "unwrapped_offline": "bls12381g1:6V2JhsDzWD4qSB5GBmxuVhhxPmE9JjgSjx7yxej8WVSodtpNxpf3wxyrdc5TuABDfS"
+    },
+    "open": {
+      "near_tx": "3TmZ1E6taLY6uq2jRcgy1UMiD8h4mrhE2kFFpEDg5yPK",
+      "link": "https://testnet.near.rocks/tx/3TmZ1E6taLY6uq2jRcgy1UMiD8h4mrhE2kFFpEDg5yPK",
+      "gas_tgas": 132.09
+    },
+    "clear": {
+      "near_tx": "2PLJpXs3pnArQQRzReDQBVUjPJcYvNn5xHDPe9WoE8J9",
+      "link": "https://testnet.near.rocks/tx/2PLJpXs3pnArQQRzReDQBVUjPJcYvNn5xHDPe9WoE8J9",
+      "gas_tgas": 4.1,
+      "result": {
+        "price": "5000",
+        "volume": "1000000000000000000000",
+        "notional": "4128317",
+        "fee": "12385",
+        "issuer_charged": "4128317",
+        "issuer_refund": "5889298"
+      }
+    },
+    "settle": {
+      "near_tx": "J4frBq2u3EZevV5bJhNEfpvckHaEeauUvpEdgXub5Qhu",
+      "link": "https://testnet.near.rocks/tx/J4frBq2u3EZevV5bJhNEfpvckHaEeauUvpEdgXub5Qhu",
+      "gas_tgas": 5.53
+    },
+    "claim": {
+      "near_tx": "JrFk6cdNo5NXFdHggA7NMTSwZyipZ3CQhuJpgzGtbem",
+      "link": "https://testnet.near.rocks/tx/JrFk6cdNo5NXFdHggA7NMTSwZyipZ3CQhuJpgzGtbem",
+      "gas_tgas": 17.25,
+      "amount": "837699771689465000",
+      "to": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+      "payout": {
+        "id": "6",
+        "kind": {
+          "BaseTransfer": {
+            "token": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+            "to": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+            "amount": "837699771689465000"
+          }
+        },
+        "digest": "375379b9bdf8cfc7ff19068079ccf4bfb451643688839d47412dc7895a879797",
+        "base": {
+          "r": "e669e3bd28e40093a77af713ba66a66e89e315017ea4736c26b46f949ff3cacf",
+          "s": "55e0ab949f9094fdda6f2f3b5e9ae74802aba24bc4293ccf64cec95dd80b3a6a",
+          "v": 27
+        }
+      }
+    },
+    "withdraw_max": {
+      "base_tx": "0x686ddde54cbd9661737cae802e75d301954cbf9f71af768fc30e6c157eb5b6e7",
+      "link": "https://sepolia.basescan.org/tx/0x686ddde54cbd9661737cae802e75d301954cbf9f71af768fc30e6c157eb5b6e7",
+      "gas_used": "0x1d34e"
+    },
+    "execute": {
+      "base_tx": "0x4e443bf1958194d154402274826b8b89113de4ad675a197a943133d126c26c76",
+      "link": "https://sepolia.basescan.org/tx/0x4e443bf1958194d154402274826b8b89113de4ad675a197a943133d126c26c76",
+      "status": "0x1",
+      "gas_used": "0x10cf5"
+    }
+  }
+}

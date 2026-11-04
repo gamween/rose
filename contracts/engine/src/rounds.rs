@@ -349,6 +349,7 @@ impl Contract {
             key: None,
             key_source: None,
             close_requested_at: None,
+            close_requested_block: None,
             key_received_at: None,
             bid_count: 0,
             opened_count: 0,

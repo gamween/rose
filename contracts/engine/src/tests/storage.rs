@@ -284,7 +284,7 @@ fn storage_withdraw_keeps_the_registration_minimum() {
 }
 
 #[test]
-fn mt_transfer_call_refund_lands_on_a_sender_that_unregistered_meanwhile() {
+fn mt_transfer_call_holds_the_sender_until_its_refund_lands() {
     let mut contract = init();
     let class = stepped_class(&mut contract, 6);
     let (sender, receiver) = (accounts(1), accounts(2));
@@ -301,7 +301,13 @@ fn mt_transfer_call_refund_lands_on_a_sender_that_unregistered_meanwhile() {
     ));
     assert_eq!(contract.mt_balance_of(sender.clone(), class.clone()).0, 0);
     env(&sender, one_yocto(), ts(1_101));
-    assert!(contract.storage_unregister(None));
+    panics_with("custody actions in flight", || {
+        contract.storage_unregister(None)
+    });
+    env(&sender, one_yocto(), ts(1_101));
+    panics_with("custody actions in flight", || {
+        contract.storage_withdraw(None)
+    });
     env_with_result(
         ts(1_102),
         near_sdk::PromiseResult::Successful(b"[\"400\"]".to_vec()),
@@ -317,8 +323,10 @@ fn mt_transfer_call_refund_lands_on_a_sender_that_unregistered_meanwhile() {
     assert_eq!(contract.mt_balance_of(sender.clone(), class.clone()).0, 400);
     assert_eq!(contract.mt_balance_of(receiver, class).0, 600);
     assert_eq!(
-        contract.storage_balance_of(sender).unwrap().total,
-        U128(0),
-        "re-registered by the refund with the engine paying its row"
+        contract.storage_balance_of(sender.clone()).unwrap().total,
+        contract.storage_balance_bounds().min,
+        "the sender kept its deposit for the refunded row"
     );
+    env(&sender, one_yocto(), ts(1_103));
+    panics_with("still holds units", || contract.storage_unregister(None));
 }

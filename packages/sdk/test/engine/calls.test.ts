@@ -42,8 +42,8 @@ describe("engine change-call builders", () => {
   });
 
   it("keeps every call under the 300 Tgas wallet cap and gives opening and clearing the maximum", () => {
-    expect(calls.openBid(7n, 0, "00".repeat(48), "00".repeat(32)).gas).toBe(300n * TGAS);
-    expect(calls.clear(7n).gas).toBe(300n * TGAS);
+    expect(calls.openBid(7n, 0, "00".repeat(48), "00".repeat(32)).gas).toBe(200n * TGAS);
+    expect(calls.clear(7n).gas).toBe(50n * TGAS);
     expect(calls.close(7n).deposit).toBe(0n);
     for (const gas of Object.values(GAS)) expect(gas <= 300n * TGAS).toBe(true);
   });

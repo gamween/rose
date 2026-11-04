@@ -405,15 +405,41 @@ fn real_mpc_signature_recovers_the_derived_address() {
     );
 }
 
+/// `n - s` for a big-endian scalar.
+fn n_minus(s: &[u8; 32]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let mut borrow = 0i16;
+    for i in (0..32).rev() {
+        let mut digit = i16::from(SECP256K1_N[i]) - i16::from(s[i]) - borrow;
+        borrow = i16::from(digit < 0);
+        if digit < 0 {
+            digit += 256;
+        }
+        out[i] = digit as u8;
+    }
+    out
+}
+
 #[test]
 fn signature_mapping_refuses_what_the_vault_refuses() {
     let fixture: Value = serde_json::from_str(SIGN_FIXTURE).unwrap();
     let good: Secp256k1Signature = serde_json::from_value(fixture["mpcResponse"].clone()).unwrap();
 
+    let low = EvmSignature::from_mpc(&good).unwrap();
     let mut high_s = good.clone();
-    high_s.s.scalar = SECP256K1_HALF_N;
-    high_s.s.scalar[31] += 1;
-    assert_eq!(EvmSignature::from_mpc(&high_s), Err(SignatureError::HighS));
+    high_s.s.scalar = n_minus(&good.s.scalar);
+    high_s.recovery_id ^= 1;
+    assert_eq!(
+        EvmSignature::from_mpc(&high_s),
+        Ok(low),
+        "a high s is normalized to the same low-s signature, recovery id flipped back"
+    );
+    let mut s_at_n = good.clone();
+    s_at_n.s.scalar = SECP256K1_N;
+    assert_eq!(
+        EvmSignature::from_mpc(&s_at_n),
+        Err(SignatureError::ZeroOrOutOfRange)
+    );
     let mut boundary = good.clone();
     boundary.s.scalar = SECP256K1_HALF_N;
     assert!(EvmSignature::from_mpc(&boundary).is_ok());

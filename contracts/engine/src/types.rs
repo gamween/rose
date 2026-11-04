@@ -89,6 +89,9 @@ pub enum PositionSource {
 pub enum PositionState {
     /// Held by the vault.
     Held,
+    /// A `redeem` is in flight: its units are burned and its release is signed or being signed,
+    /// not yet final (a Solana release becomes final once `confirm_sol_redeem` proves it).
+    Releasing,
     /// Released in kind through `redeem`.
     Released,
 }
@@ -354,6 +357,8 @@ pub struct Round {
     pub key: Option<[u8; 48]>,
     pub key_source: Option<KeySource>,
     pub close_requested_at: Option<u64>,
+    /// Block height of the last key request (`cancel_no_key` waits until it has resolved).
+    pub close_requested_block: Option<u64>,
     pub key_received_at: Option<u64>,
     pub bid_count: BidId,
     pub opened_count: u32,

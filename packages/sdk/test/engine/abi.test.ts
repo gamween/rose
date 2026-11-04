@@ -77,11 +77,12 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
     await views.getReplay({ SolStream: { metadata: "m" } });
     await views.getSolDeposit("m");
     await views.getSolStream(1n);
+    await views.getSolStreams("c");
     await views.registrationDepositFor("a.testnet", "c");
     await views.computeBaseClassId("0x1", 18, { start: 1, cliff: 2, end: 3, granularity: 1, deposited: "1", start_unlock: "0", cliff_unlock: "0" });
     await views.computeSolClassId("m", 6, { start_time: 1, end_time: 2, net_amount_deposited: 1, period: 1, amount_per_period: 1, cliff: 1, cliff_amount: 0 });
     await views.depositPathOf("a.testnet", "c");
-    expect(calls.length).toBe(43);
+    expect(calls.length).toBe(44);
     for (const call of calls) {
       const fn = functions.get(call.method);
       expect(fn, call.method).toBeDefined();
@@ -124,7 +125,12 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
       calls.registerSolDeposit("m", "t", "00", 1n),
       calls.claimBaseTokens({ Holding: { class_id: "c" } }, 1n, "0x1"),
       calls.withdrawBaseCash("0x1", 1n, "0x2"),
-      calls.claimSolTokens({ Retired: { round_id: "1" } }, 1n, "o", { account: "n", anchor_tx: "t", data: "00" }),
+      calls.claimSolTokens({ Retired: { round_id: "1" } }, [{ position_id: "0", amount: "1" }], "o", { account: "n", anchor_tx: "t", data: "00", recipient_tokens_data: "00" }),
+      calls.confirmSolPayout(1n, "t", "00", ["00"]),
+      calls.confirmSolRedeem(1n, "t", "00", "00"),
+      calls.retrySolPayout(1n),
+      calls.submitBaseSignature(1n, "00", "00", 27),
+      calls.submitSolSignature(1n, "vault/sol", "00"),
       calls.resignSolGas(1n),
       calls.retryBaseSignature(1n),
       calls.redeem(1n, "0x1"),

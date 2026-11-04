@@ -5,7 +5,7 @@
 //! indexes and stream ids are plain JSON numbers (they are far below `2^53`); token amounts are
 //! `U128` strings, as everywhere else in the engine.
 
-use near_sdk::json_types::{U128, U64};
+use near_sdk::json_types::{Base64VecU8, U128, U64};
 use near_sdk::{near, AccountId};
 
 use crate::types::{Chain, ClaimSource, ClassId, LienId, Venue};
@@ -102,16 +102,32 @@ pub struct SolDepositArgs {
     pub mint_data: String,
 }
 
-/// A durable nonce account proof for a Solana payout: owner System, authority = vault.
+/// The accounts a Solana payout or redeem is built on, proven together with one ForeignTx
+/// `AccountState` request at `Finalized` before anything is signed: the durable nonce account
+/// (owner System, authority = vault) and the recipient's associated token account for the mint
+/// (owner SPL Token, initialized, owned by the recipient), which must already exist so that the
+/// engine's fee payer never pays rent for it.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct SolNonceProof {
     /// Nonce account (base58).
     pub account: String,
-    /// Anchor transaction (base58 signature).
+    /// Anchor transaction (base58 signature): any successful finalized transaction not newer
+    /// than the account reads.
     pub anchor_tx: String,
-    /// The 80 nonce account bytes (hex).
+    /// The 80 nonce account bytes (hex), read at `finalized`.
     pub data: String,
+    /// The 165 bytes of the recipient's associated token account (hex), read at `finalized`.
+    pub recipient_tokens_data: String,
+}
+
+/// One Streamflow withdrawal a Solana payout makes from a stream of its class, chosen by the
+/// claimant.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct SolDrawArgs {
+    pub position_id: U64,
+    pub amount: U128,
 }
 
 /// Source of claimable tokens, as a JSON argument.
@@ -214,15 +230,15 @@ pub enum PayoutKind {
         stream_id: u64,
         to: String,
     },
-    /// SPL `TransferChecked` of `amount` of `mint` from the vault to `to_owner`'s associated
-    /// token account.
+    /// Streamflow withdrawals from the drawn streams into the vault's token account, then SPL
+    /// `TransferChecked` of their sum, `amount`, of `mint` to `to_owner`'s associated token
+    /// account.
     SolTransfer {
         mint: String,
         to_owner: String,
         amount: U128,
     },
-    /// Streamflow `transfer_recipient` of a stream held by the vault to `to_owner`, after the
-    /// withdrawal of its unlocked, not yet withdrawn tokens into the vault's token account.
+    /// Streamflow `transfer_recipient` of a stream held by the vault to `to_owner`.
     SolRelease { metadata: String, to_owner: String },
     /// Streamflow `transfer_recipient` of an attributed stream from its deposit address to the
     /// vault (spec 7.2 step 2).
@@ -258,12 +274,16 @@ pub enum PayoutDebit {
         venue: Venue,
         amount: U128,
     },
-    /// Units burned for an in-kind redeem.
+    /// Units burned for an in-kind redeem, and for a Solana stream the claimable tokens the
+    /// redeemer paid for the unlocked tokens the stream still holds. Both come back (the units
+    /// accruing from `f_burned`) when the release does not land.
     Units {
         position_id: U64,
         class_id: ClassId,
         account: AccountId,
         units: U128,
+        f_burned: U128,
+        claimable: U128,
     },
 }
 
@@ -273,11 +293,17 @@ pub enum PayoutDebit {
 pub enum PayoutStatus {
     /// Waiting for a proof or a signature.
     Requested,
-    /// The authorization or transaction is stored; anyone can submit it.
+    /// The authorization or transaction is stored; anyone can submit it. A Solana payout or
+    /// redeem stays here until `confirm_sol_payout` / `confirm_sol_redeem` proves its durable
+    /// nonce advanced, then becomes `Landed` or `Failed`.
     Signed,
-    /// The vault signature exists but the fee payer's does not: `resign_sol_gas` completes it.
+    /// The vault signature exists but the fee payer's does not: `resign_sol_gas` (or
+    /// `submit_sol_signature`) completes it.
     AwaitingGasSignature,
-    /// No signature was produced; the debit was refunded.
+    /// A Solana payout or redeem proven executed on chain.
+    Landed,
+    /// Nothing was signed, or the signed Solana transaction was proven not to have executed;
+    /// the debit was refunded.
     Failed { reason: String },
 }
 
@@ -291,42 +317,53 @@ pub struct BaseSignature {
     pub v: u8,
 }
 
-/// A Streamflow `withdraw` the engine put inside a payout transaction, counted in the stream's
-/// `engine_withdrawn` the moment the payout is requested.
+/// A Streamflow `withdraw` inside a payout transaction. While the payout is unconfirmed the
+/// amount is the stream's `pending_withdraw`; `expected_withdrawn` is the stream's attested
+/// `amount_withdrawn` once the transaction executed.
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StreamWithdraw {
+pub struct SolDraw {
     pub position_id: U64,
     pub amount: U128,
+    pub expected_withdrawn: U128,
 }
 
-/// A Solana legacy transaction the engine built, with its signatures as they arrive. Everything
-/// is hex.
+/// A Solana legacy transaction the engine built, with its signatures as they arrive. Bytes are
+/// stored raw and rendered as base64 in JSON.
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SolTransaction {
     /// The compiled message every signer signs.
-    pub message: String,
-    /// Streamflow withdrawals inside the message, feeding the vault's token account with exactly
-    /// what the message pays out of it.
-    pub withdraws: Vec<StreamWithdraw>,
-    /// Tokens paid out of the vault's tracked pool (withdrawn earlier by in-kind redeems).
-    pub pool_used: U128,
-    /// Tokens an in-kind redeem withdraws into the vault's pool before releasing the stream.
-    pub pool_credit: U128,
-    /// Nonce account and value when the message uses a durable nonce (`None` with a recent
-    /// blockhash).
+    pub message: Base64VecU8,
+    /// Streamflow withdrawals inside the message (payouts only), feeding the vault's token
+    /// account with exactly what the message pays out of it.
+    pub draws: Vec<SolDraw>,
+    /// Nonce account and the value the message uses as its blockhash, for durable-nonce
+    /// transactions (`None` with a recent blockhash).
     pub nonce_account: Option<String>,
     pub nonce_value: Option<String>,
     /// Derivation path of the authority that signs besides `gas/sol` (`vault/sol` or a deposit
     /// address path). The fee payer is always the first signature of the wire transaction.
     pub authority_path: String,
-    /// Signature of the authority.
-    pub authority_signature: Option<String>,
-    /// Signature of `gas/sol`.
-    pub gas_signature: Option<String>,
-    /// Wire transaction once both signatures exist.
-    pub transaction: Option<String>,
+    /// Address (base58) of that authority, the key its signature verifies against.
+    pub authority: String,
+    /// Signature of the authority (64 bytes).
+    pub authority_signature: Option<Base64VecU8>,
+    /// Signature of `gas/sol` (64 bytes).
+    pub gas_signature: Option<Base64VecU8>,
+    /// The stored message only advances the nonce: the authority signature of the original
+    /// message failed, and since a late signature of it could still surface, the payout is
+    /// cancelled on chain (this message or the original executes, never both) and settled by
+    /// its confirmation like any other.
+    pub cancel: bool,
+    /// Block of the first confirmation proof that showed the nonce advanced without the
+    /// transaction's effects; the verdict "did not execute" needs another proof
+    /// [`super::CONFIRM_FAILURE_DELAY_BLOCKS`] later, so a lagging read cannot produce it.
+    pub not_executed_seen_at: Option<U64>,
+    /// Wire transaction once both signatures exist, `[2] || sig(gas/sol) || sig(authority) ||
+    /// message`: assembled by the views, never stored.
+    #[borsh(skip)]
+    pub transaction: Option<Base64VecU8>,
 }
 
 /// A signed foreign action.
@@ -339,9 +376,13 @@ pub struct Payout {
     pub debit: PayoutDebit,
     /// Account that requested the action.
     pub requester: AccountId,
-    /// Block height of the request (a Base authorization still `Requested` this many blocks
-    /// later may be re-requested, see `retry_base_signature`).
+    /// Block height of the latest proof or signature request: a payout still `Requested`
+    /// [`crate::PENDING_EXPIRY_BLOCKS`] later may be retried (`retry_base_signature`,
+    /// `retry_sol_payout`). Set back by that many blocks when the request failed, so the retry
+    /// is open at once.
     pub requested_block: U64,
+    /// Signature requests issued so far.
+    pub sign_requests: u32,
     /// Position released or withdrawn, when the action concerns one.
     pub position_id: Option<U64>,
     pub status: PayoutStatus,
@@ -422,8 +463,12 @@ pub struct SolDeposit {
 pub struct SolStreamInfo {
     pub metadata: String,
     pub mint: String,
+    /// Accounts of a Streamflow `withdraw`, as the attested metadata names them (the program
+    /// requires them to match it).
     pub escrow_tokens: String,
+    pub streamflow_treasury_tokens: String,
     pub partner: String,
+    pub partner_tokens: String,
     pub start_time: u64,
     pub cliff: u64,
     pub cliff_amount: u64,
@@ -431,11 +476,19 @@ pub struct SolStreamInfo {
     pub amount_per_period: u64,
     pub net_amount_deposited: u64,
     pub end_time: u64,
-    /// Tokens withdrawn from the stream's escrow so far: the attested `amount_withdrawn` at
-    /// registration plus every withdrawal the engine signed since. Only the engine withdraws
-    /// vault streams (automatic withdrawal is refused at deposit), so this is exact once the
-    /// signed transactions are broadcast.
+    /// Tokens withdrawn from the stream's escrow and proven: the attested `amount_withdrawn`
+    /// at registration plus every payout withdrawal proven landed since. Only the engine
+    /// withdraws vault streams (automatic withdrawal is refused at deposit).
     pub engine_withdrawn: u64,
+    /// The attested `amount_withdrawn` at registration (paid to the depositor before).
+    pub registered_withdrawn: u64,
+    /// Accrual checkpoint the position's units were minted from.
+    pub checkpoint: U128,
+    /// The one payout drawing on the stream that is not confirmed yet (at most one at a time, so
+    /// that the attested `amount_withdrawn` tells unambiguously whether it landed).
+    pub drawing: Option<U64>,
+    /// What that payout withdraws (0 when none).
+    pub pending_withdraw: u64,
 }
 
 impl SolStreamInfo {

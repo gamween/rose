@@ -8,7 +8,7 @@
  */
 
 import type { CashDepositedFields, StreamDepositedFields } from "../chains/base/deposit.js";
-import type { AccountId, ClaimSourceArgs, ClassId, ReplayKey, Side, SolDepositArgs, SolNonceProof, Venue } from "./types.js";
+import type { AccountId, ClaimSourceArgs, ClassId, ReplayKey, Side, SolDepositArgs, SolDrawArgs, SolNonceProof, Venue } from "./types.js";
 
 /** One NEAR function call: what every wallet needs to sign it. */
 export interface FunctionCall {
@@ -29,28 +29,40 @@ export const ONE_NEAR = 1_000_000_000_000_000_000_000_000n;
 export const ROUND_STORAGE_DEPOSIT = ONE_NEAR / 20n;
 export const BID_STORAGE_DEPOSIT = ONE_NEAR / 50n;
 
-/** Gas attached per method: measured cost plus headroom, always under the 300 Tgas wallet cap. */
+/**
+ * Gas attached per method: measured cost plus headroom, always under the 300 Tgas wallet cap.
+ * Prepaid gas is charged up front at the pessimistic gas price (about 1 NEAR per 1,000 Tgas on
+ * testnet, measured 2026-11-04: 300 Tgas needed 0.3009 NEAR of balance), so oversized limits
+ * lock small demo accounts out of a call they could afford.
+ */
 export const GAS = {
   simple: 30n * TGAS,
   mtTransferCall: 60n * TGAS,
   withdrawNearCash: 40n * TGAS,
   close: 80n * TGAS,
   submitKey: 30n * TGAS,
-  openBid: 300n * TGAS,
-  clear: 300n * TGAS,
+  /** Fully verified opening: 131.7 to 132.1 Tgas measured (sandbox at the bid cap and live staging). */
+  openBid: 200n * TGAS,
+  /** 11.1 Tgas at the 64-bid cap (sandbox), 4.1 Tgas live with two orders. */
+  clear: 50n * TGAS,
   settleBid: 50n * TGAS,
   ftTransferCall: 60n * TGAS,
   foreignVerification: 80n * TGAS,
-  payout: 60n * TGAS,
-  bootstrap: 60n * TGAS,
+  payout: 80n * TGAS,
+  bootstrap: 80n * TGAS,
   registerDeposit: 80n * TGAS,
-  attributeSolDeposit: 100n * TGAS,
-  solAction: 80n * TGAS,
-  solPayout: 120n * TGAS,
+  attributeSolDeposit: 120n * TGAS,
+  solAction: 120n * TGAS,
+  solPayout: 200n * TGAS,
+  solConfirm: 100n * TGAS,
+  submitSignature: 30n * TGAS,
 } as const;
 
-/** Storage deposit kept with every payout record (`PAYOUT_STORAGE_DEPOSIT`). */
-export const PAYOUT_STORAGE_DEPOSIT = ONE_NEAR / 50n;
+/** Storage deposit kept with every payout record (`PAYOUT_STORAGE_DEPOSIT`, 0.025 NEAR). */
+export const PAYOUT_STORAGE_DEPOSIT = (ONE_NEAR * 25n) / 1000n;
+
+/** Storage deposit kept with deposit records (`RECORD_STORAGE_DEPOSIT`, 0.015 NEAR): attribution and Base cash registration attach it; `registration_deposit_for` includes it. */
+export const RECORD_STORAGE_DEPOSIT = (ONE_NEAR * 15n) / 1000n;
 
 /** `BaseLogLocation` and the `StreamDeposited` / `CashDeposited` fields as the engine expects them (see `chains/base/deposit.ts`). */
 export interface BaseLogLocationArgs {
@@ -268,12 +280,12 @@ export class EngineCalls {
   }
 
   registerBaseCash(location: BaseLogLocationArgs, fields: CashDepositedFields): FunctionCall {
-    return this.call("register_base_cash", { location, fields }, GAS.registerDeposit);
+    return this.call("register_base_cash", { location, fields }, GAS.registerDeposit, RECORD_STORAGE_DEPOSIT);
   }
 
   /** Spec 7.2 step 1: attributes a stream sitting at the caller's deposit address to the caller. */
   attributeSolDeposit(args: SolDepositArgs): FunctionCall {
-    return this.call("attribute_sol_deposit", { args }, GAS.attributeSolDeposit);
+    return this.call("attribute_sol_deposit", { args }, GAS.attributeSolDeposit, RECORD_STORAGE_DEPOSIT);
   }
 
   /** Spec 7.2 step 2: the engine signs `transfer_recipient` from the deposit address to the vault. */
@@ -295,9 +307,38 @@ export class EngineCalls {
     return this.call("withdraw_base_cash", { token, amount: amount.toString(), to }, GAS.payout, PAYOUT_STORAGE_DEPOSIT);
   }
 
-  /** Spec 7.3: durable-nonce Solana payout; the nonce account is proven before signing. */
-  claimSolTokens(source: ClaimSourceArgs, amount: bigint, toOwner: string, nonce: SolNonceProof): FunctionCall {
-    return this.call("claim_sol_tokens", { source, amount: amount.toString(), to_owner: toOwner, nonce }, GAS.solPayout, PAYOUT_STORAGE_DEPOSIT);
+  /**
+   * Spec 7.3: durable-nonce Solana payout drawing on the named streams of the class (the claim
+   * is their sum); the nonce account and the recipient's token account are proven before
+   * signing. The payout stays `Signed` until `confirmSolPayout`.
+   */
+  claimSolTokens(source: ClaimSourceArgs, draws: SolDrawArgs[], toOwner: string, nonce: SolNonceProof): FunctionCall {
+    return this.call("claim_sol_tokens", { source, draws, to_owner: toOwner, nonce }, GAS.solPayout, PAYOUT_STORAGE_DEPOSIT);
+  }
+
+  /** Settles a signed Solana payout once its nonce advanced: `streamData` is the metadata (hex) of every drawn stream, in draw order. */
+  confirmSolPayout(payoutId: bigint, anchorTx: string, nonceData: string, streamData: string[]): FunctionCall {
+    return this.call("confirm_sol_payout", { payout_id: payoutId.toString(), anchor_tx: anchorTx, nonce_data: nonceData, stream_data: streamData }, GAS.solConfirm);
+  }
+
+  /** Settles the signed release of a Solana position once its nonce advanced. */
+  confirmSolRedeem(positionId: bigint, anchorTx: string, nonceData: string, streamData: string): FunctionCall {
+    return this.call("confirm_sol_redeem", { position_id: positionId.toString(), anchor_tx: anchorTx, nonce_data: nonceData, stream_data: streamData }, GAS.solConfirm);
+  }
+
+  /** Resolves a Solana action still `Requested` 600 blocks after its last request (refund, failure or re-signature). */
+  retrySolPayout(payoutId: bigint): FunctionCall {
+    return this.call("retry_sol_payout", { payout_id: payoutId.toString() }, GAS.solAction);
+  }
+
+  /** Completes a Base authorization whose MPC response the callback could not read (`r`, `s` hex, `v` 27 or 28). */
+  submitBaseSignature(payoutId: bigint, r: string, s: string, v: number): FunctionCall {
+    return this.call("submit_base_signature", { payout_id: payoutId.toString(), r, s, v }, GAS.submitSignature);
+  }
+
+  /** Completes a Solana action with a signature (hex) of `signerPath` (its authority path or `gas/sol`) the callback could not read. */
+  submitSolSignature(payoutId: bigint, signerPath: string, signature: string): FunctionCall {
+    return this.call("submit_sol_signature", { payout_id: payoutId.toString(), signer_path: signerPath, signature }, GAS.submitSignature);
   }
 
   resignSolGas(payoutId: bigint): FunctionCall {
@@ -311,8 +352,9 @@ export class EngineCalls {
 
   /**
    * In-kind exit: burns the position's allocation and authorizes its release. A Solana position
-   * needs the payout's durable nonce proof; the engine withdraws the stream's unlocked balance
-   * into the vault inside the same transaction.
+   * needs a nonce proof (and `to`'s token account), carries no unconfirmed payout, and the caller
+   * pays what the stream still owes the unit holders from its claimable (`redeem_claimable` of
+   * `get_sol_streams`); the release stays `Signed` until `confirmSolRedeem`.
    */
   redeem(positionId: bigint, to: string, nonce?: SolNonceProof): FunctionCall {
     return this.call("redeem", { position_id: positionId.toString(), to, nonce: nonce ?? null }, nonce ? GAS.solPayout : GAS.payout, PAYOUT_STORAGE_DEPOSIT);

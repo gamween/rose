@@ -84,7 +84,7 @@ deploy_tx="$(near_tx_hash "$out")"
 log "deployed and initialized: $NEAR_EXPLORER_TX/$deploy_tx"
 deployments_set "$engine" ".near.engine.deploy_tx" "\"$deploy_tx\""
 
-bootstrap_tx="$(near_call "$engine" "$engine" bootstrap '{}' '50 Tgas' '0 NEAR')"
+bootstrap_tx="$(near_call "$engine" "$engine" bootstrap '{}' '80 Tgas' '0 NEAR')"
 log "bootstrap: $NEAR_EXPLORER_TX/$bootstrap_tx"
 deployments_set "$engine" ".near.engine.bootstrap_tx" "\"$bootstrap_tx\""
 for _ in $(seq 1 30); do

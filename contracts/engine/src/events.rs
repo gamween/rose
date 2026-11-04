@@ -230,6 +230,15 @@ pub enum RoseEvent {
         payout_id: U64,
         reason: String,
     },
+    /// A signed Solana payout or release proven executed on chain.
+    PayoutLanded {
+        payout_id: U64,
+    },
+    /// The authority signature of a Solana payout or release failed: the payout is cancelled
+    /// by a transaction that only advances its nonce.
+    PayoutCancelling {
+        payout_id: U64,
+    },
     PositionReleaseRequested {
         position_id: U64,
         payout_id: U64,

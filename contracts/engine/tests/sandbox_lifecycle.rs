@@ -1,11 +1,13 @@
 //! Sandbox integration tests of the engine (spec section 10): real transactions on a local
-//! NEAR sandbox against a mock MPC that replays recorded responses, with the gas of every
-//! user-facing method measured. Run with
+//! NEAR sandbox against a mock MPC that signs with deterministic test keys (every signature the
+//! engine stores is checked against the keys it bootstrapped), with the gas of every user-facing
+//! method measured. Run with
 //! `ROSE_SANDBOX=1 cargo test -p rose-engine --test sandbox_lifecycle -- --nocapture --test-threads=1`.
 
 mod sandbox_support;
 
 use anyhow::{bail, Result};
+use ed25519_dalek::{Signature, VerifyingKey};
 use futures::future::try_join_all;
 use near_workspaces::types::{Gas, NearToken};
 use near_workspaces::Account;
@@ -384,7 +386,6 @@ async fn base_payout_authorization_and_redeem() -> Result<()> {
     let claimable = engine.claimable(holder.id(), &class).await?;
     assert!(claimable > 0, "accrual since the deposit checkpoint");
 
-    engine.prime_sign(DOMAIN_SECP256K1, "vault/base").await?;
     let result = holder
         .call(engine.id(), "claim_base_tokens")
         .args_json(json!({
@@ -393,7 +394,7 @@ async fn base_payout_authorization_and_redeem() -> Result<()> {
             "to": RECIPIENT,
         }))
         .deposit(PAYOUT_STORAGE_DEPOSIT)
-        .gas(Gas::from_tgas(40))
+        .gas(Gas::from_tgas(80))
         .transact()
         .await?;
     gas.ok("claim_base_tokens", result)?;
@@ -401,22 +402,11 @@ async fn base_payout_authorization_and_redeem() -> Result<()> {
         .view("get_payout", json!({ "payout_id": "0" }))
         .await?;
     assert_eq!(payout["status"], "Signed", "{payout}");
-    let recorded = engine
-        .recorded
-        .sign
-        .iter()
-        .find(|s| s.domain_id == DOMAIN_SECP256K1)
-        .unwrap();
-    let big_r = recorded.response["big_r"]["affine_point"].as_str().unwrap();
-    assert_eq!(payout["base"]["r"], big_r[2..], "{payout}");
+    let config: Value = engine.view("get_config", json!({})).await?;
     assert_eq!(
-        payout["base"]["s"], recorded.response["s"]["scalar"],
-        "{payout}"
-    );
-    assert_eq!(
-        payout["base"]["v"],
-        27 + recorded.response["recovery_id"].as_u64().unwrap(),
-        "{payout}"
+        recover_signer(&payout)?,
+        config["derived_addresses"]["vault_base"].as_str().unwrap(),
+        "the stored (r, s, v) recovers to the bootstrapped vault address: {payout}"
     );
     assert_eq!(payout["kind"]["BaseTransfer"]["to"], RECIPIENT);
     let left = engine.claimable(holder.id(), &class).await?;
@@ -464,7 +454,7 @@ async fn base_payout_authorization_and_redeem() -> Result<()> {
             "nonce": null,
         }))
         .deposit(PAYOUT_STORAGE_DEPOSIT)
-        .gas(Gas::from_tgas(40))
+        .gas(Gas::from_tgas(80))
         .transact()
         .await?;
     gas.ok("redeem", result)?;
@@ -481,13 +471,53 @@ async fn base_payout_authorization_and_redeem() -> Result<()> {
         .await?;
     assert_eq!(payout["status"], "Signed");
     assert_eq!(payout["kind"]["BaseRelease"]["stream_id"], 5);
+    assert_eq!(
+        recover_signer(&payout)?,
+        config["derived_addresses"]["vault_base"].as_str().unwrap()
+    );
     gas.print();
     Ok(())
 }
 
+/// The EVM address that signed a Base payout's stored digest with its stored `(r, s, v)`.
+fn recover_signer(payout: &Value) -> Result<String> {
+    let digest = hex::decode(payout["digest"].as_str().unwrap())?;
+    let r = hex::decode(payout["base"]["r"].as_str().unwrap())?;
+    let s = hex::decode(payout["base"]["s"].as_str().unwrap())?;
+    let v = payout["base"]["v"].as_u64().unwrap() as u8;
+    let signature = k256::ecdsa::Signature::from_slice(&[r, s].concat())?;
+    let key = k256::ecdsa::VerifyingKey::recover_from_prehash(
+        &digest,
+        &signature,
+        k256::ecdsa::RecoveryId::from_byte(v - 27).unwrap(),
+    )?;
+    let point = key.to_encoded_point(false);
+    let public: [u8; 64] = point.as_bytes()[1..].try_into()?;
+    Ok(rose_engine::foreign::evm::format_address(
+        &rose_engine::foreign::evm::address_from_public_key(&public),
+    ))
+}
+
+/// Verifies an Ed25519 signature (base64 from a payout record) over `message` by `key`
+/// (`ed25519:<base58>` or base58).
+fn verify_ed25519(key: &str, message: &[u8], signature: &Value) -> Result<()> {
+    let key = sol::parse_pubkey(key.strip_prefix("ed25519:").unwrap_or(key))
+        .map_err(|e| anyhow::anyhow!("key: {e:?}"))?;
+    let bytes: [u8; 64] = base64_decode(signature.as_str().unwrap())?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("signature length"))?;
+    VerifyingKey::from_bytes(&key)?.verify_strict(message, &Signature::from_bytes(&bytes))?;
+    Ok(())
+}
+
+fn base64_decode(text: &str) -> Result<Vec<u8>> {
+    use base64::Engine as _;
+    Ok(base64::engine::general_purpose::STANDARD.decode(text)?)
+}
+
 #[tokio::test]
-async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
-    if !enabled("solana_deposit_and_claim_with_nonce_proof") {
+async fn solana_two_phase_payout_and_redeem() -> Result<()> {
+    if !enabled("solana_two_phase_payout_and_redeem") {
         return Ok(());
     }
     let gas = GasTable::new("solana");
@@ -497,10 +527,16 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
     let holder = engine.account().await?;
     engine.register(&holder, &gas).await?;
     let config: Value = engine.view("get_config", json!({})).await?;
-    let vault = sol::parse_pubkey(config["derived_addresses"]["vault_sol"].as_str().unwrap())
-        .expect("bootstrapped vault key");
+    let vault_text = config["derived_addresses"]["vault_sol"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let gas_text = config["derived_addresses"]["gas_sol"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let vault = sol::parse_pubkey(&vault_text).expect("bootstrapped vault key");
     let streamflow = sol::parse_pubkey(STREAMFLOW_PROGRAM).expect("program id");
-    let deposit_key = [7u8; 32];
     let mint = [9u8; 32];
     let stream = [3u8; 32];
     let return_to = [4u8; 32];
@@ -526,8 +562,8 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
                 "cliff": 0,
                 "cliff_amount": 0,
                 "period": 1_000,
-                "amount_per_period": (100 * USDC).to_string().parse::<u64>()?,
-                "net_amount_deposited": (1_000 * USDC).to_string().parse::<u64>()?,
+                "amount_per_period": 100 * USDC as u64,
+                "net_amount_deposited": 1_000 * USDC as u64,
                 "end_time": now - 1_500 + 10_000,
             },
         }))
@@ -539,32 +575,19 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
             json!({ "account": holder.id(), "class_id": class }),
         )
         .await?;
-    engine
-        .mock
-        .call("set_derived_key")
-        .args_json(json!({
-            "path": path,
-            "predecessor": engine.id(),
-            "domain_id": DOMAIN_ED25519,
-            "key": format!("ed25519:{}", sol::format_pubkey(&deposit_key)),
-        }))
-        .transact()
-        .await?
-        .into_result()?;
+    let deposit_text = engine.derived_key(&path, DOMAIN_ED25519).await?;
+    let deposit_key = sol::parse_near_ed25519(&deposit_text).expect("mock-derived key");
 
-    // Attribution: the stream sits at the deposit address.
-    let anchor_attr = bs58::encode([21u8; 64]).into_string();
+    // Attribution: the stream sits at the deposit address the mock derives for the holder.
+    let anchor = bs58::encode([21u8; 64]).into_string();
     let at_deposit = spec(deposit_key, 0);
     engine
-        .prime_foreign(
-            &anchor_hex(&anchor_attr),
-            solana_hash(
-                &anchor_attr,
-                &[
-                    (stream, streamflow, at_deposit.bytes()),
-                    (mint, sol::TOKEN_PROGRAM, mint_bytes(6)),
-                ],
-            ),
+        .prime_accounts(
+            &anchor,
+            &[
+                (stream, streamflow, at_deposit.bytes()),
+                (mint, sol::TOKEN_PROGRAM, mint_bytes(6)),
+            ],
         )
         .await?;
     let result = holder
@@ -573,11 +596,12 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
             "metadata": sol::format_pubkey(&stream),
             "class_id": class,
             "return_to": sol::format_pubkey(&return_to),
-            "anchor_tx": anchor_attr,
+            "anchor_tx": anchor,
             "metadata_data": hex::encode(at_deposit.bytes()),
             "mint_data": hex::encode(mint_bytes(6)),
         }}))
-        .gas(Gas::from_tgas(90))
+        .deposit(RECORD_STORAGE_DEPOSIT)
+        .gas(Gas::from_tgas(120))
         .transact()
         .await?;
     gas.ok("attribute_sol_deposit", result)?;
@@ -589,21 +613,7 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
         .await?;
     assert_eq!(record["stage"], "Attributed", "{record}");
 
-    // Move: two joined signatures over the engine-built message.
-    engine.prime_sign(DOMAIN_ED25519, &path).await.ok();
-    engine
-        .mock
-        .call("set_sign_response")
-        .args_json(json!({
-            "domain_id": DOMAIN_ED25519,
-            "path": path,
-            "response": engine.recorded.sign(DOMAIN_ED25519, "vault/sol")?.to_string(),
-        }))
-        .transact()
-        .await?
-        .into_result()?;
-    engine.prime_sign(DOMAIN_ED25519, "gas/sol").await?;
-    engine.prime_sign(DOMAIN_ED25519, "vault/sol").await?;
+    // Move: the deposit key and gas/sol sign the engine-built message.
     let result = holder
         .call(engine.id(), "move_sol_deposit")
         .args_json(json!({
@@ -611,7 +621,7 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
             "recent_blockhash": sol::format_pubkey(&[1u8; 32]),
         }))
         .deposit(PAYOUT_STORAGE_DEPOSIT)
-        .gas(Gas::from_tgas(60))
+        .gas(Gas::from_tgas(100))
         .transact()
         .await?;
     gas.ok("move_sol_deposit", result)?;
@@ -619,16 +629,18 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
         .view("get_payout", json!({ "payout_id": "0" }))
         .await?;
     assert_eq!(payout["status"], "Signed", "{payout}");
-    assert!(payout["solana"]["transaction"].is_string());
+    let message = base64_decode(payout["solana"]["message"].as_str().unwrap())?;
+    verify_ed25519(
+        &deposit_text,
+        &message,
+        &payout["solana"]["authority_signature"],
+    )?;
+    verify_ed25519(&gas_text, &message, &payout["solana"]["gas_signature"])?;
 
     // Registration: the stream now belongs to the vault.
-    let anchor_reg = bs58::encode([22u8; 64]).into_string();
     let at_vault = spec(vault, 0);
     engine
-        .prime_foreign(
-            &anchor_hex(&anchor_reg),
-            solana_hash(&anchor_reg, &[(stream, streamflow, at_vault.bytes())]),
-        )
+        .prime_accounts(&anchor, &[(stream, streamflow, at_vault.bytes())])
         .await?;
     let deposit: Value = engine
         .view(
@@ -640,11 +652,11 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
         .call(engine.id(), "register_sol_deposit")
         .args_json(json!({
             "metadata": sol::format_pubkey(&stream),
-            "anchor_tx": anchor_reg,
+            "anchor_tx": anchor,
             "metadata_data": hex::encode(at_vault.bytes()),
         }))
         .deposit(NearToken::from_yoctonear(u128_of(&deposit)?))
-        .gas(Gas::from_tgas(60))
+        .gas(Gas::from_tgas(80))
         .transact()
         .await?;
     let result = gas.ok("register_sol_deposit", result)?;
@@ -653,37 +665,47 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
     let claimable = engine.claimable(holder.id(), &class).await?;
     assert_eq!(claimable, 100 * USDC, "one period of 100 tokens unlocked");
 
-    // Claim with a durable nonce proof.
+    // Claim: the holder names the stream, proves its nonce account and its token account.
     let nonce_account = [12u8; 32];
-    let nonce_value = [13u8; 32];
-    let anchor_nonce = bs58::encode([23u8; 64]).into_string();
-    engine
-        .prime_foreign(
-            &anchor_hex(&anchor_nonce),
-            solana_hash(
-                &anchor_nonce,
-                &[(
-                    nonce_account,
-                    sol::SYSTEM_PROGRAM,
-                    nonce_bytes(vault, nonce_value),
-                )],
+    let signed_nonce = [13u8; 32];
+    let advanced_nonce = [14u8; 32];
+    let recipient_tokens = sol::associated_token_address(&return_to, &mint).unwrap();
+    let nonce_anchor = bs58::encode([23u8; 64]).into_string();
+    let proof = |value: [u8; 32]| {
+        json!({
+            "account": sol::format_pubkey(&nonce_account),
+            "anchor_tx": nonce_anchor,
+            "data": hex::encode(nonce_bytes(vault, value)),
+            "recipient_tokens_data": hex::encode(token_account_bytes(mint, return_to)),
+        })
+    };
+    let payout_accounts = |value: [u8; 32]| {
+        vec![
+            (
+                nonce_account,
+                sol::SYSTEM_PROGRAM,
+                nonce_bytes(vault, value),
             ),
-        )
+            (
+                recipient_tokens,
+                sol::TOKEN_PROGRAM,
+                token_account_bytes(mint, return_to),
+            ),
+        ]
+    };
+    engine
+        .prime_accounts(&nonce_anchor, &payout_accounts(signed_nonce))
         .await?;
     let result = holder
         .call(engine.id(), "claim_sol_tokens")
         .args_json(json!({
             "source": { "Holding": { "class_id": class } },
-            "amount": claimable.to_string(),
+            "draws": [{ "position_id": "0", "amount": claimable.to_string() }],
             "to_owner": sol::format_pubkey(&return_to),
-            "nonce": {
-                "account": sol::format_pubkey(&nonce_account),
-                "anchor_tx": anchor_nonce,
-                "data": hex::encode(nonce_bytes(vault, nonce_value)),
-            },
+            "nonce": proof(signed_nonce),
         }))
         .deposit(PAYOUT_STORAGE_DEPOSIT)
-        .gas(Gas::from_tgas(100))
+        .gas(Gas::from_tgas(200))
         .transact()
         .await?;
     gas.ok("claim_sol_tokens", result)?;
@@ -691,42 +713,155 @@ async fn solana_deposit_and_claim_with_nonce_proof() -> Result<()> {
         .view("get_payout", json!({ "payout_id": "1" }))
         .await?;
     assert_eq!(payout["status"], "Signed", "{payout}");
-    let transaction = hex::decode(payout["solana"]["transaction"].as_str().unwrap())?;
-    let gas_signature: Vec<u8> = serde_json::from_value(
-        engine.recorded.sign(DOMAIN_ED25519, "gas/sol")?["signature"].clone(),
+    let message = base64_decode(payout["solana"]["message"].as_str().unwrap())?;
+    verify_ed25519(
+        &vault_text,
+        &message,
+        &payout["solana"]["authority_signature"],
     )?;
-    let vault_signature: Vec<u8> = serde_json::from_value(
-        engine.recorded.sign(DOMAIN_ED25519, "vault/sol")?["signature"].clone(),
-    )?;
+    verify_ed25519(&gas_text, &message, &payout["solana"]["gas_signature"])?;
+    let transaction = base64_decode(payout["solana"]["transaction"].as_str().unwrap())?;
     assert_eq!(transaction[0], 2);
+    assert_eq!(&transaction[129..], &message[..]);
     assert_eq!(
-        &transaction[1..65],
-        &gas_signature[..],
-        "gas/sol signs first"
-    );
-    assert_eq!(&transaction[65..129], &vault_signature[..]);
-    assert_eq!(
-        payout["solana"]["nonce_value"],
-        sol::format_pubkey(&nonce_value)
+        payout["solana"]["draws"][0]["expected_withdrawn"],
+        claimable.to_string()
     );
     assert_eq!(engine.claimable(holder.id(), &class).await?, 0);
-    let replay: Value = engine
-        .view(
-            "get_replay",
-            json!({ "key": { "SolNonce": {
-                "account": sol::format_pubkey(&nonce_account),
-                "value": sol::format_pubkey(&nonce_value),
-            }}}),
+    let info: Value = engine
+        .view("get_sol_stream", json!({ "position_id": "0" }))
+        .await?;
+    assert_eq!(info["engine_withdrawn"], 0, "nothing counts before landing");
+    assert_eq!(info["drawing"], "1");
+
+    // A redeem waits for the payout's confirmation.
+    let result = holder
+        .call(engine.id(), "redeem")
+        .args_json(json!({
+            "position_id": "0",
+            "to": sol::format_pubkey(&return_to),
+            "nonce": proof(advanced_nonce),
+        }))
+        .deposit(PAYOUT_STORAGE_DEPOSIT)
+        .gas(Gas::from_tgas(200))
+        .transact()
+        .await?;
+    gas.fails_with("redeem (payout unconfirmed)", result, "not confirmed yet")?;
+
+    // Broadcast and executed: the nonce advanced and the stream paid the claim.
+    let confirm_anchor = bs58::encode([24u8; 64]).into_string();
+    let paid = spec(vault, claimable as u64);
+    engine
+        .prime_accounts(
+            &confirm_anchor,
+            &[
+                (
+                    nonce_account,
+                    sol::SYSTEM_PROGRAM,
+                    nonce_bytes(vault, advanced_nonce),
+                ),
+                (stream, streamflow, paid.bytes()),
+            ],
         )
         .await?;
-    assert_eq!(replay, "Consumed");
+    let result = holder
+        .call(engine.id(), "confirm_sol_payout")
+        .args_json(json!({
+            "payout_id": "1",
+            "anchor_tx": confirm_anchor,
+            "nonce_data": hex::encode(nonce_bytes(vault, advanced_nonce)),
+            "stream_data": [hex::encode(paid.bytes())],
+        }))
+        .gas(Gas::from_tgas(100))
+        .transact()
+        .await?;
+    let result = gas.ok("confirm_sol_payout", result)?;
+    assert!(result.logged("payout_landed"), "{:?}", result.logs);
+    let info: Value = engine
+        .view("get_sol_stream", json!({ "position_id": "0" }))
+        .await?;
+    assert_eq!(info["engine_withdrawn"], claimable as u64);
+    assert!(info["drawing"].is_null());
+
+    // Redeem: the stream's unlocked tokens are all withdrawn, so the holder pays nothing more;
+    // the release stays Releasing until its own confirmation.
+    let redeem_nonce = [15u8; 32];
+    engine
+        .prime_accounts(&nonce_anchor, &payout_accounts(advanced_nonce))
+        .await?;
+    let result = holder
+        .call(engine.id(), "redeem")
+        .args_json(json!({
+            "position_id": "0",
+            "to": sol::format_pubkey(&return_to),
+            "nonce": proof(advanced_nonce),
+        }))
+        .deposit(PAYOUT_STORAGE_DEPOSIT)
+        .gas(Gas::from_tgas(200))
+        .transact()
+        .await?;
+    gas.ok("redeem (solana)", result)?;
+    let release: Value = engine
+        .view("get_payout", json!({ "payout_id": "2" }))
+        .await?;
+    assert_eq!(release["status"], "Signed", "{release}");
+    let message = base64_decode(release["solana"]["message"].as_str().unwrap())?;
+    verify_ed25519(
+        &vault_text,
+        &message,
+        &release["solana"]["authority_signature"],
+    )?;
+    let position: Value = engine
+        .view("get_position", json!({ "position_id": "0" }))
+        .await?;
+    assert_eq!(position["state"], "Releasing", "{position}");
+    assert_eq!(engine.balance(holder.id(), &class).await?, 0);
+
+    let released = StreamflowSpec {
+        amount_withdrawn: claimable as u64,
+        ..spec(return_to, 0)
+    };
+    engine
+        .prime_accounts(
+            &confirm_anchor,
+            &[
+                (
+                    nonce_account,
+                    sol::SYSTEM_PROGRAM,
+                    nonce_bytes(vault, redeem_nonce),
+                ),
+                (stream, streamflow, released.bytes()),
+            ],
+        )
+        .await?;
+    let result = holder
+        .call(engine.id(), "confirm_sol_redeem")
+        .args_json(json!({
+            "position_id": "0",
+            "anchor_tx": confirm_anchor,
+            "nonce_data": hex::encode(nonce_bytes(vault, redeem_nonce)),
+            "stream_data": hex::encode(released.bytes()),
+        }))
+        .gas(Gas::from_tgas(100))
+        .transact()
+        .await?;
+    let result = gas.ok("confirm_sol_redeem", result)?;
+    assert!(result.logged("position_released"), "{:?}", result.logs);
+    let position: Value = engine
+        .view("get_position", json!({ "position_id": "0" }))
+        .await?;
+    assert_eq!(position["state"], "Released", "{position}");
+    let release: Value = engine
+        .view("get_payout", json!({ "payout_id": "2" }))
+        .await?;
+    assert_eq!(release["status"], "Landed");
     gas.print();
     Ok(())
 }
 
 #[tokio::test]
-async fn key_timeout_cancel_and_late_callback() -> Result<()> {
-    if !enabled("key_timeout_cancel_and_late_callback") {
+async fn key_timeout_cancel_waits_for_the_key_request() -> Result<()> {
+    if !enabled("key_timeout_cancel_waits_for_the_key_request") {
         return Ok(());
     }
     let gas = GasTable::new("no key");
@@ -738,8 +873,9 @@ async fn key_timeout_cancel_and_late_callback() -> Result<()> {
     let class = deposit_for(&engine, &holder, 6, 1_000, 10_000, 10_000 * USDC, &gas).await?;
     engine.fund(&holder, 10 * USDC, &gas).await?;
 
-    // A failed CKD request leaves the round KeyRequested; after the key timeout anyone cancels
-    // it and the ask settles as a refund.
+    // A failed CKD request leaves the round KeyRequested; after the key timeout, and once the
+    // request can no longer be answered (250 blocks after `close`), anyone cancels it and the
+    // ask settles as a refund.
     let round = engine.create_exit(&holder, &class, USDC, 5, &gas).await?;
     let (ask, _) = engine
         .place_ask(&holder, round, 100 * USDC, USDC, 100 * USDC, &gas)
@@ -768,8 +904,26 @@ async fn key_timeout_cancel_and_late_callback() -> Result<()> {
         .await?;
     gas.fails_with("cancel_no_key (too early)", result, "timeout")?;
     engine
-        .advance_past(u64_of(&view["closes_at"])? + 30 * NS)
+        .advance_past(u64_of(&view["closes_at"])? + 40 * NS)
         .await?;
+    let result = holder
+        .call(engine.id(), "cancel_no_key")
+        .args_json(json!({ "round_id": round.to_string() }))
+        .transact()
+        .await?;
+    gas.fails_with("cancel_no_key (request in flight)", result, "in flight")?;
+    let result = holder
+        .call(engine.id(), "close")
+        .args_json(json!({ "round_id": round.to_string() }))
+        .gas(Gas::from_tgas(60))
+        .transact()
+        .await?;
+    gas.fails_with(
+        "close (after the key timeout)",
+        result,
+        "Key timeout reached",
+    )?;
+    engine.worker.fast_forward(260).await?;
     let result = holder
         .call(engine.id(), "cancel_no_key")
         .args_json(json!({ "round_id": round.to_string() }))
@@ -781,45 +935,36 @@ async fn key_timeout_cancel_and_late_callback() -> Result<()> {
     assert_eq!(engine.balance(holder.id(), &class).await?, 10_000 * USDC);
     assert_eq!(engine.cash(&holder).await?, 10 * USDC, "bond refunded");
 
-    // A CKD answer that arrives after cancel_no_key is ignored: the mock stretches its answer
-    // over several blocks while the cancellation lands.
+    // A round nobody closed before its key timeout cannot request a key any more: it is
+    // cancelled at once (no request was ever in flight).
     let late = engine.create_exit(&holder, &class, USDC, 3, &gas).await?;
     let (ask, _) = engine
         .place_ask(&holder, late, 100 * USDC, USDC, 100 * USDC, &gas)
         .await?;
     let view = engine.round(late).await?;
     engine
-        .advance_past(u64_of(&view["closes_at"])? + 30 * NS)
+        .advance_past(u64_of(&view["closes_at"])? + 40 * NS)
         .await?;
-    engine.prime_ckd(&key, late).await?;
-    engine
-        .mock
-        .call("set_ckd_delay")
-        .args_json(json!({ "hops": 3 }))
-        .transact()
-        .await?
-        .into_result()?;
-    let pending = holder
+    let result = holder
         .call(engine.id(), "close")
         .args_json(json!({ "round_id": late.to_string() }))
         .gas(Gas::from_tgas(60))
-        .transact_async()
+        .transact()
         .await?;
+    gas.fails_with(
+        "close (after the key timeout)",
+        result,
+        "Key timeout reached",
+    )?;
     let result = holder
         .call(engine.id(), "cancel_no_key")
         .args_json(json!({ "round_id": late.to_string() }))
         .transact()
         .await?;
-    gas.ok("cancel_no_key (key in flight)", result)?;
-    let result = pending.await?;
-    let result = gas.ok("close (late callback)", result)?;
-    assert!(result.logged("key_ignored"), "{:?}", result.logs);
+    gas.ok("cancel_no_key", result)?;
     let view = engine.round(late).await?;
     assert_eq!(view["status"], "Cancelled");
-    assert!(
-        view["key"].is_null(),
-        "a late key never revives a cancelled round"
-    );
+    assert!(view["key"].is_null());
     engine.settle(&holder, late, ask, &gas).await?;
     assert_eq!(engine.balance(holder.id(), &class).await?, 10_000 * USDC);
     gas.print();

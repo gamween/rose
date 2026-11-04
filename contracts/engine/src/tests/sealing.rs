@@ -391,10 +391,21 @@ fn closing_an_empty_round_cancels_it_without_a_key_request() {
 /// next block, then the callback arrives.
 fn late_callback_is_ignored(contract: &mut Contract, round: u64) {
     env(&accounts(5), one_yocto(), ts(6_000) + KEY_TIMEOUT);
+    panics_with("Key timeout reached", || contract.close(U64(round)));
+    env(&accounts(5), one_yocto(), ts(5_990) + KEY_TIMEOUT);
     assert!(contract.close(U64(round)).is_some());
+    // The request is in flight: cancelling now would let the key arrive (and become public in
+    // the MPC's receipt) for a round already cancelled.
     env_at(&accounts(5), ts(6_001) + KEY_TIMEOUT);
+    panics_with("key request is in flight", || {
+        contract.cancel_no_key(U64(round))
+    });
+    env_at(
+        &accounts(5),
+        ts(5_990 + crate::sealing::KEY_REQUEST_FLIGHT_BLOCKS) + KEY_TIMEOUT,
+    );
     contract.cancel_no_key(U64(round));
-    env_at(&engine(), ts(6_002) + KEY_TIMEOUT);
+    env_at(&engine(), ts(6_300) + KEY_TIMEOUT);
     assert!(!contract.on_round_key(U64(round), Ok(ckd_response(round))));
     assert_eq!(events("rose").last().unwrap()["event"], "key_ignored");
     let view = contract.get_round(U64(round)).unwrap();
@@ -404,7 +415,7 @@ fn late_callback_is_ignored(contract: &mut Contract, round: u64) {
         contract.round(round).cancel_reason,
         Some(CancelReason::NoKey)
     );
-    env_at(&accounts(5), ts(6_002) + KEY_TIMEOUT);
+    env_at(&accounts(5), ts(6_301) + KEY_TIMEOUT);
     panics_with("Round does not expect a key", || {
         contract.submit_key(U64(round), rose_ibe::format_near_g1(&round_key(round)));
     });

@@ -9,17 +9,24 @@
 //!   itself from ledger state and asks the MPC to sign.
 //! - Every fact is acted on at most once through a [`types::ReplayKey`]: marked pending when the
 //!   request goes out, cleared on a `PromiseError` or a mismatch, consumed on a match.
-//! - The ledger is debited before every `sign` request and refunded only when no signature was
-//!   produced (a signature is public and valid the moment the MPC responds). For a joined pair of
-//!   Solana signatures the vault signature is never refunded once it exists; a missing fee-payer
-//!   signature is re-requested over the same stored message.
+//! - The ledger is debited before every `sign` request and refunded only when no signature can
+//!   exist: on a `PromiseError` of the first request (never on a response the callback could not
+//!   read, never after a retry), or when a signed Solana transaction is proven not to have
+//!   executed. A response the callback could not read is completed with `submit_base_signature`
+//!   or `submit_sol_signature`, which verify the signature against the derived key.
+//! - Solana payouts and redeems are two-phase: a signed durable-nonce transaction stays `Signed`
+//!   until anyone proves its nonce advanced (`confirm_sol_payout`, `confirm_sol_redeem`); the
+//!   attested stream state then says whether it executed, and only then is it final or reverted.
 //! - Callbacks never panic after a replay key was marked: every validation maps to a refusal or a
-//!   cleared key, so a pending key cannot be left behind by a rolled-back callback.
+//!   cleared key, so a pending key cannot be left behind by a rolled-back callback. A callback
+//!   that issues promises has static gas covering what it attaches, the receipt fees and its own
+//!   work, and every user call checks it has that gas left; every `Requested` state has a retry
+//!   once [`PENDING_EXPIRY_BLOCKS`] have passed.
 //!
 //! Gas: `sign` and `verify_foreign_transaction` get exactly 15 Tgas and 1 yoctoNEAR (the live
-//! floor, paid by the engine); callbacks have fixed static gas. Storage: deposit-side records are
-//! paid by the engine (bounded by real foreign deposits); every signed action record is paid by
-//! an attached [`PAYOUT_STORAGE_DEPOSIT`].
+//! floor, paid by the engine, which keeps [`MPC_BALANCE_RESERVE`] free before any request).
+//! Storage: callers attach the storage of every record they create: [`PAYOUT_STORAGE_DEPOSIT`]
+//! for a signed action, [`RECORD_STORAGE_DEPOSIT`] for a deposit attribution or registration.
 //!
 //! Base Sepolia is the only EVM chain: the chain id of the EIP-712 domain is `Config.base_chain_id`
 //! (84532 on Base Sepolia), fixed at init together with the RoseVault address.
@@ -40,6 +47,7 @@ use crate::foreign::mpc::{
     VerifyForeignTransactionResponse, METHOD_SIGN, METHOD_VERIFY_FOREIGN_TRANSACTION,
 };
 use crate::foreign::{evm, solana as sol};
+use crate::storage::bytes_cost;
 use crate::types::{Chain, ClassId, DerivedAddresses, PositionId};
 use crate::unlock::{ClassSchedule, SablierLinearStream, StreamflowParams, StreamflowStream};
 use crate::{class_id_of, Contract, ContractExt, RoseEvent};
@@ -47,22 +55,57 @@ use crate::{class_id_of, Contract, ContractExt, RoseEvent};
 pub use base::deposit_units_of;
 pub use types::*;
 
-/// Storage deposit attached to every method that stores a signed action record (about 1.5 KB
-/// with a Solana transaction); kept with the record, which stays as public history.
-pub const PAYOUT_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(20);
-/// Blocks after which a pending replay key is considered abandoned (the MPC yield times out after
-/// 200 blocks and the callback runs right after), so a callback that ran out of gas cannot block
-/// a fact forever.
+/// Storage deposit attached to every method that stores a signed action record, sized to the
+/// largest record (a Solana payout with a full 1,232-byte transaction: its message, two
+/// signatures, its draws and its index entry; measured by
+/// `tests::custody::payout_records_fit_their_storage_deposit`); kept with the record, which
+/// stays as public history.
+pub const PAYOUT_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(25);
+/// Storage deposit attached to a deposit attribution or registration, and to a Base cash
+/// registration, for the records it creates (deposit and refusal records, the replay key, the
+/// position, the stream accounts, a new class, a new cash row); kept with them. A registration
+/// attaches it on top of the holder's storage (`registration_deposit_for` includes it).
+pub const RECORD_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(15);
+/// Free balance the engine keeps above its storage before issuing any MPC request, so the
+/// callbacks of the requests in flight can always write their records.
+pub const MPC_BALANCE_RESERVE: NearToken = NearToken::from_millinear(500);
+/// Blocks after which a pending replay key or a `Requested` payout is considered abandoned (the
+/// MPC yield times out after 200 blocks and the callback runs right after), so a callback that
+/// ran out of gas cannot block a fact or a payout forever.
 pub const PENDING_EXPIRY_BLOCKS: u64 = 600;
 
+/// Blocks between the first proof that a signed Solana transaction's nonce advanced without its
+/// effects and the proof that may conclude it did not execute (about 90 s): by then every
+/// RPC's finalized view is past the slot that advanced the nonce, so the second read of the
+/// streams cannot be stale.
+pub const CONFIRM_FAILURE_DELAY_BLOCKS: u64 = 150;
+
+/// Tgas attached to `sign` and `verify_foreign_transaction` (the live floor).
+const TGAS_MPC_CALL: u64 = 15;
+/// Tgas a receipt pays to create one function call receipt (send and execution fees of the
+/// receipt and of the function call action, 2 x 2.3 Tgas live, rounded up).
+pub(super) const TGAS_CALL_FEES: u64 = 5;
+/// Tgas one MPC request costs the receipt that creates it.
+pub(super) const TGAS_MPC_REQUEST: u64 = TGAS_MPC_CALL + TGAS_CALL_FEES;
+/// Tgas of the own work of a callback (hash comparison, parsing, record updates).
+pub(super) const TGAS_CALLBACK_WORK: u64 = 10;
+/// Tgas of a callback that only writes records: its work and nothing it attaches.
+pub(super) const TGAS_RECORD_CALLBACK: u64 = TGAS_CALLBACK_WORK + 10;
+/// Tgas a joined pair of Solana signatures and its callback cost the receipt creating them.
+pub(super) const TGAS_SIGN_PAIR: u64 = 2 * TGAS_MPC_REQUEST + TGAS_RECORD_CALLBACK + TGAS_CALL_FEES;
+/// Tgas one Base signature and its callback cost the receipt creating them.
+pub(super) const TGAS_BASE_SIGN: u64 = TGAS_MPC_REQUEST + TGAS_RECORD_CALLBACK + TGAS_CALL_FEES;
+/// Tgas a proof and its record-only callback cost the receipt creating them.
+pub(super) const TGAS_PROOF: u64 = TGAS_MPC_REQUEST + TGAS_RECORD_CALLBACK + TGAS_CALL_FEES;
+
 /// Gas attached to `sign` and `verify_foreign_transaction`.
-const GAS_FOR_MPC_CALL: Gas = Gas::from_tgas(15);
+const GAS_FOR_MPC_CALL: Gas = Gas::from_tgas(TGAS_MPC_CALL);
 /// Deposit attached to `sign` and `verify_foreign_transaction` (excess is refunded by the MPC).
 const MPC_DEPOSIT: NearToken = NearToken::from_yoctonear(1);
 /// Gas attached to each `derived_public_key` view call.
 const GAS_FOR_DERIVED_KEY: Gas = Gas::from_tgas(10);
-/// Static gas of the bootstrap callback (parses three keys, writes the config).
-const GAS_FOR_BOOTSTRAP_CALLBACK: Gas = Gas::from_tgas(10);
+/// Static gas of a callback that only writes records.
+pub(super) const GAS_FOR_RECORD_CALLBACK: Gas = Gas::from_tgas(TGAS_RECORD_CALLBACK);
 /// Longest MPC response the callbacks read.
 pub(super) const MAX_RESULT_LEN: usize = 4096;
 
@@ -86,8 +129,7 @@ enum StorageKey {
     Releasing,
     Pending,
     ClassStreams,
-    VaultPool,
-    Drawing,
+    KeyHolds,
 }
 
 /// Custody state, one field of the contract.
@@ -106,15 +148,12 @@ pub struct CustodyState {
     /// yet signed or failed, deposit registrations not yet resolved): while it is positive the
     /// account cannot withdraw its storage deposit.
     pending: LookupMap<AccountId, u32>,
-    /// Registered Solana positions per class, the streams a payout may withdraw from.
+    /// Solana positions per class still held with tokens left to withdraw (released and fully
+    /// withdrawn streams are pruned): the streams a payout may draw on.
     class_streams: LookupMap<ClassId, Vec<PositionId>>,
-    /// Per mint, tokens an in-kind redeem withdrew into the vault's token account that no
-    /// payout has used yet (the only balance of that account a payout may rely on).
-    vault_pool: LookupMap<String, u64>,
-    /// Per Solana position, the payouts awaiting their signature whose plan withdraws from the
-    /// stream: an in-kind redeem of the stream waits until they resolve, so a failed payout
-    /// never gives back withdraw accounting on a stream that already left the vault.
-    drawing: LookupMap<PositionId, u32>,
+    /// The account a pending deposit registration holds (see `pending`), per replay key, so an
+    /// abandoned request's hold is released when the fact is requested again.
+    key_holds: LookupMap<ReplayKey, AccountId>,
 }
 
 impl CustodyState {
@@ -131,8 +170,7 @@ impl CustodyState {
             releasing: LookupMap::new(StorageKey::Releasing),
             pending: LookupMap::new(StorageKey::Pending),
             class_streams: LookupMap::new(StorageKey::ClassStreams),
-            vault_pool: LookupMap::new(StorageKey::VaultPool),
-            drawing: LookupMap::new(StorageKey::Drawing),
+            key_holds: LookupMap::new(StorageKey::KeyHolds),
         }
     }
 }
@@ -148,12 +186,13 @@ impl Contract {
     /// Fills the MPC-derived foreign addresses once: `vault/base` (domain 0, the RoseVault
     /// signer), `vault/sol` and `gas/sol` (domain 1), read from the MPC contract's
     /// `derived_public_key` for this account. Anyone, once; a second call after the addresses
-    /// are stored is refused, and a failed request can be retried. Attach about 50 Tgas.
+    /// are stored is refused, and a failed request can be retried. Attach about 60 Tgas.
     pub fn bootstrap(&mut self) -> Promise {
         require!(
             self.config.derived_addresses.is_none(),
             "Already bootstrapped"
         );
+        require_gas_left(3 * (10 + TGAS_CALL_FEES) + TGAS_RECORD_CALLBACK + TGAS_CALL_FEES);
         let engine = env::current_account_id();
         let mpc_account = self.config.mpc_account.clone();
         let derive = |path: &str, domain_id: u64| {
@@ -175,7 +214,7 @@ impl Contract {
             .and(derive(PATH_GAS_SOL, self.config.sign_ed25519_domain))
             .then(
                 Self::ext(engine)
-                    .with_static_gas(GAS_FOR_BOOTSTRAP_CALLBACK)
+                    .with_static_gas(GAS_FOR_RECORD_CALLBACK)
                     .on_bootstrap(),
             )
     }
@@ -219,10 +258,14 @@ impl Contract {
         }
     }
 
-    /// YoctoNEAR to attach to a deposit registration so that `account` can hold units of
-    /// `class_id` (0 when it already can); the unused part is returned.
+    /// YoctoNEAR to attach to a deposit registration crediting `account` with units of
+    /// `class_id`: the storage of the records it creates ([`RECORD_STORAGE_DEPOSIT`], kept) plus
+    /// what `account` needs to hold the units (its registration or one more holding row; 0 when
+    /// it already can), whose unused part is returned.
     pub fn registration_deposit_for(&self, account: AccountId, class_id: ClassId) -> U128 {
-        U128(self.holder_storage_needed(&account, &class_id))
+        U128(
+            RECORD_STORAGE_DEPOSIT.as_yoctonear() + self.holder_storage_needed(&account, &class_id),
+        )
     }
 
     /// State of a replay key, or `None` when the fact was never requested.
@@ -354,7 +397,9 @@ impl Contract {
         self.custody.pending.get(account).is_some_and(|c| *c > 0)
     }
 
-    /// Marks `key` pending, or panics when the fact is consumed or a request is in flight.
+    /// Marks `key` pending, or panics when the fact is consumed or a request is in flight. An
+    /// abandoned request (pending for [`PENDING_EXPIRY_BLOCKS`]) is replaced, and the account
+    /// hold it took is released.
     pub(crate) fn mark_pending(&mut self, key: &ReplayKey) {
         let height = env::block_height();
         match self.custody.replays.get(key) {
@@ -364,7 +409,8 @@ impl Contract {
             {
                 env::panic_str("A verification of this fact is already in flight")
             }
-            _ => {}
+            Some(ReplayState::Pending { .. }) => self.release_key_hold(key),
+            None => {}
         }
         self.custody.replays.insert(
             key.clone(),
@@ -372,6 +418,35 @@ impl Contract {
                 since_block: height,
             },
         );
+    }
+
+    /// Holds `account` (see `CustodyState::pending`) for the request pending under `key`.
+    pub(crate) fn hold_for_key(&mut self, key: &ReplayKey, account: &AccountId) {
+        self.hold(account);
+        self.custody.key_holds.insert(key.clone(), account.clone());
+    }
+
+    /// Releases the hold taken for the request pending under `key`, if any.
+    pub(crate) fn release_key_hold(&mut self, key: &ReplayKey) {
+        if let Some(account) = self.custody.key_holds.remove(key) {
+            self.release_hold(&account);
+        }
+    }
+
+    /// True while `key` is pending (a request in flight or abandoned but not replaced).
+    pub(crate) fn is_pending(&self, key: &ReplayKey) -> bool {
+        matches!(
+            self.custody.replays.get(key),
+            Some(ReplayState::Pending { .. })
+        )
+    }
+
+    /// Clears a key marked pending at block `since` (a payout's own nonce mark): a newer mark of
+    /// the same fact, made once this one had expired, is left alone.
+    pub(crate) fn clear_own_pending(&mut self, key: &ReplayKey, since: u64) {
+        if self.custody.replays.get(key) == Some(&ReplayState::Pending { since_block: since }) {
+            self.custody.replays.remove(key);
+        }
     }
 
     /// Clears a pending key (no signature or attestation was acted on).
@@ -431,18 +506,37 @@ impl Contract {
         )
     }
 
-    /// The ForeignTx response of promise result `index`, or the failure.
-    pub(crate) fn foreign_result(
-        index: u64,
-    ) -> Result<VerifyForeignTransactionResponse, PromiseError> {
-        let bytes = env::promise_result_checked(index, MAX_RESULT_LEN)?;
-        near_sdk::serde_json::from_slice(&bytes).map_err(|_| PromiseError::Failed)
+    /// The ForeignTx response of promise result `index`, or `None` when it failed or does not
+    /// parse (nothing is signed by a proof, so both mean the same).
+    pub(crate) fn foreign_result(index: u64) -> Option<VerifyForeignTransactionResponse> {
+        let bytes = env::promise_result_checked(index, MAX_RESULT_LEN).ok()?;
+        near_sdk::serde_json::from_slice(&bytes).ok()
     }
 
-    /// The `sign` response of promise result `index`, or the failure.
-    pub(crate) fn sign_result(index: u64) -> Result<SignatureResponse, PromiseError> {
-        let bytes = env::promise_result_checked(index, MAX_RESULT_LEN)?;
-        near_sdk::serde_json::from_slice(&bytes).map_err(|_| PromiseError::Failed)
+    /// True when the ForeignTx response of promise result 0 attests exactly `expected_hash`.
+    pub(crate) fn attestation_matches(expected_hash: &str) -> bool {
+        Self::foreign_result(0)
+            .is_some_and(|response| hex::encode(response.payload_hash.0) == expected_hash)
+    }
+
+    /// The `sign` response of promise result `index`.
+    pub(crate) fn sign_result(index: u64) -> MpcResult<SignatureResponse> {
+        match env::promise_result_checked(index, MAX_RESULT_LEN) {
+            Err(PromiseError::Failed) => MpcResult::Failed,
+            Err(_) => MpcResult::Unreadable,
+            Ok(bytes) => near_sdk::serde_json::from_slice(&bytes)
+                .map_or(MpcResult::Unreadable, MpcResult::Value),
+        }
+    }
+
+    /// Panics unless the engine keeps [`MPC_BALANCE_RESERVE`] free above its storage.
+    pub(crate) fn require_mpc_reserve() {
+        let locked = bytes_cost(env::storage_usage());
+        require!(
+            env::account_balance().as_yoctonear()
+                >= locked.saturating_add(MPC_BALANCE_RESERVE.as_yoctonear()),
+            "The engine's free balance is below its reserve for MPC requests: send it NEAR"
+        );
     }
 
     /// Stores a new signed-action record for `requester` and returns its id.
@@ -467,6 +561,7 @@ impl Contract {
                 requester: requester.clone(),
                 requested_block: U64(env::block_height()),
                 position_id: position_id.map(U64),
+                sign_requests: 0,
                 status: PayoutStatus::Requested,
                 digest: None,
                 base: None,
@@ -509,13 +604,45 @@ impl Contract {
             .unwrap_or_else(|| env::panic_str(&format!("Unknown payout {id}")))
     }
 
+    /// Records that the last signature request of payout `id` resolved without a signature, so
+    /// the retry may be requested at once instead of after [`PENDING_EXPIRY_BLOCKS`].
+    pub(crate) fn mark_request_resolved(&mut self, id: PayoutId) {
+        let payout = self.payout_mut(id);
+        payout.requested_block = U64(env::block_height().saturating_sub(PENDING_EXPIRY_BLOCKS));
+        payout.updated_at = U64(env::block_timestamp());
+    }
+
     /// Requires the attached storage deposit of a signed-action record.
     pub(crate) fn assert_payout_deposit() {
         require!(
             env::attached_deposit() == PAYOUT_STORAGE_DEPOSIT,
-            "Attach exactly 0.02 NEAR as the payout storage deposit"
+            "Attach exactly 0.025 NEAR as the payout storage deposit"
         );
     }
+}
+
+/// What a `sign` promise returned.
+pub(crate) enum MpcResult<T> {
+    /// The promise failed (`PromiseError::Failed`): this request produced no signature.
+    Failed,
+    /// The promise succeeded but its value cannot be read: a signature may exist.
+    Unreadable,
+    /// The response.
+    Value(T),
+}
+
+/// Panics unless the current call has `tgas` left after its own work for the promises it
+/// creates: a callback chain that would run out of gas is refused upfront instead of leaving a
+/// request behind.
+pub(crate) fn require_gas_left(tgas: u64) {
+    let left = env::prepaid_gas().saturating_sub(env::used_gas());
+    require!(
+        left >= Gas::from_tgas(tgas + TGAS_CALL_FEES),
+        format!(
+            "Attach more gas: this call needs {} Tgas more than it used so far",
+            tgas + TGAS_CALL_FEES
+        )
+    );
 }
 
 /// Arguments of `compute_sol_class_id`.

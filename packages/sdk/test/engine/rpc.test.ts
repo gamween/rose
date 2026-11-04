@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeFailure, NearRpc, NearRpcError, outcomeFailure, outcomeLogs, outcomeValue, type FinalExecutionOutcome } from "../../src/engine/rpc.js";
+import { describeFailure, endpointOrder, MAX_CONCURRENT_RPC_REQUESTS, NearRpc, NearRpcError, TokenBucket, outcomeFailure, outcomeLogs, outcomeValue, withRpcSlot, type FinalExecutionOutcome } from "../../src/engine/rpc.js";
 
 function bytes(value: unknown): number[] {
   return [...Buffer.from(JSON.stringify(value))];
@@ -117,5 +117,67 @@ describe("outcome helpers", () => {
     expect(describeFailure({ ActionError: { index: 0, kind: { AccountAlreadyExists: { account_id: "x" } } } })).toBe("Account Already Exists");
     expect(describeFailure({ InvalidTxError: { InvalidNonce: {} } })).toBe("Invalid Nonce");
     expect(describeFailure(null)).toBe("The transaction failed.");
+  });
+});
+
+describe("RPC concurrency", () => {
+  it("never runs more than the limit of requests at once and runs every request", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        withRpcSlot(async () => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          inFlight -= 1;
+          return index;
+        }),
+      ),
+    );
+    expect(peak).toBe(MAX_CONCURRENT_RPC_REQUESTS);
+    expect(results).toEqual(Array.from({ length: 12 }, (_, index) => index));
+  });
+
+  it("frees the slot when a request fails", async () => {
+    await Promise.all(Array.from({ length: 6 }, () => withRpcSlot(() => Promise.reject(new Error("down"))).catch(() => null)));
+    await expect(withRpcSlot(() => Promise.resolve("ok"))).resolves.toBe("ok");
+  });
+});
+
+describe("RPC request budget", () => {
+  it("spends its capacity, then refills at its rate", () => {
+    let now = 0;
+    const bucket = new TokenBucket(2, 2, () => now);
+    expect(bucket.waitMs()).toBe(0);
+    void bucket.take();
+    void bucket.take();
+    expect(bucket.waitMs()).toBe(500);
+    now = 500;
+    expect(bucket.waitMs()).toBe(0);
+  });
+
+  it("starts with the first endpoint that has budget left", () => {
+    const waits: Record<string, number> = { a: 300, b: 0 };
+    expect(endpointOrder(["a", "b"], (endpoint) => waits[endpoint] ?? 0)).toEqual(["b", "a"]);
+    expect(endpointOrder(["a", "b"], () => 100)).toEqual(["a", "b"]);
+  });
+
+  it("shares one round trip between identical requests in flight", async () => {
+    let calls = 0;
+    const rpc = new NearRpc({
+      endpoints: ["http://dedupe.test"],
+      fetch: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: "rose", result: { header: { height: 7 } } }));
+      },
+    });
+    const controller = new AbortController();
+    const [a, b] = await Promise.all([rpc.block("final"), rpc.block("final", controller.signal)]);
+    expect(calls).toBe(1);
+    expect(a).toEqual(b);
+    await rpc.block("final");
+    expect(calls).toBe(2);
   });
 });

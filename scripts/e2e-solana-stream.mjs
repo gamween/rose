@@ -2,11 +2,14 @@
 // End-to-end Streamflow flow on Solana devnet against a deployed engine (spec 7.2 and 7.3):
 // a stream of a devnet test SPL token is created to a holder, the holder moves it to its engine
 // deposit address (transfer_recipient), the engine attributes it (ForeignTx AccountState proof),
-// signs the move to the vault, registers it once it sits at the vault, and finally signs a payout
-// that withdraws from the stream and transfers the claimed tokens in one durable-nonce transaction.
+// signs the move to the vault, registers it once it sits at the vault, signs a payout drawing on
+// the stream (Streamflow withdraw + TransferChecked in one durable-nonce transaction), which is
+// broadcast and then confirmed with a proof that the nonce advanced and the stream paid, and
+// finally signs the in-kind release of the position, broadcast and confirmed the same way.
 //
 //   node scripts/e2e-solana-stream.mjs <engine account> <step> [--holder <near account>]
-// Steps, in order: setup, transfer, attribute, move, register, claim (or `all`). Every signature
+// Steps, in order: setup, transfer, attribute, move, register, claim, confirm, redeem,
+// confirm-redeem (or `all`). Every signature
 // and NEAR transaction is recorded in deployments/e2e/<engine>.solana.json. Keys: the ops key
 // ~/.config/rose/solana-ops.json funds everything (never printed); the Solana holder key is
 // generated into ~/.config/rose/solana-holder.json; NEAR calls use the legacy keychain.
@@ -27,7 +30,7 @@ import { createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAc
 import { ICluster, SolanaStreamClient } from "@streamflow/stream";
 
 const RPC = "https://api.devnet.solana.com";
-const NEAR_RPC = "https://test.rpc.fastnear.com";
+const NEAR_RPC = process.env.NEAR_RPC_URL ?? "https://test.rpc.fastnear.com";
 const MPC = "v1.signer-prod.testnet";
 const STREAMFLOW_PROGRAM = "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -59,9 +62,14 @@ const log = (...args) => console.error(...args);
 
 async function nearView(account, method, args = {}) {
   const body = { jsonrpc: "2.0", id: 1, method: "query", params: { request_type: "call_function", finality: "final", account_id: account, method_name: method, args_base64: Buffer.from(JSON.stringify(args)).toString("base64") } };
-  const res = await (await fetch(NEAR_RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
-  if (!res.result?.result) throw new Error(`view ${account}.${method}: ${JSON.stringify(res.result?.error ?? res.error)}`);
-  return JSON.parse(Buffer.from(res.result.result).toString());
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await (await fetch(NEAR_RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+    if (res.result?.result) return JSON.parse(Buffer.from(res.result.result).toString());
+    const error = res.result?.error ?? res.error;
+    // Public RPCs answer -429 when rate limited: back off and retry a few times.
+    if (error?.code !== -429 || attempt >= 8) throw new Error(`view ${account}.${method}: ${JSON.stringify(error)}`);
+    await sleep(3000 * (attempt + 1));
+  }
 }
 async function nearTxStatus(hash, sender) {
   const body = { jsonrpc: "2.0", id: 1, method: "EXPERIMENTAL_tx_status", params: { tx_hash: hash, sender_account_id: sender, wait_until: "FINAL" } };
@@ -110,7 +118,7 @@ async function waitPayout(id) {
   throw new Error(`payout ${id} still pending`);
 }
 async function broadcast(payout, name) {
-  const wire = Buffer.from(payout.solana.transaction, "hex");
+  const wire = Buffer.from(payout.solana.transaction, "base64");
   const vtx = VersionedTransaction.deserialize(wire);
   const sim = await conn.simulateTransaction(vtx, { sigVerify: true });
   if (sim.value.err) throw new Error(`simulation of ${name} failed: ${JSON.stringify(sim.value.err)}\n${(sim.value.logs ?? []).join("\n")}`);
@@ -137,14 +145,17 @@ const classArgs = () => ({ mint: state.steps.setup.mint, decimals: 6, schedule: 
 async function stepSetup() {
   log("ops balance", (await conn.getBalance(ops.publicKey)) / LAMPORTS_PER_SOL, "SOL");
   const gasBalance = await conn.getBalance(gasPayer);
-  if (gasBalance < 0.1 * LAMPORTS_PER_SOL) {
+  if (gasBalance < 0.05 * LAMPORTS_PER_SOL) {
+    const holderBalance = await conn.getBalance(holder.publicKey);
     const fund = new Transaction().add(
-      SystemProgram.transfer({ fromPubkey: ops.publicKey, toPubkey: gasPayer, lamports: 0.2 * LAMPORTS_PER_SOL }),
-      SystemProgram.transfer({ fromPubkey: ops.publicKey, toPubkey: holder.publicKey, lamports: 0.05 * LAMPORTS_PER_SOL }),
+      SystemProgram.transfer({ fromPubkey: ops.publicKey, toPubkey: gasPayer, lamports: 0.05 * LAMPORTS_PER_SOL }),
     );
+    if (holderBalance < 0.02 * LAMPORTS_PER_SOL) {
+      fund.add(SystemProgram.transfer({ fromPubkey: ops.publicKey, toPubkey: holder.publicKey, lamports: 0.02 * LAMPORTS_PER_SOL }));
+    }
     const sig = await sendAndConfirmTransaction(conn, fund, [ops]);
     state.steps.fund = { solana_tx: sig, solana_link: explorer(sig), gas_sol: gasPayer.toBase58(), holder: holder.publicKey.toBase58() };
-    log("funded gas/sol with 0.2 SOL and the holder with 0.05 SOL:", explorer(sig));
+    log("funded gas/sol with 0.05 SOL (and the holder when short):", explorer(sig));
   }
   const mint = state.steps.setup?.mint ? new PublicKey(state.steps.setup.mint) : await createMint(conn, ops, ops.publicKey, null, 6);
   const ata = await getOrCreateAssociatedTokenAccount(conn, ops, mint, ops.publicKey);
@@ -190,7 +201,7 @@ async function stepAttribute() {
   if (metadata.owner !== STREAMFLOW_PROGRAM) throw new Error(`metadata owner ${metadata.owner}`);
   const args = { args: { metadata: state.steps.setup.metadata, class_id: state.steps.transfer.class_id, return_to: holder.publicKey.toBase58(),
     anchor_tx: state.steps.transfer.solana_tx, metadata_data: metadata.data, mint_data: mint.data } };
-  const hash = nearCall(nearHolder, "attribute_sol_deposit", args, "100 Tgas", "0 NEAR");
+  const hash = nearCall(nearHolder, "attribute_sol_deposit", args, "120 Tgas", "0.015 NEAR");
   await record("attribute", hash, nearHolder);
   const deposit = await nearView(engine, "get_sol_deposit", { metadata: state.steps.setup.metadata });
   if (deposit?.stage !== "Attributed") throw new Error(`not attributed: ${JSON.stringify(deposit)}`);
@@ -199,7 +210,7 @@ async function stepAttribute() {
 
 async function stepMove() {
   const { blockhash } = await conn.getLatestBlockhash("finalized");
-  const hash = nearCall(nearHolder, "move_sol_deposit", { metadata: state.steps.setup.metadata, recent_blockhash: blockhash }, "60 Tgas", "0.02 NEAR");
+  const hash = nearCall(nearHolder, "move_sol_deposit", { metadata: state.steps.setup.metadata, recent_blockhash: blockhash }, "120 Tgas", "0.025 NEAR");
   await record("move", hash, nearHolder);
   const deposit = await nearView(engine, "get_sol_deposit", { metadata: state.steps.setup.metadata });
   const payoutId = deposit.stage.MoveSigned.payout_id;
@@ -215,7 +226,7 @@ async function stepRegister() {
   const metadata = await accountHex(state.steps.setup.metadata);
   const deposit = await nearView(engine, "registration_deposit_for", { account: nearHolder, class_id: state.steps.transfer.class_id });
   const attached = `${Number(BigInt(deposit)) / 1e24} NEAR`;
-  const hash = nearCall(nearHolder, "register_sol_deposit", { metadata: state.steps.setup.metadata, anchor_tx: state.steps.move.solana_tx, metadata_data: metadata.data }, "60 Tgas", attached);
+  const hash = nearCall(nearHolder, "register_sol_deposit", { metadata: state.steps.setup.metadata, anchor_tx: state.steps.move.solana_tx, metadata_data: metadata.data }, "80 Tgas", attached);
   await record("register", hash, nearHolder);
   const record_ = await nearView(engine, "get_sol_deposit", { metadata: state.steps.setup.metadata });
   if (!record_.stage?.Registered) throw new Error(`not registered: ${JSON.stringify(record_)}`);
@@ -229,9 +240,23 @@ async function stepRegister() {
   log(`registered position ${positionId}: ${units} units to ${nearHolder}, engine_withdrawn ${info.engine_withdrawn}`);
 }
 
+/** The nonce proof of a payout or redeem to `owner`: the nonce account and `owner`'s token account read at finalized. */
+async function payoutProof(owner, anchor) {
+  const nonceInfo = await conn.getAccountInfo(new PublicKey(state.steps.claim.nonce_account), "finalized");
+  const recipientTokens = getAssociatedTokenAddressSync(new PublicKey(state.steps.setup.mint), owner);
+  const tokens = await accountHex(recipientTokens.toBase58());
+  return {
+    proof: { account: state.steps.claim.nonce_account, anchor_tx: anchor, data: Buffer.from(nonceInfo.data).toString("hex"), recipient_tokens_data: tokens.data },
+    value: NonceAccount.fromAccountData(nonceInfo.data).nonce,
+  };
+}
+
 async function stepClaim() {
   const claimable = await nearView(engine, "get_claimable", { account: nearHolder, class_id: state.steps.transfer.class_id });
   if (claimable === "0") throw new Error("nothing claimable yet: the stream unlocks 60 tokens per minute after its start");
+  const streams = await nearView(engine, "get_sol_streams", { class_id: state.steps.transfer.class_id });
+  const stream = streams.find((s) => s.position_id === state.steps.register.position_id);
+  const amount = BigInt(stream.withdrawable) < BigInt(claimable) ? stream.withdrawable : claimable;
   const nonceKp = Keypair.generate();
   const rent = await conn.getMinimumBalanceForRentExemption(NONCE_ACCOUNT_LENGTH);
   const create = new Transaction().add(
@@ -240,33 +265,83 @@ async function stepClaim() {
   );
   const createSig = await sendAndConfirmTransaction(conn, create, [ops, nonceKp]);
   await waitFinalized(createSig);
-  const nonceInfo = await conn.getAccountInfo(nonceKp.publicKey, "finalized");
-  const nonce = NonceAccount.fromAccountData(nonceInfo.data);
-  const proof = { account: nonceKp.publicKey.toBase58(), anchor_tx: createSig, data: Buffer.from(nonceInfo.data).toString("hex") };
-  state.steps.claim = { nonce_account: proof.account, nonce_create_tx: createSig, nonce_create_link: explorer(createSig), nonce_value: nonce.nonce, amount: claimable, to_owner: ops.publicKey.toBase58() };
+  state.steps.claim = { nonce_account: nonceKp.publicKey.toBase58(), nonce_create_tx: createSig, nonce_create_link: explorer(createSig), amount, to_owner: ops.publicKey.toBase58() };
+  const { proof, value } = await payoutProof(ops.publicKey, createSig);
+  state.steps.claim.nonce_value = value;
   save();
-  const hash = nearCall(nearHolder, "claim_sol_tokens", { source: { Holding: { class_id: state.steps.transfer.class_id } }, amount: claimable, to_owner: ops.publicKey.toBase58(), nonce: proof }, "120 Tgas", "0.02 NEAR");
+  const draws = [{ position_id: state.steps.register.position_id, amount }];
+  const hash = nearCall(nearHolder, "claim_sol_tokens", { source: { Holding: { class_id: state.steps.transfer.class_id } }, draws, to_owner: ops.publicKey.toBase58(), nonce: proof }, "200 Tgas", "0.025 NEAR");
   await record("claim", hash, nearHolder);
   const total = Number(await nearView(engine, "payouts_total"));
   const payout = await waitPayout(total - 1);
   if (payout.status !== "Signed") throw new Error(`claim not signed: ${JSON.stringify(payout.status)}`);
   state.steps.claim.payout_id = payout.id;
-  state.steps.claim.withdraws = payout.solana.withdraws;
-  state.steps.claim.pool_used = payout.solana.pool_used;
+  state.steps.claim.draws = payout.solana.draws;
   const ata = getAssociatedTokenAddressSync(new PublicKey(state.steps.setup.mint), ops.publicKey);
-  const before = await conn.getTokenAccountBalance(ata, "confirmed").then((b) => b.value.amount).catch(() => "0");
+  const before = await conn.getTokenAccountBalance(ata, "confirmed").then((b) => b.value.amount);
   await broadcast(payout, "claim");
   const after = await conn.getTokenAccountBalance(ata, "confirmed").then((b) => b.value.amount);
-  const stream = await client.getOne({ id: state.steps.setup.metadata });
-  const info = await nearView(engine, "get_sol_stream", { position_id: state.steps.register.position_id });
   state.steps.claim.recipient_balance = { before, after };
-  state.steps.claim.stream_withdrawn = String(stream.withdrawnAmount);
-  state.steps.claim.engine_withdrawn = info.engine_withdrawn;
   save();
-  log(`claimed ${claimable}: recipient balance ${before} -> ${after}; stream withdrawn ${stream.withdrawnAmount}, engine_withdrawn ${info.engine_withdrawn}`);
+  log(`claimed ${amount}: recipient balance ${before} -> ${after}`);
 }
 
-const steps = { setup: stepSetup, transfer: stepTransfer, attribute: stepAttribute, move: stepMove, register: stepRegister, claim: stepClaim };
+async function stepConfirm() {
+  const nonce = await accountHex(state.steps.claim.nonce_account);
+  const metadata = await accountHex(state.steps.setup.metadata);
+  const hash = nearCall(nearHolder, "confirm_sol_payout", { payout_id: state.steps.claim.payout_id, anchor_tx: state.steps.claim.solana_tx, nonce_data: nonce.data, stream_data: [metadata.data] }, "100 Tgas", "0 NEAR");
+  await record("confirm", hash, nearHolder);
+  const payout = await nearView(engine, "get_payout", { payout_id: state.steps.claim.payout_id });
+  if (payout.status !== "Landed") throw new Error(`payout not landed: ${JSON.stringify(payout.status)}`);
+  const info = await nearView(engine, "get_sol_stream", { position_id: state.steps.register.position_id });
+  const stream = await client.getOne({ id: state.steps.setup.metadata });
+  state.steps.confirm.status = payout.status;
+  state.steps.confirm.engine_withdrawn = info.engine_withdrawn;
+  state.steps.confirm.stream_withdrawn = String(stream.withdrawnAmount);
+  save();
+  log(`payout ${payout.id} landed: engine_withdrawn ${info.engine_withdrawn}, stream withdrawn ${stream.withdrawnAmount}`);
+}
+
+async function stepRedeem() {
+  // A release already in flight (an earlier run stopped after the NEAR call) is resumed.
+  let releaseId = await nearView(engine, "get_pending_release", { position_id: state.steps.register.position_id });
+  if (releaseId === null) {
+    const { proof, value } = await payoutProof(holder.publicKey, state.steps.claim.solana_tx);
+    const streams = await nearView(engine, "get_sol_streams", { class_id: state.steps.transfer.class_id });
+    const owed = streams.find((s) => s.position_id === state.steps.register.position_id)?.redeem_claimable;
+    state.steps.redeem = { nonce_value: value, to_owner: holder.publicKey.toBase58(), redeem_claimable: owed };
+    save();
+    const hash = nearCall(nearHolder, "redeem", { position_id: state.steps.register.position_id, to: holder.publicKey.toBase58(), nonce: proof }, "200 Tgas", "0.025 NEAR");
+    await record("redeem", hash, nearHolder);
+    releaseId = await nearView(engine, "get_pending_release", { position_id: state.steps.register.position_id });
+  }
+  const payout = await waitPayout(releaseId);
+  if (payout.status !== "Signed") throw new Error(`release not signed: ${JSON.stringify(payout.status)}`);
+  state.steps.redeem.payout_id = payout.id;
+  const position = await nearView(engine, "get_position", { position_id: state.steps.register.position_id });
+  if (position.state !== "Releasing") throw new Error(`position not releasing: ${position.state}`);
+  await broadcast(payout, "redeem");
+  const stream = await client.getOne({ id: state.steps.setup.metadata });
+  log("stream recipient now", stream.recipient, stream.recipient === holder.publicKey.toBase58() ? "(the holder)" : "(NOT the holder)");
+}
+
+async function stepConfirmRedeem() {
+  const nonce = await accountHex(state.steps.claim.nonce_account);
+  const metadata = await accountHex(state.steps.setup.metadata);
+  const hash = nearCall(nearHolder, "confirm_sol_redeem", { position_id: state.steps.register.position_id, anchor_tx: state.steps.redeem.solana_tx, nonce_data: nonce.data, stream_data: metadata.data }, "100 Tgas", "0 NEAR");
+  await record("confirm_redeem", hash, nearHolder);
+  const position = await nearView(engine, "get_position", { position_id: state.steps.register.position_id });
+  const payout = await nearView(engine, "get_payout", { payout_id: state.steps.redeem.payout_id });
+  if (position.state !== "Released" || payout.status !== "Landed") throw new Error(`release not final: ${position.state} ${JSON.stringify(payout.status)}`);
+  state.steps.confirm_redeem.position_state = position.state;
+  save();
+  log(`position ${position.position_id} released to ${holder.publicKey.toBase58()}`);
+}
+
+const steps = {
+  setup: stepSetup, transfer: stepTransfer, attribute: stepAttribute, move: stepMove, register: stepRegister,
+  claim: stepClaim, confirm: stepConfirm, redeem: stepRedeem, "confirm-redeem": stepConfirmRedeem,
+};
 if (step === "all") {
   for (const name of Object.keys(steps)) await steps[name]();
 } else if (steps[step]) {

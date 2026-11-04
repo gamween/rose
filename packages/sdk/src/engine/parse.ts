@@ -44,6 +44,7 @@ import type {
   RoundsPage,
   RoundsPageView,
   RoundView,
+  RoseEventView,
   ScheduleView,
   SellQuote,
   SellQuoteView,
@@ -354,12 +355,14 @@ export function parseSellQuote(view: SellQuoteView): SellQuote {
 export function parseStoredEvent(view: StoredEventView): StoredEvent {
   const { seq, block_height, timestamp, predecessor, ...event } = view;
   if (typeof event.event !== "string") throw new EngineParseError("event.event is not a string.");
+  // Unit variants (`bootstrap_requested`, `bootstrap_failed`) are serialized without `data`.
+  const data: unknown = (event as { data?: unknown }).data ?? {};
   return {
     seq: parseU(seq, "event.seq"),
     blockHeight: parseU(block_height, "event.block_height"),
     timestamp: parseU(timestamp, "event.timestamp"),
     predecessor,
-    event,
+    event: { event: event.event, data } as RoseEventView,
   };
 }
 

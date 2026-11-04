@@ -74,6 +74,7 @@ import type {
   Side,
   SolDepositView,
   SolStreamInfoView,
+  SolStreamStateView,
   Stats,
   StorageBalance,
   StorageBalanceBoundsView,
@@ -219,6 +220,10 @@ export class EngineRawViews {
   getSolStream(positionId: Id, o?: ViewCallOptions): Promise<SolStreamInfoView | null> {
     return this.call("get_sol_stream", { position_id: id(positionId) }, o);
   }
+  /** The Solana streams of a class a payout may draw on, with what each can pay now. */
+  getSolStreams(classId: ClassId, o?: ViewCallOptions): Promise<SolStreamStateView[]> {
+    return this.call("get_sol_streams", { class_id: classId }, o);
+  }
   /** NEP-145 deposit (yoctoNEAR) a deposit registration must attach for `account` to hold `classId`. */
   registrationDepositFor(account: AccountId, classId: ClassId, o?: ViewCallOptions): Promise<string> {
     return this.call("registration_deposit_for", { account, class_id: classId }, o);
@@ -354,6 +359,9 @@ export class EngineViews {
   }
   async payoutsTotal(o?: ViewCallOptions): Promise<bigint> {
     return parseU(await this.raw.payoutsTotal(o), "payouts_total");
+  }
+  getSolStreams(classId: ClassId, o?: ViewCallOptions): Promise<SolStreamStateView[]> {
+    return this.raw.getSolStreams(classId, o);
   }
   async registrationDepositFor(account: AccountId, classId: ClassId, o?: ViewCallOptions): Promise<bigint> {
     return parseU(await this.raw.registrationDepositFor(account, classId, o), "registration_deposit_for");

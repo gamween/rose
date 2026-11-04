@@ -40,7 +40,10 @@ use near_sdk::store::{IterableMap, LookupMap, Vector};
 use near_sdk::{env, near, require, AccountId, BorshStorageKey, NearToken, PanicOnDefault};
 
 pub use cash::FungibleToken;
-pub use custody::{CustodyState, PAYOUT_STORAGE_DEPOSIT, PENDING_EXPIRY_BLOCKS};
+pub use custody::{
+    CustodyState, MPC_BALANCE_RESERVE, PAYOUT_STORAGE_DEPOSIT, PENDING_EXPIRY_BLOCKS,
+    RECORD_STORAGE_DEPOSIT,
+};
 pub use events::{RoseEvent, StoredEvent, EVENT_CAPACITY, EVENT_STANDARD, EVENT_VERSION};
 pub use storage::{StorageBalance, StorageBalanceBounds, HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
 pub use types::*;
@@ -281,14 +284,14 @@ impl Contract {
         position_id
     }
 
-    /// Marks a position as released in kind. Internal API for `redeem`.
+    /// Marks a releasing position as released in kind. Internal API for `redeem`.
     pub fn mark_position_released(&mut self, position_id: PositionId, account: &AccountId) {
         let position = self.positions.get_mut(&position_id).unwrap_or_else(|| {
             env::panic_str(&format!("Unknown position {position_id}"));
         });
         require!(
-            position.state == PositionState::Held,
-            "Position already released"
+            position.state == PositionState::Releasing,
+            "Position is not being released"
         );
         position.state = PositionState::Released;
         let class_id = position.class_id.clone();

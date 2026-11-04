@@ -14,11 +14,16 @@ use near_sdk::json_types::{U128, U64};
 use near_sdk::{env, near, require, AccountId, Gas, NearToken, Promise};
 
 use super::types::{
-    BaseLogLocation, CashDepositedFields, PayoutDebit, PayoutKind, RefusedAsset, RefusedDeposit,
-    ReplayKey, StreamDepositedFields,
+    BaseLogLocation, BaseSignature, CashDepositedFields, PayoutDebit, PayoutKind, PayoutStatus,
+    RefusedAsset, RefusedDeposit, ReplayKey, StreamDepositedFields,
+};
+use super::{
+    require_gas_left, MpcResult, GAS_FOR_RECORD_CALLBACK, PENDING_EXPIRY_BLOCKS,
+    RECORD_STORAGE_DEPOSIT, TGAS_BASE_SIGN, TGAS_PROOF,
 };
 use crate::foreign::evm::{
-    self, CashDeposited, Eip712Domain, LogLocation, ReleaseAuthorization, StreamDeposited,
+    self, CashDeposited, Eip712Domain, EvmSignature, LogLocation, ReleaseAuthorization,
+    StreamDeposited,
 };
 use crate::foreign::mpc::{
     payload_hash, Bytes32, EvmExtractor, EvmFinality, EvmRpcRequest, ExtractedValue,
@@ -29,15 +34,9 @@ use crate::types::{Chain, ClassId, Position, PositionSource, PositionState, Venu
 use crate::unlock::{ClassSchedule, SablierLinearStream};
 use crate::{Contract, ContractExt, RoseEvent};
 
-/// Static gas of the deposit callbacks (hash comparison, class lookup, mint).
-const GAS_FOR_DEPOSIT_CALLBACK: Gas = Gas::from_tgas(15);
-/// Prepaid gas a registration needs: the request, 15 Tgas to the MPC and the callback.
-const GAS_FOR_REGISTRATION: Gas = Gas::from_tgas(50);
 /// Static gas of the signature callback of a Base authorization (1.5 Tgas measured; the margin
 /// keeps a signed authorization from being lost to a starved callback).
-pub(super) const GAS_FOR_BASE_SIGN_CALLBACK: Gas = Gas::from_tgas(10);
-/// Prepaid gas a Base authorization request needs.
-pub(super) const GAS_FOR_BASE_AUTHORIZATION: Gas = Gas::from_tgas(30);
+const GAS_FOR_BASE_SIGN_CALLBACK: Gas = GAS_FOR_RECORD_CALLBACK;
 
 #[near]
 impl Contract {
@@ -48,35 +47,41 @@ impl Contract {
     /// transferability, builds the class from the attested schedule and decimals, and mints
     /// `deposited` units to `nearAccount` from the deposit checkpoint. A genuine log the engine
     /// refuses is recorded so `return_refused_deposit` can send the stream back to its sender.
-    /// Anyone; attach the registration deposit of the credited account when it is not a unit
-    /// holder yet (returned when unused) and at least 50 Tgas. A failure on the MPC side (wrong
-    /// values, unknown transaction, wrong log index, finality not reached) surfaces after about
-    /// two minutes; the key is cleared and the call can be retried.
+    /// Anyone; attach `registration_deposit_for(nearAccount, class)` (the records' storage,
+    /// kept, plus the credited account's holder storage, whose unused part is returned; without
+    /// a valid account or class, just [`RECORD_STORAGE_DEPOSIT`]) and about 60 Tgas. A failure on
+    /// the MPC side (wrong values, unknown transaction, wrong log index, finality not reached)
+    /// surfaces after about two minutes; the key is cleared, everything attached is returned and
+    /// the call can be retried.
     #[payable]
     pub fn register_base_deposit(
         &mut self,
         location: BaseLogLocation,
         fields: StreamDepositedFields,
     ) -> Promise {
-        require!(
-            env::prepaid_gas() >= GAS_FOR_REGISTRATION,
-            "At least 50 Tgas are required to register a deposit"
-        );
+        Self::require_mpc_reserve();
         let event = stream_deposited(&fields);
-        if let Some((account, class_id)) = self.base_deposit_target(&fields) {
-            require!(
-                env::attached_deposit().as_yoctonear()
-                    >= self.holder_storage_needed(&account, &class_id),
-                format!("Attach the storage deposit for {account} (registration_deposit_for)")
-            );
-            self.hold(&account);
-        }
+        let needed = match self.base_deposit_target(&fields) {
+            Some((account, class_id)) => {
+                RECORD_STORAGE_DEPOSIT.as_yoctonear()
+                    + self.holder_storage_needed(&account, &class_id)
+            }
+            None => RECORD_STORAGE_DEPOSIT.as_yoctonear(),
+        };
+        require!(
+            env::attached_deposit().as_yoctonear() >= needed,
+            format!("Attach {needed} yoctoNEAR of storage (registration_deposit_for)")
+        );
         let (key, request, hash) = self.base_log_request(&location, event.topics(), &event.data());
         self.mark_pending(&key);
+        if let Some((account, _)) = self.base_deposit_target(&fields) {
+            self.hold_for_key(&key, &account);
+        }
         self.emit(RoseEvent::DepositVerificationRequested { key: key.clone() });
+        require_gas_left(TGAS_PROOF);
         self.verify_foreign_promise(request).then(
             Self::ext(env::current_account_id())
-                .with_static_gas(GAS_FOR_DEPOSIT_CALLBACK)
+                .with_static_gas(GAS_FOR_RECORD_CALLBACK)
                 .on_base_deposit_verified(
                     key,
                     hex::encode(hash),
@@ -99,15 +104,19 @@ impl Contract {
         caller: AccountId,
         attached: U128,
     ) -> bool {
-        let attached = NearToken::from_yoctonear(attached.0);
-        if let Some((account, _)) = self.base_deposit_target(&fields) {
-            self.release_hold(&account);
-        }
-        if !self.attested(&key, &expected_hash) {
-            Self::refund_registration_deposit(&caller, attached);
+        if !self.is_pending(&key) {
+            Self::refund_registration_deposit(&caller, NearToken::from_yoctonear(attached.0));
             return false;
         }
-        match self.admit_base_stream(&key, &fields, attached.as_yoctonear()) {
+        self.release_key_hold(&key);
+        if !self.attested(&key, &expected_hash) {
+            Self::refund_registration_deposit(&caller, NearToken::from_yoctonear(attached.0));
+            return false;
+        }
+        let budget = attached
+            .0
+            .saturating_sub(RECORD_STORAGE_DEPOSIT.as_yoctonear());
+        match self.admit_base_stream(&key, &fields, budget) {
             Ok(remainder) => {
                 Self::refund_registration_deposit(&caller, NearToken::from_yoctonear(remainder))
             }
@@ -127,7 +136,7 @@ impl Contract {
                         refused_at: U64(env::block_timestamp()),
                     },
                 );
-                Self::refund_registration_deposit(&caller, attached);
+                Self::refund_registration_deposit(&caller, NearToken::from_yoctonear(budget));
                 return false;
             }
         }
@@ -138,24 +147,34 @@ impl Contract {
     /// `nearAccount`'s `Base(token)` venue. Every token is credited, so a deposit in a token the
     /// engine does not accept for rounds (or earmarked for a round that does not exist) is never
     /// lost: it can only leave again through `withdraw_base_cash`, since rounds refuse venues
-    /// outside the accepted list. Anyone; at least 50 Tgas.
+    /// outside the accepted list. Anyone; attach exactly [`RECORD_STORAGE_DEPOSIT`] for the
+    /// replay key and the cash row (kept; returned when the log is not attested) and about
+    /// 60 Tgas.
+    #[payable]
     pub fn register_base_cash(
         &mut self,
         location: BaseLogLocation,
         fields: CashDepositedFields,
     ) -> Promise {
+        Self::require_mpc_reserve();
         require!(
-            env::prepaid_gas() >= GAS_FOR_REGISTRATION,
-            "At least 50 Tgas are required to register a deposit"
+            env::attached_deposit() == RECORD_STORAGE_DEPOSIT,
+            "Attach exactly 0.015 NEAR as the record storage deposit"
         );
         let event = cash_deposited(&fields);
         let (key, request, hash) = self.base_log_request(&location, event.topics(), &event.data());
         self.mark_pending(&key);
         self.emit(RoseEvent::DepositVerificationRequested { key: key.clone() });
+        require_gas_left(TGAS_PROOF);
         self.verify_foreign_promise(request).then(
             Self::ext(env::current_account_id())
-                .with_static_gas(GAS_FOR_DEPOSIT_CALLBACK)
-                .on_base_cash_verified(key, hex::encode(hash), fields),
+                .with_static_gas(GAS_FOR_RECORD_CALLBACK)
+                .on_base_cash_verified(
+                    key,
+                    hex::encode(hash),
+                    fields,
+                    env::predecessor_account_id(),
+                ),
         )
     }
 
@@ -167,8 +186,10 @@ impl Contract {
         key: ReplayKey,
         expected_hash: String,
         fields: CashDepositedFields,
+        caller: AccountId,
     ) -> bool {
-        if !self.attested(&key, &expected_hash) {
+        if !self.is_pending(&key) || !self.attested(&key, &expected_hash) {
+            Self::refund_registration_deposit(&caller, RECORD_STORAGE_DEPOSIT);
             return false;
         }
         let Ok(account) = fields.near_account.parse::<AccountId>() else {
@@ -240,7 +261,7 @@ impl Contract {
     /// `expected_hash` and the key was consumed by this callback; otherwise the pending key is
     /// cleared (or a duplicate callback is ignored).
     pub(super) fn attested(&mut self, key: &ReplayKey, expected_hash: &str) -> bool {
-        let Ok(response) = Self::foreign_result(0) else {
+        let Some(response) = Self::foreign_result(0) else {
             self.clear_pending(key);
             self.emit(RoseEvent::DepositVerificationFailed { key: key.clone() });
             return false;
@@ -416,13 +437,126 @@ impl Contract {
             evm::is_valid_ecdsa_payload(&digest),
             "Digest is not a valid ECDSA payload: the call is reverted, request again"
         );
-        self.payout_mut(id).digest = Some(hex::encode(digest));
+        Self::require_mpc_reserve();
+        let payout = self.payout_mut(id);
+        payout.digest = Some(hex::encode(digest));
+        payout.sign_requests += 1;
+        payout.requested_block = U64(env::block_height());
+        require_gas_left(TGAS_BASE_SIGN);
         self.sign_ecdsa_promise(super::PATH_VAULT_BASE, digest)
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_BASE_SIGN_CALLBACK)
                     .on_base_signed(U64(id)),
             )
+    }
+}
+
+#[near]
+impl Contract {
+    /// Base signature callback: stores `(r, s, v)` and completes the action. A Base
+    /// authorization is never refunded: a signature of its digest could surface after the
+    /// request failed (an MPC response arriving past the yield timeout is public), and it would
+    /// stay executable on RoseVault forever. A failed request makes the payout retryable at once
+    /// (`retry_base_signature`); an unreadable response leaves it `Requested` for
+    /// `submit_base_signature` or a retry after [`PENDING_EXPIRY_BLOCKS`]. A callback for a
+    /// payout no longer `Requested` changes nothing. Called by the contract itself.
+    #[private]
+    pub fn on_base_signed(&mut self, payout_id: U64) -> bool {
+        let id = payout_id.0;
+        if self.payout(id).status != PayoutStatus::Requested {
+            return false;
+        }
+        let digest = self.base_digest(id);
+        let signature = match Self::sign_result(0) {
+            MpcResult::Failed => {
+                self.mark_request_resolved(id);
+                return false;
+            }
+            MpcResult::Unreadable => None,
+            MpcResult::Value(response) => response
+                .as_secp256k1()
+                .and_then(|signature| EvmSignature::from_mpc(signature).ok()),
+        };
+        match signature.filter(|signature| self.signed_by_vault(&digest, signature)) {
+            Some(signature) => {
+                self.store_base_signature(id, &signature);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Completes a Base authorization whose signature the callback could not read: `(r, s, v)`
+    /// (hex, `v` in `{27, 28}`; a high `s` is normalized) must recover to the vault's derived
+    /// address over the stored digest. Anyone, while the payout is `Requested`.
+    pub fn submit_base_signature(&mut self, payout_id: U64, r: String, s: String, v: u8) {
+        let id = payout_id.0;
+        let payout = self.payout(id);
+        require!(payout.chain == Chain::Base, "Not a Base authorization");
+        require!(
+            payout.status == PayoutStatus::Requested && payout.sign_requests > 0,
+            "Authorization is not awaiting its signature"
+        );
+        require!(v == 27 || v == 28, "v must be 27 or 28");
+        let signature = EvmSignature::from_parts(parse_word(&r, "r"), parse_word(&s, "s"), v - 27)
+            .unwrap_or_else(|e| env::panic_str(&format!("Invalid signature: {e:?}")));
+        let digest = self.base_digest(id);
+        require!(
+            self.signed_by_vault(&digest, &signature),
+            "Signature does not recover to the vault's derived address"
+        );
+        self.store_base_signature(id, &signature);
+    }
+
+    /// Re-requests the `vault/base` signature of a Base authorization still `Requested`, once its
+    /// last request failed or [`PENDING_EXPIRY_BLOCKS`] blocks after it (its callback ran out of
+    /// gas): the same digest and id are signed again and nothing is debited. Anyone; about
+    /// 60 Tgas.
+    pub fn retry_base_signature(&mut self, payout_id: U64) -> Promise {
+        let payout = self.payout(payout_id.0).clone();
+        require!(payout.chain == Chain::Base, "Not a Base authorization");
+        require!(
+            payout.status == PayoutStatus::Requested,
+            "Authorization is not awaiting its signature"
+        );
+        require!(
+            env::block_height() >= payout.requested_block.0 + PENDING_EXPIRY_BLOCKS,
+            "The last request is still in flight"
+        );
+        let digest = self.base_digest(payout_id.0);
+        self.request_base_signature(payout_id.0, digest)
+    }
+}
+
+impl Contract {
+    /// The stored EIP-712 digest of a Base authorization.
+    fn base_digest(&self, id: u64) -> [u8; 32] {
+        self.payout(id)
+            .digest
+            .as_deref()
+            .and_then(crate::foreign::mpc::parse_hex_array)
+            .unwrap_or_else(|| env::panic_str("No digest stored"))
+    }
+
+    /// True when `signature` over `digest` recovers to the bootstrapped `vault/base` address.
+    fn signed_by_vault(&self, digest: &[u8; 32], signature: &EvmSignature) -> bool {
+        let mut rs = [0u8; 64];
+        rs[..32].copy_from_slice(&signature.r);
+        rs[32..].copy_from_slice(&signature.s);
+        env::ecrecover(digest, &rs, signature.v - 27, true)
+            .map(|key| evm::format_address(&evm::address_from_public_key(&key)))
+            .is_some_and(|address| address == self.derived().vault_base)
+    }
+
+    /// Stores a verified signature and completes the authorization.
+    fn store_base_signature(&mut self, id: u64, signature: &EvmSignature) {
+        self.payout_mut(id).base = Some(BaseSignature {
+            r: hex::encode(signature.r),
+            s: hex::encode(signature.s),
+            v: signature.v,
+        });
+        self.complete_payout(id);
     }
 }
 

@@ -1,19 +1,32 @@
 //! Mock of the NEAR MPC contract (`v1.signer-prod.testnet`) for the rose engine sandbox tests.
 //!
-//! It replays responses that the tests record beforehand: derived public keys per
-//! `(path, predecessor, domain)`, CKD outputs per derivation path, `verify_foreign_transaction`
-//! responses per transaction id and `sign` responses per `(domain, path)`. It enforces the live
-//! contract's call floors (15 Tgas and 1 yoctoNEAR) so an engine that under-attaches fails here
-//! too. `set_fail_next` makes the next replayed call panic (a `PromiseError` for the engine) and
-//! `set_ckd_delay` stretches the next CKD answer over several blocks, so a late callback can be
-//! raced against `cancel_no_key`. The same contract also acts as a NEP-245 receiver whose
-//! `mt_on_transfer` refunds the amount named in `msg`.
+//! It signs what it is asked to sign. Every derived key comes from one fixed test seed:
+//! `derived_public_key(path, predecessor, domain)` and `sign` (for the calling contract) use the
+//! secret `sha256(seed || domain || predecessor || 0 || path)`, a secp256k1 key on domain 0 and an
+//! Ed25519 key on domain 1, so the engine's bootstrapped addresses and every signature it stores
+//! verify against each other exactly as with the live network. `verify_foreign_transaction`
+//! signs, with the domain-3 test key, the payload hash the test registered for that exact
+//! request (the nodes would compute it from their own RPC reads, which a sandbox has no access
+//! to); a request nobody registered fails like a live request that times out.
+//!
+//! Replays of real recorded traffic stay possible and exact: a recorded derived key or CKD output
+//! replaces the computed one, a recorded `sign` response is returned only for the very payload it
+//! was recorded over, and a recorded ForeignTx response only for the transaction id it was
+//! recorded for. It enforces the live contract's call floors (15 Tgas and 1 yoctoNEAR) so an
+//! engine that under-attaches fails here too. `set_fail_next` makes the next call panic (a
+//! `PromiseError` for the engine) and `set_ckd_delay` stretches the next CKD answer over several
+//! blocks. The same contract also acts as a NEP-245 receiver whose `mt_on_transfer` refunds the
+//! amount named in `msg`.
 
+use ed25519_dalek::Signer;
+use k256::ecdsa::SigningKey as EcdsaKey;
 use near_sdk::json_types::U128;
+use near_sdk::serde_json::{self, json, Value};
 use near_sdk::store::LookupMap;
 use near_sdk::{
     env, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, PromiseOrValue,
 };
+use sha2::{Digest, Sha256};
 
 /// Gas the live contract requires on `sign`, `request_app_private_key` and
 /// `verify_foreign_transaction`.
@@ -22,6 +35,14 @@ const MIN_CALL_GAS: Gas = Gas::from_tgas(15);
 const MIN_DEPOSIT: NearToken = NearToken::from_yoctonear(1);
 /// Static gas of one hop of a delayed CKD answer.
 const GAS_PER_HOP: Gas = Gas::from_tgas(3);
+/// Domains of `v1.signer-prod.testnet`: secp256k1 signatures, Ed25519 signatures, ForeignTx.
+pub const DOMAIN_SECP256K1: u64 = 0;
+pub const DOMAIN_ED25519: u64 = 1;
+pub const DOMAIN_FOREIGN_TX: u64 = 3;
+/// Seed of every key the mock derives.
+const TEST_SEED: &[u8] = b"rose mock mpc test key";
+/// Predecessor of the ForeignTx key (the domain key itself, not a per-account derivation).
+const FOREIGN_TX_ROOT: &str = "foreign-tx.mock";
 
 #[derive(BorshStorageKey)]
 #[near]
@@ -30,6 +51,7 @@ enum StorageKey {
     PublicKeys,
     Ckd,
     Foreign,
+    ForeignHashes,
     Sign,
 }
 
@@ -49,27 +71,21 @@ pub struct CkdRequest {
     pub derivation_path: String,
 }
 
-/// The part of a `verify_foreign_transaction` request the mock reads.
+/// A `verify_foreign_transaction` request: the foreign request as the engine sent it, and the
+/// domain.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct VerifyRequest {
-    pub request: ChainRequest,
+    pub request: Value,
     pub domain_id: u64,
 }
 
-/// Transaction id of a ForeignTx request (extractors and finality are ignored).
-#[near(serializers = [json])]
-#[derive(Clone, Debug)]
-pub enum ChainRequest {
-    Base { tx_id: String },
-    Solana { tx_id: String },
-}
-
-/// The part of a `sign` request the mock reads (the payload is ignored).
+/// A `sign` request: the path, the payload (`{"Ecdsa": hex}` or `{"Eddsa": hex}`) and the domain.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct SignRequest {
     pub path: String,
+    pub payload_v2: Value,
     pub domain_id: u64,
 }
 
@@ -81,6 +97,7 @@ pub struct MockMpc {
     public_keys: LookupMap<u64, String>,
     ckd: LookupMap<String, CkdResponse>,
     foreign: LookupMap<String, String>,
+    foreign_hashes: LookupMap<String, String>,
     sign: LookupMap<String, String>,
     fail_next: bool,
     ckd_delay_hops: u8,
@@ -96,13 +113,15 @@ impl MockMpc {
             public_keys: LookupMap::new(StorageKey::PublicKeys),
             ckd: LookupMap::new(StorageKey::Ckd),
             foreign: LookupMap::new(StorageKey::Foreign),
+            foreign_hashes: LookupMap::new(StorageKey::ForeignHashes),
             sign: LookupMap::new(StorageKey::Sign),
             fail_next: false,
             ckd_delay_hops: 0,
         }
     }
 
-    /// Records the key `derived_public_key(path, predecessor, domain_id)` returns.
+    /// Records the key `derived_public_key(path, predecessor, domain_id)` returns instead of the
+    /// computed one (replays of a real account's keys).
     pub fn set_derived_key(
         &mut self,
         path: String,
@@ -111,20 +130,32 @@ impl MockMpc {
         key: String,
     ) {
         self.derived
-            .insert(derived_key(&path, &predecessor, domain_id), key);
+            .insert(derived_key(&path, predecessor.as_str(), domain_id), key);
     }
 
-    /// The recorded derived key, as the live contract's view returns it.
+    /// The derived key of `(path, predecessor, domain_id)`, in the live view's format
+    /// (`secp256k1:<base58 x||y>` or `ed25519:<base58>`).
     pub fn derived_public_key(
         &self,
         path: String,
         predecessor: AccountId,
         domain_id: u64,
     ) -> String {
-        self.derived
-            .get(&derived_key(&path, &predecessor, domain_id))
-            .cloned()
-            .unwrap_or_else(|| env::panic_str("no recorded derived key"))
+        if let Some(recorded) =
+            self.derived
+                .get(&derived_key(&path, predecessor.as_str(), domain_id))
+        {
+            return recorded.clone();
+        }
+        let secret = derived_secret(domain_id, predecessor.as_str(), &path);
+        match domain_id {
+            DOMAIN_SECP256K1 => secp256k1_public_key(&secret),
+            DOMAIN_ED25519 => format!(
+                "ed25519:{}",
+                bs58::encode(ed25519_key(&secret).verifying_key().to_bytes()).into_string()
+            ),
+            _ => env::panic_str("no key derivation on this domain"),
+        }
     }
 
     /// Records the master public key of a domain.
@@ -150,7 +181,7 @@ impl MockMpc {
         self.ckd_delay_hops = hops;
     }
 
-    /// Makes the next replayed call (CKD, ForeignTx or sign) panic.
+    /// Makes the next CKD, ForeignTx or sign call panic.
     pub fn set_fail_next(&mut self) {
         self.fail_next = true;
     }
@@ -192,41 +223,112 @@ impl MockMpc {
     }
 
     /// Records the JSON response returned for a ForeignTx request on `tx_id` (hex, any case,
-    /// with or without `0x`).
+    /// with or without `0x`): a real recorded response.
     pub fn set_foreign_response(&mut self, tx_id: String, response: String) {
         self.foreign.insert(normalize_hex(&tx_id), response);
     }
 
-    /// Replays the recorded `verify_foreign_transaction` response, returned as raw JSON.
+    /// Registers the payload hash (hex) the nodes would sign for `request` (the engine's foreign
+    /// request, as JSON): the mock answers that request with this hash signed by the domain-3
+    /// test key.
+    pub fn set_foreign_payload(&mut self, request: Value, payload_hash: String) {
+        self.foreign_hashes
+            .insert(request_key(&request), normalize_hex(&payload_hash));
+    }
+
+    /// Answers a `verify_foreign_transaction`: the registered payload hash of this exact request
+    /// signed by the domain-3 test key, else the response recorded for its transaction id.
     #[payable]
     pub fn verify_foreign_transaction(&mut self, request: VerifyRequest) {
         self.check_floors();
-        let tx_id = match &request.request {
-            ChainRequest::Base { tx_id } | ChainRequest::Solana { tx_id } => tx_id,
+        require!(
+            request.domain_id == DOMAIN_FOREIGN_TX,
+            "not the ForeignTx domain"
+        );
+        let response = match self.foreign_hashes.get(&request_key(&request.request)) {
+            Some(hash) => {
+                let digest: [u8; 32] = hex::decode(hash)
+                    .ok()
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .unwrap_or_else(|| env::panic_str("registered hash is not 32 bytes"));
+                let secret = derived_secret(DOMAIN_FOREIGN_TX, FOREIGN_TX_ROOT, "");
+                json!({
+                    "payload_hash": hash,
+                    "signature": secp256k1_signature(&secret, &digest),
+                })
+                .to_string()
+            }
+            None => {
+                let tx_id = request
+                    .request
+                    .as_object()
+                    .and_then(|chain| chain.values().next())
+                    .and_then(|body| body["tx_id"].as_str())
+                    .map(normalize_hex)
+                    .unwrap_or_default();
+                self.foreign
+                    .get(&tx_id)
+                    .cloned()
+                    .unwrap_or_else(|| env::panic_str("no response for this request"))
+            }
         };
-        let response = self
-            .foreign
-            .get(&normalize_hex(tx_id))
-            .cloned()
-            .unwrap_or_else(|| env::panic_str("no recorded response"));
         env::value_return(response.as_bytes());
     }
 
-    /// Records the JSON response returned for `sign` requests on `(domain_id, path)`.
-    pub fn set_sign_response(&mut self, domain_id: u64, path: String, response: String) {
-        self.sign.insert(sign_key(domain_id, &path), response);
+    /// Records the JSON response returned for `sign` on `(domain_id, path)` over exactly
+    /// `payload` (hex): a real recorded response.
+    pub fn set_sign_response(
+        &mut self,
+        domain_id: u64,
+        path: String,
+        payload: String,
+        response: String,
+    ) {
+        self.sign.insert(
+            sign_key(domain_id, &path, &normalize_hex(&payload)),
+            response,
+        );
     }
 
-    /// Replays the recorded `sign` response, returned as raw JSON.
+    /// Signs the payload with the key derived for the calling contract and `path` (a recorded
+    /// response replaces it only when it was recorded over this very payload).
     #[payable]
     pub fn sign(&mut self, request: SignRequest) {
         self.check_floors();
-        let response = self
+        let (scheme, payload) = request
+            .payload_v2
+            .as_object()
+            .and_then(|object| object.iter().next())
+            .and_then(|(scheme, payload)| Some((scheme.clone(), payload.as_str()?.to_string())))
+            .unwrap_or_else(|| env::panic_str("payload_v2 must be {\"Ecdsa\"|\"Eddsa\": hex}"));
+        let payload = normalize_hex(&payload);
+        if let Some(recorded) = self
             .sign
-            .get(&sign_key(request.domain_id, &request.path))
-            .cloned()
-            .unwrap_or_else(|| env::panic_str("no recorded response"));
-        env::value_return(response.as_bytes());
+            .get(&sign_key(request.domain_id, &request.path, &payload))
+        {
+            env::value_return(recorded.as_bytes());
+            return;
+        }
+        let bytes = hex::decode(&payload).unwrap_or_else(|_| env::panic_str("payload is not hex"));
+        let secret = derived_secret(
+            request.domain_id,
+            env::predecessor_account_id().as_str(),
+            &request.path,
+        );
+        let response = match (scheme.as_str(), request.domain_id) {
+            ("Ecdsa", DOMAIN_SECP256K1) => {
+                let digest: [u8; 32] = bytes
+                    .try_into()
+                    .unwrap_or_else(|_| env::panic_str("Ecdsa payload must be 32 bytes"));
+                secp256k1_signature(&secret, &digest)
+            }
+            ("Eddsa", DOMAIN_ED25519) => json!({
+                "scheme": "Ed25519",
+                "signature": ed25519_key(&secret).sign(&bytes).to_bytes().to_vec(),
+            }),
+            _ => env::panic_str("payload scheme does not match the domain"),
+        };
+        env::value_return(response.to_string().as_bytes());
     }
 
     /// NEP-245 receiver: refunds the amount named in `msg` as `refund:<amount>` for every token,
@@ -279,12 +381,92 @@ impl MockMpc {
     }
 }
 
-fn derived_key(path: &str, predecessor: &AccountId, domain_id: u64) -> String {
+/// The test secret of `(domain, predecessor, path)`.
+pub fn derived_secret(domain_id: u64, predecessor: &str, path: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(TEST_SEED);
+    hasher.update(domain_id.to_le_bytes());
+    hasher.update(predecessor.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(path.as_bytes());
+    hasher.finalize().into()
+}
+
+/// The Ed25519 key of a test secret.
+pub fn ed25519_key(secret: &[u8; 32]) -> ed25519_dalek::SigningKey {
+    ed25519_dalek::SigningKey::from_bytes(secret)
+}
+
+/// The secp256k1 key of a test secret (a SHA-256 output is a valid scalar except with
+/// probability about `2^-128`).
+pub fn secp256k1_key(secret: &[u8; 32]) -> EcdsaKey {
+    EcdsaKey::from_bytes(secret.into()).unwrap_or_else(|_| env::panic_str("invalid test scalar"))
+}
+
+/// `secp256k1:<base58 of the uncompressed x || y>` of a test secret.
+pub fn secp256k1_public_key(secret: &[u8; 32]) -> String {
+    let point = secp256k1_key(secret)
+        .verifying_key()
+        .to_encoded_point(false);
+    format!(
+        "secp256k1:{}",
+        bs58::encode(&point.as_bytes()[1..]).into_string()
+    )
+}
+
+/// A secp256k1 signature of `digest` in the live response format: low `s`, `big_r` compressed,
+/// the recovery id.
+pub fn secp256k1_signature(secret: &[u8; 32], digest: &[u8; 32]) -> Value {
+    let (signature, recovery) = secp256k1_key(secret)
+        .sign_prehash_recoverable(digest)
+        .unwrap_or_else(|_| env::panic_str("signing failed"));
+    let bytes = signature.to_bytes();
+    let mut big_r = vec![0x02 | u8::from(recovery.is_y_odd())];
+    big_r.extend_from_slice(&bytes[..32]);
+    json!({
+        "scheme": "Secp256k1",
+        "big_r": { "affine_point": hex::encode(big_r) },
+        "s": { "scalar": hex::encode(&bytes[32..]) },
+        "recovery_id": recovery.to_byte(),
+    })
+}
+
+/// The key of a foreign request: the hex SHA-256 of its JSON with sorted keys.
+pub fn request_key(request: &Value) -> String {
+    hex::encode(Sha256::digest(
+        serde_json::to_string(&sorted(request))
+            .unwrap_or_default()
+            .as_bytes(),
+    ))
+}
+
+/// `value` with every object's keys sorted, so the key does not depend on field order.
+fn sorted(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(b.0));
+            Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key.clone(), sorted(value)))
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.iter().map(sorted).collect()),
+        other => other.clone(),
+    }
+}
+
+fn derived_key(path: &str, predecessor: &str, domain_id: u64) -> String {
     format!("{domain_id}:{predecessor}:{path}")
 }
 
-fn sign_key(domain_id: u64, path: &str) -> String {
-    format!("{domain_id}:{path}")
+fn sign_key(domain_id: u64, path: &str, payload: &str) -> String {
+    format!(
+        "{domain_id}:{path}:{}",
+        hex::encode(Sha256::digest(payload.as_bytes()))
+    )
 }
 
 fn normalize_hex(value: &str) -> String {
@@ -297,20 +479,74 @@ fn normalize_hex(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_sdk::test_utils::VMContextBuilder;
+    use near_sdk::testing_env;
 
     #[test]
     fn reads_the_engine_request_shapes() {
         // The engine sends `{"request": <value>}`: the method parameter `request` receives the
-        // value, whose extra fields are ignored.
+        // value.
         let foreign = r#"{"request":{"Base":{"tx_id":"ab","extractors":[{"Log":{"log_index":2}}],"finality":"Safe"}},"domain_id":3,"payload_version":1}"#;
-        let request: VerifyRequest = near_sdk::serde_json::from_str(foreign).unwrap();
-        assert!(matches!(request.request, ChainRequest::Base { ref tx_id } if tx_id == "ab"));
+        let request: VerifyRequest = serde_json::from_str(foreign).unwrap();
+        assert_eq!(request.request["Base"]["tx_id"], "ab");
         assert_eq!(request.domain_id, 3);
         let sign = r#"{"path":"vault/base","payload_v2":{"Ecdsa":"00"},"domain_id":0}"#;
-        let request: SignRequest = near_sdk::serde_json::from_str(sign).unwrap();
+        let request: SignRequest = serde_json::from_str(sign).unwrap();
         assert_eq!(request.path, "vault/base");
+        assert_eq!(request.payload_v2["Ecdsa"], "00");
         let ckd = r#"{"derivation_path":"round/1","app_public_key":{"AppPublicKeyPV":{"pk1":"a","pk2":"b"}},"domain_id":2}"#;
-        let request: CkdRequest = near_sdk::serde_json::from_str(ckd).unwrap();
+        let request: CkdRequest = serde_json::from_str(ckd).unwrap();
         assert_eq!(request.derivation_path, "round/1");
+    }
+
+    #[test]
+    fn signatures_verify_against_the_derived_keys() {
+        testing_env!(VMContextBuilder::new().build());
+        let engine: AccountId = "engine.test.near".parse().unwrap();
+        let mock = MockMpc::new();
+        let secret = derived_secret(DOMAIN_ED25519, engine.as_str(), "vault/sol");
+        let message = b"a solana message";
+        let signature = ed25519_key(&secret).sign(message);
+        let key = mock.derived_public_key("vault/sol".into(), engine.clone(), DOMAIN_ED25519);
+        let public: [u8; 32] = bs58::decode(key.strip_prefix("ed25519:").unwrap())
+            .into_vec()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        ed25519_dalek::VerifyingKey::from_bytes(&public)
+            .unwrap()
+            .verify_strict(message, &signature)
+            .unwrap();
+
+        let secret = derived_secret(DOMAIN_SECP256K1, engine.as_str(), "vault/base");
+        let digest = [7u8; 32];
+        let response = secp256k1_signature(&secret, &digest);
+        let r = hex::decode(&response["big_r"]["affine_point"].as_str().unwrap()[2..]).unwrap();
+        let s = hex::decode(response["s"]["scalar"].as_str().unwrap()).unwrap();
+        let signature = k256::ecdsa::Signature::from_slice(&[r, s].concat()).unwrap();
+        assert!(signature.normalize_s().is_none(), "low s");
+        let recovery =
+            k256::ecdsa::RecoveryId::from_byte(response["recovery_id"].as_u64().unwrap() as u8)
+                .unwrap();
+        let recovered =
+            k256::ecdsa::VerifyingKey::recover_from_prehash(&digest, &signature, recovery).unwrap();
+        let expected = mock.derived_public_key("vault/base".into(), engine, DOMAIN_SECP256K1);
+        let point = recovered.to_encoded_point(false);
+        assert_eq!(
+            expected,
+            format!(
+                "secp256k1:{}",
+                bs58::encode(&point.as_bytes()[1..]).into_string()
+            )
+        );
+    }
+
+    #[test]
+    fn request_keys_ignore_field_order() {
+        let a: Value =
+            serde_json::from_str(r#"{"Solana":{"tx_id":"ab","finality":"Finalized"}}"#).unwrap();
+        let b: Value =
+            serde_json::from_str(r#"{"Solana":{"finality":"Finalized","tx_id":"ab"}}"#).unwrap();
+        assert_eq!(request_key(&a), request_key(&b));
     }
 }

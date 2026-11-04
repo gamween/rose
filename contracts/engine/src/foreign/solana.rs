@@ -133,6 +133,16 @@ pub enum SolanaError {
     NonceState,
     /// The nonce authority is not the expected key.
     NonceAuthority,
+    /// The token account is not owned by the classic SPL Token program.
+    TokenProgram,
+    /// The token account is not 165 bytes.
+    TokenLength,
+    /// The token account holds another mint.
+    TokenMint,
+    /// The token account belongs to another owner.
+    TokenOwner,
+    /// The token account is not initialized, or is frozen.
+    TokenState,
 }
 
 /// Parses a base58 public key.
@@ -698,6 +708,66 @@ impl NonceAccount {
     }
 }
 
+/// Length of a classic SPL Token account (`spl-token` 4.x `state::Account::LEN`).
+pub const TOKEN_ACCOUNT_LEN: usize = 165;
+/// `AccountState::Initialized` (0 is uninitialized, 2 frozen).
+pub const TOKEN_ACCOUNT_INITIALIZED: u8 = 1;
+
+/// The fields of a classic SPL Token account the engine reads (`spl-token` 4.x
+/// `src/state.rs`, `Account` packed as `mint` 0..32, `owner` 32..64, `amount` 64..72,
+/// `delegate` 72..108, `state` 108, `is_native` 109..121, `delegated_amount` 121..129,
+/// `close_authority` 129..165).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TokenAccount {
+    /// Mint of the tokens it holds.
+    pub mint: Pubkey,
+    /// Wallet that owns it.
+    pub owner: Pubkey,
+    /// Balance.
+    pub amount: u64,
+    /// `AccountState`.
+    pub state: u8,
+}
+
+impl TokenAccount {
+    /// Parses the 165 bytes of a token account.
+    pub fn parse(data: &[u8]) -> Result<Self, SolanaError> {
+        if data.len() != TOKEN_ACCOUNT_LEN {
+            return Err(SolanaError::TokenLength);
+        }
+        Ok(Self {
+            mint: data[0..32].try_into().expect("32 bytes"),
+            owner: data[32..64].try_into().expect("32 bytes"),
+            amount: u64::from_le_bytes(data[64..72].try_into().expect("8 bytes")),
+            state: data[108],
+        })
+    }
+
+    /// Parses an attested account state and requires an initialized (not frozen) classic SPL
+    /// Token account of `mint` owned by `owner`: an account a `TransferChecked` or a
+    /// `transfer_recipient` can credit without creating anything.
+    pub fn from_account_state(
+        account: &SvmAccount,
+        mint: &Pubkey,
+        owner: &Pubkey,
+    ) -> Result<Self, SolanaError> {
+        if account.owner.0 != TOKEN_PROGRAM {
+            return Err(SolanaError::TokenProgram);
+        }
+        let token = Self::parse(&account.data)?;
+        if &token.mint != mint {
+            return Err(SolanaError::TokenMint);
+        }
+        if &token.owner != owner {
+            return Err(SolanaError::TokenOwner);
+        }
+        if token.state != TOKEN_ACCOUNT_INITIALIZED {
+            return Err(SolanaError::TokenState);
+        }
+        Ok(token)
+    }
+}
+
 /// Why a Streamflow account is not an eligible deposit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StreamflowError {
@@ -731,6 +801,9 @@ pub enum StreamflowError {
     /// The stream carries pause or rate-change history, so the plain unlock formula no longer
     /// describes it.
     Modified,
+    /// Withdrawals pay Streamflow or partner fees, which need the fee recipients' token accounts:
+    /// only fee-free streams are accepted, whose withdrawals touch neither (verified on devnet).
+    Fees,
 }
 
 /// The fields of a Streamflow stream metadata account the engine reads (`streamLayout` in
@@ -833,6 +906,18 @@ pub struct StreamflowMetadata {
     pub partner: Pubkey,
     /// `partner_tokens`.
     pub partner_tokens: Pubkey,
+    /// `streamflow_fee_total`.
+    pub streamflow_fee_total: u64,
+    /// `streamflow_fee_withdrawn`.
+    pub streamflow_fee_withdrawn: u64,
+    /// `streamflow_fee_percent`, the raw bits of the `f32`.
+    pub streamflow_fee_percent: u32,
+    /// `partner_fee_total`.
+    pub partner_fee_total: u64,
+    /// `partner_fee_withdrawn`.
+    pub partner_fee_withdrawn: u64,
+    /// `partner_fee_percent`, the raw bits of the `f32`.
+    pub partner_fee_percent: u32,
     /// `ix.start_time`.
     pub start_time: u64,
     /// `ix.net_amount_deposited`.
@@ -884,6 +969,9 @@ impl StreamflowMetadata {
         let u64_at = |offset: usize| {
             u64::from_le_bytes(data[offset..offset + 8].try_into().expect("8 bytes"))
         };
+        let u32_at = |offset: usize| {
+            u32::from_le_bytes(data[offset..offset + 4].try_into().expect("4 bytes"))
+        };
         let key_at =
             |offset: usize| -> Pubkey { data[offset..offset + 32].try_into().expect("32 bytes") };
         let flag_at = |offset: usize| match data[offset] {
@@ -909,6 +997,12 @@ impl StreamflowMetadata {
             streamflow_treasury_tokens: key_at(273),
             partner: key_at(325),
             partner_tokens: key_at(357),
+            streamflow_fee_total: u64_at(305),
+            streamflow_fee_withdrawn: u64_at(313),
+            streamflow_fee_percent: u32_at(321),
+            partner_fee_total: u64_at(389),
+            partner_fee_withdrawn: u64_at(397),
+            partner_fee_percent: u32_at(405),
             start_time: u64_at(409),
             net_amount_deposited: u64_at(417),
             period: u64_at(425),
@@ -937,7 +1031,8 @@ impl StreamflowMetadata {
     /// vault can release or return it), without automatic withdrawals (only the engine withdraws
     /// vault streams, so its per-stream accounting stays exact) and with none of the sender-side
     /// or schedule-changing permissions (`cancelable_by_sender`, `transferable_by_sender`,
-    /// `pausable`, `can_update_rate`, `can_topup`), so that the registered schedule stays exact.
+    /// `pausable`, `can_update_rate`, `can_topup`), so that the registered schedule stays exact,
+    /// and without Streamflow or partner fees (see [`StreamflowError::Fees`]).
     pub fn check_deposit(
         account: &SvmAccount,
         program: &Pubkey,
@@ -983,6 +1078,15 @@ impl StreamflowMetadata {
             || metadata.funds_unlocked_at_last_rate_change != 0
         {
             return Err(StreamflowError::Modified);
+        }
+        if metadata.streamflow_fee_total != 0
+            || metadata.streamflow_fee_withdrawn != 0
+            || metadata.streamflow_fee_percent != 0
+            || metadata.partner_fee_total != 0
+            || metadata.partner_fee_withdrawn != 0
+            || metadata.partner_fee_percent != 0
+        {
+            return Err(StreamflowError::Fees);
         }
         Ok(metadata)
     }

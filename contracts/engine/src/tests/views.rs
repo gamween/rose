@@ -37,6 +37,7 @@ fn stats_have_the_exact_shape() {
     assert_eq!(position.position.state, PositionState::Held);
     assert_eq!(contract.get_positions(None, None).len(), 1);
     env_at(&engine(), ts(1_000));
+    contract.positions.get_mut(&position_id).unwrap().state = PositionState::Releasing;
     contract.mark_position_released(position_id, &accounts(1));
     assert_eq!(
         contract
@@ -46,7 +47,7 @@ fn stats_have_the_exact_shape() {
             .state,
         PositionState::Released
     );
-    panics_with("Position already released", || {
+    panics_with("Position is not being released", || {
         contract.mark_position_released(position_id, &accounts(1))
     });
     let json = serde_json::to_value(contract.get_position(U64(position_id)).unwrap()).unwrap();

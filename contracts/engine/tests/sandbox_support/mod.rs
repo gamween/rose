@@ -1,6 +1,8 @@
 //! Shared plumbing of the sandbox tests (`tests/sandbox_*.rs`): one sandbox worker and the
-//! compiled contracts per test binary, engine deployment with a mock MPC, deterministic or
-//! recorded CKD outputs, tUSDC funding, sealed orders, time travel and a gas table.
+//! compiled contracts per test binary, engine deployment with a mock MPC that signs with
+//! deterministic test keys (or replays recorded keys and responses for the replays of real
+//! traffic), ForeignTx proofs registered per request, deterministic or recorded CKD outputs,
+//! tUSDC funding, sealed orders, time travel and a gas table.
 //!
 //! The suite runs only with `ROSE_SANDBOX=1` (it downloads the sandbox binary and compiles three
 //! contracts with cargo-near); without it every test prints a skip line and passes.
@@ -46,7 +48,8 @@ pub const DOMAIN_FOREIGN_TX: u64 = 3;
 /// Deposits the engine requires.
 pub const BID_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(20);
 pub const ROUND_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(50);
-pub const PAYOUT_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(20);
+pub const PAYOUT_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(25);
+pub const RECORD_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(15);
 pub const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 /// Wallet cap on prepaid gas.
 pub const WALLET_GAS: Gas = Gas::from_tgas(300);
@@ -109,21 +112,11 @@ pub async fn tusdc_wasm() -> Result<Vec<u8>> {
 #[derive(Deserialize)]
 pub struct Recorded {
     pub mpc_public_keys: BTreeMap<String, RecordedKey>,
-    pub derived_keys: Vec<RecordedDerivedKey>,
     pub ckd: Vec<RecordedCkd>,
-    pub sign: Vec<RecordedSign>,
-    pub foreign_signature: RecordedForeignSignature,
 }
 
 #[derive(Deserialize)]
 pub struct RecordedKey {
-    pub key: String,
-}
-
-#[derive(Deserialize)]
-pub struct RecordedDerivedKey {
-    pub path: String,
-    pub domain_id: u64,
     pub key: String,
 }
 
@@ -136,16 +129,12 @@ pub struct RecordedCkd {
     pub key: String,
 }
 
-#[derive(Deserialize)]
-pub struct RecordedSign {
-    pub domain_id: u64,
+/// A derived key read live from `v1.signer-prod.testnet` for a replayed engine account.
+#[derive(Deserialize, Clone)]
+pub struct RecordedDerivedKey {
     pub path: String,
-    pub response: Value,
-}
-
-#[derive(Deserialize)]
-pub struct RecordedForeignSignature {
-    pub signature: Value,
+    pub domain_id: u64,
+    pub key: String,
 }
 
 impl Recorded {
@@ -163,34 +152,6 @@ impl Recorded {
             .iter()
             .find(|c| c.engine == engine && c.path == path)
             .cloned()
-    }
-
-    /// The recorded `sign` response of `(domain_id, path)`.
-    pub fn sign(&self, domain_id: u64, path: &str) -> Result<Value> {
-        self.sign
-            .iter()
-            .find(|s| s.domain_id == domain_id && s.path == path)
-            .map(|s| s.response.clone())
-            .ok_or_else(|| anyhow!("no recorded sign response for domain {domain_id} path {path}"))
-    }
-
-    /// The recorded derived key of `(path, domain_id)` (any predecessor: the engine only parses
-    /// the key).
-    pub fn derived(&self, path: &str, domain_id: u64) -> Result<String> {
-        self.derived_keys
-            .iter()
-            .find(|k| k.path == path && k.domain_id == domain_id)
-            .map(|k| k.key.clone())
-            .ok_or_else(|| anyhow!("no recorded derived key for {path}"))
-    }
-
-    /// A ForeignTx response with a real signature over `hash`.
-    pub fn foreign_response(&self, hash: [u8; 32]) -> String {
-        json!({
-            "payload_hash": hex::encode(hash),
-            "signature": self.foreign_signature.signature,
-        })
-        .to_string()
     }
 }
 
@@ -493,6 +454,8 @@ pub struct EngineSpec {
     pub rose_vault: String,
     /// Accepted Base cash tokens of the init arguments.
     pub base_cash_tokens: Vec<String>,
+    /// Real derived keys the mock returns instead of its own (replays of a real account).
+    pub derived_keys: Vec<RecordedDerivedKey>,
 }
 
 impl EngineSpec {
@@ -504,6 +467,7 @@ impl EngineSpec {
             mpk: key.mpk(),
             rose_vault: ROSE_VAULT.to_string(),
             base_cash_tokens: vec!["0x036cbd53842c5426634e7929541ec2318f3dcf7e".to_string()],
+            derived_keys: Vec::new(),
         }
     }
 }
@@ -546,9 +510,9 @@ pub async fn ensure_account(worker: &Worker<Sandbox>, name: &str) -> Result<Acco
 }
 
 impl Engine {
-    /// Deploys the mock MPC, tUSDC and the engine, initializes and bootstraps the engine (the
-    /// mock answers `derived_public_key` with the recorded spike keys) and registers the engine
-    /// on tUSDC.
+    /// Deploys the mock MPC, tUSDC and the engine, initializes the engine (the mock derives its
+    /// keys from the test seed unless the spec names recorded ones) and registers the engine on
+    /// tUSDC.
     pub async fn deploy(spec: EngineSpec) -> Result<Self> {
         let worker = worker().await?;
         let recorded = Recorded::load()?;
@@ -594,17 +558,13 @@ impl Engine {
             .transact()
             .await?
             .into_result()?;
-        for (path, domain) in [
-            ("vault/base", DOMAIN_SECP256K1),
-            ("vault/sol", DOMAIN_ED25519),
-            ("gas/sol", DOMAIN_ED25519),
-        ] {
+        for key in &spec.derived_keys {
             mock.call("set_derived_key")
                 .args_json(json!({
-                    "path": path,
+                    "path": key.path,
                     "predecessor": contract.id(),
-                    "domain_id": domain,
-                    "key": recorded.derived(path, domain)?,
+                    "domain_id": key.domain_id,
+                    "key": key.key,
                 }))
                 .transact()
                 .await?
@@ -638,7 +598,7 @@ impl Engine {
         let result = self
             .treasury
             .call(self.id(), "bootstrap")
-            .gas(Gas::from_tgas(50))
+            .gas(Gas::from_tgas(80))
             .transact()
             .await?;
         gas.ok("bootstrap", result)?;
@@ -792,16 +752,8 @@ impl Engine {
                 json!({ "account": stream.near_account, "class_id": class_id }),
             )
             .await?;
-        let hash = stream.payload_hash();
-        self.mock
-            .call("set_foreign_response")
-            .args_json(json!({
-                "tx_id": stream.tx_hash,
-                "response": self.recorded.foreign_response(hash),
-            }))
-            .transact()
-            .await?
-            .into_result()?;
+        self.prime_proof(&stream.request(), stream.payload_hash())
+            .await?;
         let result = caller
             .call(self.id(), "register_base_deposit")
             .args_json(json!({ "location": stream.location(), "fields": stream.fields() }))
@@ -837,19 +789,14 @@ impl Engine {
         Ok(())
     }
 
-    /// Primes the mock with the recorded `sign` response of `(domain_id, path)`.
-    pub async fn prime_sign(&self, domain_id: u64, path: &str) -> Result<()> {
-        self.mock
-            .call("set_sign_response")
-            .args_json(json!({
-                "domain_id": domain_id,
-                "path": path,
-                "response": self.recorded.sign(domain_id, path)?.to_string(),
-            }))
-            .transact()
+    /// The key the mock derives for this engine on `(path, domain_id)`.
+    pub async fn derived_key(&self, path: &str, domain_id: u64) -> Result<String> {
+        Ok(self
+            .mock
+            .view("derived_public_key")
+            .args_json(json!({ "path": path, "predecessor": self.id(), "domain_id": domain_id }))
             .await?
-            .into_result()?;
-        Ok(())
+            .json()?)
     }
 
     /// Primes the mock with a raw recorded CKD output for `path`.
@@ -863,13 +810,23 @@ impl Engine {
         Ok(())
     }
 
-    /// Primes the mock with a raw recorded `sign` response for `(domain_id, path)`.
-    pub async fn prime_sign_raw(&self, domain_id: u64, path: &str, response: &Value) -> Result<()> {
+    /// Primes the mock with a raw recorded `sign` response for `(domain_id, path)` over exactly
+    /// `payload` (hex).
+    pub async fn prime_sign_raw(
+        &self,
+        domain_id: u64,
+        path: &str,
+        payload: &str,
+        response: &Value,
+    ) -> Result<()> {
         self.mock
             .call("set_sign_response")
-            .args_json(
-                json!({ "domain_id": domain_id, "path": path, "response": response.to_string() }),
-            )
+            .args_json(json!({
+                "domain_id": domain_id,
+                "path": path,
+                "payload": payload,
+                "response": response.to_string(),
+            }))
             .transact()
             .await?
             .into_result()?;
@@ -887,15 +844,34 @@ impl Engine {
         Ok(())
     }
 
-    /// Primes the mock with a ForeignTx response over `hash` for `tx_id`.
-    pub async fn prime_foreign(&self, tx_id: &str, hash: [u8; 32]) -> Result<()> {
+    /// Registers with the mock the payload hash the nodes would attest for `request` (the mock
+    /// signs it with its ForeignTx test key when the engine sends exactly this request).
+    pub async fn prime_proof(
+        &self,
+        request: &ForeignChainRpcRequest,
+        hash: [u8; 32],
+    ) -> Result<()> {
         self.mock
-            .call("set_foreign_response")
-            .args_json(json!({ "tx_id": tx_id, "response": self.recorded.foreign_response(hash) }))
+            .call("set_foreign_payload")
+            .args_json(json!({
+                "request": serde_json::to_value(request)?,
+                "payload_hash": hex::encode(hash),
+            }))
             .transact()
             .await?
             .into_result()?;
         Ok(())
+    }
+
+    /// Registers an `AccountState` proof at `Finalized` of `accounts` (pubkey, owner, data)
+    /// anchored at `anchor`.
+    pub async fn prime_accounts(
+        &self,
+        anchor: &str,
+        accounts: &[([u8; 32], [u8; 32], Vec<u8>)],
+    ) -> Result<()> {
+        let (request, hash) = solana_proof(anchor, accounts);
+        self.prime_proof(&request, hash).await
     }
 
     /// Creates an Exit round closing in `open_secs`, with a short key timeout and reveal window.
@@ -1188,6 +1164,17 @@ impl BaseStream {
         })
     }
 
+    /// The ForeignTx request the engine sends for this log.
+    pub fn request(&self) -> ForeignChainRpcRequest {
+        ForeignChainRpcRequest::Base(EvmRpcRequest {
+            tx_id: Bytes32(mpc::parse_hex_array(&self.tx_hash).unwrap()),
+            extractors: vec![EvmExtractor::Log {
+                log_index: self.log_index,
+            }],
+            finality: EvmFinality::Safe,
+        })
+    }
+
     /// The payload hash the engine recomputes for this log at `Safe` finality.
     pub fn payload_hash(&self) -> [u8; 32] {
         let event = evm::StreamDeposited {
@@ -1223,20 +1210,16 @@ impl BaseStream {
                 log_index: self.log_index,
             },
         );
-        let request = ForeignChainRpcRequest::Base(EvmRpcRequest {
-            tx_id: Bytes32(tx_hash),
-            extractors: vec![EvmExtractor::Log {
-                log_index: self.log_index,
-            }],
-            finality: EvmFinality::Safe,
-        });
-        payload_hash(request, vec![ExtractedValue::log(log)])
+        payload_hash(self.request(), vec![ExtractedValue::log(log)])
     }
 }
 
-/// The payload hash of a Solana `AccountState` proof at `Finalized` over `accounts` anchored
-/// at `anchor` (base58 signature).
-pub fn solana_hash(anchor: &str, accounts: &[([u8; 32], [u8; 32], Vec<u8>)]) -> [u8; 32] {
+/// The request and payload hash of a Solana `AccountState` proof at `Finalized` over
+/// `accounts` (pubkey, owner, data) anchored at `anchor` (base58 signature).
+pub fn solana_proof(
+    anchor: &str,
+    accounts: &[([u8; 32], [u8; 32], Vec<u8>)],
+) -> (ForeignChainRpcRequest, [u8; 32]) {
     let mut anchor_bytes = [0u8; 64];
     bs58::decode(anchor).onto(&mut anchor_bytes).unwrap();
     let request = ForeignChainRpcRequest::Solana(SvmRpcRequest {
@@ -1249,8 +1232,8 @@ pub fn solana_hash(anchor: &str, accounts: &[([u8; 32], [u8; 32], Vec<u8>)]) -> 
             })
             .collect(),
     });
-    payload_hash(
-        request,
+    let hash = payload_hash(
+        request.clone(),
         accounts
             .iter()
             .map(|(_, owner, data)| {
@@ -1260,14 +1243,17 @@ pub fn solana_hash(anchor: &str, accounts: &[([u8; 32], [u8; 32], Vec<u8>)]) -> 
                 })
             })
             .collect(),
-    )
+    );
+    (request, hash)
 }
 
-/// Hex of a 64-byte anchor signature in base58.
-pub fn anchor_hex(anchor: &str) -> String {
-    let mut bytes = [0u8; 64];
-    bs58::decode(anchor).onto(&mut bytes).unwrap();
-    hex::encode(bytes)
+/// A classic SPL token account (165 bytes) of `mint` owned by `owner`, initialized.
+pub fn token_account_bytes(mint: [u8; 32], owner: [u8; 32]) -> Vec<u8> {
+    let mut data = vec![0u8; 165];
+    data[0..32].copy_from_slice(&mint);
+    data[32..64].copy_from_slice(&owner);
+    data[108] = 1;
+    data
 }
 
 /// Streamflow metadata bytes (1,104 bytes) with every flag zero unless set.

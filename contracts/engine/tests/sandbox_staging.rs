@@ -1,9 +1,10 @@
 //! Replays transactions recorded on the staging engine `engine-s1.rose-app.testnet` against
 //! the live MPC (`tests/vectors/sandbox/staging/*.json`, links inside): the engine deployed
-//! under the same account name with the same init arguments must accept the recorded
-//! `register_base_deposit` arguments with the real `verify_foreign_transaction` response,
-//! store the real CKD keys of rounds 0 and 1, and produce the recorded `claim_base_tokens`
-//! digest and signature. Run with
+//! under the same account name with the same init arguments and the account's real derived keys
+//! must accept the recorded `register_base_deposit` arguments with the real
+//! `verify_foreign_transaction` response, store the real CKD keys of rounds 0 and 1, and produce
+//! the recorded `claim_base_tokens` digest, whose real signature (replayed only for that digest)
+//! recovers to the real vault address. Run with
 //! `ROSE_SANDBOX=1 cargo test -p rose-engine --test sandbox_staging -- --nocapture`.
 
 mod sandbox_support;
@@ -11,9 +12,15 @@ mod sandbox_support;
 use anyhow::Result;
 use near_workspaces::types::{Gas, NearToken};
 use sandbox_support::*;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 const STAGING_ENGINE: &str = "engine-s1.rose-app.testnet";
+
+#[derive(Deserialize)]
+struct DerivedKeys {
+    keys: Vec<RecordedDerivedKey>,
+}
 
 #[tokio::test]
 async fn staging_recordings_replay_on_the_same_account_name() -> Result<()> {
@@ -36,12 +43,17 @@ async fn staging_recordings_replay_on_the_same_account_name() -> Result<()> {
         deployments["deployments"][STAGING_ENGINE]["near"]["engine"]["init_args"].clone()
     };
     let ckd_public_key = init["ckd_public_key"].as_str().unwrap().to_string();
+    let derived: DerivedKeys = serde_json::from_str(&std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/vectors/sandbox/staging/derived_keys.json"
+    ))?)?;
     let engine = Engine::deploy(EngineSpec {
         account: Some(STAGING_ENGINE),
         mpk: rose_ibe::parse_near_g2(&ckd_public_key)?,
         ckd_public_key,
         rose_vault: init["rose_vault"].as_str().unwrap().to_string(),
         base_cash_tokens: serde_json::from_value(init["base_cash_tokens"].clone())?,
+        derived_keys: derived.keys,
     })
     .await?;
     assert_eq!(engine.id().as_str(), deposit.engine);
@@ -137,13 +149,18 @@ async fn staging_recordings_replay_on_the_same_account_name() -> Result<()> {
     // vault/base signature.
     let sign_request = claim.mpc_request()?;
     engine
-        .prime_sign_raw(DOMAIN_SECP256K1, "vault/base", &claim.mpc_value()?)
+        .prime_sign_raw(
+            DOMAIN_SECP256K1,
+            "vault/base",
+            sign_request["payload_v2"]["Ecdsa"].as_str().unwrap(),
+            &claim.mpc_value()?,
+        )
         .await?;
     let result = holder
         .call(engine.id(), "claim_base_tokens")
         .args_json(&claim.args)
         .deposit(PAYOUT_STORAGE_DEPOSIT)
-        .gas(Gas::from_tgas(40))
+        .gas(Gas::from_tgas(80))
         .transact()
         .await?;
     gas.ok("claim_base_tokens", result)?;

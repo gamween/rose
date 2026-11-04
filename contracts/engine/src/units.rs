@@ -134,8 +134,9 @@ impl Contract {
     }
 
     /// NEP-245: transfers units then calls `mt_on_transfer` on the receiver, which returns the
-    /// unused amounts to refund. Anyone holding units; requires exactly 1 yoctoNEAR and at least
-    /// 40 Tgas.
+    /// unused amounts to refund. Until the resolver ran, the sender cannot withdraw its storage
+    /// deposit or unregister (the refund may need its holding row). Anyone holding units;
+    /// requires exactly 1 yoctoNEAR and at least 40 Tgas.
     #[payable]
     pub fn mt_transfer_call(
         &mut self,
@@ -196,6 +197,7 @@ impl Contract {
                 |v| v.into_iter().map(|a| a.0).collect(),
             );
         let sender = &previous_owner_ids[0];
+        self.release_hold(sender);
         let mut used = Vec::with_capacity(amounts.len());
         for ((token_id, amount), unused) in token_ids.iter().zip(&amounts).zip(unused) {
             let refund = unused.min(amount.0);
@@ -643,6 +645,7 @@ impl Contract {
         );
         let sender = env::predecessor_account_id();
         self.batch_transfer_units(&sender, &receiver, &token_ids, &amounts, memo.as_deref());
+        self.hold(&sender);
         let previous_owners = vec![sender.clone(); token_ids.len()];
         ext_mt_receiver::ext(receiver.clone())
             .mt_on_transfer(
