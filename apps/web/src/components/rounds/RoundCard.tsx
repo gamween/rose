@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Countdown } from "@/components/ui/Countdown";
 import { cn } from "@/lib/cn";
 import { ROUTES } from "@/lib/routes";
-import { classShortLabel, formatDate, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, type NextAction } from "./model";
+import { cancelledOutcome, classShortLabel, formatDate, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, type NextAction } from "./model";
 import { KindBadge, StatusBadge } from "./shared";
 import type { BookSummary } from "./useRoundsList";
 
@@ -89,8 +89,10 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
           </dd>
         </div>
         <div className="min-w-0">
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.result ? "Cleared at" : "Locked at close"}</dt>
-          <dd className="tabular truncate text-[13px] text-ink-100">{round.result ? `${formatUsdc(round.result.price)} USDC` : lockedPercent(round.fTs)}</dd>
+          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Cancelled" ? "Outcome" : round.result ? "Cleared at" : "Locked at close"}</dt>
+          <dd className="tabular truncate text-[13px] text-ink-100">
+            {round.status === "Cancelled" ? cancelledOutcome(round) : round.result ? `${formatUsdc(round.result.price)} USDC` : lockedPercent(round.fTs)}
+          </dd>
         </div>
       </dl>
 

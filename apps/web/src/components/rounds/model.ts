@@ -371,3 +371,11 @@ export function roundProgress(round: Round, nowMs: number): number {
   }
   return 0.5 + activeStep(round, nowMs) / 8;
 }
+
+/** A cancelled round stores a zero-price record so its orders can settle: show why it ended instead. */
+export function cancelledOutcome(round: Round): string {
+  if (round.cancelReason === "NoCrossing") return "No crossing";
+  if (round.cancelReason === "NoKey") return "No key";
+  if (round.cancelReason === "Empty") return "No orders";
+  return "Withdrawn";
+}

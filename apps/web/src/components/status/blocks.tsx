@@ -45,7 +45,7 @@ export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
       title="Engine account"
       description="Keyless after init: no key can upgrade, drain or stop it."
       notDeployedHint="Once the engine is deployed, this block shows its access key list (expected: empty) read live from the RPC."
-      badge={({ keys }) => (keys.keys.length === 0 ? { tone: "success", label: "Keyless" } : { tone: "danger", label: `${keys.keys.length} keys` })}
+      badge={({ keys }) => (keys.keys.length === 0 ? { tone: "success", label: "Keyless" } : { tone: "danger", label: `${keys.keys.length} ${keys.keys.length === 1 ? "key" : "keys"}` })}
       {...query}
     >
       {({ account, keys, info }) => (

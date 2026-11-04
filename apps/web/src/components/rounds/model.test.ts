@@ -1,6 +1,6 @@
 import { ONE, perClaimedToken, type Round } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { bondFor, canCancelAsCreator, canCancelNoKey, formatQty, formatUsdc, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, timeline } from "./model";
+import { bondFor, cancelledOutcome, canCancelAsCreator, canCancelNoKey, formatQty, formatUsdc, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, timeline } from "./model";
 
 const NOW_MS = 1_762_200_000_000;
 const SEC = 1_000_000_000n;
@@ -181,5 +181,15 @@ describe("timeline", () => {
 describe("pricing helpers", () => {
   it("keeps ONE as the locked fraction when nothing is unlocked", () => {
     expect(roundPricing({ kind: "Tender", fTs: 0n }, 18).lockedFractionE18).toBe(ONE);
+  });
+});
+
+describe("cancelledOutcome", () => {
+  it("names why a cancelled round ended instead of its zero-price record", () => {
+    // engine-s4 rounds 3 and 4 (no key) and 5 (no crossing) stored a result with price 0.
+    expect(cancelledOutcome(round({ status: "Cancelled", cancelReason: "NoKey" }))).toBe("No key");
+    expect(cancelledOutcome(round({ status: "Cancelled", cancelReason: "NoCrossing" }))).toBe("No crossing");
+    expect(cancelledOutcome(round({ status: "Cancelled", cancelReason: "Empty" }))).toBe("No orders");
+    expect(cancelledOutcome(round({ status: "Cancelled", cancelReason: "Creator" }))).toBe("Withdrawn");
   });
 });
