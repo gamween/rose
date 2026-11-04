@@ -63,10 +63,13 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
   const cardRef = useRef<HTMLDivElement>(null);
   const live = useDemoRound(scenario);
   const moved = useRef(false);
+  /** Steps slide in once the visitor moves; the step served with the page is painted as is. */
+  const [navigated, setNavigated] = useState(false);
 
   const go = useCallback(
     (next: number) => {
       moved.current = true;
+      setNavigated(true);
       setIndex(clampStep(next, steps.length));
     },
     [steps.length],
@@ -74,6 +77,7 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
 
   const chooseScenario = (key: DemoScenario["key"]) => {
     moved.current = true;
+    setNavigated(true);
     setScenarioKey(key);
     setIndex(0);
   };
@@ -198,7 +202,7 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
               <span key={step.id} className={cn("h-1 flex-1 rounded-full", position < index ? "bg-ember-700" : position === index ? "bg-ember-400" : "bg-ink-750")} />
             ))}
           </div>
-          <StepView key={`${scenario.key}:${current.id}`} manifest={manifest} scenario={scenario} step={current} position={index} total={steps.length} playing={playing} live={live} />
+          <StepView key={`${scenario.key}:${current.id}`} animate={navigated} manifest={manifest} scenario={scenario} step={current} position={index} total={steps.length} playing={playing} live={live} />
         </div>
       </div>
 
@@ -231,9 +235,9 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
 
 type LiveQuery = ReturnType<typeof useDemoRound>;
 
-function StepView({ manifest, scenario, step, position, total, playing, live }: { manifest: DemoManifest; scenario: DemoScenario; step: WalkStep; position: number; total: number; playing: boolean; live: LiveQuery }) {
+function StepView({ animate, manifest, scenario, step, position, total, playing, live }: { animate: boolean; manifest: DemoManifest; scenario: DemoScenario; step: WalkStep; position: number; total: number; playing: boolean; live: LiveQuery }) {
   return (
-    <article className="demo-step flex flex-col gap-4" aria-labelledby="demo-step-title" data-demo-step={step.id} data-demo-playing={playing ? "true" : "false"}>
+    <article className={cn("flex flex-col gap-4", animate && "demo-step")} aria-labelledby="demo-step-title" data-demo-step={step.id} data-demo-playing={playing ? "true" : "false"}>
       <div className="rounded-lg border border-ink-750 bg-ink-900 px-4 py-4 md:px-5">
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
           <span className="tabular font-display uppercase tracking-wide text-ember-300">
