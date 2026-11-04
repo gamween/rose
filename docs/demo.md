@@ -89,8 +89,10 @@ from the app with two demo wallets.
   4.2 seconds after the close." **Explorer:**
   [close, 4qwvyUSD…](https://testnet.near.rocks/tx/4qwvyUSDoTSroGVnB9Nq5mSqVy8HNHYuFGZBfX17uHoV).
 - **Step "Opened":** **Say:** "Anyone can now open any ask, and the contract verifies every opening
-  in full." **Explorer:**
-  [open_bid, FjA2x3Z2…](https://testnet.near.rocks/tx/FjA2x3Z28YfdjrDMnSnavS8aEmj47WTMyELEum3cZZMB).
+  in full. Here the openings come from rose's deployment account, which placed no order and created
+  no round." **Explorer:**
+  [open_bid, FjA2x3Z2…](https://testnet.near.rocks/tx/FjA2x3Z28YfdjrDMnSnavS8aEmj47WTMyELEum3cZZMB),
+  sent by `rose-app.testnet`.
 - **Step "Cleared":** the supply curve meets the budget line at 0.036. **Say:** "One price for
   everyone: 3.6 cents. Halden sold all forty thousand tokens it asked at three cents, and was paid
   3.6. Tessaro, at the margin, was rationed. The foundation bought about forty-one thousand seven
@@ -139,23 +141,25 @@ from the app with two demo wallets.
 - **Click:** `/status`.
 - **Screen:** the keyless check (the raw `view_access_key_list` result), the MPC version, the
   key-release latency of recent rounds, the RoseVault signer check.
-- **Say:** "The final engine has no access key and no upgrade method. If the network never releases
-  a key, anyone cancels the round and everyone is refunded. That is round four."
+- **Say**, if `/status` shows `view_access_key_list` returning `[]` (the final, keyless engine):
+  "This engine has no access key and no upgrade method." While the app still runs a staging engine,
+  say instead: "The engine has no upgrade method, and its final deployment deletes every access key;
+  this staging one still has a key, and the status page says so."
+- **Say:** "If the network never releases a key, anyone cancels the round and everyone is refunded.
+  That is round four."
 - **Explorer:** [cancel_no_key, 73EpPXUb…](https://testnet.near.rocks/tx/73EpPXUb8SnhN3pdraqHEPBhWTKeT1XbqUrwFQ4YGyAc).
-- If the deployed engine is still a staging engine, say instead: "The production engine is deployed
-  with no access key and no upgrade method; this staging one still has one, and the status page says
-  so."
 
 ### 8. Close (2:55 to 3:00)
 
 - **Screen:** "What was locked, rose." with the app URL and the repository URL.
 - **Say:** "rose. Sealed rounds for locked tokens, settled on NEAR. Try it on testnet."
 
-## Draft X thread (for the owner to post)
+## DRAFT, not posted: X thread for the owner
 
-**Draft only.** The owner reviews, edits and posts it from their own account once the repository is
-public and the video is uploaded; nothing here is posted by an agent. The links are the deployed
-app, the public repository and the video the owner attaches.
+> **Status: draft, not posted.** This text is a proposal for the owner. Only the owner reviews,
+> edits and posts it, from their own account, once the repository is public and the video is
+> uploaded. No agent or script posts it, schedules it or sends it anywhere. The links are the
+> deployed app, the public repository and the video the owner attaches.
 
 > 1/ In August 2026 a foundation offered to buy its early investors' locked tokens at a price it set.
 > Its own post: "Nearly all holders approached declined."
@@ -185,3 +189,5 @@ app, the public repository and the video the owner attaches.
 >
 > If you have run an OTC buyback or sold a locked allocation: what would make you use a sealed round
 > instead? @NearLegion @NearBuilders
+
+End of the draft. Not posted.

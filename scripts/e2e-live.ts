@@ -8,9 +8,10 @@
  *                  after the timeout, `cancel_no_key` cancels it and `settle_bid` refunds the bid
  *   close          `close` of the Tender, the Exit and the Advance once their window ended: the real
  *                  MPC releases each round key (CKD), checked against an offline unwrap
- *   open           every sealed order decrypted with the released key and opened on chain by a
- *                  third party; the malformed bid fails to decrypt and its author's own opening is
- *                  refused on chain
+ *   open           every sealed order decrypted with the released key and opened on chain by the
+ *                  funder account (ROSE_ROOT_ACCOUNT), which is neither a bidder nor a round
+ *                  creator; the malformed bid fails to decrypt and its author's own opening is
+ *                  refused on chain with "Opening does not match the ciphertext"
  *   clear          `clear` of each round, compared with the `@rose/sdk` clearing reference on the
  *                  opened bids (the run exits non-zero on any mismatch)
  *   settle         `settle_bid` of every order (units, cash, refunds, bonds; the malformed bid's
@@ -34,6 +35,7 @@ import {
   tokenBalance,
   withdrawMax,
   calculateMinFeeWei,
+  type FunctionCall,
   type PayoutView,
   type Side,
 } from "@rose/sdk";
@@ -42,7 +44,7 @@ import { createContext, type Context } from "./lib/context.ts";
 import { DEFAULT_ENV_FILE, log, NEAR_CASH_TOKEN, parseArgs } from "./lib/env.ts";
 import { accountOf, CAST, usdc, whole, type Who } from "./lib/identity.ts";
 import type { StepScope } from "./lib/journal.ts";
-import { nearRef, rpc, withRetry, type NearActor, type NearResult } from "./lib/near.ts";
+import { nearOutcome, nearRef, rpc, withRetry, type NearActor, type NearResult } from "./lib/near.ts";
 import { checkClearing, classDecimals, createRound, getRound, placeOrder, usdcText, waitUntil, type ClearingCheck, type OrderRecord, type OrderSecret, type RoundRecord } from "./lib/rounds.ts";
 import { open, unwrap } from "./lib/sealed.ts";
 import { waitSigned } from "./lib/solana.ts";
@@ -151,6 +153,9 @@ async function stepClose(): Promise<void> {
   }
 }
 
+/** The engine's panic for an opening that does not re-encrypt to the stored ciphertext. */
+const MALFORMED_REFUSAL = "Opening does not match the ciphertext";
+
 interface Opening {
   bidId: number;
   who: Who;
@@ -190,6 +195,8 @@ async function stepOpen(): Promise<void> {
           const attempt = await ctx.actor(who).call(ctx.calls.openBid(BigInt(record.roundId), bid.bidId, own.plaintextHex, own.sigma), { allowFailure: true });
           scope.tx(nearRef(`${CAST[who].name}: open_bid of the malformed bid with the author's own opening (refused)`, attempt));
           if (attempt.failure === null) throw new Error("the malformed bid was opened");
+          // Only the engine's own refusal proves spec 5.2.1; a gas or storage failure would not.
+          if (!attempt.failure.includes(MALFORMED_REFUSAL)) throw new Error(`the malformed bid's opening failed for another reason: ${attempt.failure}`);
           out.push({ bidId: bid.bidId, who, side: bid.side, opened: null, matchesSealed: null, unopenable: `${opening}; on chain: ${attempt.failure}` });
           continue;
         }
@@ -274,37 +281,59 @@ async function executeBaseTransfer(scope: StepScope, label: string, payout: Payo
   );
 }
 
-async function requestPayout(scope: StepScope, label: string, actor: NearActor, call: Parameters<NearActor["call"]>[0]): Promise<PayoutView> {
-  const result = await actor.call(call);
+/**
+ * Requests a payout once per step and label: a step resumed after its request was sent (and
+ * recorded) waits for that payout instead of requesting a second one, which would fail on the
+ * cash or claim the first request already debited.
+ */
+async function requestPayoutOnce(scope: StepScope, label: string, actor: NearActor, build: () => Promise<FunctionCall>): Promise<PayoutView> {
+  const prior = scope.sent(label);
+  if (prior !== undefined) {
+    log(`  ${label}: sent by an earlier attempt, resuming payout of ${prior.hash}`);
+    return waitSigned(ctx, payoutId(await nearOutcome(prior.hash, actor.accountId)));
+  }
+  const result = await actor.call(await build());
   scope.tx(nearRef(label, result));
   return waitSigned(ctx, payoutId(result));
+}
+
+function baseTransferAmount(payout: PayoutView): bigint {
+  if (!("BaseTransfer" in payout.kind)) throw new Error(`payout ${payout.id} is not a Base transfer`);
+  return BigInt(payout.kind.BaseTransfer.amount);
 }
 
 async function stepPayouts(): Promise<void> {
   await ctx.live.step("payout:near-cash", async (scope) => {
     const actor = ctx.actor("ines");
-    const amount = await nearCash(actor.accountId);
-    const before = await withRetry("ft_balance_of", () => rpc.viewFunction<string>(NEAR_CASH_TOKEN, "ft_balance_of", { account_id: actor.accountId }));
-    const result = await actor.call(ctx.calls.withdrawNearCash(amount));
-    scope.tx(nearRef(`Ines Marlow: withdraw_near_cash ${usdcText(amount)} tUSDC (Exit proceeds and refunded bonds)`, result));
-    const after = await withRetry("ft_balance_of", () => rpc.viewFunction<string>(NEAR_CASH_TOKEN, "ft_balance_of", { account_id: actor.accountId }));
-    if (BigInt(after.value) - BigInt(before.value) !== amount) throw new Error(`tUSDC balance moved by ${BigInt(after.value) - BigInt(before.value)}, expected ${amount}`);
-    return { amount: amount.toString(), wallet_before: before.value, wallet_after: after.value };
+    const ftBalance = async (): Promise<bigint> => BigInt((await withRetry("ft_balance_of", () => rpc.viewFunction<string>(NEAR_CASH_TOKEN, "ft_balance_of", { account_id: actor.accountId }))).value);
+    // Recorded before the withdrawal, so a resumed step checks the same balances.
+    const before = await ctx.live.step("payout:near-cash:before", async () => ({ cash: (await nearCash(actor.accountId)).toString(), wallet: (await ftBalance()).toString() }));
+    const amount = BigInt(before.cash);
+    const label = "Ines Marlow: withdraw_near_cash of the Exit proceeds and refunded bonds (tUSDC)";
+    if (scope.sent(label) === undefined) scope.tx(nearRef(label, await actor.call(ctx.calls.withdrawNearCash(amount))));
+    const after = await ftBalance();
+    if (after - BigInt(before.wallet) !== amount) throw new Error(`tUSDC balance moved by ${after - BigInt(before.wallet)}, expected ${amount}`);
+    log(`  ${usdcText(amount)} tUSDC withdrawn to Ines Marlow's wallet`);
+    return { amount: amount.toString(), wallet_before: before.wallet, wallet_after: after.toString() };
   });
 
   await ctx.live.step("payout:base-cash", async (scope) => {
     const actor = ctx.actor("halden");
     const token = ctx.deployment.baseTusdc;
-    const cash = await withRetry("get_cash", () => ctx.views.getCash(actor.accountId));
-    const amount = cash.find((c) => c.venue !== "Near" && c.venue.Base.token === token)?.amount ?? 0n;
-    if (amount === 0n) throw new Error("Halden Ventures has no Base tUSDC cash to withdraw");
     const to = ctx.keys.evm("halden").address;
-    const before = await tokenBalance(ctx.base, token, to);
-    const payout = await requestPayout(scope, `Halden Ventures: withdraw_base_cash ${usdcText(amount)} tUSDC (Tender proceeds)`, actor, ctx.calls.withdrawBaseCash(token, amount, to.toLowerCase()));
+    const before = await ctx.live.step("payout:base-cash:before", async () => ({ balance: (await tokenBalance(ctx.base, token, to)).toString() }));
+    const payout = await requestPayoutOnce(scope, "Halden Ventures: withdraw_base_cash of the Tender proceeds (Base tUSDC)", actor, async () => {
+      const cash = await withRetry("get_cash", () => ctx.views.getCash(actor.accountId));
+      const amount = cash.find((c) => c.venue !== "Near" && c.venue.Base.token === token)?.amount ?? 0n;
+      if (amount === 0n) throw new Error("Halden Ventures has no Base tUSDC cash to withdraw");
+      return ctx.calls.withdrawBaseCash(token, amount, to.toLowerCase());
+    });
+    const amount = baseTransferAmount(payout);
     await executeBaseTransfer(scope, "executeTransfer of tUSDC to Halden Ventures", payout);
     const after = await tokenBalance(ctx.base, token, to);
-    if (after - before !== amount) throw new Error(`Halden's tUSDC moved by ${after - before}, expected ${amount}`);
-    return { amount: amount.toString(), payout_id: payout.id, to, balance_before: before.toString(), balance_after: after.toString() };
+    if (after - BigInt(before.balance) !== amount) throw new Error(`Halden's tUSDC moved by ${after - BigInt(before.balance)}, expected ${amount}`);
+    log(`  ${usdcText(amount)} tUSDC paid to Halden Ventures on Base`);
+    return { amount: amount.toString(), payout_id: payout.id, to, balance_before: before.balance, balance_after: after.toString() };
   });
 
   await ctx.live.step("payout:lien", async (scope) => {
@@ -318,19 +347,25 @@ async function stepPayouts(): Promise<void> {
       const fee = await calculateMinFeeWei(ctx.base, streamId);
       await sendBase(ctx, scope, `Sablier withdrawMax(stream ${streamId}, RoseVault): unlocked CINDR into the vault`, () => withdrawMax(ctx.deployer, streamId, ctx.deployment.roseVault, { value: fee }));
     }
+    const lienId = settle.lien_id;
     const funder = ctx.actor("varick");
-    const lien = await withRetry("get_lien", () => ctx.views.getLien(settle.lien_id ?? ""));
-    const { shares } = await withRetry("get_liens", () => ctx.views.getLiens(funder.accountId));
-    const share = shares.find((s) => s.lienId.toString() === settle.lien_id);
-    if (share === undefined || share.claimable === 0n) throw new Error(`Varick Partners has nothing claimable on lien ${settle.lien_id}`);
     const to = ctx.keys.evm("varick").address;
-    const before = await tokenBalance(ctx.base, ctx.deployment.demoToken, to);
-    const payout = await requestPayout(scope, `Varick Partners: claim_base_tokens (lien share ${settle.lien_id}, ${share.claimable} CINDR base units)`, funder,
-      ctx.calls.claimBaseTokens({ LienShare: { lien_id: settle.lien_id } }, share.claimable, to.toLowerCase()));
+    const before = await ctx.live.step("payout:lien:before", async () => ({ balance: (await tokenBalance(ctx.base, ctx.deployment.demoToken, to)).toString() }));
+    const payout = await requestPayoutOnce(scope, `Varick Partners: claim_base_tokens (lien share ${lienId})`, funder, async () => {
+      const { shares } = await withRetry("get_liens", () => ctx.views.getLiens(funder.accountId));
+      const share = shares.find((s) => s.lienId.toString() === lienId);
+      if (share === undefined || share.claimable === 0n) throw new Error(`Varick Partners has nothing claimable on lien ${lienId}`);
+      return ctx.calls.claimBaseTokens({ LienShare: { lien_id: lienId } }, share.claimable, to.toLowerCase());
+    });
+    const claimed = baseTransferAmount(payout);
     await executeBaseTransfer(scope, "executeTransfer of CINDR to Varick Partners (Advance repayment)", payout);
     const after = await tokenBalance(ctx.base, ctx.deployment.demoToken, to);
-    if (after - before !== share.claimable) throw new Error(`Varick's CINDR moved by ${after - before}, expected ${share.claimable}`);
-    return { lien_id: settle.lien_id, claim_total: lien?.claimTotal.toString(), delivered: lien?.delivered.toString(), share_claim: share.claim.toString(), claimed: share.claimable.toString(), payout_id: payout.id, to };
+    if (after - BigInt(before.balance) !== claimed) throw new Error(`Varick's CINDR moved by ${after - BigInt(before.balance)}, expected ${claimed}`);
+    const lien = await withRetry("get_lien", () => ctx.views.getLien(lienId));
+    const { shares } = await withRetry("get_liens", () => ctx.views.getLiens(funder.accountId));
+    const share = shares.find((s) => s.lienId.toString() === lienId);
+    log(`  ${claimed} CINDR base units paid to Varick Partners on Base`);
+    return { lien_id: lienId, claim_total: lien?.claimTotal.toString(), delivered: lien?.delivered.toString(), share_claim: share?.claim.toString(), claimed: claimed.toString(), payout_id: payout.id, to };
   });
 
   await ctx.live.step("payout:redeem", async (scope) => {
@@ -341,7 +376,7 @@ async function stepPayouts(): Promise<void> {
     const pending = await withRetry("get_pending_release", () => ctx.views.raw.getPendingRelease(position.positionId));
     const payout =
       pending === null
-        ? await requestPayout(scope, `Nadia Solvik: redeem position ${position.positionId} (stream ${position.streamId}) in kind`, actor, ctx.calls.redeem(BigInt(position.positionId), to.toLowerCase()))
+        ? await requestPayoutOnce(scope, `Nadia Solvik: redeem position ${position.positionId} (stream ${position.streamId}) in kind`, actor, () => Promise.resolve(ctx.calls.redeem(BigInt(position.positionId), to.toLowerCase())))
         : await waitSigned(ctx, pending);
     if (!("BaseRelease" in payout.kind)) throw new Error(`payout ${payout.id} is not a release`);
     const k = payout.kind.BaseRelease;

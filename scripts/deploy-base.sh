@@ -9,12 +9,13 @@
 #                               [--signer <0x address>] [--demo-assets-from <engine account>]
 # --demo-assets-from reuses the TestUSDC, DemoToken and DemoStreamFaucet recorded for another
 # engine (they do not depend on the engine) and deploys only the RoseVault.
-# Keys: EVM_DEPLOYER_PRIVATE_KEY from ~/.config/rose/evm-deployer.env (never printed).
+# Keys: EVM_DEPLOYER_PRIVATE_KEY from ~/.config/rose/evm-deployer.env, handed to forge and cast
+# through its encrypted keystore (scripts/evm-keystore.ts), never printed or put on a command line.
 # Output: deployments/testnet.json (addresses, tx hashes, block numbers) and the web app's
 # NEXT_PUBLIC_* snippet in deployments/<engine account>.env.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require_tools forge cast jq curl python3
+require_tools forge cast jq curl python3 node
 
 engine="" role="staging" signer="" demo_assets_from=""
 while [[ $# -gt 0 ]]; do
@@ -29,9 +30,9 @@ done
 [[ -n "$engine" ]] || die "usage: $0 --engine <engine account> [--role staging|final] [--signer 0x...]"
 [[ "$role" == "staging" || "$role" == "final" ]] || die "--role must be staging or final"
 
-load_env evm-deployer
-[[ -n "${EVM_DEPLOYER_PRIVATE_KEY:-}" ]] || die "EVM_DEPLOYER_PRIVATE_KEY is not set in evm-deployer.env"
-deployer="$(cast wallet address --private-key "$EVM_DEPLOYER_PRIVATE_KEY")"
+evm_signer evm-deployer
+deployer="$(cast wallet address "${EVM_WALLET_ARGS[@]}")"
+[[ "$(tr '[:upper:]' '[:lower:]' <<<"$deployer")" == "$EVM_ADDRESS" ]] || die "the keystore of evm-deployer.env opens to $deployer, not $EVM_ADDRESS"
 
 chain_id="$(cast chain-id --rpc-url "$BASE_RPC_URL")"
 [[ "$chain_id" == "$BASE_CHAIN_ID" ]] || die "RPC $BASE_RPC_URL is chain $chain_id, not Base Sepolia ($BASE_CHAIN_ID)"
@@ -54,7 +55,7 @@ cd "$ROSE_ROOT"
 forge_run() {
   local script="$1"; shift
   env "$@" forge script "contracts/evm/script/$script.s.sol" --rpc-url "$BASE_RPC_URL" --broadcast \
-    --private-key "$EVM_DEPLOYER_PRIVATE_KEY" >&2
+    "${EVM_WALLET_ARGS[@]}" --sender "$deployer" >&2
   printf '%s\n' "$ROSE_ROOT/broadcast/$script.s.sol/$BASE_CHAIN_ID/run-latest.json"
 }
 
@@ -93,11 +94,12 @@ fi
 
 run="$(forge_run DeployRoseVault ROSE_VAULT_SIGNER="$signer")"
 record_contract "$engine" rose_vault RoseVault "$run"
-vault="$(deployments_get "$engine" ".base.rose_vault.address" | jq -r .)"
+vault="$(deployments_value "$engine" ".base.rose_vault.address")"
+[[ "$vault" =~ ^0x[0-9a-f]{40}$ ]] || die "no RoseVault address recorded for $engine"
 on_chain_signer="$(cast call --rpc-url "$BASE_RPC_URL" "$vault" 'SIGNER()(address)' | tr '[:upper:]' '[:lower:]')"
 [[ "$on_chain_signer" == "$signer" ]] || die "deployed RoseVault signer $on_chain_signer differs from $signer"
 deployments_set "$engine" ".base.rose_vault.signer" "\"$signer\""
-deployments_set "$engine" ".base.accepted_cash_tokens" "$(jq -cn --arg t "$(deployments_get "$engine" ".base.test_usdc.address" 2>/dev/null | jq -r . || true)" --arg c "$CIRCLE_USDC_BASE_SEPOLIA" '[$t, $c] | map(select(. != ""))')"
+deployments_set "$engine" ".base.accepted_cash_tokens" "$(jq -cn --arg t "$(deployments_value "$engine" ".base.test_usdc.address")" --arg c "$CIRCLE_USDC_BASE_SEPOLIA" '[$t, $c] | map(select(. != ""))')"
 
 env_snippet "$engine" >"$ROSE_ROOT/deployments/$engine.env"
 log "recorded in $DEPLOYMENTS_FILE; web app variables in deployments/$engine.env"
