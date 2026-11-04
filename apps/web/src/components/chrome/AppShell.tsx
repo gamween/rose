@@ -29,15 +29,17 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
   const [activityOpen, setActivityOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tour, setTour] = useState<TourState>("closed");
+  const [tourDecided, setTourDecided] = useState(false);
   const [connect, setConnect] = useState<ChainId | null>(null);
 
   useEffect(() => {
-    if (onDemo) return;
+    if (tourDecided) return;
     const timer = window.setTimeout(() => {
-      if (!readTourDismissed()) setTour("auto");
-    }, 400);
+      if (!onDemo && !readTourDismissed()) setTour("auto");
+      setTourDecided(true);
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [onDemo]);
+  }, [onDemo, tourDecided]);
 
   usePaletteShortcut(useCallback(() => setPaletteOpen((open) => !open), []));
 
@@ -98,7 +100,7 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
       />
       <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
-      <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} />
+      <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} deciding={!tourDecided} />
       <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
     </div>
   );

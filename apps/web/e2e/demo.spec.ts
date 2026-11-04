@@ -27,7 +27,10 @@ test.describe("guided demo", () => {
     await expect(page.locator("[data-watch-demo]")).toHaveAttribute("href", "/app/demo");
     await page.goto("/app/rounds");
     await expect(page.locator("[data-testnet-banner] [data-watch-demo]")).toHaveAttribute("href", "/app/demo");
-    await page.locator("[data-rounds-page] [data-watch-demo]").click();
+    // The first-visit tour is open over the list; a DOM click follows the link client-side while the
+    // tour is still due, which is exactly when it must not cover the demo.
+    await expect(page.locator("[data-tour-step='0']")).toBeVisible();
+    await page.locator("[data-rounds-page] [data-watch-demo]").evaluate((link: HTMLAnchorElement) => link.click());
     await expect(page).toHaveURL(/\/app\/demo/);
     await expect(page.getByRole("heading", { name: "Watch a full round" })).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);

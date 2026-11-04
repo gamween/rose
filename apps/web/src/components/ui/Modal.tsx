@@ -4,6 +4,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 type DialogProps = {
+  id?: string;
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -13,15 +14,22 @@ type DialogProps = {
   className?: string;
 };
 
-/** Native `<dialog>` opened with `showModal()`: focus trap, Escape and inert background come from the platform. */
-function useDialog(open: boolean, onClose: () => void) {
+/**
+ * Native `<dialog>` opened with `showModal()`: focus trap, Escape and inert background come from the platform.
+ * A dialog the server painted open (non-modal, see `Modal`'s `serverOpen`) is upgraded to a modal when
+ * `open` turns true, and left alone while `hold` is set so the parent can decide without a flash.
+ */
+function useDialog(open: boolean, onClose: () => void, hold = false) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+    if (open && !dialog.matches(":modal")) {
+      if (dialog.open) dialog.close();
+      dialog.showModal();
+    }
+    if (!open && dialog.open && !hold) dialog.close();
+  }, [open, hold]);
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
@@ -50,17 +58,27 @@ function CloseButton({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function Modal({ open, onClose, title, description, children, footer, className }: DialogProps) {
-  const ref = useDialog(open, onClose);
+/**
+ * `serverOpen` paints the dialog open in the server HTML (non-modal, fixed in the same place as the
+ * modal) so a first-visit panel shows with the page instead of after hydration; `holdServerOpen`
+ * keeps it until the parent knows whether it should stay. Only the server HTML carries the `open`
+ * attribute: a client-side mount starts closed.
+ */
+export function Modal({ id, open, onClose, title, description, children, footer, className, serverOpen = false, holdServerOpen = false }: DialogProps & { serverOpen?: boolean; holdServerOpen?: boolean }) {
+  const ref = useDialog(open, onClose, serverOpen && holdServerOpen);
   return (
     <dialog
       ref={ref}
+      id={id}
+      open={serverOpen && typeof window === "undefined" ? true : undefined}
+      suppressHydrationWarning={serverOpen}
       aria-label={typeof title === "string" ? title : undefined}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
       className={cn(
         "m-auto w-[calc(100%-32px)] max-w-lg rounded-lg border border-ink-700 bg-ink-850 p-0 text-ink-100 shadow-2xl backdrop:bg-ink-950/80 backdrop:backdrop-blur-[2px]",
+        serverOpen && "[&:not(:modal)]:fixed [&:not(:modal)]:inset-0 [&:not(:modal)]:z-50 [&:not(:modal)]:h-fit",
         className,
       )}
     >
