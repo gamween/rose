@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ComponentProps, type ComponentType, type ReactNode } from "react";
-import { TopNav } from "@/components/chrome/TopNav";
+import { TopNav, type MenuAction } from "@/components/chrome/TopNav";
 import { Footer } from "@/components/chrome/Footer";
 import { WalletPills } from "@/components/wallet/WalletPills";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -99,10 +99,19 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
     ],
     [demo, router, setFundsOpen, wallets],
   );
+  /** The activity and palette buttons hide below `sm` / `lg`; the mobile menu carries both (a phone has no Cmd+K). */
+  const menuActions = useMemo<MenuAction[]>(
+    () => [
+      { id: "activity", label: "Activity", hint: "engine events", onSelect: () => setActivityOpen(true) },
+      { id: "palette", label: "Search and commands", hint: "pages, actions", onSelect: () => setPaletteOpen(true) },
+    ],
+    [],
+  );
 
   return (
     <div className="flex min-h-dvh flex-col">
       <TopNav
+        menuActions={menuActions}
         action={
           <div className="flex items-center gap-2">
             <button
@@ -121,10 +130,11 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
               type="button"
               onClick={() => setPaletteOpen(true)}
               title="Command palette (⌘K)"
+              aria-label="Open the command palette"
               data-palette
-              className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 lg:flex"
+              className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 md:flex"
             >
-              <span>Search</span>
+              <span className="hidden lg:inline">Search</span>
               <kbd className="font-display text-[10px] uppercase text-ink-400">⌘K</kbd>
             </button>
             <WalletPills />
