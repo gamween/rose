@@ -17,6 +17,12 @@
 //! `PromiseError` for the engine) and `set_ckd_delay` stretches the next CKD answer over several
 //! blocks. The same contract also acts as a NEP-245 receiver whose `mt_on_transfer` refunds the
 //! amount named in `msg`.
+//!
+//! It does not model the live network's timing: it answers `sign` and `verify_foreign_transaction`
+//! in the same block, never lets a request time out after the 200-block yield, and never delivers
+//! a late second response. The engine's handling of those (a `PromiseError` after a timeout, a
+//! callback for a payout that moved on) is covered by the mocked-VM unit tests, not by the
+//! sandbox.
 
 use ed25519_dalek::Signer;
 use k256::ecdsa::SigningKey as EcdsaKey;
@@ -39,6 +45,11 @@ const GAS_PER_HOP: Gas = Gas::from_tgas(3);
 pub const DOMAIN_SECP256K1: u64 = 0;
 pub const DOMAIN_ED25519: u64 = 1;
 pub const DOMAIN_FOREIGN_TX: u64 = 3;
+/// The secp256k1 group order `n`, big-endian: the live contract refuses ECDSA payloads >= n.
+const SECP256K1_ORDER: [u8; 32] = [
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+    0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
+];
 /// Seed of every key the mock derives.
 const TEST_SEED: &[u8] = b"rose mock mpc test key";
 /// Predecessor of the ForeignTx key (the domain key itself, not a per-account derivation).
@@ -320,6 +331,10 @@ impl MockMpc {
                 let digest: [u8; 32] = bytes
                     .try_into()
                     .unwrap_or_else(|_| env::panic_str("Ecdsa payload must be 32 bytes"));
+                require!(
+                    digest < SECP256K1_ORDER,
+                    "Ecdsa payload must be below the secp256k1 group order"
+                );
                 secp256k1_signature(&secret, &digest)
             }
             ("Eddsa", DOMAIN_ED25519) => json!({
