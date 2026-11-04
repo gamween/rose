@@ -9,7 +9,6 @@
  */
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { ErrorState, NotDeployedState } from "@/components/rounds/shared";
@@ -51,13 +50,15 @@ function writeQuery(scenario: DemoScenario, step: WalkStep | undefined, playing:
   window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
 }
 
-export function DemoPlayer({ manifest }: { manifest: DemoManifest }) {
-  const query = useSearchParams();
-  const [scenarioKey, setScenarioKey] = useState(() => scenarioFromQuery(manifest, query.get("round")).key);
+/** The deep-link query of the page (`?round=…&step=…&autoplay=1`), read on the server. */
+export type DemoQuery = { round: string | null; step: string | null; autoplay: boolean };
+
+export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query: DemoQuery }) {
+  const [scenarioKey, setScenarioKey] = useState(() => scenarioFromQuery(manifest, query.round).key);
   const scenario = useMemo(() => manifest.scenarios.find((candidate) => candidate.key === scenarioKey) ?? scenarioFromQuery(manifest, null), [manifest, scenarioKey]);
   const steps = useMemo(() => walkthrough(manifest, scenario), [manifest, scenario]);
-  const [index, setIndex] = useState(() => stepFromQuery(walkthrough(manifest, scenarioFromQuery(manifest, query.get("round"))), query.get("step")));
-  const [playing, setPlaying] = useState(() => query.get("autoplay") === "1");
+  const [index, setIndex] = useState(() => stepFromQuery(walkthrough(manifest, scenarioFromQuery(manifest, query.round)), query.step));
+  const [playing, setPlaying] = useState(() => query.autoplay);
   const current = steps[clampStep(index, steps.length)];
   const cardRef = useRef<HTMLDivElement>(null);
   const live = useDemoRound(scenario);
