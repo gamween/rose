@@ -141,12 +141,15 @@ near_delete_all_keys() {
 # it returns []. near-cli-rs returns once the transaction executed optimistically, a few blocks
 # before `final`, so a single read right after the deletion can still list the keys.
 near_wait_keyless() {
-  local account="$1" deadline=$((SECONDS + ${2:-60})) keys
+  local account="$1" deadline=$((SECONDS + ${2:-60})) keys last="(no answer from $NEAR_RPC_URL)"
   while :; do
-    keys="$(near_access_keys "$account" 2>/dev/null)" || keys="(view failed)"
-    [[ "$keys" == "[]" ]] && return 0
+    # A failed read (rate limit, timeout) is retried; only a successful one is reported.
+    if keys="$(near_access_keys "$account" 2>/dev/null)"; then
+      [[ "$keys" == "[]" ]] && return 0
+      last="$keys"
+    fi
     if [[ $SECONDS -ge $deadline ]]; then
-      log "view_access_key_list $account at final still returns $keys"
+      log "view_access_key_list $account at final still returns $last"
       return 1
     fi
     sleep 3
