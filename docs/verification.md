@@ -95,3 +95,15 @@ Spike contract `c.rose-sign-1793752785.testnet` (throwaway, outside the repo). H
 | Durable nonce account rent on devnet | `getMinimumBalanceForRentExemption(80)` | 1,056,640 lamports |
 | Streamflow `withdraw` / `transfer_recipient` encodings | `@streamflow/stream` 13.4.0 (commit `fb236fff`), `streamflow-sdk` 0.15.0 (commit `63df7d7b`, `programs/streamflow-sdk/src/lib.rs` lines 804-846 and 902-928) | Rust encoders equal the js-sdk bytes; treasury `5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw` |
 | NEAR testnet explorers | NearBlocks API `/v1/blocks/latest`; `explorer.testnet.near.org` | NearBlocks testnet frozen at block 270,420,307 (RPC head 276.1M); `explorer.testnet.near.org` serves an explorer selector page. Live explorer still to confirm in a browser |
+
+## Demo identity: no collision with a real project
+
+The demo issuer is the fictional **Cindral Foundation**, token **Cindral (CINDR)** (spec section 9).
+
+| Check | Command | Result (2026-11-04) |
+|---|---|---|
+| CoinGecko | `curl "https://api.coingecko.com/api/v3/search?query=cindral"`, `curl https://api.coingecko.com/api/v3/coins/list` (22,750 coins) searched for `cindral` and `cindr` | no coin named Cindral, no ticker CINDR |
+| CoinMarketCap | public coin map (10,500 coins) and currency slug pages | no match |
+| DefiLlama | `curl https://api.llama.fi/protocols` (8,926 protocols) | no match |
+| Web | searches `"Cindral" crypto`, `"CINDR" token` | no result |
+| Nearest names | same sources | Cindrum (CIND, inactive), Cindicator (CND): neither name nor ticker shared. Rejected tickers: CNDL (DefiLlama "Candle"), CNDR (Solana "Condor"), CIND (Cindrum) |
