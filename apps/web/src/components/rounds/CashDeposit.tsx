@@ -9,7 +9,7 @@
  * (it pays the cash row out of its record deposit).
  */
 
-import { approveToken, decodeCashDeposited, depositCash, registerBaseCashArgs, waitForSafeHead, type Venue } from "@rose/sdk";
+import type { Venue } from "@rose/sdk";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field, NumberInput } from "@/components/ui/Input";
@@ -22,7 +22,6 @@ import { toActionError, type ActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
 import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
 import { useAction } from "@/lib/use-action";
-import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { useNearAction } from "./actions";
 import type { RoundsEngine } from "./engine";
 import { addReceipt } from "./localOrders";
@@ -78,10 +77,11 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
     if (!near.accountId) return;
     setBaseError(null);
     const token = venue.Base.token as `0x${string}`;
-    const client = basePublicClient();
+    setBaseStep("approve");
     try {
+      const { approveToken, basePublicClient, decodeCashDeposited, depositCash, registerBaseCashArgs, waitForSafeHead } = await import("./base-cash");
+      const client = basePublicClient();
       const wallet = await getEvmWalletClient();
-      setBaseStep("approve");
       const approveHash = await approveToken(wallet, token, vault, parsed);
       addReceipt(engine.account, roundId, { kind: "cash", chain: "base", hash: approveHash, at: Date.now(), label: "approve" });
       await client.waitForTransactionReceipt({ hash: approveHash });
