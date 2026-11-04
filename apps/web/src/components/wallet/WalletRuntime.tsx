@@ -36,6 +36,7 @@ import {
   nearAccountExists,
   saveNearDemoWallet,
   sendNearDemoCall,
+  withFreshDemoAccountId,
   type NearDemoWallet,
 } from "@/lib/wallet/near-demo";
 import {
@@ -214,6 +215,15 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     }
     setNear((state) => ({ ...state, status: "idle", accountId: null, kind: null, walletName: null }));
   }, [getConnector, near.kind]);
+
+  const renewNearDemoAccountId = useCallback((): Promise<NearDemoWallet> => {
+    const current = loadNearDemoWallet();
+    if (!current) return Promise.reject(new RoseActionError("no_wallet", "No NEAR demo wallet", "Create the demo wallet first."));
+    const wallet = withFreshDemoAccountId(current);
+    saveNearDemoWallet(wallet);
+    setNear((state) => (state.kind === "demo" ? { ...state, accountId: wallet.accountId, demo: wallet, demoAccountExists: false } : { ...state, demo: wallet }));
+    return Promise.resolve(wallet);
+  }, []);
 
   const forgetNearDemo = useCallback(() => {
     forgetNearDemoWallet();
@@ -442,6 +452,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       disconnectNear,
       forgetNearDemo,
       markNearDemoCreated,
+      renewNearDemoAccountId,
       sendNearCall,
       evmConnectors,
       connectEvm,
@@ -470,6 +481,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       disconnectNear,
       forgetNearDemo,
       markNearDemoCreated,
+      renewNearDemoAccountId,
       sendNearCall,
       evmConnectors,
       connectEvm,

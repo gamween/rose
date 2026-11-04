@@ -70,6 +70,21 @@ export async function nearAccountExists(accountId: string): Promise<boolean> {
   }
 }
 
+/** Whether the demo key is an access key of its account id, so an existing account is this wallet's own. */
+export async function nearDemoKeyIsOnAccount(wallet: Pick<NearDemoWallet, "accountId" | "publicKey">, rpc: Pick<NearRpc, "viewAccessKey"> = nearRpc()): Promise<boolean> {
+  try {
+    await rpc.viewAccessKey(wallet.accountId, wallet.publicKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The same key under a fresh account id, for when the generated id turns out to be taken by someone else. */
+export function withFreshDemoAccountId(wallet: NearDemoWallet, accountId = randomDemoAccountId()): NearDemoWallet {
+  return { ...wallet, accountId };
+}
+
 /** Signs and sends one function call with the demo key; throws a `RoseActionError` on failure. */
 export async function sendNearDemoCall(wallet: NearDemoWallet, call: FunctionCall): Promise<FinalExecutionOutcome> {
   const account = nearDemoAccount(wallet);
