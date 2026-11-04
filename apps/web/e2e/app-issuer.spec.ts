@@ -90,7 +90,7 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
           if (isDao(args.account)) return { holdings: [], bids: [], liens_held: [], lien_shares: [], cash: [] };
           return { holdings: [{ class_id: SEED, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" }], bids: [], liens_held: [], lien_shares: [], cash: [{ venue: "Near", amount: "1000000000" }] };
         case "registration_deposit_for":
-          return String(args.account).startsWith("halden") ? "0" : "3360000000000000000000";
+          return String(args.account).startsWith("halden") ? "15000000000000000000000" : "18360000000000000000000";
         case "compute_base_class_id":
           return SEED;
         case "get_round":
@@ -204,6 +204,7 @@ test.describe("issuer console", () => {
     const preview = page.locator("[data-preview]");
     await expect(preview).toContainText("250.0000 CINDR units");
     await expect(preview).toContainText("0.00336 NEAR", { timeout: 30_000 });
+    await expect(page.getByText("registered", { exact: true })).toBeVisible();
     await shot(page, "distribute");
     await page.locator("[data-distribute]").click();
     await expect(page.locator("[data-flow-steps] [data-status='done']")).toHaveCount(1, { timeout: 30_000 });

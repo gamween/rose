@@ -26,7 +26,7 @@ import { deployedAddress } from "@/lib/deployment";
 import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
 import { useFlow } from "@/lib/use-action";
-import { checkRows, parseAllocationLines, rowsTotal, type AllocationRow } from "./allocations";
+import { checkRows, cohortSizeError, parseAllocationLines, rowsTotal, type AllocationRow } from "./allocations";
 import { registerStreamLog } from "./base-registration";
 import { dateTimeToSeconds, secondsToDateTime } from "./class-schedule";
 import { FieldLabel, Hint, Preview, type IssuerBase, baseClient } from "./shared";
@@ -68,6 +68,13 @@ export function CohortTab({ base }: { base: IssuerBase }) {
   const [unitStartUnlock, setUnitStartUnlock] = useState("0");
   const [unitCliffUnlock, setUnitCliffUnlock] = useState("0");
   const [rows, setRows] = useState<AllocationRow[]>([{ account: wallets.near.accountId ?? "", amount: "100" }]);
+  /* The wallet session may restore after the first render: the untouched first row takes the account then. */
+  const [prefilledFor, setPrefilledFor] = useState<string | null>(wallets.near.accountId);
+  if (wallets.near.accountId && prefilledFor !== wallets.near.accountId) {
+    setPrefilledFor(wallets.near.accountId);
+    const account = wallets.near.accountId;
+    setRows((current) => (current.length === 1 && current[0]!.account === "" ? [{ ...current[0]!, account }] : current));
+  }
   const [paste, setPaste] = useState("");
   const [resumeHash, setResumeHash] = useState("");
   const [registrations, setRegistrations] = useState<RegistrationRow[]>([]);
@@ -80,9 +87,10 @@ export function CohortTab({ base }: { base: IssuerBase }) {
   }, []);
 
   const decimals = tokenInfo?.decimals ?? 18;
-  const checked = useMemo(() => checkRows(rows, decimals, parseAmount(unitAmount, decimals)), [rows, decimals, unitAmount]);
+  const checked = useMemo(() => checkRows(rows, decimals, parseAmount(unitAmount, decimals), 10n ** BigInt(decimals)), [rows, decimals, unitAmount]);
   const total = rowsTotal(checked);
-  const valid = checked.length > 0 && checked.every((row) => row.error === null);
+  const sizeError = cohortSizeError(checked.length);
+  const valid = checked.length > 0 && sizeError === null && checked.every((row) => row.error === null);
 
   const readToken = useCallback(async () => {
     setTokenError(null);
@@ -226,7 +234,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
     ]);
   };
 
-  const disabledReason = !vault ? "RoseVault is not deployed yet." : !wallets.evm.address ? "Connect a Base Sepolia wallet (the issuer's tokens)." : !wallets.near.accountId ? "Connect a NEAR wallet (registers the deposits)." : !tokenInfo ? "Enter the cohort token address." : !valid ? "Fix the allocations." : tokenInfo.balance < total ? `Balance ${formatAmount(tokenInfo.balance, tokenInfo.decimals)} ${tokenInfo.symbol} is below the cohort total.` : null;
+  const disabledReason = !vault ? "RoseVault is not deployed yet." : !wallets.evm.address ? "Connect a Base Sepolia wallet (the issuer's tokens)." : !wallets.near.accountId ? "Connect a NEAR wallet (registers the deposits)." : !tokenInfo ? "Enter the cohort token address." : sizeError ? sizeError : !/^[1-9]\d*$/.test(granularity) ? "The granularity must be at least 1 second." : !valid ? "Fix the allocations." : tokenInfo.balance < total ? `Balance ${formatAmount(tokenInfo.balance, tokenInfo.decimals)} ${tokenInfo.symbol} is below the cohort total.` : null;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">

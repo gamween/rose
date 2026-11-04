@@ -15,7 +15,7 @@ import { useAction } from "@/lib/use-action";
 import { RoundTimingFields, type RoundTimingValue } from "@/components/rounds/RoundTimingFields";
 import { secondsToDateTime } from "./class-schedule";
 import { DaoPanel } from "./DaoPanel";
-import { ActionFeedback, ClassPicker, ClassSummary, FieldLabel, formatNear, Hint, Preview, useVenueOptions, type IssuerBase } from "./shared";
+import { ActionFeedback, ClassPicker, ClassSummary, defaultRoundClass, FieldLabel, formatNear, Hint, Preview, useVenueOptions, type IssuerBase } from "./shared";
 import { BURN_ADDRESS, percentToBps, tenderArgsFromForm, tenderEscrow, type TenderFormValues } from "./tender-form";
 
 const USDC = 6;
@@ -26,7 +26,7 @@ type Built = { args: TenderArgs; call: FunctionCall } | { error: string };
 export function TenderTab({ base, initialClassId, showDao, onCash }: { base: IssuerBase; initialClassId?: string; showDao: boolean; onCash?: (cash: Cash[]) => void }) {
   const wallets = useWallets();
   const venues = useVenueOptions(base);
-  const [classId, setClassId] = useState(initialClassId ?? base.classes[0]?.classId ?? "");
+  const [classId, setClassId] = useState(initialClassId ?? defaultRoundClass(base.classes));
   const cls: ClassInfo | null = base.classes.find((item) => item.classId === classId) ?? null;
   const [venueId, setVenueId] = useState(venues[0]?.id ?? "near");
   const [budget, setBudget] = useState("1000");
@@ -91,6 +91,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
       window: { opensNow, opensAt, closesAt },
       keyTimeout: minutesToNs(timing.keyTimeout),
       revealWindow: minutesToNs(timing.revealWindow),
+      unlock: cls,
     };
     const result = tenderArgsFromForm(values, now, base.limits);
     if ("error" in result) return result;
@@ -123,7 +124,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5 sm:col-span-2">
               <FieldLabel htmlFor="tender-class">Class</FieldLabel>
-              <ClassPicker id="tender-class" classes={base.classes} symbols={base.symbols} value={classId} onChange={setClassId} />
+              <ClassPicker id="tender-class" classes={base.classes} symbols={base.symbols} value={classId} onChange={setClassId} lockedOnly />
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="tender-venue">Cash venue</FieldLabel>
