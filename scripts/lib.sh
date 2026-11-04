@@ -3,8 +3,9 @@
 #
 # Conventions: every script is bash + near-cli-rs (NEAR), forge/cast (Base) and jq; python3 is used
 # only to decode base58. Keys are read from ~/.config/rose/*.env and ~/.near-credentials and never
-# printed. Every deployment is recorded in deployments/testnet.json (addresses, transaction hashes,
-# block numbers: no secrets).
+# printed or passed on a command line (EVM keys go to cast and forge through an encrypted keystore
+# and a password file, see evm_signer). Every deployment is recorded in deployments/testnet.json
+# (addresses, transaction hashes, block numbers: no secrets).
 
 set -euo pipefail
 
@@ -42,14 +43,19 @@ require_tools() {
   done
 }
 
-# Loads KEY=value lines of ~/.config/rose/<name>.env into the environment without echoing them.
-load_env() {
-  local file="$ROSE_CONFIG_DIR/$1.env"
-  [[ -f "$file" ]] || die "missing $file"
-  set -a
-  # shellcheck disable=SC1090
-  source "$file"
-  set +a
+# evm_signer <name>: signs with the EVM key of ~/.config/rose/<name>.env (EVM_PRIVATE_KEY or
+# EVM_DEPLOYER_PRIVATE_KEY) through its encrypted keystore, which scripts/evm-keystore.ts writes
+# once, so the key never appears on a command line. Sets EVM_ADDRESS and EVM_WALLET_ARGS, the
+# cast and forge flags `--keystore <file> --password-file <file>` (both files mode 600).
+evm_signer() {
+  local out keystore password_file
+  out="$(node "$ROSE_ROOT/scripts/evm-keystore.ts" "$1")" || die "cannot open the EVM key of $1.env"
+  keystore="$(sed -n 's/^keystore=//p' <<<"$out")"
+  password_file="$(sed -n 's/^password_file=//p' <<<"$out")"
+  # shellcheck disable=SC2034 # read by the sourcing script
+  EVM_ADDRESS="$(sed -n 's/^address=//p' <<<"$out")"
+  # shellcheck disable=SC2034 # read by the sourcing script
+  EVM_WALLET_ARGS=(--keystore "$keystore" --password-file "$password_file")
 }
 
 # near_view <account> <method> [json args]: a view call through the RPC, printing the JSON result.
