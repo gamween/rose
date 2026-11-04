@@ -814,3 +814,200 @@ Facts behind the web app's storage top-ups, round bounds and `vestedToRecipient`
 | tUSDC registration on the token (Get test funds copy) | `curl -s https://test.rpc.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"tusdc.rose-app.testnet","method_name":"storage_balance_bounds","args_base64":"e30="}}'` | `{"min":"1250000000000000000000","max":"1250000000000000000000"}` (0.00125 NEAR); the mint window is fixed (`MINT_WINDOW_NS`, `contracts/tusdc/src/lib.rs`), not rolling |
 | engine-s3 predates the new `get_limits` fields | same `call_function` on `engine-s3.rose-app.testnet`, `get_limits` | `{"bid_storage_deposit":…,"round_storage_deposit":…,"max_bids_per_round":64,"max_distribution_receivers":50,"fee_bps":30,"bond_floor":"1000000"}`: no window bounds, so the round detail, Create Exit, issuer and Advance pages show their "could not read the engine" state until an engine from this source is deployed |
 | `@rose/sdk/clearing` and `@rose/sdk/math` resolve for Playwright | `pnpm -C apps/web exec playwright test e2e/rounds.spec.ts --list` | 14 tests listed; the suite runs (12 passed, 2 skipped by design) against a build with `NEXT_PUBLIC_ENGINE_ACCOUNT=rose-ckd-1793753433.testnet` |
+
+## Staging deployment 4 (2026-11-04, engine `engine-s4.rose-app.testnet`, keeps its key)
+
+A dress rehearsal of the final deployment from `71d8618`: the same scripts, flags and order the keyless engine will use, `--keyless` aside. Engine wasm built with `cargo near build non-reproducible-wasm` (1,006,162 bytes, sha256 `41a514d6c18e074719678d6d3cd77640acaacd3531de7d14be6819bbb80f8fdf`, the build reviewed in "Full engine review fixes"); on-chain code hash `5RFVxFdf6g3hq8Wtibps1f74vXrByAU56a15dLz7xQFY` (`view_account`) equal to the base58 SHA-256 of the local file. Records: `deployments/testnet.json`, `deployments/engine-s4.rose-app.testnet.env`, `deployments/e2e/engine-s4.rose-app.testnet.{seed,live,solana}.json`.
+
+### Funding (NEAR)
+
+| Step | Command | Result |
+|---|---|---|
+| NEAR helper faucet from this machine | `near account create-account sponsor-by-faucet-service rose-fund-1793785235-4.testnet autogenerate-new-keypair save-to-legacy-keychain network-config testnet create` | `429 Too Many Requests`: still rate limited, no account created (the unused key file was deleted) |
+| `engine-s1` is unused | `grep -rn engine-s1` over `apps/web`, `packages`, `scripts`, `deployments` | only historical records: `deployments/testnet.json` and its env and e2e files, and `contracts/engine/tests/sandbox_staging.rs`, which replays recorded `engine-s1` vectors in a local sandbox under the same name (it reads the init arguments from `deployments/testnet.json`, never the live account); no web, demo-manifest or Vercel reference |
+| Reclaim `engine-s1`'s code storage | a 102-byte `no_std` wasm exporting one empty function (built outside the repository, sha256 `37ddcb8ce8fb8d8bf33838b275c62d97fb0d5959f77670c9911379410b630a4f`), `near contract deploy engine-s1.rose-app.testnet use-file noop.wasm without-init-call network-config testnet sign-with-legacy-keychain send`: [F338jKy3…](https://testnet.near.rocks/tx/F338jKy3EZ5NiDuUmeZfqxEbedHDZNW3AtYRDZtqBMby) | storage 985,334 to 22,942 bytes (the engine state stays), code hash `4m5aeUKevhRkojBRpor6s9ELuZWKfYZe5i6Q33EWpTNW` |
+| Sweep `engine-s1`'s free balance | `near tokens engine-s1.rose-app.testnet send-near rose-app.testnet '12.94 NEAR' network-config testnet sign-with-legacy-keychain send`: [44iHnJpy…](https://testnet.near.rocks/tx/44iHnJpy2rLsRRrW2rg6Jq9bGTHcmwBv43QEKt2nGuPv) | `rose-app.testnet` 1.32 to 14.26 NEAR; `engine-s1` keeps 0.237 NEAR (0.229 locked by its state) |
+
+`engine-s2` (the production web app's engine until this deployment), `engine-s3` and `rose-faucet.testnet` were not touched.
+
+### Deployment
+
+| Step | Command | Transaction | Note |
+|---|---|---|---|
+| Derived addresses (before any deployment) | `scripts/derive-vault-signer.sh engine-s4.rose-app.testnet --all` | | `vault/base` `0x8a8b95399f00ba2aac6babdc56cf761b22ee3ad6`, `vault/sol` `46qirv3tB1CV9isYzGVkhjnj2aohY8ne9gnL1PPgBNm9`, `gas/sol` `GFEqJRK9d1rHcvsHpNnSSNWhy8htDsnX8V9XM42MDhRR` |
+| RoseVault from the current source (`Release` with `vestedToRecipient`); TestUSDC, DemoToken and DemoStreamFaucet reused | `scripts/deploy-base.sh --engine engine-s4.rose-app.testnet --role staging --demo-assets-from engine-s3.rose-app.testnet` | [0x06183aae…](https://sepolia.basescan.org/tx/0x06183aae9e46ee4dcd6fac1d8c1cefce572ef6f5e2fbe1d5acac82cb709853a2) | `0x14c7f1f870ccb5569a01399013ceeeffc465e243`, block 54,317,700; `cast call … 'RELEASE_TYPEHASH()(bytes32)'` = `0x3098792e…eceaa` = `cast keccak 'Release(address lockup,uint256 streamId,address to,bool vestedToRecipient,uint256 id)'`; `SIGNER()` = the derived `vault/base`; `LOCKUP()` = Sablier Lockup v4 |
+| Engine account with 12 NEAR, deploy + `new`, `bootstrap` | `scripts/deploy-engine.sh engine-s4.rose-app.testnet --role staging --balance "12 NEAR"` | [Cp4wrCFE…](https://testnet.near.rocks/tx/Cp4wrCFE6ZibFcD9CEM5WdFQpUexFPZ1MnXXKrkZSXci), [FoCpP4Wr…](https://testnet.near.rocks/tx/FoCpP4Wrw9yboTfry9Y9gCY83oLfnJ5WP8FRJfd1ZLyh), [EW8vWi8E…](https://testnet.near.rocks/tx/EW8vWi8Ey8ZBDLuoq4H4d5gzVH3nQfZnUCWUKZVepxBB) | stored derived addresses equal to the MPC view and to RoseVault's `SIGNER()` (checked by the script); `get_limits` returns the window bounds (`min_key_timeout` 60 s to `max_round_horizon` 30 days); storage after bootstrap 1,007,578 bytes |
+
+Decision: the Base demo assets are reused (`--demo-assets-from`) rather than redeployed, here and for the final engine: they do not depend on the engine, the DemoStreamFaucet schedules define the seeded classes, and positions or tUSDC that testers already minted stay valid. The final deployment differs only by its account name, `--role final` and `--keyless`.
+
+### Seed and live end-to-end
+
+`node scripts/seed.ts all --env deployments/engine-s4.rose-app.testnet.env --kol-wallet nadia-s4`, then `node scripts/e2e-live.ts all --env deployments/engine-s4.rose-app.testnet.env`; both run once more afterwards with every step recorded: exit 0 and exit 0. Nadia Solvik's own KOL stream was minted by a fresh key (`--kol-wallet nadia-s4`, `0x3bE532781B46eFbd804aeCAA75d53008270ED650`, funded with 0.002 ETH [0xb595e18e…](https://sepolia.basescan.org/tx/0xb595e18ede860b6dbffb7c8333d9a9d37239ee3cde7bd5693bfb966c97063478)) because DemoStreamFaucet allows one mint per address per day and her own address minted for `engine-s3` the same morning; the redeem still returns the stream to her own address.
+
+Script bugs found live and fixed (each with a test in `scripts/lib/*.test.ts`):
+
+- Exit bids were refused with "Insufficient storage deposit for halden-ventures.rose-app.testnet: top up with storage_deposit" ([7TWm2kuA…](https://testnet.near.rocks/tx/7TWm2kuA98C7nAzMYf5hCpPMLVXR4C2QyeGN2yV73kVP)): since the full review fix M2, an Exit `place_bid` needs room for the holding row the bought units will land in. `placeOrder` now tops up `storage_deposit` first (`bidStorageTopUp`: the registration minimum, nothing when the buyer already holds the class, else one 310-byte row minus `available`), e.g. [CkQoiKtP…](https://testnet.near.rocks/tx/CkQoiKtPUYGRXzGCC4QAhw3ULuCav36qJJQjDK55QYrA).
+- A transaction failed before it was signed: the public RPC answered an HTML page to a read near-api-js makes in `Account.createTransaction` (`SyntaxError: Unexpected token '<'`). Such failures are now retried like 429s (nothing was sent); an HTML answer to the broadcast itself is still not retried.
+- The rerun then reused the creator's `Open` no-key round 3 ([43tfJLAZ…](https://testnet.near.rocks/tx/43tfJLAZ4Lbq5xRE2m3hxQA3JFwU1CsG5rK8x39dJrGP)) whose window had ended, and its bid was refused ("Round is closed", [H4pQmLtP…](https://testnet.near.rocks/tx/H4pQmLtPacWq7oMxJe9YKPZaB1yt1CcB6giNus1YpWBF)). A resumed run now reuses only a round still taking orders for at least 60 s, so the no-key proof ran on round 4. Round 3 stays `Open` with no order (anyone can `close` or `cancel_no_key` it).
+
+| Proof | Result | Transactions |
+|---|---|---|
+| Tender (round 0, Seed Round, Base tUSDC) | clears at 0.036000, 41,666.67 CINDR; equal to `@rose/sdk` | close [4qwvyUSD…](https://testnet.near.rocks/tx/4qwvyUSDoTSroGVnB9Nq5mSqVy8HNHYuFGZBfX17uHoV), clear [CJBBaNdH…](https://testnet.near.rocks/tx/CJBBaNdHLatJCamxktdHVmEMMqxLzKJWejnmv86GhpHm) |
+| Exit on Solana positions (round 1, Strategic Round, NEAR tUSDC) | clears at 0.027000, volume 70,000; equal to `@rose/sdk` | close [CSx8irE1…](https://testnet.near.rocks/tx/CSx8irE17biGuHmLRSJWChgLH5qa5VP56JFJ2SWmxwa7), clear [AFWLZaN4…](https://testnet.near.rocks/tx/AFWLZaN4cpPWQ3ziat5Ef9BsQiQvBYqVysYcBDAwTaHe) |
+| Advance (round 2, KOL Round) | clears at 0.037500 per claimed token, 3,000 CINDR claim, lien 0; equal to `@rose/sdk` | close [DeAgBYGD…](https://testnet.near.rocks/tx/DeAgBYGD6MoT2YhiEHZh49T35oQbCo5PLjtqDxJbj35o), clear [21cjmHff…](https://testnet.near.rocks/tx/21cjmHffw8Dp4rtn2xrYg335rcMTx1ELSxJqHMzTHZP7) |
+| CKD key release | key via callback 4.2 s, 4.1 s and 4.3 s after `close` (37.4 to 37.5 Tgas), each equal to the offline unwrap | above |
+| Malformed bid | decryption fails; the author's own opening refused on chain ([2kUWSs1V…](https://testnet.near.rocks/tx/2kUWSs1VVBDgZuHs1SwkDjeZw2xrULj92Pz1dhAkvc8u), 131.3 Tgas); `Unopened`, bond slashed | settle [E5rDKqno…](https://testnet.near.rocks/tx/E5rDKqnoMMUC9qDxrw4rCM95kCHL9PZfxXfpvdTyCXf1) |
+| `cancel_no_key` (round 4, key timeout 60 s) | `close` refused after the timeout, cancelled with reason `NoKey`, escrow and bond refunded (Halden's NEAR cash 64.34 before and after) | refused close [Br6r994g…](https://testnet.near.rocks/tx/Br6r994g8h9Sfxt8tbjBUhnZFEx2FPvnJJbpUyizzUdo), cancel [73EpPXUb…](https://testnet.near.rocks/tx/73EpPXUb8SnhN3pdraqHEPBhWTKeT1XbqUrwFQ4YGyAc), refund [CuUdn9Ap…](https://testnet.near.rocks/tx/CuUdn9Ap1QiJQvu6AzNcSCVcq5uQVuok3aPPkTFP9JwG) |
+| NEAR USDC payout | Ines Marlow `withdraw_near_cash` 1,732.3875 tUSDC | [FYGewrQi…](https://testnet.near.rocks/tx/FYGewrQiYbgW7QeFvaqXHHRpRRm252RiaRZA7yyMaUhK) |
+| Base USDC payout | Halden Ventures `withdraw_base_cash` 1,460 tUSDC, payout 5, `executeTransfer` (balance 1,460 to 2,920 tUSDC) | [Edu51Jde…](https://testnet.near.rocks/tx/Edu51JdeRPQRuo2D3bLgwaWHbGfTspYpF79mDUF7Wc5y), [0xa36608c6…](https://sepolia.basescan.org/tx/0xa36608c6e51e09f9ea30837484a175e486d4bac2a62c4820b571111a7ad2f48d) |
+| Advance repayment from unlocks | `withdrawMax(97, RoseVault)`, Varick Partners `claim_base_tokens({LienShare: 0})` of 0.3710 CINDR (lien delivered 0.5565 of 3,000), payout 6, `executeTransfer` | [0x1f573924…](https://sepolia.basescan.org/tx/0x1f573924e787bc7a4235bdf7f60ead702c0853b7f72c850177dd8cd7f1d47a2c), [J4nxAv6Z…](https://testnet.near.rocks/tx/J4nxAv6ZWUoEKBbtTRVMk3fmrw6og6GEyTpBnruauLd8), [0xf6340246…](https://sepolia.basescan.org/tx/0xf63402467f24d1914f71702570c583e540b75fa821c35a47d92414db9804b902) |
+| Base in-kind redeem through the new `Release` type (`vestedToRecipient = false`) | Nadia Solvik `redeem(position 7)`, payout 7, `executeRelease` returns stream 99 to `0x9f1a…6049` (`ownerOf` checked), position `Released` | [68PhW7xT…](https://testnet.near.rocks/tx/68PhW7xT1qEG2bEEAEEopN8s8fNBwWuE9K75fL94dadn), [0x291c7f37…](https://sepolia.basescan.org/tx/0x291c7f37e43b1aa50ea673d2d55c41de2fef868f0d76deecf60f8c27cc21209a) |
+
+### Solana token payout in two phases (`e2e-solana-stream.mjs`)
+
+`node scripts/e2e-solana-stream.mjs engine-s4.rose-app.testnet <step>` for `setup`, `transfer`, `attribute`, `move`, `register`, `claim`, `confirm`, `redeem`, `confirm-redeem` (holder `b1.rose-ckd-1793753433.testnet`): every step exit 0 (the first `claim` exited 1 with "nothing claimable yet" before the stream's first unlock, as designed).
+
+| Step | Transaction | Gas | Note |
+|---|---|---|---|
+| `gas/sol` funded with 0.05 SOL; Streamflow stream `44mPHi4x…NrA` of mint `93TTvCoQ…mGj6` (3,600 tokens, 60 per minute, fee-free) | [2vgAGCrY…](https://explorer.solana.com/tx/2vgAGCrYEgpLMxnWRp2WdAZ5YLpMSaR967key4UuB3MtCNzTV5eH26wZDPUqFU3ED3nmqz6NHowWVgMBK52Q7Ddp?cluster=devnet), [LwkjByPr…](https://explorer.solana.com/tx/LwkjByPriDnvxq9GDbhThMqm8nZ5ndzKnHYoo8CHqmdanCCU9PruYX2eAFXrSMGnvk8fBa7s297ZiwfNJFC6UwB?cluster=devnet) | | |
+| `transfer_recipient` to the deposit address `9TJPWSF1…ZWTb` | [3qnrb5j1…](https://explorer.solana.com/tx/3qnrb5j1vNBVV3HgPDT1PJq5g6dmE2ZsKUyiZfddfyqtBNLTdHr2tkpaedgJTMsYax6M2KdmaeEqLoebH9MC7duC?cluster=devnet) | | |
+| `attribute_sol_deposit`, `move_sol_deposit` + broadcast, `register_sol_deposit` | [5DUQH5dm…](https://testnet.near.rocks/tx/5DUQH5dmA8mxKmxS7oXMUPD4f6dLGRpcKKxDHSkuxiW3), [HUoJPHDm…](https://testnet.near.rocks/tx/HUoJPHDmdciu6X6b6TmAw9Ah8v3AEEFzpC8pq3pFoaqK), [8FKNnACx…](https://explorer.solana.com/tx/8FKNnACxLejcs2yk2CxiHyJLZ9qMnJ85ZxBtLgckXZDzMcFXZr3nZQ4sZRaBF6y7TS8E5GMZXiesqz5at2nLBNv?cluster=devnet), [9VxSazBJ…](https://testnet.near.rocks/tx/9VxSazBJGjB3K8FEN2367tTbRU1Yt85f2uddq4YUMJAK) | 26.8, 28.9, 21.3 Tgas | position 0, 3,600e6 units; stream recipient = `vault/sol` |
+| Payout nonce account `2hu1tQoP…H9Hi` (`createWithSeed(ops, payoutNonceSeed(b1, …))`, authority = vault) | [3ivSFQes…](https://explorer.solana.com/tx/3ivSFQesp6DaPHFuxC7JesHqVMeop1BdeCAhzrbNSXm5rXVBzsbXZtfmWWRCQZ5x97CMqwmvquUJunz4eu3pRw9u?cluster=devnet) | | |
+| Phase 1: `claim_sol_tokens` (draw 119,999,999 on position 0) and broadcast | [5d9B9nPG…](https://testnet.near.rocks/tx/5d9B9nPGsCAExncNTAzx1BzMfYsgawDiCRURYimMwbk5), [4PPo8oWz…](https://explorer.solana.com/tx/4PPo8oWzp7WLRK9DQDrhZNHRbtFyGTWL8eHLa7C61mvH9hMTe4s2po313eYRDRUX9TtiWsJrkJtH4dLoSNZgjrBc?cluster=devnet) | 45.7 Tgas | 44,543 CU; recipient 6,400,000,000 to 6,519,999,999; payout 3 `Signed` |
+| Phase 2: `confirm_sol_payout` | [9HZ8GCwn…](https://testnet.near.rocks/tx/9HZ8GCwnmTTCJYgv9oUCvaMre6FcDJQZ7Zu5cATyJyHF) | 17.2 Tgas | payout 3 `Landed`; `engine_withdrawn` 119,999,999 = the stream's `amount_withdrawn` |
+| `redeem(position 0)` and broadcast, `confirm_sol_redeem` | [5Ja4ux9U…](https://testnet.near.rocks/tx/5Ja4ux9Ui1xUCJztEBKj7rbtsrc89wcVYEhcLTPMSJgf), [44Jfunex…](https://explorer.solana.com/tx/44Jfunex69dnNFHReftyF73YHctoAD22vuwLH1T8AM47mnspgHfnUAKeeV97iYbJomMG2N7rKuLmdiUEszcpq8R8?cluster=devnet), [H2UGrjhS…](https://testnet.near.rocks/tx/H2UGrjhSVFPEUkaEmZ2fov2a6T9G5L7GrebC1chF2kLM) | 44.3, 18.5 Tgas | 12,231 CU; owed share 60,000,001; payout 4 `Landed`, position `Released`, stream recipient the holder |
+
+### Refused-stream return (`vestedToRecipient = true`): not produced live
+
+No cheap refusal exists on Base: RoseVault's `depositStream` already reverts on every condition the engine's `admit_base_stream` checks (`WrongLockup`, `StreamCancelable`, `StreamNotTransferable`, `StreamDepleted`, `InvalidNearAccount` with the same NEAR account-id rules, the one-token minimum), and the engine's remaining checks are Sablier's own creation rules, which a live Sablier stream always satisfies. The return path stays covered by `forge test` (`test_executeRelease_vestedToRecipient_sendsVestedToTheReturnee`, the fork test `test_fork_returnSendsVestedToTheReturnee` against the live Sablier Lockup) and the engine unit tests (`every_spelling_of_a_refused_stream_records_the_canonical_return`).
+
+### Balances after the run
+
+`rose-app.testnet` 1.58 NEAR (14.26 before: 12 to the engine, the rest cast top-ups to their target balances, openings and other permissionless calls), `engine-s4.rose-app.testnet` 12.73 NEAR for 1,061,384 bytes, Base deployer 0.9429 ETH, Solana ops key 8.307 SOL, `gas/sol` 0.047 SOL.
+
+### Every transaction (`node scripts/e2e-live.ts report --env deployments/engine-s4.rose-app.testnet.env`)
+
+| Step | Action | Transaction | Gas |
+|---|---|---|---|
+| near-account:cindral-foundation.rose-app.testnet | create cindral-foundation.rose-app.testnet with 0.6 NEAR | [BtiScPFbRv…](https://testnet.near.rocks/tx/BtiScPFbRvgrMLtZgfimJ9msaFyYjfYVHYuYTkygeSWq) |  |
+| near-account:halden-ventures.rose-app.testnet | create halden-ventures.rose-app.testnet with 0.35 NEAR | [8rxPAHaVk4…](https://testnet.near.rocks/tx/8rxPAHaVk48MgNmo58wUdckW2Efcimt8JsYiaTvhvirt) |  |
+| near-account:tessaro-capital.rose-app.testnet | create tessaro-capital.rose-app.testnet with 0.35 NEAR | [7dJvtztSj6…](https://testnet.near.rocks/tx/7dJvtztSj6XzAraPAeGH1AwPfFJApzKBhBibWPgtG6YN) |  |
+| near-account:ines-marlow.rose-app.testnet | create ines-marlow.rose-app.testnet with 0.45 NEAR | [8F9DUE4oJ6…](https://testnet.near.rocks/tx/8F9DUE4oJ65F5vwkQwAdc2ewBgWtsVRY5bUKZi77aiq3) |  |
+| near-account:varick-partners.rose-app.testnet | create varick-partners.rose-app.testnet with 0.45 NEAR | [CNX5q67VCq…](https://testnet.near.rocks/tx/CNX5q67VCq6wanKqPzr2zvkMPf4L3EvDDTJPYLTs1aEh) |  |
+| near-account:teodor-vance.rose-app.testnet | create teodor-vance.rose-app.testnet with 0.35 NEAR | [2RZtXcG7Pb…](https://testnet.near.rocks/tx/2RZtXcG7PbN3oWptB2ygWEwuknBQmS6JnCcCEGrKHkLx) |  |
+| near-account:nadia-solvik.rose-app.testnet | create nadia-solvik.rose-app.testnet with 0.35 NEAR | [2WYsuERai7…](https://testnet.near.rocks/tx/2WYsuERai7BrNPWX4pQGDqA4BmvpYBrUVRYcsn5aksQC) |  |
+| solana-mint | createMint (CINDR, 9 decimals) | [KvkQKDThFF…](https://explorer.solana.com/tx/KvkQKDThFFTmU44NmjK4Zkfz4zWC9CfnDW7mWFoTwck3GEZ9DvZLrtsXewJNbi6yPMvspJzUHG6wLYy5neqp7Lb?cluster=devnet) |  |
+| near-top-ups | top up cindral-foundation.rose-app.testnet to 0.6 NEAR | [81q2bNoZcs…](https://testnet.near.rocks/tx/81q2bNoZcsx6kkbizqDEsKJ5kdxtX6JqwifpBps6Qyth) |  |
+| near-top-ups | top up halden-ventures.rose-app.testnet to 0.35 NEAR | [2iX1z4dxVB…](https://testnet.near.rocks/tx/2iX1z4dxVBdnLkbkgG2mcTPeGhgNEkzypAKe8zZJhhQU) |  |
+| near-top-ups | top up ines-marlow.rose-app.testnet to 0.45 NEAR | [ENbTQnWq6G…](https://testnet.near.rocks/tx/ENbTQnWq6GBpEHT4uvauqEV3pEqDEkW8upiBEpyqgSfb) |  |
+| near-top-ups | top up varick-partners.rose-app.testnet to 0.45 NEAR | [7L3rU5mCQk…](https://testnet.near.rocks/tx/7L3rU5mCQki1vBdAejqLZCkCna8PbzwWrxqa8y3gAAa5) |  |
+| near-top-ups | top up teodor-vance.rose-app.testnet to 0.35 NEAR | [BadZaYXYNk…](https://testnet.near.rocks/tx/BadZaYXYNkiiUucvp1QbVKS4RwdNZGJLqBgQjY2ciJkG) |  |
+| gas-top-ups | 0.002 ETH to Nadia Solvik's wallet | [0xb595e18e…](https://sepolia.basescan.org/tx/0xb595e18ede860b6dbffb7c8333d9a9d37239ee3cde7bd5693bfb966c97063478) | 21000 gas |
+| base-cohort:seed-base | Cindral Foundation: approve RoseVault for Seed Round | [0x4908545d…](https://sepolia.basescan.org/tx/0x4908545d4dea6b03b77dddfce6d6977dcbac919cc207452874697f64fd2b542c) | 45978 gas |
+| base-cohort:seed-base | Cindral Foundation: createStreams (Seed Round) | [0xc63f1642…](https://sepolia.basescan.org/tx/0xc63f1642a8c1573b1c141f56c85ce7e86fb4d9d29a2db98b6f13d57c8d9cc70f) | 580394 gas |
+| base-cohort:kol-base | Cindral Foundation: approve RoseVault for KOL Round | [0xa3e5daa6…](https://sepolia.basescan.org/tx/0xa3e5daa678d8a5e2bb4147ca697dc33f6e8ae37c00d64a64369fec0868a10d0d) | 45966 gas |
+| base-cohort:kol-base | Cindral Foundation: createStreams (KOL Round) | [0x878bdcff…](https://sepolia.basescan.org/tx/0x878bdcff726c4654384a4ae5d6632c545e6a10ff9ddc46719a2244315044673d) | 598760 gas |
+| base-self-deposit:nadia | Nadia Solvik: DemoStreamFaucet.mintPosition(KOL) | [0xfa0e5e05…](https://sepolia.basescan.org/tx/0xfa0e5e0538ce2e563fa05502c732f10ac1e31d0af9cf5ad5c44c64bcd24c382f) | 267723 gas |
+| base-self-deposit:nadia | Nadia Solvik: approve RoseVault for the stream | [0x1c13499f…](https://sepolia.basescan.org/tx/0x1c13499f60eb3fb2b0daa19fa805b309da5b546689ccae0afb71651746307fe4) | 48365 gas |
+| base-self-deposit:nadia | Nadia Solvik: depositStream | [0xf3b1b5ee…](https://sepolia.basescan.org/tx/0xf3b1b5eefa77ffebc0c809909a629a240f5605bd3deb7d002efb53b792aa0fe5) | 228807 gas |
+| base-cash | Cindral Foundation: mint Base tUSDC | [0x7e395318…](https://sepolia.basescan.org/tx/0x7e39531887e027cf3bb6f230a4f00433d20f68a0fb7fe8e85b6e6f3d04063a39) | 58470 gas |
+| base-cash | Cindral Foundation: approve RoseVault for tUSDC | [0x48457cc7…](https://sepolia.basescan.org/tx/0x48457cc78678bac406c7c151ffc0466845c431e7ec4543304264a0702d0cf2f6) | 45918 gas |
+| base-cash | depositCash 1505 tUSDC for cindral-foundation.rose-app.testnet | [0x028b9028…](https://sepolia.basescan.org/tx/0x028b9028d0e341bdc34291957920a5b7a3f908190e1726594c7d82fb34de390a) | 74899 gas |
+| base-cash | depositCash 20 tUSDC for halden-ventures.rose-app.testnet | [0xfeebc1fc…](https://sepolia.basescan.org/tx/0xfeebc1fc4ffa234fd6a4168c4020cdf1c6f46f8c1245fcb8bdbf931f805b3f99) | 56785 gas |
+| base-cash | depositCash 15 tUSDC for tessaro-capital.rose-app.testnet | [0x055b64af…](https://sepolia.basescan.org/tx/0x055b64af93829646382399882988abe3fdf6a3cfcca17db63c10fdcea5e68a51) | 47185 gas |
+| sol-stream:ines | Cindral Foundation: Streamflow stream of 300,000 CINDR to Ines Marlow: mintTo treasury | [5TLfA7MoFS…](https://explorer.solana.com/tx/5TLfA7MoFSGjxKDy1KHvWHbjckNiAnu1rbRGWAdMjqK9VDdn3JqLjRgMaE7aTLXXQdhypWoq8dNdbyPSyE46SJQG?cluster=devnet) |  |
+| sol-stream:ines | Cindral Foundation: Streamflow stream of 300,000 CINDR to Ines Marlow | [k83XVCnUb1…](https://explorer.solana.com/tx/k83XVCnUb1qjLUqhdwAChY7HPKAx2r19YuK9v8jFBAVFTSZYtUdgzyp89tzzah4m6HXWbq1jx8BN9Co58QegV7x?cluster=devnet) |  |
+| sol-deposit:ines | Ines Marlow: transfer_recipient to the deposit address FXyKZjqTnkyxyL9NS4vWMpF6w3iFBgMhSPCTCsdrhmNc | [4aaMBqeJ8a…](https://explorer.solana.com/tx/4aaMBqeJ8aezcLfERupXRoMgqyhpKDTEpNoR8ZCoxB6Sxw898oyE7Sqyj1JGfw43zDBBgSaAKWqCrRqqbso5QGDV?cluster=devnet) |  |
+| sol-deposit:ines | Ines Marlow: attribute_sol_deposit | [DbTVyeB64r…](https://testnet.near.rocks/tx/DbTVyeB64r12pJQmZetYKjUd2u2Y97qWSYJMswvFpKGD) | 26.79 Tgas |
+| sol-deposit:ines | Ines Marlow: move_sol_deposit | [9SHkMCTNPJ…](https://testnet.near.rocks/tx/9SHkMCTNPJZXPVjfETZ5JQR3DMiYtUer7u8TRZskvNxH) | 28.88 Tgas |
+| sol-deposit:ines | Ines Marlow: move to the vault (engine-signed, broadcast) | [2d3YZ1XagT…](https://explorer.solana.com/tx/2d3YZ1XagTaKYcRUQLy1bDxCdwLnBFLZ97ZoAArpPDyz1WqAsHdeSoY1WkTs8xqNRfYzwo6DENML1mdZbioyYUDt?cluster=devnet) |  |
+| sol-deposit:ines | Ines Marlow: register_sol_deposit | [75VKBsPtBM…](https://testnet.near.rocks/tx/75VKBsPtBMp9wmV5KJ88WzYtpVHMqmkPoMRG6ygJ12iS) | 21.95 Tgas |
+| sol-stream:varick | Cindral Foundation: Streamflow stream of 200,000 CINDR to Varick Partners: mintTo treasury | [2ekNztmpFy…](https://explorer.solana.com/tx/2ekNztmpFy4atue4YhzyxigqyxxL4mUFsPhWYgDSkUmQvuaesaZABx1WDpH9y575sbwKj37M9LiPF9sojaAUnoEC?cluster=devnet) |  |
+| sol-stream:varick | Cindral Foundation: Streamflow stream of 200,000 CINDR to Varick Partners | [76W6WEkc9e…](https://explorer.solana.com/tx/76W6WEkc9e7Msrd6XgUzhbYji2P3sdm2Vfj7yTRe9kFNpt6E2ZbbiknT7jAjP58ZqF3LkcCz9uZQfwDaAgT89qj?cluster=devnet) |  |
+| sol-deposit:varick | Varick Partners: transfer_recipient to the deposit address HPLAkmsAoTKEf1EF6bWvRQ9obcLqdgMaVfdLRpDQ4etL | [5VhyDGhEd5…](https://explorer.solana.com/tx/5VhyDGhEd5AScPNP2HV6fG3KkBAttUsNESdpdXMmus8xXB3qZQ8QNZ7PHgJDDm7JWsnBgv8LcPiauQL7uLqshuxT?cluster=devnet) |  |
+| sol-deposit:varick | Varick Partners: attribute_sol_deposit | [6nid27EK31…](https://testnet.near.rocks/tx/6nid27EK31LF53DzGtqx5PfFyH5p82Q1tsy8Q9gVmAjh) | 26.85 Tgas |
+| sol-deposit:varick | Varick Partners: move_sol_deposit | [EVBoXMLBNM…](https://testnet.near.rocks/tx/EVBoXMLBNMG22p5RvVojUUznQDuCR3gPh9yAejyLpFbm) | 28.93 Tgas |
+| sol-deposit:varick | Varick Partners: move to the vault (engine-signed, broadcast) | [4xDCM95pTN…](https://explorer.solana.com/tx/4xDCM95pTNRDvTsHshLBDL6duuJYS6GuD95bWW7JraUPqKpbJJssSGvHF12NKHAcrsDCXfwZkBk9qgkgE32D15qs?cluster=devnet) |  |
+| sol-deposit:varick | Varick Partners: register_sol_deposit | [8LopEWn2hN…](https://testnet.near.rocks/tx/8LopEWn2hNSeqntWfHWzPEPYNs9XKiP6s8CFP2KuWRYd) | 21.77 Tgas |
+| base-register | register_base_deposit: stream 95 for Halden Ventures | [71qRALY4pQ…](https://testnet.near.rocks/tx/71qRALY4pQTarFLMiuq9Kvx8V7turw6b3tuGp3uGSnrt) | 19.2 Tgas |
+| base-register | register_base_deposit: stream 96 for Tessaro Capital | [4A6JZJ2CLf…](https://testnet.near.rocks/tx/4A6JZJ2CLfhmoLGbXbFYt1MAH5imc4CWWbs6y5y44VH5) | 18.99 Tgas |
+| base-register | register_base_deposit: stream 97 for Teodor Vance | [CEZFubtvfz…](https://testnet.near.rocks/tx/CEZFubtvfzzKMncRVVW7EuyJ3WBvSy3uSkeyfJbTpBNv) | 19.27 Tgas |
+| base-register | register_base_deposit: stream 98 for Nadia Solvik | [82kyqFfHjt…](https://testnet.near.rocks/tx/82kyqFfHjtGoKTvJtfcj2fxwVqBayHdm2tFcAYUV23Kv) | 19.05 Tgas |
+| base-register | register_base_deposit: stream 99 for Nadia Solvik | [9LvMWyGa2u…](https://testnet.near.rocks/tx/9LvMWyGa2uKbS2DwHsgZxfNuCaGQwMQH1FtRuTVdPhFZ) | 19.14 Tgas |
+| base-register | register_base_cash: 1505 tUSDC for Cindral Foundation | [97dzNuBaKW…](https://testnet.near.rocks/tx/97dzNuBaKWjMSrCQQMR43enouKzyKtcjHHsSxmdQP455) | 16.85 Tgas |
+| base-register | register_base_cash: 20 tUSDC for Halden Ventures | [4NsFuiaR2E…](https://testnet.near.rocks/tx/4NsFuiaR2EmCiGo35XCpRqrPvSnQF2S2ejh1xLhM8j6j) | 16.77 Tgas |
+| base-register | register_base_cash: 15 tUSDC for Tessaro Capital | [GQVdoDpjBG…](https://testnet.near.rocks/tx/GQVdoDpjBGgMEkL2Hsi7g9fPiBLpLKvLw2oJbjzQWhSg) | 16.73 Tgas |
+| near-cash | tUSDC storage_deposit for engine-s4.rose-app.testnet | [BxqfYvsxyr…](https://testnet.near.rocks/tx/BxqfYvsxyrPDoydXb249xELf1A66eP6gZnqeDedaK6AP) | 2.08 Tgas |
+| near-cash | Halden Ventures: engine storage for the cash row | [9tKvGPpoSP…](https://testnet.near.rocks/tx/9tKvGPpoSPZhjivwXfxPvtwcenNtTFncXi5N7z8zPxmA) | 3.35 Tgas |
+| near-cash | Halden Ventures: tUSDC mint 2050 | [7TqW72LFV2…](https://testnet.near.rocks/tx/7TqW72LFV2b25Nkitv6zFeTFNSTNchWiRZkHthrPawD2) | 2.4 Tgas |
+| near-cash | Halden Ventures: ft_transfer_call to the engine | [42zdhqqgzP…](https://testnet.near.rocks/tx/42zdhqqgzPZJufx71ErquKjxC2VypAq5MuG6VWPTCDDQ) | 7.92 Tgas |
+| near-cash | Tessaro Capital: engine storage for the cash row | [HDM1feLU1c…](https://testnet.near.rocks/tx/HDM1feLU1cv2m91kBWAWoGaY8yhNWUhy5jJWWE8C8Cps) | 3.36 Tgas |
+| near-cash | Tessaro Capital: tUSDC mint 900 | [CZgnviQcBD…](https://testnet.near.rocks/tx/CZgnviQcBDPVAZvGqLSeBkb4fMo5UzM4QwwmEJmbLddE) | 2.4 Tgas |
+| near-cash | Tessaro Capital: ft_transfer_call to the engine | [5ho5a7yZfd…](https://testnet.near.rocks/tx/5ho5a7yZfd74n3R2TNZ45fcU4EaQKjHyW3qvZctiwkXE) | 7.92 Tgas |
+| near-cash | Ines Marlow: engine storage for the cash row | [EZVHAJPoqR…](https://testnet.near.rocks/tx/EZVHAJPoqR9jYRtEoPbQ3DPSPKuNieVTyW3crZioRVum) | 3.35 Tgas |
+| near-cash | Ines Marlow: tUSDC mint 150 | [B1pJ3sTvzA…](https://testnet.near.rocks/tx/B1pJ3sTvzAdHbepgReP8rDo881JQHRqifxmv6WWSUCdb) | 2.39 Tgas |
+| near-cash | Ines Marlow: ft_transfer_call to the engine | [BaVHqrwLnG…](https://testnet.near.rocks/tx/BaVHqrwLnGn6zo3np8iBuLxacyEmDGRWJWrfVk3jWwVH) | 7.9 Tgas |
+| near-cash | Varick Partners: engine storage for the cash row | [3y4Zb6UwgS…](https://testnet.near.rocks/tx/3y4Zb6UwgSjuKTHbnBPn3CvWaU72sjnRWZKj383oqg1J) | 3.36 Tgas |
+| near-cash | Varick Partners: tUSDC mint 150 | [GpwsJgPLtA…](https://testnet.near.rocks/tx/GpwsJgPLtAZrD5xTKfmr6cKFpMoS54n4bkNX8HCwVWAr) | 2.4 Tgas |
+| near-cash | Varick Partners: ft_transfer_call to the engine | [EC8WJC3P8X…](https://testnet.near.rocks/tx/EC8WJC3P8XGqib84ZnMdRSRzxKwrRCKDbKyDY2BameMA) | 7.92 Tgas |
+| near-cash | Teodor Vance: engine storage for the cash row | [3yMt7KNg8j…](https://testnet.near.rocks/tx/3yMt7KNg8jXmQ39QxNKSMNVyezVPWNGs1nuaMim7W564) | 3.35 Tgas |
+| near-cash | Teodor Vance: tUSDC mint 10 | [3kxdYHkC2w…](https://testnet.near.rocks/tx/3kxdYHkC2wL68tmQD8iV1BZiPXKccPLtHFQXHgbMZk2b) | 2.4 Tgas |
+| near-cash | Teodor Vance: ft_transfer_call to the engine | [2mFrx3QVag…](https://testnet.near.rocks/tx/2mFrx3QVagiMSwABpjiWTho5dxbLWzMcDT7XBKZYjLJA) | 7.9 Tgas |
+| near-cash | Nadia Solvik: engine storage for the cash row | [3njiQ8FLTu…](https://testnet.near.rocks/tx/3njiQ8FLTuapTo9qKyFzGcmwAGsnBRjCRdcctkkXmy8h) | 3.35 Tgas |
+| near-cash | Nadia Solvik: tUSDC mint 150 | [BcWo7h2BJk…](https://testnet.near.rocks/tx/BcWo7h2BJkkWb5ohjdpHBS2qQNXj3sArLNM83Yw7TDHP) | 2.4 Tgas |
+| near-cash | Nadia Solvik: ft_transfer_call to the engine | [9czEpvRMQ7…](https://testnet.near.rocks/tx/9czEpvRMQ7cbncQLeJviRuKhgiTjQ57wx3HUjg9hTT5w) | 7.91 Tgas |
+| round:tender | Cindral Foundation: create_tender (Seed Round, Base tUSDC) | [G9RZ7g35JV…](https://testnet.near.rocks/tx/G9RZ7g35JV57wawFqpKN6L7pKKBr5mauJu4SaCdTBpFS) | 3.83 Tgas |
+| round:exit | Ines Marlow: create_exit (Strategic Round, NEAR tUSDC) | [Y4NNvAccwM…](https://testnet.near.rocks/tx/Y4NNvAccwM4ta92PtKj9QFw9T1MtjZzppoKFZ8UqevR) | 3.51 Tgas |
+| round:advance | Teodor Vance: create_advance (KOL Round, NEAR tUSDC) | [1haMvx3b8U…](https://testnet.near.rocks/tx/1haMvx3b8Uk1Cmjtc27gbrBFpuzNazZCbBTSNyFC4Cg) | 4.02 Tgas |
+| orders:tender | Halden Ventures: place_ask | [CypbNQfLDw…](https://testnet.near.rocks/tx/CypbNQfLDwyzZ4X8okPMryiE6oKtiekvKAfTiTCDgspJ) | 4.67 Tgas |
+| orders:tender | Tessaro Capital: place_ask | [3xv7RsTAEV…](https://testnet.near.rocks/tx/3xv7RsTAEVYAJwQi1Bz1T4UHSGE4yoBa36ARE5ziEc63) | 4.68 Tgas |
+| orders:exit | Ines Marlow: place_ask | [ERfdx3pdTS…](https://testnet.near.rocks/tx/ERfdx3pdTSs2ohSTcwA5SHwBkBVWbB3BxFg2HyLZaAnx) | 4.62 Tgas |
+| orders:exit | Varick Partners: place_ask | [AiJqq3DFWx…](https://testnet.near.rocks/tx/AiJqq3DFWxcsTdDsZRqwKR88oTYEmnfzBMREynwTXzLe) | 4.65 Tgas |
+| orders:exit | Halden Ventures: engine storage for the bought units' holding row | [CkQoiKtPUY…](https://testnet.near.rocks/tx/CkQoiKtPUYGRXzGCC4QAhw3ULuCav36qJJQjDK55QYrA) | 3.36 Tgas |
+| orders:exit | Halden Ventures: place_bid | [3DKTNrprev…](https://testnet.near.rocks/tx/3DKTNrprev37UExkDSq5gQFDTjrj1hH638KTvR29jBf9) | 4.46 Tgas |
+| orders:exit | Tessaro Capital: engine storage for the bought units' holding row | [Ayu6DSqCbD…](https://testnet.near.rocks/tx/Ayu6DSqCbDHMFZHR1Q5CzHqWkzzeyWDpN49dArGK2pkP) | 3.36 Tgas |
+| orders:exit | Tessaro Capital: place_bid | [769XKmCXae…](https://testnet.near.rocks/tx/769XKmCXaeq7g3WuFNCuZs4mh8DPd6qacwLGgZsiVeJK) | 4.46 Tgas |
+| orders:exit | Nadia Solvik: engine storage for the bought units' holding row | [9dwr9zK3Wn…](https://testnet.near.rocks/tx/9dwr9zK3Wn87xRpMQoSN2Gjhqu7EpTDLPwGuCGaA9rrY) | 3.35 Tgas |
+| orders:exit | Nadia Solvik: place_bid (malformed ciphertext) | [3GqWJDsTH5…](https://testnet.near.rocks/tx/3GqWJDsTH5QqZYYwWCKHmJBEk8o7ga4sNRfbL8EuL2ZA) | 4.43 Tgas |
+| orders:advance | Teodor Vance: place_ask | [AxkqcvHyDg…](https://testnet.near.rocks/tx/AxkqcvHyDgeFGDkPTT4WbYY4bUKK3zkvTqxpaoARxiGw) | 4.32 Tgas |
+| orders:advance | Varick Partners: place_bid | [CkPK4rkSUX…](https://testnet.near.rocks/tx/CkPK4rkSUX5ftoA3jTsgoeK6n1JYCmeJtPy5PwpQgXQ3) | 4.32 Tgas |
+| orders:advance | Ines Marlow: place_bid | [762zKRLec5…](https://testnet.near.rocks/tx/762zKRLec5KM4q7zH8C8zMDQANbrgVjEHGV3fADFs1qG) | 4.31 Tgas |
+| nokey:create | Halden Ventures: create_exit with a 60 s key timeout (KOL Round) | [HZr8Xefwyc…](https://testnet.near.rocks/tx/HZr8Xefwycg37PKiBWwMrvULJyAPSsEFguxXPSzKYanj) | 3.53 Tgas |
+| nokey:bid | Halden Ventures: place_bid | [3sWSXnmsuU…](https://testnet.near.rocks/tx/3sWSXnmsuUJVZPJQH8fhswFWgJsLH87v7tpVqfZiUem8) | 4.45 Tgas |
+| nokey:close-refused | close after the key timeout (refused) (refused: Key timeout reached: the round can only be cancelled (cancel_no_key)) | [Br6r994g8h…](https://testnet.near.rocks/tx/Br6r994g8h9Sfxt8tbjBUhnZFEx2FPvnJJbpUyizzUdo) | 2.78 Tgas |
+| nokey:cancel | cancel_no_key | [73EpPXUb8S…](https://testnet.near.rocks/tx/73EpPXUb8SnhN3pdraqHEPBhWTKeT1XbqUrwFQ4YGyAc) | 3.43 Tgas |
+| nokey:settle | settle_bid (refund of escrow and bond) | [CuUdn9Ap1Q…](https://testnet.near.rocks/tx/CuUdn9Ap1QiJQvu6AzNcSCVcq5uQVuok3aPPkTFP9JwG) | 5.07 Tgas |
+| close:tender | close (tender): CKD key request | [4qwvyUSDoT…](https://testnet.near.rocks/tx/4qwvyUSDoTSroGVnB9Nq5mSqVy8HNHYuFGZBfX17uHoV) | 37.46 Tgas |
+| close:exit | close (exit): CKD key request | [CSx8irE17b…](https://testnet.near.rocks/tx/CSx8irE17biGuHmLRSJWChgLH5qa5VP56JFJ2SWmxwa7) | 37.37 Tgas |
+| close:advance | close (advance): CKD key request | [DeAgBYGD6M…](https://testnet.near.rocks/tx/DeAgBYGD6MoT2YhiEHZh49T35oQbCo5PLjtqDxJbj35o) | 37.45 Tgas |
+| open:tender | open_bid 0 (Halden Ventures, ask) by rose-app.testnet | [FjA2x3Z28Y…](https://testnet.near.rocks/tx/FjA2x3Z28YfdjrDMnSnavS8aEmj47WTMyELEum3cZZMB) | 132.12 Tgas |
+| open:tender | open_bid 1 (Tessaro Capital, ask) by rose-app.testnet | [BTgEUGCJFG…](https://testnet.near.rocks/tx/BTgEUGCJFGvX1ojitGfV9APN4vym67wDcVdH157avM6d) | 132.12 Tgas |
+| open:exit | open_bid 0 (Ines Marlow, ask) by rose-app.testnet | [DvWsEL63CV…](https://testnet.near.rocks/tx/DvWsEL63CVD97spisvCnZHwtVCATGBKmgVgRzKcgkEEK) | 132.09 Tgas |
+| open:exit | open_bid 1 (Varick Partners, ask) by rose-app.testnet | [CZpUtFryjA…](https://testnet.near.rocks/tx/CZpUtFryjA3sjS7xD2wBzAhUYyKPznGzRN6FCaJFHvyf) | 132.09 Tgas |
+| open:exit | open_bid 2 (Halden Ventures, bid) by rose-app.testnet | [5GxyZP2wyV…](https://testnet.near.rocks/tx/5GxyZP2wyVzZnAHc1RrJqPrZW3dAeRPvHirTS7fiYdRr) | 132.11 Tgas |
+| open:exit | open_bid 3 (Tessaro Capital, bid) by rose-app.testnet | [5ZCbYVbAiK…](https://testnet.near.rocks/tx/5ZCbYVbAiKRxFTAMfLDUHg6bX2149N4sHqVMt2ZPZuJQ) | 132.13 Tgas |
+| open:exit | Nadia Solvik: open_bid of the malformed bid with the author's own opening (refused) (refused: Opening does not match the ciphertext) | [2kUWSs1VVB…](https://testnet.near.rocks/tx/2kUWSs1VVBDgZuHs1SwkDjeZw2xrULj92Pz1dhAkvc8u) | 131.29 Tgas |
+| open:advance | open_bid 0 (Teodor Vance, ask) by rose-app.testnet | [5Gksxgay6t…](https://testnet.near.rocks/tx/5Gksxgay6tzd6tFi6dKnqyQ9sYXwHnEX4pCLxik7ESpv) | 132.1 Tgas |
+| open:advance | open_bid 1 (Varick Partners, bid) by rose-app.testnet | [CMZfg4YDj7…](https://testnet.near.rocks/tx/CMZfg4YDj7YtvkQNxohw6QefcKGdjwWHCS1jc7LUVyao) | 132.13 Tgas |
+| open:advance | open_bid 2 (Ines Marlow, bid) by rose-app.testnet | [B6XTW4rB5V…](https://testnet.near.rocks/tx/B6XTW4rB5V8iQg2o4hZX4aBJwRjoLVMYKpZ33tGZnK4) | 132.13 Tgas |
+| clear:tender | clear (tender) | [CJBBaNdHLa…](https://testnet.near.rocks/tx/CJBBaNdHLatJCamxktdHVmEMMqxLzKJWejnmv86GhpHm) | 4.63 Tgas |
+| clear:exit | clear (exit) | [AFWLZaN4cp…](https://testnet.near.rocks/tx/AFWLZaN4cpPWQ3ziat5Ef9BsQiQvBYqVysYcBDAwTaHe) | 4.28 Tgas |
+| clear:advance | clear (advance) | [21cjmHffw8…](https://testnet.near.rocks/tx/21cjmHffw8Dp4rtn2xrYg335rcMTx1ELSxJqHMzTHZP7) | 5.05 Tgas |
+| settle:tender | settle_bid 0 (tender, Halden Ventures) | [2nU9PXyKBD…](https://testnet.near.rocks/tx/2nU9PXyKBD6tSp2ZEW4BtUEeun8zJhWD87sTxuit3P8B) | 5.59 Tgas |
+| settle:tender | settle_bid 1 (tender, Tessaro Capital) | [EryU24eRmg…](https://testnet.near.rocks/tx/EryU24eRmgWJcd3y3wQW3rf18ueQ1GNazSowfCsNjwb2) | 5.61 Tgas |
+| settle:exit | settle_bid 0 (exit, Ines Marlow) | [GmxmauiBuw…](https://testnet.near.rocks/tx/GmxmauiBuwy21dcLuA1D3gBgkdeXQSQWeiBLuFDMC8Rf) | 5.4 Tgas |
+| settle:exit | settle_bid 1 (exit, Varick Partners) | [91yEdw9JLc…](https://testnet.near.rocks/tx/91yEdw9JLcu5RKFeYkkpLVJc11hnNSMjxUCi8qWuMwTM) | 5.43 Tgas |
+| settle:exit | settle_bid 2 (exit, Halden Ventures) | [5aHgWb9oek…](https://testnet.near.rocks/tx/5aHgWb9oekXPNXRGojunzToZATTWiak3VN36VjXcvrto) | 6.19 Tgas |
+| settle:exit | settle_bid 3 (exit, Tessaro Capital) | [Dww54zqbxa…](https://testnet.near.rocks/tx/Dww54zqbxaSJx1d7dBghEGBx3JE1E7E73Fo4UkUFk7iS) | 5.15 Tgas |
+| settle:exit | settle_bid 4 (exit, Nadia Solvik) | [E5rDKqnoMM…](https://testnet.near.rocks/tx/E5rDKqnoMMUC9qDxrw4rCM95kCHL9PZfxXfpvdTyCXf1) | 5.34 Tgas |
+| settle:advance | settle_bid 0 (advance, Teodor Vance) | [D2et3EWCdC…](https://testnet.near.rocks/tx/D2et3EWCdCxSLHjSSZD4oQivQqSNX15mGaQGnWutntPg) | 5.14 Tgas |
+| settle:advance | settle_bid 1 (advance, Varick Partners) | [B1V9Sinwng…](https://testnet.near.rocks/tx/B1V9Sinwng8CGEJ1KkqMfiVUSPwjhiNaZmNAiG2WqgQM) | 5.55 Tgas |
+| settle:advance | settle_bid 2 (advance, Ines Marlow) | [9Lr2t3ukhU…](https://testnet.near.rocks/tx/9Lr2t3ukhUMUetBmVyfEG7ddzpa2r2BYdVABiwt6tFQ4) | 5.54 Tgas |
+| payout:near-cash | Ines Marlow: withdraw_near_cash 1732.387500 tUSDC (Exit proceeds and refunded bonds) | [FYGewrQiYb…](https://testnet.near.rocks/tx/FYGewrQiYbgW7QeFvaqXHHRpRRm252RiaRZA7yyMaUhK) | 8.95 Tgas |
+| payout:base-cash | Halden Ventures: withdraw_base_cash 1460.000000 tUSDC (Tender proceeds) | [Edu51JdeRP…](https://testnet.near.rocks/tx/Edu51JdeRPQRuo2D3bLgwaWHbGfTspYpF79mDUF7Wc5y) | 17.03 Tgas |
+| payout:base-cash | executeTransfer of tUSDC to Halden Ventures | [0xa36608c6…](https://sepolia.basescan.org/tx/0xa36608c6e51e09f9ea30837484a175e486d4bac2a62c4820b571111a7ad2f48d) | 68755 gas |
+| payout:lien | Sablier withdrawMax(stream 97, RoseVault): unlocked CINDR into the vault | [0x1f573924…](https://sepolia.basescan.org/tx/0x1f573924e787bc7a4235bdf7f60ead702c0853b7f72c850177dd8cd7f1d47a2c) | 119630 gas |
+| payout:lien | Varick Partners: claim_base_tokens (lien share 0, 371004566210033333 CINDR base units) | [J4nxAv6ZWU…](https://testnet.near.rocks/tx/J4nxAv6ZWUoEKBbtTRVMk3fmrw6og6GEyTpBnruauLd8) | 17.43 Tgas |
+| payout:lien | executeTransfer of CINDR to Varick Partners (Advance repayment) | [0xf6340246…](https://sepolia.basescan.org/tx/0xf63402467f24d1914f71702570c583e540b75fa821c35a47d92414db9804b902) | 51649 gas |
+| payout:redeem | Nadia Solvik: redeem position 7 (stream 99) in kind | [68PhW7xT1q…](https://testnet.near.rocks/tx/68PhW7xT1qEG2bEEAEEopN8s8fNBwWuE9K75fL94dadn) | 18.79 Tgas |
+| payout:redeem | executeRelease of stream 99 to Nadia Solvik | [0x291c7f37…](https://sepolia.basescan.org/tx/0x291c7f37e43b1aa50ea673d2d55c41de2fef868f0d76deecf60f8c27cc21209a) | 151366 gas |

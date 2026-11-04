@@ -19,7 +19,7 @@ export const NEAR_RPC_ENDPOINTS: readonly string[] = [process.env.NEAR_RPC_URL ?
 export const BASE_RPC = process.env.BASE_SEPOLIA_RPC_URL ?? BASE_SEPOLIA_RPC;
 export const SOLANA_RPC = process.env.SOLANA_RPC_URL ?? SOLANA_DEVNET_RPC;
 export const NEAR_CASH_TOKEN = "tusdc.rose-app.testnet";
-export const DEFAULT_ENV_FILE = "deployments/engine-s3.rose-app.testnet.env";
+export const DEFAULT_ENV_FILE = "deployments/engine-s4.rose-app.testnet.env";
 
 export function nearTxUrl(hash: string): string {
   return `https://testnet.near.rocks/tx/${hash}`;

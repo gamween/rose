@@ -252,6 +252,84 @@
       "solana": {
         "demo_mint": "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv"
       }
+    },
+    "engine-s4.rose-app.testnet": {
+      "role": "staging",
+      "base": {
+        "chain_id": 84532,
+        "deployer": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+        "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+        "test_usdc": {
+          "contract": "TestUSDC",
+          "address": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "tx": "0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9",
+          "block": 54195713
+        },
+        "demo_token": {
+          "contract": "DemoToken",
+          "address": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+          "tx": "0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954",
+          "block": 54195713
+        },
+        "demo_stream_faucet": {
+          "contract": "DemoStreamFaucet",
+          "address": "0xf7b1302c20faab06ad5121981b3e949da24fd98d",
+          "tx": "0xb9c69f8c83640e28e40e9be9036e2afa9b2275fc5b7da90434663abc27b397e5",
+          "block": 54195713
+        },
+        "rose_vault": {
+          "contract": "RoseVault",
+          "address": "0x14c7f1f870ccb5569a01399013ceeeffc465e243",
+          "tx": "0x06183aae9e46ee4dcd6fac1d8c1cefce572ef6f5e2fbe1d5acac82cb709853a2",
+          "block": 54317700,
+          "signer": "0x8a8b95399f00ba2aac6babdc56cf761b22ee3ad6"
+        },
+        "accepted_cash_tokens": [
+          "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+        ]
+      },
+      "near": {
+        "engine": {
+          "account": "engine-s4.rose-app.testnet",
+          "wasm": {
+            "sha256": "41a514d6c18e074719678d6d3cd77640acaacd3531de7d14be6819bbb80f8fdf",
+            "bytes": 1006162
+          },
+          "init_args": {
+            "mpc_account": "v1.signer-prod.testnet",
+            "sign_secp256k1_domain": 0,
+            "sign_ed25519_domain": 1,
+            "ckd_domain": 2,
+            "foreign_tx_domain": 3,
+            "ckd_public_key": "bls12381g2:xeYho48G2Sr9oJz4gw9sLGZGspeeKpHZvMDAwWvoNTRnVMFJH96GxX98TT2MRhTtsot1wcGR1Ti2Xh8PCsbYJ2enbLNdJXDvTYSK8aTE3nJ5NZXU7Kt1F6mFtReWs5pR4kj",
+            "fee_recipient": "rose-app.testnet",
+            "near_cash_token": "tusdc.rose-app.testnet",
+            "base_cash_tokens": [
+              "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+            ],
+            "rose_vault": "0x14c7f1f870ccb5569a01399013ceeeffc465e243",
+            "base_chain_id": 84532,
+            "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+            "streamflow_program": "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ",
+            "default_key_timeout": null,
+            "default_reveal_window": null
+          },
+          "create_tx": "Cp4wrCFE6ZibFcD9CEM5WdFQpUexFPZ1MnXXKrkZSXci",
+          "deploy_tx": "FoCpP4Wrw9yboTfry9Y9gCY83oLfnJ5WP8FRJfd1ZLyh",
+          "bootstrap_tx": "EW8vWi8Ey8ZBDLuoq4H4d5gzVH3nQfZnUCWUKZVepxBB",
+          "keyless": false
+        },
+        "derived": {
+          "vault_base": "0x8a8b95399f00ba2aac6babdc56cf761b22ee3ad6",
+          "vault_sol": "46qirv3tB1CV9isYzGVkhjnj2aohY8ne9gnL1PPgBNm9",
+          "gas_sol": "GFEqJRK9d1rHcvsHpNnSSNWhy8htDsnX8V9XM42MDhRR"
+        }
+      },
+      "solana": {
+        "demo_mint": "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv"
+      }
     }
   }
 }
