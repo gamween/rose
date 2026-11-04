@@ -49,6 +49,8 @@ export function accountOf(who: Who): string {
 export const NADIA_ETH = "0.002";
 /** SOL sent to each Strategic Round holder: `transfer_recipient` fee and the deposit address's token account rent. */
 export const STRATEGIC_HOLDER_SOL = 0.01;
+/** SOL kept on the engine's gas/sol fee payer: the status page shows "Gas funded" from 0.1 SOL. */
+export const GAS_SOL_FUNDED = 0.1;
 
 export type CohortKey = "seed-base" | "kol-base" | "strategic-sol";
 

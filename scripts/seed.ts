@@ -68,7 +68,7 @@ import {
 import { registerCash, registerStream, sendBase, waitSafe } from "./lib/base.ts";
 import { createContext, type Context } from "./lib/context.ts";
 import { DEFAULT_ENV_FILE, log, NEAR_CASH_TOKEN, numberFlag, parseArgs, ROOT, sleep } from "./lib/env.ts";
-import { accountOf, CAST, COHORTS, EVERYONE, NADIA_ETH, ROUNDS, STRATEGIC_HOLDER_SOL, usdc, whole, type CohortKey, type Who } from "./lib/identity.ts";
+import { accountOf, CAST, COHORTS, EVERYONE, GAS_SOL_FUNDED, NADIA_ETH, ROUNDS, STRATEGIC_HOLDER_SOL, usdc, whole, type CohortKey, type Who } from "./lib/identity.ts";
 import { txRef } from "./lib/journal.ts";
 import { accountBalance, formatNear, near, nearRef, rpc, withRetry } from "./lib/near.ts";
 import { createRound, escrowFor, placeOrder, pricingOf, getRound, type OrderRecord, type RoundRecord } from "./lib/rounds.ts";
@@ -151,7 +151,7 @@ async function stepFund(): Promise<void> {
       const holder = ctx.keys.solana(who).publicKey;
       if ((await ctx.solana.getBalance(holder)) < 0.005 * LAMPORTS_PER_SOL) transfers.push({ to: holder, sol: STRATEGIC_HOLDER_SOL });
     }
-    if ((await ctx.solana.getBalance(ctx.derived.gasSol)) < 0.05 * LAMPORTS_PER_SOL) transfers.push({ to: ctx.derived.gasSol, sol: 0.05 });
+    if ((await ctx.solana.getBalance(ctx.derived.gasSol)) < GAS_SOL_FUNDED * LAMPORTS_PER_SOL) transfers.push({ to: ctx.derived.gasSol, sol: GAS_SOL_FUNDED });
     await fundSol(ctx, scope, "SOL to the Strategic Round holders and gas/sol", transfers);
     return { kol_wallet: kolWallet, kol_wallet_address: wallet, solana_transfers: transfers.map((t) => ({ to: t.to.toBase58(), sol: t.sol })) };
   });
