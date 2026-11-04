@@ -21,12 +21,12 @@ addresses, byte layouts) is recorded with its command in [`verification.md`](./v
 |---|---|---|---|
 | **NEAR MPC network** (`v1.signer-prod.testnet`, contract 3.18.0, reconstruction threshold 11) | Signing for the engine's derived keys (domain 0 `vault/base`; domain 1 `vault/sol`, `gas/sol`, the per-holder deposit keys), releasing a round key through Confidential Key Derivation (domain 2) only when the engine asks, attesting Base logs and Solana accounts through ForeignTx (domain 3), each provider of a node's quorum having to return the same verdict | With a threshold of colluding nodes: sign any RoseVault authorization or Solana transaction (drain custody), derive a round key before the deadline (read sealed bids early), attest a deposit that never happened (mint units against nothing). Without a threshold but by withholding: delay deposits (a failed proof surfaces after about 2 minutes), stall a round until `cancel_no_key` refunds it, delay payouts (every `Requested` state has a retry) | Change the engine's code, change a clearing result computed on chain from opened bids, or move funds below the threshold. A key it returns is checked by a pairing check before the engine stores it; every signature it returns is checked (`ecrecover` against `vault/base`, `ed25519_verify` against the derived key) before it is stored |
 | **TEE nodes** | The MPC nodes run threshold signing and CKD in TEEs (spec 7.4) | A TEE compromise on enough nodes is the threshold case above | rose treats TEEs as defense in depth that raises the cost of collusion; the threshold assumption is the one that matters |
-| **rose-engine code** | Implementing the specification correctly. The final engine is keyless after init (`view_access_key_list` returns `[]`), with no upgrade, migrate, delete-account or generic call method, and the CKD request reachable only after the deadline; a new version deploys to a new account | A bug is not mitigated by anyone: the code is unaudited | Be changed after a keyless deployment. **Staging engines are not keyless:** `engine-s1`, `engine-s2`, `engine-s3` and `engine-s4` keep a full-access key held by the team, `engine-s3` was updated in place once (verification log, "Staging deployment 3") and `engine-s1` now runs an empty contract (its code storage was reclaimed, "Staging deployment 4"). Treat every staging engine as a test deployment |
+| **rose-engine code** | Implementing the specification correctly. The engine has no upgrade, migrate, delete-account or generic call method, and the CKD request is reachable only after the deadline; the final deployment deletes every access key after init (`scripts/deploy-engine.sh --role final --keyless`, after which `view_access_key_list` returns `[]`), so a new version deploys to a new account | A bug is not mitigated by anyone: the code is unaudited | Be changed after a keyless deployment. **Staging engines are not keyless:** `engine-s1`, `engine-s2`, `engine-s3` and `engine-s4` keep a full-access key held by the team, `engine-s3` was updated in place once (verification log, "Staging deployment 3") and `engine-s1` now runs an empty contract (its code storage was reclaimed, "Staging deployment 4"). Treat every staging engine as a test deployment |
 | **The team that deploys rose** | Running the web app, the demo faucet route and its testnet hot wallets; the fee recipient is fixed at init | Serve a frontend that shows wrong numbers or builds wrong transactions; stop funding the faucet | After a keyless deployment: read a bid early, sign a payout, cancel a round after its first bid, or upgrade the engine. Wallets show every call's arguments, every result links to an explorer, the round page's Verify panel recomputes clearing in the browser from on-chain data, and `@rose/sdk` reaches the engine without the app |
 | **RoseVault** (Base Sepolia) | Correct code. Immutable: no owner, no pause, no upgrade, no `receive`; Sablier Lockup and the signer are fixed in the constructor | A bug in it is not mitigated by anyone (unaudited) | Release a stream or a token without an EIP-712 authorization recovering to the engine's `vault/base` address (`v` exactly 27 or 28, low `s`, one shared replay bitmap; the id is consumed before any external call) |
 | **The issuer** (whoever runs a Tender or creates a cohort's streams) | Naming the NEAR account that receives each stream in `createStreams`, and `distribute_units` to its holders: holders trust the issuer for their allocation exactly as they do for their vesting today. Choosing the Tender's `retire_to` address | Credit the wrong accounts when it creates the cohort; retire bought units to an address of its choice | Pay less than it promised: the budget plus the 30 bps fee are escrowed at creation. Read asks before close, change the budget or the max price after creation, or cancel once the first ask is placed |
 | **Sablier Lockup v4** (`0xA65A…532e`) | Stream custody and unlock math; rose ports `calculateStreamedAmountLL` of `lockup@v4.0.1` and matched 197 of 197 live `streamedAmountOf` reads | Its comptroller admin can switch on a withdrawal fee at any time (0 today, oracle-based); RoseVault forwards `calculateMinFeeWei` read in the same transaction, so withdrawals keep working and the caller pays | Withdraw a vault stream's tokens anywhere but RoseVault: a third party's `withdrawMax` must pay the recipient |
-| **Streamflow** (`HqDGZ…CMfMZ`) | Stream custody, the 1,104-byte metadata layout and `withdraw` semantics the engine verified on devnet | The program is upgradeable (BPFLoaderUpgradeable) and its on-chain source is not public: an upgrade could change any behavior rose relies on | Under its current code, move a vault stream or pay its tokens anywhere but the vault's token account: the sender powers that would allow it (cancel, transfer, pause, rate update, top-up, automatic withdrawal) are refused at deposit |
+| **Streamflow** (`HqDGZ…CMfMZ`) | Stream custody, the 1,104-byte metadata layout and `withdraw` semantics the engine verified on devnet, and its auto-claim: one second after a stream's end its withdrawor (`wdrwh…pb5u`, memo "Auto-Claim") withdraws the remainder into the recipient's token account and closes the escrow, even with `automatic_withdrawal` = 0 (reproduced on devnet). rose books it with `sync_sol_stream` and relies on it for an ended stream's last tranche | The program is upgradeable (BPFLoaderUpgradeable) and its on-chain source is not public: an upgrade could change any behavior rose relies on. If the auto-claim stopped, an ended stream's last tranche would stay in its escrow (draws stop five minutes before the end) | Under its current code, move a vault stream or pay its tokens anywhere but the vault's token account: the sender powers that would allow it (cancel, transfer, pause, rate update, top-up, automatic withdrawal) are refused at deposit, and the auto-claim pays the recipient's own token account. Make a payout look executed or not: verdicts read only the claimant's two nonce accounts (below) |
 | **Token issuers** | The tokens rose holds and pays | On Base, an ERC-20 with pause or blacklist powers can freeze RoseVault's balance or its transfers to a claimant: a trust assumption rose cannot remove. On either chain a mint authority can inflate supply (a price risk, not a custody one) | Freeze the vault's Solana token account: mints with a freeze authority are refused at deposit, and a mint without one can never gain one. Token-2022 mints are refused. Fee-on-transfer and rebasing tokens are unsupported; RoseVault refuses a cash deposit or a cohort funding that does not deliver exactly the amount pulled |
 | **RPC providers** | Serving the app's reads | Mislead what the app displays | Feed the engine: foreign facts reach it only through MPC attestations, never through an RPC the app chose |
 
@@ -126,6 +126,13 @@ No other party can move funds, see bids early or stop a round.
   recovers to the vault address (normalizing a high `s`) and stores it on NEAR; anyone submits it to
   RoseVault, which has no deadline and a replay bitmap. A failed signature request is retried, never
   refunded: a late MPC response may be public, and an authorization stays executable forever.
+- **Third-party withdrawals:** anyone may call Sablier `withdrawMax(streamId, RoseVault)` on a vault
+  stream. For a registered position that only moves unit holders' tokens into the vault early. For
+  a refused stream awaiting its return, RoseVault records the withdrawn amount when the stream
+  enters and its return also sends the returnee what was withdrawn to the vault since then
+  (`vestedForwarded`), so nobody can strand the vested part of someone else's refused stream. The
+  release reads Sablier's withdrawal fee in the same flow and sends it, so a fee switched on by
+  Sablier's admin does not block releases.
 - **Residual:** `Safe` is not `Finalized`; a Base reorg deeper than the safe head is outside the
   model. ERC-20 issuer powers (above).
 
@@ -140,8 +147,14 @@ No other party can move funds, see bids early or stop a round.
   changes nothing.
 - **Eligibility:** non-cancelable, not transferable by the sender, not pausable, no rate updates, no
   top-ups, no automatic withdrawal, transferable by the recipient, fee-free, at least one whole
-  token, classic SPL Token mint without a freeze authority. One registration per stream, ever; a
-  stream refused at the vault is never attributed again.
+  token, classic SPL Token mint without a freeze authority, and an `end_time` more than an hour
+  after its attribution (Streamflow's auto-claim would otherwise empty a stream still at its
+  deposit address, or refused at the vault, into a token account no engine path reaches). One
+  registration per stream, ever; a stream refused at the vault is never attributed again.
+- **Residual:** a stream left at its deposit address, or refused at the vault and not returned,
+  until its end is emptied by the auto-claim into that address's token account and stays there.
+  The depositor has at least an hour to complete or return it (both permissionless, about a
+  minute each).
 - **Residual:** `AccountState` signs the account as the nodes read it at request time, so the app
   passes bytes read at `finalized` right before the call; a stream that changed in flight fails the
   hash comparison (about 7 s) and the app retries.
@@ -149,26 +162,57 @@ No other party can move funds, see bids early or stop a round.
 ### Payouts (two-phase on Solana)
 
 - A durable-nonce transaction that fails on chain still advances its nonce (measured on devnet), so
-  a signed Solana payout is not final. `claim_sol_tokens` draws on streams the claimant names, proves
-  the claimant's nonce account and existing token account in one ForeignTx request, and has
-  `vault/sol` and `gas/sol` sign `[AdvanceNonce] + withdraw per stream + TransferChecked(sum)`. The
+  a signed Solana payout is not final. `claim_sol_tokens` draws on streams the claimant names and
+  on its class's swept balance, proves the claimant's nonce account, its receipt nonce account and
+  its existing token account in one ForeignTx request, and has `vault/sol` and `gas/sol` sign
+  `[AdvanceNonce] + withdraw per stream + TransferChecked(sum) + [AdvanceNonce(receipt)]`. The
   payout stays `Signed`, broadcastable by anyone, until `confirm_sol_payout` proves the nonce
-  advanced and reads every drawn stream.
-- **Landed** on one stream read as paid (amounts only grow, so one proof suffices). **Failed and
-  refunded** only when every stream reads exactly as before, on two proofs whose reads are at least
-  150 blocks apart, so a lagging read right after a landing cannot pass for "did not execute". A
-  read below the proven amount, or strictly between it and the payout's amount, is refused: a
-  Streamflow `withdraw(amount)` withdraws exactly `amount` or fails.
-- At most one unconfirmed payout per stream keeps that reading unambiguous. A failed authority
-  signature cancels the payout with a nonce-only transaction over the same nonce: at most one of the
-  two can execute, and the confirmation settles whichever did.
+  advanced and reads the receipt.
+- **The witness is the receipt, nothing else.** A failed durable-nonce transaction advances its
+  nonce and rolls back every other instruction, the receipt's advance included; an executed one
+  leaves both accounts on the same new value (both measured on devnet,
+  [`verification.md`](./verification.md)). So the receipt equal to the nonce's new value lands the
+  payout, and the receipt behind it refunds it, on two proofs whose reads are at least 150 blocks
+  apart (the nodes read each account separately; a lagging read of the receipt right after a
+  landing must not pass for "did not execute").
+- **Why it holds against an adversary:**
+  - *Lagging reads:* a stale read can only show the receipt behind (the "did not execute"
+    direction), which needs the second, later proof; a stale read of the nonce shows the signed
+    value and is refused. A stale read of the receipt at request time does not matter: the
+    verdict compares it with the nonce's new value, not with its old one.
+  - *Donations and the claimant's own token account:* neither takes part in any verdict. Sending
+    tokens to the vault's token account, or emptying the recipient's account after a landing,
+    changes no nonce account.
+  - *Moving the nonce accounts:* only a vault signature advances them, the engine signs the
+    receipt's advance only inside this payout's message, and both accounts are reserved to the
+    payout (any other action naming either is refused) until it is settled. Without that
+    reservation a claimant could land a payout, then advance its nonce again with a second action
+    so that the receipt looks behind and the first payout is refunded; the reservation is tested.
+  - *Late broadcast and cancellation:* a payout signed before a stream's end and broadcast after
+    Streamflow's auto-claim fails on the closed escrow (Anchor error 3012, measured) and is
+    refunded; a nonce-only cancellation leaves the receipt behind and is refunded; a late
+    signature of the original that executed first moves the receipt and lands it.
+  - *Streamflow's auto-claim:* it empties every ended stream into the vault's token account
+    whether or not a payout drew on it, so the stream's `amount_withdrawn` cannot tell (that was
+    the pre-deployment blocker: such reads were taken for landings, destroying claims).
+    `sync_sol_stream` books what it took in the class's swept balance from the stream's metadata
+    (at the vault, paying the vault's token account, more withdrawn than accounted for), refused
+    while a payout drawing on the stream or its release is unsettled, and re-checked in its
+    callback. A lagging read books less and a later sync the rest; a donation books nothing. The
+    swept balance is paid by `TransferChecked` alone, each payout reserving what it takes, so the
+    vault's token account always holds at least every class's available swept balance; and draws
+    and redeems stop five minutes before a stream's end, so a payout is not built on a stream
+    about to be emptied.
 - A nonce account's seed starts with a prefix of the claimant's NEAR account hash, so nobody can
   spend or front-run another claimant's nonce values (spec 7.3).
 - Shown live: payout signed and broadcast
   ([BXfMqQpC…](https://testnet.near.rocks/tx/BXfMqQpCMiwPJjBgwR7avPni5XQzS2KTa3qhWHRyQnfH),
   [5jAM8UFK…](https://explorer.solana.com/tx/5jAM8UFKZdGerAxMfKWsjsGCDudJFrCXTXYhXJi8BbPQzY3AGPEjEyKyLutvtXGchQhpTxkUdUk5mdV7kv4vA4w2?cluster=devnet)),
   then confirmed `Landed`
-  ([4N7426Wa…](https://testnet.near.rocks/tx/4N7426Wa6yc1PdJyB4v3xHEZdoLVb3rqWFCt4Q1yy4wJ)).
+  ([4N7426Wa…](https://testnet.near.rocks/tx/4N7426Wa6yc1PdJyB4v3xHEZdoLVb3rqWFCt4Q1yy4wJ)), on a
+  staging engine before the receipt; the receipt verdict, the auto-claim, its sync and a payout
+  from the swept balance on devnet transactions in [`verification.md`](./verification.md)
+  ("Streamflow auto-claim").
 
 ### Redeem in kind
 
@@ -176,18 +220,32 @@ No other party can move funds, see bids early or stop a round.
   units locked in rounds cannot be redeemed; one release per position at a time).
 - **Base:** the authorization releases the stream, withdrawing any unlocked balance to the vault
   first so accrued tokens stay with unit holders; final once signed.
-- **Solana:** the stream must carry no unconfirmed payout, and the redeemer pays from its own
-  claimable what the stream still owes the unit holders. The position is `Releasing` until
-  `confirm_sol_redeem`: the release is final only on evidence a stale read cannot show (another
-  recipient, another token account, more withdrawn than proven, a closed or canceled stream); the
-  units and the paid claimable come back only if two proofs 150 blocks apart show the stream exactly
-  as registered.
+- **Solana:** the stream must carry no unconfirmed payout and be more than five minutes from its
+  end, and the redeemer pays from its own claimable what the stream still owes the unit holders.
+  The transaction advances the redeemer's receipt nonce last; the position is `Releasing` until
+  `confirm_sol_redeem` settles it on the receipt, like a payout: final when the receipt holds the
+  nonce's new value, the units and the paid claimable back when it stays behind on two proofs 150
+  blocks apart. The stream's own state takes no part: the new recipient could send the stream back
+  to the vault, and Streamflow's auto-claim closes it at its end either way. A release broadcast
+  after the auto-claim fails ("Stream closed", error 104, measured), so an executed release always
+  moved the stream before its end, and the auto-claim then paid its new owner.
 
 ### Storage and gas griefing
 
 - Every record is paid by the caller who creates it: NEP-145 registration for unit holders and cash
-  holders, 0.02 NEAR per order, 0.05 NEAR per round, 0.025 NEAR per signed action, 0.015 NEAR per
-  deposit attribution, registration or Base cash registration. Holding, cash and lien share rows are
+  holders, 0.02 NEAR per order, 0.05 NEAR per round, 0.025 NEAR per signed action (its two nonce
+  account reservations included), 0.015 NEAR per deposit attribution, registration or Base cash
+  registration. A Base cash token outside the accepted list also charges its entry in the
+  account's list of such venues with its row, and an Exit bid reserves the buyer's holding row
+  until it settles, so units received meanwhile cannot take the same bytes.
+- **The event history is the one record nobody pays for.** It is bounded in bytes: free texts are
+  cut at 192 bytes, so every entry fits 448 bytes (measured over every variant with 64-character
+  ids) and the full 1,024-entry history at most 458,752 bytes (4.59 NEAR). `new` refuses to
+  initialize an engine whose balance does not cover its code and state, that history and the
+  0.5 NEAR MPC reserve (about 15.2 NEAR with a 1 MB wasm; the deployment script funds 17 NEAR), so
+  filling the history can never eat the reserve, and a zero-deposit `storage_deposit` top-up
+  records nothing (before the fix, about 600 free calls pushed a 12 NEAR engine below its
+  reserve). Holding, cash and lien share rows are
   charged at their measured size for the longest account id (310, 172 and 149 bytes; 137 for the
   account record), so a stranger distributing dust to many long account ids pays every byte it
   creates; a NEAR cash deposit needs room for its row, and an Exit buyer room for the units it buys.
@@ -197,7 +255,7 @@ No other party can move funds, see bids early or stop a round.
 - The engine keeps 0.5 NEAR free before any MPC request; every callback has static gas for what it
   attaches and every user call checks it has that much left; every user-facing method stays under
   300 Tgas (the highest, `open_bid`, burns about 132). The event history is a bounded ring buffer of
-  1,024 entries.
+  1,024 entries funded at init (above).
 - `gas/sol` pays the fees of every engine-built Solana transaction, so a signed transaction that
   fails on chain costs it 10,000 lamports, and a refused deposit's return pays the return address's
   token account rent once. An attacker pays more in NEAR deposits than it makes `gas/sol` spend; the
@@ -251,6 +309,7 @@ milestone unless stated.
 | 9 | That redesign | Opus 5.5 (Fable was rate-limited) | 0 blockers, 2 majors (a stale read could produce a "did not execute" verdict; refunds on a failed request although a late MPC response is public), 3 minors, 3 nits | All fixed: two proofs 150 blocks apart for a negative verdict, signature requests never refund, Solana actions cancelled by a nonce-only transaction |
 | 10 | Solana custody v2 (`b10bba2..d05f542`) and every value-moving custody path | Opus 5.5 | 0 blockers, 1 major (a redeem confirmation could be finalized by a stale lower read), 8 minors, 5 nits | Fixed in `f1a8ba5`, each with a test that fails before the fix: monotone redeem verdict, request-height spacing of the two proofs, exact "unchanged" reading (Streamflow `withdraw` verified exact-or-fail on devnet), payout nonce accounts derived with a seed bound to the claimant's NEAR account, freeze-authority mints refused, Tender `retire_to` checks, u64 amounts as strings, accrual remainder kept so a sole holder can always redeem, stored enum order pinned. `engine-s3` runs the reviewed build, without these fixes |
 | 11 | Full engine, RoseVault, tUSDC and the SDK bindings (`f1a8ba5`) | Opus 5.5 | 1 blocker (a bare-hex address spelling let a stranger strand someone's Base cash), 3 majors (unbounded round windows, under-charged storage rows, client ABI drift), 4 minors, 10 nits | Fixed, each with a test that fails before the fix: canonical EVM addresses at every entry point, bounded round windows, rows charged at their measured worst case (cash rows included), per-account class list behind the portfolio view, buy quantities measured against the supply at creation, a refused stream's return keeps its vested tokens (RoseVault `Release` gains `vestedToRecipient`, so the vault is redeployed), custody addresses refused as Base recipients |
+| 12 | Contracts before deployment (`cd00318`) | Opus 5.5 | 1 blocker (Streamflow's auto-claim of ended streams read as a landed payout: claims destroyed, tokens stranded), 1 major (the free event history could push the engine below its MPC reserve), 4 minors, 6 nits | Fixed: verdicts on a receipt nonce account, `sync_sol_stream` and the swept balance, draws and redeems stop five minutes before a stream's end, attribution refuses streams ending within an hour; event history bounded in bytes and funded at init; non-accepted Base cash listed; Exit bids reserve the buyer's row; RoseVault forwards third-party withdrawals of a returned stream; release fees sent by the SDK |
 
 The web app was also exercised live through its demo wallets against the staging engines; 18 bugs
 found that way were fixed (event history decoding, a deposit resume after a reload, prepaid gas that
@@ -262,11 +321,11 @@ locked out small accounts, public RPC rate limits, among others).
   brute-force reference over every tick, unlock math, accrual), contract tests on the mocked VM, and
   recorded live vectors (Sablier `streamedAmountOf`, ForeignTx round trips, MPC signatures, web3.js
   messages).
-- `ROSE_SANDBOX=1 cargo test -p rose-engine --test 'sandbox_*'`: the real engine wasm in a NEAR
+- `ROSE_SANDBOX=1 cargo test -p rose-engine --test 'sandbox_*' -- --test-threads=1`: the real engine wasm in a NEAR
   sandbox with a signing mock MPC, including a round at the 64-order cap, the two-phase Solana payout
-  and redeem, and a replay of real staging transactions; every user-facing call asserted under
+  and redeem settled on receipts, a synced Streamflow withdrawal paid from the swept balance, and a replay of real staging transactions; every user-facing call asserted under
   300 Tgas.
-- `forge test`: RoseVault and the demo contracts (128 tests, fork tests against the live Sablier
+- `forge test`: RoseVault and the demo contracts (139 tests, fork tests against the live Sablier
   Lockup).
 - `pnpm -r test`: the SDK (bindings checked against the engine ABI, clearing reference bit for bit
   with the Rust vectors) and the web app; Playwright against the deployed app.
