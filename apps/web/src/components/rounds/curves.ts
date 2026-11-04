@@ -129,3 +129,16 @@ export function roundCurves(round: Pick<Round, "kind" | "fTs" | "maxPrice" | "bu
   if (round.kind === "Tender") return tenderCurves(book.asks, round.budget ?? 0n, roundPricing(round, decimals), axisMax);
   return uniformCurves(book.bids, book.asks, axisMax);
 }
+
+/**
+ * Label of a price-axis tick: enough decimals for the tick step, so ticks 0.005 apart never print
+ * the same text ("0.005 0.010 0.015", not "0.01 0.01 0.01"); whole numbers from a step of 1 up.
+ */
+export function priceTickLabel(value: number, step: number): string {
+  if (step >= 1 || step <= 0) {
+    if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+    if (value >= 1e3) return `${(value / 1e3).toFixed(1)}k`;
+    return value.toFixed(0);
+  }
+  return value.toFixed(Math.max(2, Math.ceil(-Math.log10(step) - 1e-9)));
+}
