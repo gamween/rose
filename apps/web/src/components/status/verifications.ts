@@ -1,4 +1,5 @@
 import type { StoredEvent } from "./events";
+import { formatUnits } from "@/lib/format";
 import { shorten } from "./explorers";
 
 /**
@@ -44,7 +45,14 @@ export function foreignTxOutcome(event: StoredEvent): ForeignTxOutcome | null {
     case "position_registered":
       return { ...base, tone: "success", label: `Position #${String(data.position_id)} registered`, account: text(data.depositor), classId: text(data.class_id), tokens: text(data.allocation), detail: "" };
     case "base_cash_registered":
-      return { ...base, tone: data.accepted === false ? "warning" : "success", label: data.accepted === false ? "Base cash (token not accepted for rounds)" : "Base cash", account: text(data.account), detail: `${String(data.amount)} base units of ${shorten(String(data.token), 6, 4)}` };
+      /* Accepted cash tokens are 6-decimal USDC (rose tUSDC, Circle USDC); another token keeps its base units. */
+      return {
+        ...base,
+        tone: data.accepted === false ? "warning" : "success",
+        label: data.accepted === false ? "Base cash (token not accepted for rounds)" : "Base cash",
+        account: text(data.account),
+        detail: data.accepted === false ? `${String(data.amount)} base units of ${shorten(String(data.token), 6, 4)}` : `${formatUnits(BigInt(String(data.amount)), 6, 2)} USDC of ${shorten(String(data.token), 6, 4)}`,
+      };
     case "sol_deposit_attributed":
       return { ...base, tone: "success", label: "Solana stream attributed", account: text(data.account), detail: `stream ${shorten(String(data.metadata), 4, 4)}` };
     case "payout_landed":

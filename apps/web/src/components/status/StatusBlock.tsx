@@ -84,7 +84,7 @@ export function StatusBlock<T>({
       </div>
       {state.status === "ok" ? (
         <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-400">
-          Read at <time dateTime={new Date(state.fetchedAt).toISOString()}>{new Date(state.fetchedAt).toLocaleTimeString()}</time>
+          Read at <time dateTime={new Date(state.fetchedAt).toISOString()}>{new Date(state.fetchedAt).toLocaleTimeString("en-GB", { timeZone: "UTC" })} UTC</time>
         </footer>
       ) : state.status === "loading" ? (
         <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-400">Reading…</footer>

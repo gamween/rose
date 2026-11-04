@@ -73,6 +73,7 @@ describe("ForeignTx verifications", () => {
       .filter((item): item is ForeignTxOutcome => item !== null);
     expect(outcomes.map((item) => item.label)).toEqual(["Position #4 registered", "Base cash", "Solana stream attributed", "Payout #9 confirmed", "Deposit refused", "Mismatch"]);
     expect(outcomes[0]).toMatchObject({ account: "h.testnet", classId: "c", tokens: "10" });
+    expect(outcomes[1]!.detail).toBe("0.00 USDC of 0x69fa…bc01");
     expect(countOutcomes(outcomes)).toEqual({ verified: 4, refused: 1, failed: 1 });
     expect(replayKeyLabel(log)).toBe("Base log 0xabab…abab:3");
   });
