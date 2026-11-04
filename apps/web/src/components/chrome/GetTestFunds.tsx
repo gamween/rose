@@ -13,6 +13,7 @@ import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
 import { CHAIN_LABEL, txLinks, type ChainId } from "@/lib/explorer";
 import { formatUnits } from "@/lib/format";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
+import { requireSuccessfulReceipt } from "@/lib/wallet/receipt";
 import { createSolanaDemoPosition } from "@/lib/wallet/solana-stream";
 import { LearnMore } from "./LearnMore";
 
@@ -38,6 +39,8 @@ function faucetError(failure: FaucetFailure): RoseActionError {
   switch (failure.error) {
     case "rate_limited":
       return new RoseActionError("rate_limited", "Faucet limit reached", failure.message);
+    case "already_funded":
+      return new RoseActionError("rate_limited", "Already funded", failure.message);
     case "faucet_dry":
       return new RoseActionError("insufficient_balance", "Faucet empty", failure.message);
     case "not_configured":
@@ -269,7 +272,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                   if (!baseTusdc) throw new Error("Test USDC is not deployed.");
                   const wallet = await wallets.getEvmWalletClient();
                   const hash = await mintTestUsdc(wallet, baseTusdc, BASE_TUSDC_MINT);
-                  await basePublicClient().waitForTransactionReceipt({ hash });
+                  requireSuccessfulReceipt(await basePublicClient().waitForTransactionReceipt({ hash }), "The tUSDC mint");
                   return { message: "1,000 tUSDC minted on Base", links: txLinks("base", hash) };
                 })
               }
@@ -284,7 +287,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                   if (!demoFaucet) throw new Error("DemoStreamFaucet is not deployed.");
                   const wallet = await wallets.getEvmWalletClient();
                   const hash = await mintDemoPosition(wallet, demoFaucet, demoClass);
-                  const receipt = await basePublicClient().waitForTransactionReceipt({ hash });
+                  const receipt = requireSuccessfulReceipt(await basePublicClient().waitForTransactionReceipt({ hash }), "The demo position mint");
                   const minted = decodePositionMinted(receipt);
                   return { message: minted ? `Sablier stream #${minted.streamId.toString()} minted` : "Demo position minted", links: txLinks("base", hash) };
                 })
