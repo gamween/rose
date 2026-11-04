@@ -5,11 +5,13 @@
  */
 
 import {
+  bytesToHex,
   calculateMinFeeWei,
   decodeEventLogs,
   isAuthorizationUsed,
   outcomeLogs,
   readStream,
+  readStreamflowStream,
   tokenBalance,
   withdrawMax,
   type EngineCalls,
@@ -19,8 +21,8 @@ import {
   type PayoutView,
   type Position,
   type SignerClient,
-  type SolDrawArgs,
   type SolNonceProof,
+  type SolStreamStateView,
 } from "@rose/sdk";
 import { PublicKey, type Connection } from "@solana/web3.js";
 import type { Address, PublicClient } from "viem";
@@ -36,6 +38,7 @@ import {
   createPayoutNonce,
   payoutIdFromOutcome,
   isBlockhashAction,
+  latestSuccessfulSignature,
   PayoutRefusedError,
   readSolConfirmation,
   secondProofBlock,
@@ -45,7 +48,7 @@ import {
   waitForPayout,
 } from "@/lib/payouts";
 import type { StepContext, StepDefinition } from "@/lib/use-action";
-import { claimSourceArgs, planSolDraws, type ClaimSource } from "./transforms";
+import { claimSourceArgs, planSolClaim, type ClaimSource, type SolClaimPlan } from "./transforms";
 
 export type FlowDeps = {
   account: string;
@@ -371,39 +374,109 @@ export function claimBaseTokensSteps(deps: FlowDeps, source: ClaimSource, token:
   ];
 }
 
-/** Solana tokens: nonce and recipient token account, engine-built durable-nonce payout drawing on the class streams, broadcast, confirmation. */
+/** The message of a planned Solana claim: the streams drawn on and the part paid from the swept balance. */
+export function describeSolPlan(plan: SolClaimPlan, decimals: number): string {
+  const streams = plan.draws.length === 0 ? null : `${String(plan.draws.length)} stream${plan.draws.length === 1 ? "" : "s"} drawn on`;
+  const swept = plan.swept === 0n ? null : `${formatAmount(plan.swept, decimals)} from the swept balance (ended streams, synced)`;
+  return [streams, swept].filter((part) => part !== null).join(" + ");
+}
+
+/**
+ * Solana tokens: nonce, receipt and recipient token account, then an engine-built durable-nonce
+ * payout paid from the class's swept balance and drawing on its streams for the rest, broadcast,
+ * confirmation on the receipt.
+ */
 export function claimSolTokensSteps(deps: FlowDeps, source: ClaimSource, mint: string, decimals: number, toOwner: string): StepDefinition[] {
   const nonce = { proof: null as SolNonceProof | null };
-  const plan = { draws: null as SolDrawArgs[] | null };
-  const holder: PayoutHolder = {
+  const holder = { plan: null as SolClaimPlan | null };
+  const payout: PayoutHolder = {
     payoutId: null,
     reset: () => {
       nonce.proof = null;
-      plan.draws = null;
+      holder.plan = null;
     },
   };
   const steps: StepDefinition[] = [
     nonceStep(deps, nonce, { owner: toOwner, mint }),
     {
       id: "draws",
-      label: "Choose the streams the payout withdraws from",
-      run: async () => {
-        plan.draws ??= planSolDraws(await deps.views.getSolStreams(source.classId), source.amount, decimals);
-        return { message: `${String(plan.draws.length)} stream${plan.draws.length === 1 ? "" : "s"} drawn on` };
+      label: "Plan the payout: the class's swept balance first, then the fewest streams",
+      run: async (context) => {
+        if (!holder.plan) {
+          const [streams, swept] = await Promise.all([deps.views.getSolStreams(source.classId, { signal: context.signal }), deps.views.getSolSwept(source.classId, { signal: context.signal })]);
+          holder.plan = planSolClaim(streams, swept.available, source.amount, decimals);
+        }
+        return { message: describeSolPlan(holder.plan, decimals) };
       },
     },
     requestStep(
       deps,
       "request",
-      "Request the payout (nonce proof, Streamflow withdraws and SPL transfer in one transaction)",
+      "Request the payout (nonce and receipt proof, Streamflow withdraws, SPL transfer and receipt advance in one transaction)",
       () => {
-        if (!nonce.proof || !plan.draws) throw new RoseActionError("contract", "No nonce", "Create the nonce account first.");
-        return deps.calls.claimSolTokens(claimSourceArgs(source), plan.draws, toOwner, nonce.proof);
+        if (!nonce.proof || !holder.plan) throw new RoseActionError("contract", "No nonce", "Create the nonce account first.");
+        return deps.calls.claimSolTokens(claimSourceArgs(source), holder.plan.draws, toOwner, nonce.proof, holder.plan.swept === 0n ? undefined : holder.plan.swept);
       },
-      holder,
+      payout,
     ),
   ];
-  return [...steps, mpcWait(deps, holder, "Nonce proof and MPC signatures (about 15 s)", steps), broadcastSolStep(deps, holder, "Broadcast the signed transaction and wait for finality"), confirmSolStep(deps, holder)];
+  return [...steps, mpcWait(deps, payout, "Nonce proof and MPC signatures (about 15 s)", steps), broadcastSolStep(deps, payout, "Broadcast the signed transaction and wait for finality"), confirmSolStep(deps, payout)];
+}
+
+/**
+ * `sync_sol_stream` of an ended vault stream (spec 7.3): reads its metadata at finality, which
+ * must show Streamflow's auto-claim (`amount_withdrawn` above the engine's accounting) into the
+ * vault's token account, anchors the proof on the newest successful finalized transaction
+ * touching it (the auto-claim), and asks the engine to prove it and book the difference in the
+ * class's swept balance. Anyone may sync; the engine refuses while a payout drawing on the stream
+ * is unsettled.
+ */
+export function syncSolStreamSteps(deps: FlowDeps, entry: SolStreamStateView, decimals: number): StepDefinition[] {
+  type SyncProof = { anchor: string; metadataData: string; amount: bigint };
+  const holder = { proof: null as SyncProof | null };
+  const readProof = async (context: StepContext): Promise<SyncProof> => {
+    const metadata = new PublicKey(entry.stream.metadata);
+    const [state, anchor] = await Promise.all([readStreamflowStream(deps.solana, metadata, "finalized"), latestSuccessfulSignature(deps.solana, metadata)]);
+    if (deps.vaultSol && state.metadata.recipient.toBase58() !== deps.vaultSol) {
+      throw new RoseActionError("contract", "Not at the vault", "The stream no longer names the engine's vault as its recipient, so there is nothing for the engine to book.");
+    }
+    const engineWithdrawn = BigInt(entry.stream.engine_withdrawn);
+    if (state.metadata.amountWithdrawn <= engineWithdrawn) {
+      throw new RoseActionError("contract", "Nothing to sync yet", "The stream shows no withdrawal beyond the engine's accounting at finality: Streamflow's auto-claim runs one second after the end and takes about 15 s to be final. Retry in a few seconds.", true);
+    }
+    if (!anchor) throw new RoseActionError("contract", "No anchor", "No successful finalized transaction touches the stream yet; retry in a few seconds.", true);
+    context.addLinks(txLinks("solana", anchor));
+    return { anchor, metadataData: bytesToHex(state.raw), amount: state.metadata.amountWithdrawn - engineWithdrawn };
+  };
+  return [
+    {
+      id: "read",
+      label: "Read the stream at finality: Streamflow's auto-claim into the vault",
+      run: async (context) => {
+        holder.proof = await readProof(context);
+        return { message: `${formatAmount(holder.proof.amount, decimals)} withdrawn by the auto-claim, not booked yet` };
+      },
+    },
+    {
+      id: "sync",
+      label: "Prove it on NEAR and book it in the class's swept balance (MPC proof, about 7 s)",
+      run: async (context) => {
+        if (!holder.proof) {
+          context.setDetail("Reading the stream again at finality…");
+          holder.proof = await readProof(context);
+        }
+        const outcome = await deps.sendNearCall(deps.calls.syncSolStream(BigInt(entry.position_id), holder.proof.anchor, holder.proof.metadataData));
+        context.addLinks(txLinks("near", outcome.transaction.hash));
+        const swept = decodeEventLogs(outcomeLogs(outcome)).find((decoded) => decoded.standard === "rose" && decoded.event.event === "sol_stream_swept");
+        if (!swept) {
+          holder.proof = null;
+          throw new RoseActionError("mpc_timeout", "Proof not accepted", "The engine did not book the sync: the stream changed between the read and the proof, a payout started drawing on it, or the MPC failed. Nothing changed; retry reads the stream again.", true);
+        }
+        const amount = BigInt((swept.event.data as { amount: string }).amount);
+        return { message: `${formatAmount(amount, decimals)} booked in the swept balance; claims pay from it` };
+      },
+    },
+  ];
 }
 
 /** In-kind redeem: burn the allocation, authorize the release, submit or broadcast it. */

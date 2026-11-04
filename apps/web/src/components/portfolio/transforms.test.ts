@@ -1,6 +1,6 @@
 import { ONE, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type StoredEvent } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolDraws, redeemBlocker, settledPayout, tokenClaims } from "./transforms";
+import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolClaim, redeemBlocker, settledPayout, solStreamPhase, syncBlocker, tokenClaims } from "./transforms";
 
 const NOW = 1_762_200_000n;
 const DAY = 86_400n;
@@ -138,27 +138,67 @@ describe("redeemBlocker", () => {
   });
 });
 
-describe("planSolDraws", () => {
+describe("planSolClaim", () => {
   const entry = (position_id: string, withdrawable: string, net = 1_000, withdrawn = 0) => ({ position_id, withdrawable, stream: { net_amount_deposited: String(net), engine_withdrawn: String(withdrawn) } });
   const streams = [entry("1", "40"), entry("2", "100"), entry("3", "0")];
   it("draws on the largest withdrawable streams first, exactly the claimed amount", () => {
-    expect(planSolDraws(streams, 120n, 1)).toEqual([
-      { position_id: "2", amount: "100" },
-      { position_id: "1", amount: "20" },
-    ]);
-    expect(planSolDraws(streams, 50n, 1)).toEqual([{ position_id: "2", amount: "50" }]);
+    expect(planSolClaim(streams, 0n, 120n, 1)).toEqual({
+      draws: [
+        { position_id: "2", amount: "100" },
+        { position_id: "1", amount: "20" },
+      ],
+      swept: 0n,
+    });
+    expect(planSolClaim(streams, 0n, 50n, 1)).toEqual({ draws: [{ position_id: "2", amount: "50" }], swept: 0n });
   });
   it("never draws less than one whole token unless the draw empties the stream", () => {
-    expect(() => planSolDraws([entry("1", "5")], 5n, 1)).toThrow("at least one whole token");
-    expect(planSolDraws([entry("1", "5", 1_000, 995)], 5n, 1)).toEqual([{ position_id: "1", amount: "5" }]);
+    expect(() => planSolClaim([entry("1", "5")], 0n, 5n, 1)).toThrow("at least one whole token");
+    expect(planSolClaim([entry("1", "5", 1_000, 995)], 0n, 5n, 1)).toEqual({ draws: [{ position_id: "1", amount: "5" }], swept: 0n });
   });
   it("leaves a whole token for the next stream instead of refusing a feasible split", () => {
-    expect(planSolDraws([entry("A", "120"), entry("B", "50")], 123n, 1)).toEqual([
+    expect(planSolClaim([entry("A", "120"), entry("B", "50")], 0n, 123n, 1).draws).toEqual([
       { position_id: "A", amount: "113" },
       { position_id: "B", amount: "10" },
     ]);
   });
-  it("refuses an amount the streams cannot pay now", () => {
-    expect(() => planSolDraws(streams, 141n, 1)).toThrow("cannot pay this amount right now");
+  it("refuses an amount the streams and the swept balance cannot pay now", () => {
+    expect(() => planSolClaim(streams, 0n, 141n, 1)).toThrow("cannot pay this amount right now");
+    expect(() => planSolClaim(streams, 1n, 142n, 1)).toThrow("sync an ended stream");
+  });
+  it("pays from the swept balance alone when it covers the claim, with no stream touched", () => {
+    expect(planSolClaim(streams, 500n, 120n, 1)).toEqual({ draws: [], swept: 120n });
+    expect(planSolClaim([], 7n, 7n, 6)).toEqual({ draws: [], swept: 7n });
+  });
+  it("takes the swept balance first and draws the rest", () => {
+    expect(planSolClaim(streams, 30n, 120n, 1)).toEqual({ draws: [{ position_id: "2", amount: "90" }], swept: 30n });
+    expect(planSolClaim(streams, 1n, 141n, 1)).toEqual({
+      draws: [
+        { position_id: "2", amount: "100" },
+        { position_id: "1", amount: "40" },
+      ],
+      swept: 1n,
+    });
+  });
+  it("draws a whole token and takes less of the swept balance when the rest is below one token", () => {
+    expect(planSolClaim([entry("1", "40")], 25n, 28n, 1)).toEqual({ draws: [{ position_id: "1", amount: "10" }], swept: 18n });
+    expect(() => planSolClaim([entry("1", "40")], 2n, 8n, 1)).toThrow("cannot pay this amount right now");
+  });
+});
+
+describe("Solana stream phases and sync", () => {
+  const end = Number(NOW + 3_600n);
+  it("closes draws 5 minutes before the end, as the engine does (now + 300 < end_time)", () => {
+    expect(solStreamPhase({ end_time: end }, NOW)).toBe("open");
+    expect(solStreamPhase({ end_time: end }, BigInt(end) - 301n)).toBe("open");
+    expect(solStreamPhase({ end_time: end }, BigInt(end) - 300n)).toBe("closing");
+    expect(solStreamPhase({ end_time: end, drawing: "7" }, NOW)).toBe("drawing");
+    expect(solStreamPhase({ end_time: end, drawing: "7" }, BigInt(end))).toBe("ended");
+    expect(solStreamPhase({ end_time: end }, BigInt(end) + 1n)).toBe("ended");
+  });
+  it("refuses a sync while a payout draws on the stream, or with nothing withdrawn beyond the engine's accounting", () => {
+    expect(syncBlocker({ engine_withdrawn: "100", drawing: "12" }, 1_000n)).toContain("Payout #12 draws on this stream and is not confirmed yet");
+    expect(syncBlocker({ engine_withdrawn: "100" }, null)).toContain("could not be read");
+    expect(syncBlocker({ engine_withdrawn: "100" }, 100n)).toContain("Nothing to sync yet");
+    expect(syncBlocker({ engine_withdrawn: "100", drawing: null }, 1_000n)).toBeUndefined();
   });
 });

@@ -19,7 +19,7 @@ export type ClaimPrompt = {
    * Position picker for an in-kind redeem. `owed` (Solana) is what the stream still owes the unit
    * holders, paid from the redeemer's claimable tokens (`get_sol_streams` `redeem_claimable`).
    */
-  positions?: { candidates: Position[]; decimals: number; freeUnits: bigint; owed?: { byPosition: ReadonlyMap<string, bigint>; claimable: bigint; unit: string } };
+  positions?: { candidates: Position[]; decimals: number; freeUnits: bigint; owed?: { byPosition: ReadonlyMap<string, bigint>; claimable: bigint; unit: string }; unavailable?: ReadonlyMap<string, string> };
   confirmLabel: string;
   onConfirm: (values: { amount: bigint; destination: string; position: Position | null }) => void;
 };
@@ -34,9 +34,10 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
   const positions = prompt.positions;
   const [amount, setAmount] = useState(() => (prompt.amount ? amountToText(prompt.amount.max, prompt.amount.decimals) : ""));
   const [destination, setDestination] = useState(() => prompt.destination?.initial ?? "");
-  const [positionId, setPositionId] = useState<string>(
-    () => positions?.candidates.find((candidate) => redeemBlocker(candidate, positions.freeUnits, positions.owed ? { owed: positions.owed.byPosition.get(candidate.positionId.toString()) ?? 0n, claimable: positions.owed.claimable } : null) === undefined)?.positionId.toString() ?? "",
-  );
+  const blockerOf = (candidate: Position): string | undefined =>
+    positions?.unavailable?.get(candidate.positionId.toString()) ??
+    (positions ? redeemBlocker(candidate, positions.freeUnits, positions.owed ? { owed: positions.owed.byPosition.get(candidate.positionId.toString()) ?? 0n, claimable: positions.owed.claimable } : null) : undefined);
+  const [positionId, setPositionId] = useState<string>(() => positions?.candidates.find((candidate) => blockerOf(candidate) === undefined)?.positionId.toString() ?? "");
 
   const parsedAmount = prompt.amount ? parseAmount(amount, prompt.amount.decimals) : 0n;
   const amountError = prompt.amount
@@ -59,7 +60,7 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
     : undefined;
   const position = positions?.candidates.find((candidate) => candidate.positionId.toString() === positionId) ?? null;
   const owedFor = (candidate: Position): bigint => positions?.owed?.byPosition.get(candidate.positionId.toString()) ?? 0n;
-  const positionError = positions ? (position ? redeemBlocker(position, positions.freeUnits, positions.owed ? { owed: owedFor(position), claimable: positions.owed.claimable } : null) : "Choose a position") : undefined;
+  const positionError = positions ? (position ? blockerOf(position) : "Choose a position") : undefined;
   const valid = !amountError && !destinationError && !positionError;
 
   return (
@@ -101,7 +102,7 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
               >
                 <option value="">Choose…</option>
                 {positions.candidates.map((candidate) => {
-                  const blocker = redeemBlocker(candidate, positions.freeUnits, positions.owed ? { owed: owedFor(candidate), claimable: positions.owed.claimable } : null);
+                  const blocker = blockerOf(candidate);
                   return (
                     <option key={candidate.positionId.toString()} value={candidate.positionId.toString()} disabled={blocker !== undefined}>
                       #{candidate.positionId.toString()} · {candidate.source.kind === "BaseStream" ? `Sablier stream ${candidate.source.streamId.toString()}` : `Streamflow ${candidate.source.metadata.slice(0, 8)}…`} · {formatAmount(candidate.allocation, positions.decimals)} units

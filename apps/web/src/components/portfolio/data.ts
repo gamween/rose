@@ -4,7 +4,7 @@
  * its NEP-145 storage, token symbols from Base and the account's slice of the event history.
  */
 
-import { isAuthorizationUsed, readNonceAccount, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type StorageBalance, type StoredEvent } from "@rose/sdk";
+import { isAuthorizationUsed, readNonceAccount, readStreamflowStream, type ClassInfo, type ConfigView, type PayoutView, type Portfolio, type Position, type RetiredLot, type Round, type SolStreamStateView, type StorageBalance, type StoredEvent } from "@rose/sdk";
 import { PublicKey } from "@solana/web3.js";
 import { deployedAddress } from "@/lib/deployment";
 import { readEventRange } from "@/lib/event-pages";
@@ -13,12 +13,18 @@ import { requireEngine, nearRpc } from "@/lib/engine-client";
 import { tokenSymbols } from "@/lib/token-symbols";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
-import { accountEvents, orderRoundIds, payoutState, type ForeignState, type PayoutState } from "./transforms";
+import { accountEvents, orderRoundIds, payoutState, solStreamPhase, type ForeignState, type PayoutState, type SolStreamPhase } from "./transforms";
 
 const PAGE = 50;
 const EVENTS_WINDOW = 400;
 
 export type PayoutEntry = { payout: PayoutView; state: PayoutState };
+
+/** A vault stream of a Solana class, with the `amount_withdrawn` its metadata shows on chain once it ended (null before, or unreadable). */
+export type SolStreamRow = { entry: SolStreamStateView; phase: SolStreamPhase; onChainWithdrawn: bigint | null };
+
+/** A Solana class the account holds or can claim: its vault streams and its swept balance (`get_sol_swept`). */
+export type SolClassView = { classId: string; swept: { balance: bigint; pending: bigint; available: bigint }; streams: SolStreamRow[] };
 
 export type PortfolioData = {
   account: string;
@@ -29,6 +35,8 @@ export type PortfolioData = {
   positions: Position[];
   /** Claimable tokens a Solana redeem of each candidate position takes now (`get_sol_streams` `redeem_claimable`), by position id. */
   redeemOwed: Map<string, bigint>;
+  /** The Solana classes the account holds units of or can claim tokens of. */
+  solClasses: SolClassView[];
   retiredLots: RetiredLot[];
   rounds: Map<string, Round>;
   payouts: PayoutEntry[];
@@ -115,6 +123,27 @@ async function payoutForeign(payout: PayoutView): Promise<ForeignState> {
   }
 }
 
+/** `amount_withdrawn` of an ended stream's metadata (`confirmed`): what Streamflow's auto-claim took shows here first. */
+async function onChainWithdrawn(entry: SolStreamStateView): Promise<bigint | null> {
+  try {
+    return (await readStreamflowStream(solanaConnection(), new PublicKey(entry.stream.metadata), "confirmed")).metadata.amountWithdrawn;
+  } catch {
+    return null;
+  }
+}
+
+async function solClassView(classId: string, nowSec: bigint, signal: AbortSignal): Promise<SolClassView> {
+  const { views } = requireEngine();
+  const [entries, swept] = await Promise.all([views.getSolStreams(classId, { signal }), views.getSolSwept(classId, { signal })]);
+  const streams = await Promise.all(
+    entries.map(async (entry): Promise<SolStreamRow> => {
+      const phase = solStreamPhase(entry.stream, nowSec);
+      return { entry, phase, onChainWithdrawn: phase === "ended" ? await onChainWithdrawn(entry) : null };
+    }),
+  );
+  return { classId, swept, streams };
+}
+
 async function recentEvents(account: string, signal: AbortSignal): Promise<StoredEvent[]> {
   const { views } = requireEngine();
   const latest = await views.getEvents(undefined, 1, { signal });
@@ -138,14 +167,19 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
   ]);
   const heldClassIds = new Set(portfolio.holdings.filter((holding) => holding.balance > 0n).map((holding) => holding.classId));
   const roundIds = orderRoundIds(portfolio.bids);
-  const solanaClassIds = [...heldClassIds].filter((classId) => classes.get(classId)?.chain === "Solana");
-  const [positions, retiredLots, roundList, foreign, solStreams] = await Promise.all([
+  const blockTimeSec = BigInt(block.header.timestamp_nanosec) / 1_000_000_000n;
+  const [positions, retiredLots, roundList, foreign] = await Promise.all([
     heldPositions(heldClassIds, signal),
     retiredLotsOf(account, signal),
     Promise.all(roundIds.map((roundId) => views.getRound(roundId, { signal }))),
     Promise.all(payoutsRaw.map(payoutForeign)),
-    Promise.all(solanaClassIds.map((classId) => views.getSolStreams(classId, { signal }))),
   ]);
+  const involvedClassIds = new Set([
+    ...portfolio.holdings.filter((holding) => holding.balance > 0n || holding.claimable > 0n).map((holding) => holding.classId),
+    ...portfolio.lienShares.filter((share) => share.claimable > 0n).map((share) => share.classId),
+    ...retiredLots.filter((lot) => lot.claimable > 0n).map((lot) => lot.classId),
+  ]);
+  const solClasses = await Promise.all([...involvedClassIds].filter((classId) => classes.get(classId)?.chain === "Solana").map((classId) => solClassView(classId, blockTimeSec, signal)));
   const symbols = await tokenSymbols([
     ...[...classes.values()].map((info) => ({ chain: info.chain, token: info.token })),
     ...config.base_cash_tokens.map((token) => ({ chain: "Base" as const, token })),
@@ -162,7 +196,8 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
     classes,
     portfolio,
     positions,
-    redeemOwed: new Map(solStreams.flat().map((entry) => [entry.position_id, BigInt(entry.redeem_claimable)])),
+    redeemOwed: new Map(solClasses.flatMap((view) => view.streams).map((row) => [row.entry.position_id, BigInt(row.entry.redeem_claimable)])),
+    solClasses,
     retiredLots,
     rounds,
     payouts: payoutsRaw.map((payout, index) => ({ payout, state: payoutState(payout, foreign[index] ?? null, blockHeight) })),
@@ -171,6 +206,6 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
     symbols,
     events,
     blockHeight,
-    blockTimeSec: BigInt(block.header.timestamp_nanosec) / 1_000_000_000n,
+    blockTimeSec,
   };
 }

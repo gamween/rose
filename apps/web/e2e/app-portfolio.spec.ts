@@ -44,6 +44,35 @@ const PAYOUTS = [
 ];
 
 const OUTCOME_HASH = "7yB4Z4yHnm8hsg8sXxQ4vCxk3iCTn2MmiLpSj8YsUvQd";
+
+/** Vault streams of the Strategic class: one paying claims, one ended and auto-claimed, one ended under an unconfirmed payout. */
+const ENDED_METADATA = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU";
+const DRAWN_METADATA = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+const AUTO_CLAIM_TX = "5j7s6NiJS3JAkvgkoc18WVAsiSaci2pxB2A6ueCJP4tprA2TFg9wSyTLeYouxPBJEMzJinENTkpA52YStRW5Dia7";
+function solStream(position: string, metadata: string, endTime: number, engineWithdrawn: string, extra: Record<string, unknown> = {}) {
+  return { metadata, mint: "3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w", start_time: NOW_SEC - 30 * 86_400, end_time: endTime, net_amount_deposited: "120000000000000", period: 1, amount_per_period: "1000", cliff: 0, cliff_amount: "0", engine_withdrawn: engineWithdrawn, registered_withdrawn: "0", checkpoint: "0", drawing: null, pending_withdraw: "0", ...extra };
+}
+const SOL_STREAMS = [
+  { position_id: "2", withdrawable: "1500000000000", redeem_claimable: "3000000000000", stream: solStream("2", "J2MxStreamMetadata111111111111111111111111111", NOW_SEC + 30 * 86_400, "0") },
+  { position_id: "6", withdrawable: "0", redeem_claimable: "0", stream: solStream("6", ENDED_METADATA, NOW_SEC - 600, "60000000000000") },
+  { position_id: "7", withdrawable: "0", redeem_claimable: "0", stream: solStream("7", DRAWN_METADATA, NOW_SEC - 600, "60000000000000", { drawing: "15" }) },
+];
+
+/** The 32 bytes of a base58 Solana address (the spec cannot load web3.js, whose websocket dependency breaks the test loader). */
+function base58Bytes(address: string): Buffer {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let value = 0n;
+  for (const char of address) value = value * 58n + BigInt(alphabet.indexOf(char));
+  return Buffer.from(value.toString(16).padStart(64, "0"), "hex");
+}
+
+/** 1,104 metadata bytes of a stream at the vault whose whole deposit Streamflow's auto-claim withdrew. */
+function autoClaimedMetadata(): string {
+  const data = Buffer.alloc(1104);
+  data.writeBigUInt64LE(120_000_000_000_000n, 17);
+  base58Bytes(MOCK.vaultSol).copy(data, 113);
+  return data.toString("base64");
+}
 const SCREENS = process.env.ROSE_SCREENSHOT_DIR;
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -52,7 +81,7 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 /** Mocked views of whichever account the page asks about (the demo account is created during the test). */
-function overrides(state: { account: string; withdrawn: boolean }): MockOverrides {
+function overrides(state: { account: string; withdrawn: boolean; synced?: boolean }): MockOverrides {
   const withAccount = <T extends { bidder?: string; holder?: string; funder?: string; requester?: string }>(item: T): T => ({ ...item, ...("bidder" in item ? { bidder: state.account } : {}), ...("holder" in item ? { holder: state.account } : {}), ...("funder" in item ? { funder: state.account } : {}), ...("requester" in item ? { requester: state.account } : {}) });
   return {
     engineView: (method, args) => {
@@ -94,7 +123,9 @@ function overrides(state: { account: string; withdrawn: boolean }): MockOverride
         case "get_round":
           return String(args.round_id) === "8" ? ROUND_8 : null;
         case "get_sol_streams":
-          return args.class_id === STRATEGIC ? [{ position_id: "2", withdrawable: "0", redeem_claimable: "3000000000000", stream: { net_amount_deposited: "120000000000000", engine_withdrawn: "0" } }] : [];
+          return args.class_id === STRATEGIC ? SOL_STREAMS.filter((entry) => !(state.synced && entry.position_id === "6")) : [];
+        case "get_sol_swept":
+          return args.class_id === STRATEGIC ? { balance: state.synced ? "65000000000000" : "5000000000000", pending: "0" } : { balance: "0", pending: "0" };
         default:
           return undefined;
       }
@@ -106,14 +137,27 @@ function overrides(state: { account: string; withdrawn: boolean }): MockOverride
       if (method === "query" && params.request_type === "call_function" && params.method_name === "ft_balance_of") return "150000000";
       if (method === "block") return { header: { height: 276_200_700, hash: "6zKgP7tApq19qYQnbWw4FtzA6hnrnoWWLti88pM6jGYS", timestamp: NOW_SEC * 1e9, timestamp_nanosec: ns(NOW_SEC) } };
       if (method === "send_tx" || method === "tx") {
-        state.withdrawn = true;
-        const outcome = { id: "r", outcome: { logs: [`EVENT_JSON:{"standard":"rose","version":"1.0.0","event":"cash_withdrawn","data":{"account":"${state.account}","venue":"Near","amount":"150000000"}}`], receipt_ids: [], gas_burnt: 1, tokens_burnt: "0", executor_id: MOCK.engine, status: { SuccessValue: "" } } };
+        const sync = Buffer.from(String(params.signed_tx_base64 ?? ""), "base64").toString("latin1").includes("sync_sol_stream");
+        const log = sync
+          ? `EVENT_JSON:{"standard":"rose","version":"1.0.0","event":"sol_stream_swept","data":{"position_id":"6","class_id":"${STRATEGIC}","amount":"60000000000000"}}`
+          : `EVENT_JSON:{"standard":"rose","version":"1.0.0","event":"cash_withdrawn","data":{"account":"${state.account}","venue":"Near","amount":"150000000"}}`;
+        if (sync) state.synced = true;
+        else state.withdrawn = true;
+        const outcome = { id: "r", outcome: { logs: [log], receipt_ids: [], gas_burnt: 1, tokens_burnt: "0", executor_id: MOCK.engine, status: { SuccessValue: "" } } };
         return { status: { SuccessValue: "" }, transaction: { hash: OUTCOME_HASH, signer_id: state.account, receiver_id: MOCK.engine, nonce: 8, public_key: "ed25519:11111111111111111111111111111111" }, transaction_outcome: outcome, receipts_outcome: [outcome], final_execution_status: "EXECUTED_OPTIMISTIC" };
       }
       return undefined;
     },
     baseRequest: evmCallRequest(),
-    solanaRequest: (method) => (method === "getAccountInfo" ? { context: { slot: 1 }, value: null } : undefined),
+    solanaRequest: (method, params) => {
+      if (method === "getAccountInfo") {
+        return params[0] === ENDED_METADATA || params[0] === DRAWN_METADATA
+          ? { context: { slot: 1 }, value: { data: [autoClaimedMetadata(), "base64"], owner: "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ", lamports: 8_574_720, executable: false, rentEpoch: 0, space: 1104 } }
+          : { context: { slot: 1 }, value: null };
+      }
+      if (method === "getSignaturesForAddress") return [{ signature: AUTO_CLAIM_TX, slot: 1, err: null, memo: "Auto-Claim", blockTime: NOW_SEC - 599, confirmationStatus: "finalized" }];
+      return undefined;
+    },
   };
 }
 
@@ -219,5 +263,45 @@ test.describe("portfolio", () => {
     await expect(flow.locator("[data-step='sign']")).toBeVisible();
     await expect(flow.locator("[data-step='submit']")).toBeVisible();
     await shot(page, "flow-base");
+  });
+
+  test("shows the Strategic streams and the swept balance, explains the 5-minute window, and syncs an ended stream", async ({ page }) => {
+    const state = { account: "", withdrawn: false, synced: false };
+    await mockChains(page, overrides(state));
+    state.account = await connectNearDemo(page);
+    const section = page.locator("[data-sol-streams]");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+    await expect(section).toContainText("except from 5 minutes before a stream's end");
+    await expect(section.locator("[data-swept]")).toContainText("Swept balance 5,000.0000");
+    await expect(section.locator("[data-sol-stream='2']")).toHaveAttribute("data-sol-stream-phase", "open");
+    await expect(section.locator("[data-sol-stream='2'] [data-sol-stream-hint]")).toContainText("Draws stop 5 minutes before the end");
+    const drawn = section.locator("[data-sol-stream='7']");
+    await expect(drawn.locator("[data-sync-blocker]")).toContainText("Payout #15 draws on this stream and is not confirmed yet");
+    await expect(drawn.locator("[data-sync]")).toBeDisabled();
+    const ended = section.locator("[data-sol-stream='6']");
+    await expect(ended.locator("[data-sol-stream-hint]")).toContainText("Streamflow's auto-claim moved 60,000.0000");
+    if ((page.viewportSize()?.width ?? 0) < 768) expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await shot(page, "sol-streams");
+    await ended.locator("[data-sync]").click();
+    const flow = page.locator("[data-flow-dialog]");
+    await expect(flow).toHaveAttribute("data-flow-status", "completed", { timeout: 60_000 });
+    await expect(flow.locator("[data-step='read']")).toContainText("60,000.0000 withdrawn by the auto-claim, not booked yet");
+    await expect(flow.locator("[data-step='read']").getByRole("link", { name: /explorer\.solana\.com|Solana/ }).first()).toHaveAttribute("href", `https://explorer.solana.com/tx/${AUTO_CLAIM_TX}?cluster=devnet`);
+    await expect(flow.locator("[data-step='sync']")).toContainText("60,000.0000 booked in the swept balance");
+    await expect(flow.getByRole("link", { name: /near.rocks/ })).toHaveAttribute("href", `https://testnet.near.rocks/tx/${OUTCOME_HASH}`);
+    await shot(page, "sync-done");
+    await page.locator("[data-flow-close]").click();
+    await expect(section.locator("[data-sol-stream='6']")).toHaveCount(0, { timeout: 60_000 });
+    await expect(section.locator("[data-swept]")).toContainText("Swept balance 65,000.0000");
+  });
+
+  test("tells a Solana claimant about the swept balance and the 5-minute window", async ({ page }) => {
+    const state = { account: "", withdrawn: false };
+    await mockChains(page, overrides(state));
+    state.account = await connectNearDemo(page);
+    await page.locator("[data-claims] [data-token-claim='solana']").first().getByRole("button", { name: "Claim" }).click({ timeout: 60_000 });
+    const dialog = page.getByRole("dialog", { name: /on Solana devnet/ });
+    await expect(dialog).toContainText("the class's swept balance first");
+    await expect(dialog).toContainText("A stream pays nothing from 5 minutes before its end until its auto-claim is synced");
   });
 });

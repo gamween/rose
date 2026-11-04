@@ -3,7 +3,7 @@
  * `f(now)`, claim sources per chain, pending payouts, the account's slice of the event history.
  */
 
-import { ONE, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type SolDrawArgs, type StoredEvent, type Venue } from "@rose/sdk";
+import { ONE, SOL_DRAW_CUTOFF_SECS, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type SolDrawArgs, type StoredEvent, type Venue } from "@rose/sdk";
 import { RoseActionError } from "@/lib/errors";
 import { nsToMs, sameVenue, tokensAtFraction } from "@/lib/amounts";
 import { fractionAt } from "@/lib/unlock-schedule";
@@ -200,19 +200,26 @@ export function redeemBlocker(position: { allocation: bigint }, freeUnits: bigin
   return undefined;
 }
 
-/** What `planSolDraws` reads of a `get_sol_streams` entry. */
+/** What `planSolClaim` reads of a `get_sol_streams` entry. */
 export type DrawableStream = { position_id: string; withdrawable: string; stream: { net_amount_deposited: string; engine_withdrawn: string } };
 
+export type SolClaimPlan = { draws: SolDrawArgs[]; swept: bigint };
+
 /**
- * The streams a Solana claim of `amount` draws on, as `get_sol_streams` reports them now, with
- * the fewest streams (the 1,232-byte packet bounds the draws of one payout). The engine re-checks
- * every draw: at most the stream's withdrawable amount, and at least one whole token unless the
- * draw empties the stream. So each stream offers a range `[low, withdrawable]` (`low` = one token,
- * or the whole remainder of a stream it empties): the `k` largest streams can pay any amount
- * between the sum of their lows and the sum of their withdrawables; each draw starts at its low
- * and the rest is filled largest first.
+ * How a Solana claim of `amount` is paid now (spec 7.3): from the class's swept balance first
+ * (`sweptAvailable`, what `sync_sol_stream` booked of ended streams and no unconfirmed payout
+ * reserves; a transfer alone, no stream touched), the rest drawn on the fewest streams as
+ * `get_sol_streams` reports them (the 1,232-byte packet bounds the draws of one payout). The
+ * engine re-checks every draw: at most the stream's withdrawable amount, and at least one whole
+ * token unless the draw empties the stream. So each stream offers a range `[low, withdrawable]`
+ * (`low` = one token, or the whole remainder of a stream it empties): the `k` largest streams can
+ * pay any amount between the sum of their lows and the sum of their withdrawables, and the swept
+ * balance covers the difference with the claim. Each draw starts at its low and the rest is
+ * filled largest first.
  */
-export function planSolDraws(streams: readonly DrawableStream[], amount: bigint, decimals: number): SolDrawArgs[] {
+export function planSolClaim(streams: readonly DrawableStream[], sweptAvailable: bigint, amount: bigint, decimals: number): SolClaimPlan {
+  if (amount <= sweptAvailable) return { draws: [], swept: amount };
+  const minimumDrawn = amount - sweptAvailable;
   const oneToken = 10n ** BigInt(decimals);
   const options = streams
     .map((entry) => {
@@ -228,14 +235,50 @@ export function planSolDraws(streams: readonly DrawableStream[], amount: bigint,
   for (let k = 0; k < options.length; k += 1) {
     lows += options[k]!.low;
     highs += options[k]!.withdrawable;
-    if (lows > amount) break;
-    if (highs < amount) continue;
-    let extra = amount - lows;
-    return options.slice(0, k + 1).map((option) => {
+    const drawn = lows > minimumDrawn ? lows : minimumDrawn;
+    if (drawn > amount) break;
+    if (drawn > highs) continue;
+    let extra = drawn - lows;
+    const draws = options.slice(0, k + 1).map((option) => {
       const add = extra < option.withdrawable - option.low ? extra : option.withdrawable - option.low;
       extra -= add;
       return { position_id: option.positionId, amount: (option.low + add).toString() };
     });
+    return { draws, swept: amount - drawn };
   }
-  throw new RoseActionError("contract", "Not withdrawable yet", "The class streams cannot pay this amount right now: each stream must give at least one whole token. Claim less or wait for the next unlock.");
+  throw new RoseActionError(
+    "contract",
+    "Not payable yet",
+    "The class streams and its swept balance cannot pay this amount right now: each stream must give at least one whole token, and a stream pays nothing from 5 minutes before its end until Streamflow's auto-claim of it is synced (Solana streams, Sync). Claim less, sync an ended stream, or wait for the next unlock.",
+  );
+}
+
+/**
+ * Where a vault stream of a class stands for payouts (spec 7.3): `open` (draws accepted),
+ * `drawing` (an unconfirmed payout draws on it: nothing else until it is confirmed), `closing`
+ * (within 5 minutes of its end: no draw and no redeem), `ended` (Streamflow's auto-claim moves the
+ * remainder into the vault one second after the end; a sync books it in the swept balance).
+ */
+export type SolStreamPhase = "open" | "drawing" | "closing" | "ended";
+
+export function solStreamPhase(stream: { end_time: number; drawing?: string | null }, nowSec: bigint): SolStreamPhase {
+  const end = BigInt(stream.end_time);
+  if (nowSec >= end) return "ended";
+  if (stream.drawing !== undefined && stream.drawing !== null) return "drawing";
+  return nowSec + SOL_DRAW_CUTOFF_SECS < end ? "open" : "closing";
+}
+
+/**
+ * Why an ended stream cannot be synced now, or undefined (the engine's `sync_blocker`, spec 7.3):
+ * an unsettled payout drawing on it (nobody knows yet whether its transaction moved tokens), or
+ * nothing withdrawn on chain beyond the engine's accounting (`onChainWithdrawn`, the metadata's
+ * `amount_withdrawn`; null when it could not be read).
+ */
+export function syncBlocker(stream: { engine_withdrawn: string; drawing?: string | null }, onChainWithdrawn: bigint | null): string | undefined {
+  if (stream.drawing !== undefined && stream.drawing !== null) {
+    return `Payout #${stream.drawing} draws on this stream and is not confirmed yet: once it is confirmed (anyone can, Confirm on the pending payout), the sync books the rest, the failed draw included.`;
+  }
+  if (onChainWithdrawn === null) return "The stream could not be read on Solana; refresh in a few seconds.";
+  if (onChainWithdrawn <= BigInt(stream.engine_withdrawn)) return "Nothing to sync yet: Streamflow's auto-claim runs one second after the end and must be finalized (about 15 s).";
+  return undefined;
 }

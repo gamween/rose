@@ -21,15 +21,29 @@ import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
 import type { ClaimPrompt } from "./ClaimDialog";
 import { ClaimsSection } from "./ClaimsSection";
-import type { PortfolioData } from "./data";
+import type { PortfolioData, SolClassView, SolStreamRow } from "./data";
 import type { FlowRequest } from "./FlowDialog";
-import { claimBaseTokensSteps, claimSolTokensSteps, confirmPayoutSteps, finishPayoutSteps, redeemSteps, resignGasSteps, retryBaseSignatureSteps, retrySolPayoutSteps, withdrawBaseCashSteps, withdrawNearCashSteps, type FlowDeps } from "./flows";
+import { claimBaseTokensSteps, claimSolTokensSteps, confirmPayoutSteps, finishPayoutSteps, redeemSteps, resignGasSteps, retryBaseSignatureSteps, retrySolPayoutSteps, syncSolStreamSteps, withdrawBaseCashSteps, withdrawNearCashSteps, type FlowDeps } from "./flows";
 import { HistorySection, StorageSection } from "./HistoryAndStorage";
 import { HoldingsSection } from "./HoldingsSection";
 import { LiensSection, OrdersSection } from "./OrdersAndLiens";
+import { SolanaStreamsSection } from "./SolanaStreamsSection";
 import { cashRows, holdingRows, lienProgress, orderRows, tokenClaims, type CashRow, type HoldingRow, type TokenClaim } from "./transforms";
 
 export { fetchPortfolioData } from "./data";
+
+const SOL_REDEEM_UNAVAILABLE = {
+  drawing: "An unconfirmed payout draws on its stream",
+  closing: "Its stream ends within 5 minutes",
+  ended: "Its stream has ended",
+} as const;
+
+/** Solana positions whose stream takes no redeem now (spec 7.3), with the reason, by position id. */
+function solRedeemUnavailable(data: PortfolioData): Map<string, string> {
+  const reasons = new Map<string, string>();
+  for (const row of data.solClasses.flatMap((view) => view.streams)) if (row.phase !== "open") reasons.set(row.entry.position_id, SOL_REDEEM_UNAVAILABLE[row.phase]);
+  return reasons;
+}
 
 /** `setPrompt` and `setFlow` drive the page's claim and flow dialogs, which outlive this view (a running flow keeps its result on screen). */
 export type PortfolioAccountProps = { account: string; data: PortfolioData; refreshAll: () => void; setPrompt: (prompt: ClaimPrompt | null) => void; setFlow: (flow: FlowRequest) => void };
@@ -98,7 +112,7 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
       description:
         chain === "base"
           ? "RoseVault is filled from the class streams if needed (Sablier withdrawMax, anyone may), the engine debits your claimable balance, the MPC signs a Transfer authorization, and you submit it to RoseVault."
-          : "You create the payout's durable nonce account, the engine builds one transaction (Streamflow withdraws into the vault plus the SPL transfer to you), the MPC signs it and your browser broadcasts it. Fees are paid by the engine's gas/sol address.",
+          : "You create the payout's durable nonce and receipt accounts, the engine builds one transaction (the class's swept balance first, Streamflow withdraws into the vault for the rest, the SPL transfer to you, the receipt advance), the MPC signs it and your browser broadcasts it. Fees are paid by the engine's gas/sol address. A stream pays nothing from 5 minutes before its end until its auto-claim is synced (Solana streams).",
       amount: { max: claim.source.amount, decimals: claim.info.decimals, unit: symbol },
       destination: { chain, initial: fixed ?? (chain === "base" ? (wallets.evm.address ?? "") : (wallets.solana.publicKey ?? "")), fixed: fixed !== null },
       confirmLabel: "Claim",
@@ -130,6 +144,7 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
         decimals: row.info.decimals,
         freeUnits: row.holding.balance,
         owed: chain === "solana" ? { byPosition: data.redeemOwed, claimable: row.holding.claimable + pendingExcess, unit: symbol } : undefined,
+        unavailable: chain === "solana" ? solRedeemUnavailable(data) : undefined,
       },
       destination: { chain, initial: chain === "base" ? (wallets.evm.address ?? "") : (wallets.solana.publicKey ?? "") },
       confirmLabel: "Redeem",
@@ -146,6 +161,10 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
   const retrySignature = (payout: PayoutView) =>
     setFlow({ title: `Retry signature of payout #${payout.id}`, steps: () => (payout.chain === "Base" ? retryBaseSignatureSteps(deps(), payout) : retrySolPayoutSteps(deps(), payout)) });
   const confirmPayout = (payout: PayoutView) => setFlow({ title: `Confirm payout #${payout.id}`, steps: () => confirmPayoutSteps(deps(), payout) });
+  const syncStream = (view: SolClassView, row: SolStreamRow) => {
+    const decimals = data.classes.get(view.classId)?.decimals ?? 0;
+    setFlow({ title: `Sync position #${row.entry.position_id}`, summary: `Streamflow stream ${row.entry.stream.metadata.slice(0, 8)}… → swept balance`, steps: () => syncSolStreamSteps(deps(), row.entry, decimals) });
+  };
   const releaseLien = (lienId: bigint) =>
     void simple.run(`Releasing lien #${lienId.toString()}`, async () => {
       const outcome = await wallets.sendNearCall(requireEngine().calls.releaseLien(lienId));
@@ -183,6 +202,7 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
         </CardBody>
       </Card>
       <HoldingsSection rows={rows} data={data} onClaim={(row) => claimTokens({ info: row.info, source: { kind: "holding", classId: row.info.classId, amount: row.holding.claimable, label: "Units" } })} onRedeem={redeem} />
+      <SolanaStreamsSection data={data} onSync={syncStream} />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <ClaimsSection data={data} cash={cash} tokens={claims} actions={{ onClaimCash: claimCash, onClaimTokens: claimTokens, onFinishPayout: finishPayout, onResignGas: resignGas, onRetrySignature: retrySignature, onConfirmPayout: confirmPayout }} />
         <OrdersSection rows={orders} data={data} />

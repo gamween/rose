@@ -2,7 +2,8 @@ import type { EngineCalls, EngineViews, FinalExecutionOutcome, FunctionCall, Pay
 import type { PublicClient } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StepContext, StepDefinition } from "@/lib/use-action";
-import { ADVANCED_NONCE, FakeSolana, NONCE_ACCOUNT, nonceAccountData, SIGNED_NONCE, solTransferPayout, status } from "@/lib/solana-fake.test-support";
+import { Keypair, type PublicKey } from "@solana/web3.js";
+import { ADVANCED_NONCE, FakeSolana, NONCE_ACCOUNT, nonceAccountData, SIGNED_NONCE, solTransferPayout, status, VAULT as SOL_VAULT } from "@/lib/solana-fake.test-support";
 import { solPayoutSignature } from "@/lib/payouts";
 
 const VAULT = "0x14c7f1f870ccb5569a01399013ceeeffc465e243";
@@ -11,7 +12,7 @@ const sdk = vi.hoisted(() => ({ withdrawMax: vi.fn(), readStream: vi.fn(), token
 vi.mock("@/lib/deployment", async (original) => ({ ...(await original<typeof import("@/lib/deployment")>()), deployedAddress: () => VAULT }));
 vi.mock("@rose/sdk", async (original) => ({ ...(await original<typeof import("@rose/sdk")>()), ...sdk }));
 
-const { claimBaseTokensSteps, classBaseStreams, confirmPayoutSteps, finishPayoutSteps, withdrawBaseCashSteps } = await import("./flows");
+const { claimBaseTokensSteps, claimSolTokensSteps, classBaseStreams, confirmPayoutSteps, finishPayoutSteps, syncSolStreamSteps, withdrawBaseCashSteps } = await import("./flows");
 type FlowDeps = Parameters<typeof confirmPayoutSteps>[0];
 
 function context(): StepContext & { details: string[]; links: string[] } {
@@ -36,11 +37,12 @@ function deps({ calls, payouts, height, ...overrides }: Omit<Partial<FlowDeps>, 
     getPosition: () => Promise.resolve({ source: { kind: "SolanaStream", metadata: NONCE_ACCOUNT.toBase58() } }),
     getPositions: () => Promise.resolve([]),
     getSolStreams: () => Promise.resolve([]),
+    getSolSwept: () => Promise.resolve({ balance: 0n, pending: 0n, available: 0n }),
   } as unknown as EngineViews;
   return {
     account: "a.testnet",
     views,
-    calls: { confirmSolPayout: call("confirm_sol_payout"), confirmSolRedeem: call("confirm_sol_redeem"), claimBaseTokens: call("claim_base_tokens"), claimSolTokens: call("claim_sol_tokens"), ...calls } as unknown as EngineCalls,
+    calls: { confirmSolPayout: call("confirm_sol_payout"), confirmSolRedeem: call("confirm_sol_redeem"), claimBaseTokens: call("claim_base_tokens"), claimSolTokens: call("claim_sol_tokens"), syncSolStream: call("sync_sol_stream"), ...calls } as unknown as EngineCalls,
     sendNearCall: (request) => {
       sent.push(request);
       return Promise.resolve(outcome(`near${String(sent.length)}`));
@@ -206,5 +208,79 @@ describe("claims", () => {
     await expect(run(sign!)).rejects.toMatchObject({ message: "the authority signature failed. Your balance was refunded; retry requests a new one.", retryable: true });
     expect((await run(sign!)).message).toBe("Payout #31 signed by the MPC");
     expect(requests).toEqual(["withdraw_base_cash", "withdraw_base_cash"]);
+  });
+});
+
+/** 1,104 metadata bytes of a stream paying `recipient` with `withdrawn` base units withdrawn so far. */
+function metadataBytes(recipient: PublicKey, withdrawn: bigint): Buffer {
+  const data = Buffer.alloc(1104);
+  data.writeBigUInt64LE(withdrawn, 17);
+  recipient.toBuffer().copy(data, 113);
+  return data;
+}
+
+const sweptLog = (amount: string) => `EVENT_JSON:${JSON.stringify({ standard: "rose", version: "1.0.0", event: "sol_stream_swept", data: { position_id: "4", class_id: "c".repeat(64), amount } })}`;
+
+describe("ended Solana streams", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const metadata = Keypair.generate().publicKey;
+  const entry = { position_id: "4", withdrawable: "0", redeem_claimable: "0", stream: { metadata: metadata.toBase58(), engine_withdrawn: "400", net_amount_deposited: "1000", end_time: 1 } } as never;
+
+  function chainWithAutoClaim(withdrawn: bigint): FakeSolana {
+    const chain = new FakeSolana();
+    chain.setAccount(metadata, metadataBytes(SOL_VAULT, withdrawn));
+    chain.history.set(metadata.toBase58(), [{ signature: "autoClaim", err: null }]);
+    return chain;
+  }
+
+  it("reads the auto-claim at finality, anchors on it and books it with sync_sol_stream", async () => {
+    const flow = deps({ solana: chainWithAutoClaim(1000n).connection(), vaultSol: SOL_VAULT.toBase58() });
+    flow.sendNearCall = (request) => {
+      flow.sent.push(request);
+      return Promise.resolve(outcome("nearSync", [sweptLog("600")]));
+    };
+    const [read, sync] = syncSolStreamSteps(flow, entry, 0);
+    const first = await run(read!);
+    expect(first.message).toBe("600 withdrawn by the auto-claim, not booked yet");
+    expect(first.ctx.links).toEqual(["https://explorer.solana.com/tx/autoClaim?cluster=devnet"]);
+    const second = await run(sync!);
+    expect(second.message).toBe("600 booked in the swept balance; claims pay from it");
+    expect(flow.sent.map((request) => request.methodName)).toEqual(["sync_sol_stream"]);
+    expect(second.ctx.links[0]).toContain("nearSync");
+  });
+
+  it("refuses before any NEAR call when the auto-claim has not run or the stream left the vault", async () => {
+    const early = deps({ solana: chainWithAutoClaim(400n).connection(), vaultSol: SOL_VAULT.toBase58() });
+    await expect(run(syncSolStreamSteps(early, entry, 0)[0]!)).rejects.toMatchObject({ title: "Nothing to sync yet", retryable: true });
+    const moved = deps({ solana: chainWithAutoClaim(1000n).connection(), vaultSol: Keypair.generate().publicKey.toBase58() });
+    await expect(run(syncSolStreamSteps(moved, entry, 0)[0]!)).rejects.toMatchObject({ title: "Not at the vault" });
+    expect([...early.sent, ...moved.sent]).toEqual([]);
+  });
+
+  it("reports a proof the engine did not book, and reads the stream again on retry", async () => {
+    const flow = deps({ solana: chainWithAutoClaim(1000n).connection(), vaultSol: SOL_VAULT.toBase58() });
+    let calls = 0;
+    flow.sendNearCall = () => {
+      calls += 1;
+      return Promise.resolve(outcome(`near${String(calls)}`, calls === 1 ? [] : [sweptLog("600")]));
+    };
+    const [read, sync] = syncSolStreamSteps(flow, entry, 0);
+    await run(read!);
+    await expect(run(sync!)).rejects.toMatchObject({ title: "Proof not accepted", retryable: true });
+    const retry = await run(sync!);
+    expect(retry.message).toBe("600 booked in the swept balance; claims pay from it");
+    expect(retry.ctx.details).toContain("Reading the stream again at finality…");
+  });
+
+  it("plans a claim from the swept balance first, with no stream drawn when it covers the claim", async () => {
+    const flow = deps();
+    flow.views.getSolSwept = () => Promise.resolve({ balance: 9n, pending: 2n, available: 7n });
+    flow.views.getSolStreams = () => Promise.resolve([{ position_id: "5", withdrawable: "50", redeem_claimable: "0", stream: { net_amount_deposited: "100", engine_withdrawn: "0" } }] as never);
+    const source = { kind: "holding" as const, classId: "c".repeat(64), amount: 7n, label: "Units" };
+    const plan = claimSolTokensSteps(flow, source, "mint", 0, "owner").find((step) => step.id === "draws")!;
+    expect((await run(plan)).message).toBe("7 from the swept balance (ended streams, synced)");
+    const mixed = claimSolTokensSteps(flow, { ...source, amount: 20n }, "mint", 0, "owner").find((step) => step.id === "draws")!;
+    expect((await run(mixed)).message).toBe("1 stream drawn on + 7 from the swept balance (ended streams, synced)");
   });
 });
