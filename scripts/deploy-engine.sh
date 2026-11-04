@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Deploys the rose engine on NEAR testnet: creates <account> as a sub-account of its parent (the
-# parent signs with its legacy keychain key), deploys target/near/rose_engine/rose_engine.wasm
-# with the `new` init call, calls `bootstrap` (the MPC-derived vault addresses), waits for it and
+# parent signs with its legacy keychain key), deploys the engine wasm with the `new` init call, calls `bootstrap` (the MPC-derived vault addresses), waits for it and
 # checks the derived addresses against the MPC view. Then it checks that the code on chain is
 # exactly the local wasm (view_account code hash == sha256 of the file). The balance pays the
 # code, the full event history (1,024 entries of at most 448 bytes, which no caller pays for:
@@ -13,9 +12,25 @@
 # signs it listed last), and view_access_key_list is polled at `final` for up to 60 s until it
 # returns []. `--role final` refuses to run without --keyless.
 #
+# The wasm is target/near/rose_engine/rose_engine.wasm (`cargo near build non-reproducible-wasm`)
+# unless one of these names another artifact:
+#   --wasm <file>    deploys <file>, for example a reproducible build made earlier.
+#   --reproducible   builds the artifact now with `cargo near build reproducible-wasm` in a plain
+#                    clone of HEAD (cargo-near resolves a git worktree to its main checkout, so it
+#                    never builds in place), inside the Docker image pinned in
+#                    contracts/engine/Cargo.toml, keeps it as
+#                    target/near/reproducible/rose_engine-<commit>.wasm, then removes the clone and
+#                    the image (about 2 GB). Uncommitted changes under contracts/ are refused: the
+#                    artifact is built from HEAD only.
+# An artifact is reproducible when its NEP-330 source metadata (`contract_source_metadata`, embedded
+# in the wasm) names that pinned image as `build_environment`; `--role final` refuses any other, so
+# anyone can rebuild the final engine from its commit and compare the sha256. The artifact's sha256
+# and size are recorded before anything is sent, and the on-chain code hash must equal that sha256
+# before any key is deleted.
+#
 # Usage: scripts/deploy-engine.sh <engine account> [--role staging|final] [--balance "17 NEAR"]
-#                                 [--rose-vault <0x address>] [--keyless] [--skip-create]
-#                                 [--verify-only]
+#                                 [--rose-vault <0x address>] [--wasm <file> | --reproducible]
+#                                 [--keyless] [--skip-create] [--verify-only]
 #   --skip-create  the account already exists; the deployment and the bootstrap are skipped when
 #                  they are already done on chain, so a run that stopped half way resumes with it.
 #   --verify-only  sends no transaction: checks the code, the derived addresses and the RoseVault
@@ -31,10 +46,12 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_tools near curl jq shasum python3 comm paste
 
-engine="" role="staging" balance="17 NEAR" rose_vault="" keyless=0 skip_create=0 verify_only=0
+engine="" role="staging" balance="17 NEAR" rose_vault="" keyless=0 skip_create=0 verify_only=0 wasm="" reproducible=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --role) role="$2"; shift 2 ;;
+    --wasm) wasm="$2"; shift 2 ;;
+    --reproducible) reproducible=1; shift ;;
     --balance) balance="$2"; shift 2 ;;
     --rose-vault) rose_vault="$2"; shift 2 ;;
     --keyless) keyless=1; shift ;;
@@ -44,16 +61,69 @@ while [[ $# -gt 0 ]]; do
     *) engine="$1"; shift ;;
   esac
 done
-[[ -n "$engine" ]] || die "usage: $0 <engine account> [--role staging|final] [--keyless] [--skip-create] [--verify-only]"
+[[ -n "$engine" ]] || die "usage: $0 <engine account> [--role staging|final] [--wasm <file> | --reproducible] [--keyless] [--skip-create] [--verify-only]"
 [[ "$role" == "staging" || "$role" == "final" ]] || die "--role must be staging or final"
 [[ "$role" != "final" || "$keyless" -eq 1 ]] || die "--role final requires --keyless: a final engine keeps no access key"
 [[ "$engine" == *.*.testnet ]] || die "testnet only: the engine must be a sub-account like engine.rose-app.testnet"
 parent="${engine#*.}"
 
-wasm="$ROSE_ROOT/target/near/rose_engine/rose_engine.wasm"
-[[ -f "$wasm" ]] || die "build the engine first: cd contracts/engine && cargo near build non-reproducible-wasm"
+[[ -z "$wasm" || "$reproducible" -eq 0 ]] || die "--wasm and --reproducible are exclusive"
+
+engine_manifest="$ROSE_ROOT/contracts/engine/Cargo.toml"
+build_image="$(sed -n 's/^image = "\(.*\)"$/\1/p' "$engine_manifest")"
+build_digest="$(sed -n 's/^image_digest = "\(.*\)"$/\1/p' "$engine_manifest")"
+[[ -n "$build_image" && "$build_digest" == sha256:* ]] || die "no reproducible build image pinned in $engine_manifest"
+
+# reproducible_build: builds the engine at HEAD with `cargo near build reproducible-wasm` in a
+# plain clone, keeps the artifact under target/near/reproducible/ and prints its path; the clone
+# and the Docker image are removed whether the build succeeds or not.
+reproducible_build() {
+  require_tools git docker cargo
+  docker info >/dev/null 2>&1 || die "Docker is not running: start it for the reproducible build"
+  local commit work artifact built image_present=0 status=0
+  commit="$(git -C "$ROSE_ROOT" rev-parse HEAD)"
+  [[ -z "$(git -C "$ROSE_ROOT" status --porcelain -- contracts Cargo.toml Cargo.lock rust-toolchain.toml)" ]] \
+    || die "uncommitted changes under contracts/: the reproducible build uses HEAD ($commit) only, commit them first"
+  docker image inspect "$build_image@$build_digest" >/dev/null 2>&1 && image_present=1
+  work="$(mktemp -d "${TMPDIR:-/tmp}/rose-reproducible.XXXXXX")"
+  log "reproducible build of $commit in $work (image $build_image@$build_digest)"
+  git clone --quiet --no-hardlinks "$ROSE_ROOT" "$work/rose" && git -C "$work/rose" checkout --quiet --detach "$commit" \
+    && (cd "$work/rose/contracts/engine" && cargo near build reproducible-wasm >&2) || status=$?
+  artifact="$ROSE_ROOT/target/near/reproducible/rose_engine-$commit.wasm"
+  if [[ "$status" -eq 0 ]]; then
+    mkdir -p "$(dirname "$artifact")"
+    built="$(find "$work/rose/target/near" -name rose_engine.wasm -type f | head -n 1)"
+    [[ -n "$built" ]] && cp "$built" "$artifact" || status=1
+  fi
+  rm -rf "$work"
+  if [[ "$image_present" -eq 0 ]]; then
+    docker image rm "$build_image@$build_digest" >/dev/null 2>&1 && log "removed the build image $build_image"
+  fi
+  [[ "$status" -eq 0 ]] || die "cargo near build reproducible-wasm failed (exit $status)"
+  printf '%s\n' "$artifact"
+}
+
+# wasm_build_environment <wasm>: the `build_environment` of the NEP-330 metadata embedded in the
+# wasm (the Docker image of a reproducible build), or nothing for a local build.
+wasm_build_environment() {
+  { LC_ALL=C grep -aoE '"build_environment":"[^"]*"' "$1" || true; } | head -n 1 | sed 's/^"build_environment":"//; s/"$//'
+}
+
+if [[ "$reproducible" -eq 1 ]]; then
+  [[ "$verify_only" -eq 0 ]] || die "--verify-only checks an artifact already built: pass it with --wasm"
+  wasm="$(reproducible_build)"
+fi
+wasm="${wasm:-$ROSE_ROOT/target/near/rose_engine/rose_engine.wasm}"
+[[ -f "$wasm" ]] || die "no wasm at $wasm: build it (cd contracts/engine && cargo near build non-reproducible-wasm) or pass --reproducible"
 wasm_sha256="$(shasum -a 256 "$wasm" | awk '{print $1}')"
 wasm_bytes="$(wc -c <"$wasm" | tr -d ' ')"
+build_environment="$(wasm_build_environment "$wasm")"
+if [[ "$build_environment" == "$build_image@$build_digest" ]]; then
+  log "reproducible artifact $wasm: $wasm_bytes bytes, sha256 $wasm_sha256, built in $build_environment"
+else
+  [[ "$role" != "final" ]] || die "--role final deploys a reproducible build only (pass --reproducible, or --wasm with one): $wasm names build environment '${build_environment:-none}'"
+  log "local build $wasm: $wasm_bytes bytes, sha256 $wasm_sha256 (not reproducible)"
+fi
 
 # deploy: creates the account (unless --skip-create), deploys with `new` and bootstraps, skipping
 # each step already done on chain.
@@ -127,7 +197,8 @@ deploy() {
 
 deployments_set "$engine" ".role" "\"$role\""
 deployments_set "$engine" ".near.engine.account" "\"$engine\""
-deployments_set "$engine" ".near.engine.wasm" "$(jq -cn --arg s "$wasm_sha256" --argjson b "$wasm_bytes" '{sha256:$s,bytes:$b}')"
+deployments_set "$engine" ".near.engine.wasm" "$(jq -cn --arg s "$wasm_sha256" --argjson b "$wasm_bytes" --arg e "$build_environment" \
+  --arg pinned "$build_image@$build_digest" '{sha256:$s,bytes:$b,reproducible:($e == $pinned),build_environment:(if $e == "" then null else $e end)}')"
 
 if [[ "$verify_only" -eq 1 ]]; then
   near_account_exists "$engine" || die "$engine does not exist"
