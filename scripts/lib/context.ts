@@ -9,7 +9,7 @@ import { createWalletClient, http, type Address, type Hex, type PublicClient } f
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepoliaChain, createBaseClient, EngineCalls, type ConfigView, type EngineViews, type SignerClient } from "@rose/sdk";
 import { BASE_RPC, CONFIG_DIR, loadDeployment, ROOT, SOLANA_RPC, type Deployment } from "./env.ts";
-import { accountOf, CAST, ROOT_ACCOUNT, type Who } from "./identity.ts";
+import { accountOf, CAST, identityJournalPath, ROOT_ACCOUNT, type Who } from "./identity.ts";
 import { Journal } from "./journal.ts";
 import { deployerKey, opsKeypair, SeedKeys } from "./keys.ts";
 import { engineViews, keychainActor, NearActor, withRetry } from "./near.ts";
@@ -59,7 +59,7 @@ export async function createContext(envFile: string): Promise<Context> {
     calls: new EngineCalls(engine),
     config,
     derived: { vaultBase: derived.vault_base as Address, vaultSol: new PublicKey(derived.vault_sol), gasSol: new PublicKey(derived.gas_sol) },
-    identity: new Journal(join(ROOT, "deployments", "e2e", "cindral.json"), { issuer: CAST.issuer.name, token: "Cindral (CINDR)", root_account: ROOT_ACCOUNT }),
+    identity: new Journal(join(ROOT, identityJournalPath()), { issuer: CAST.issuer.name, token: "Cindral (CINDR)", root_account: ROOT_ACCOUNT }),
     seed: new Journal(join(ROOT, "deployments", "e2e", `${engine}.seed.json`), header),
     live: new Journal(join(ROOT, "deployments", "e2e", `${engine}.live.json`), header),
     secrets: new Journal(join(CONFIG_DIR, "seed-orders", `${engine}.json`), { engine }, 0o600),

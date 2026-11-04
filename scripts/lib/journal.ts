@@ -6,7 +6,7 @@
  * are opened) lives under `~/.config/rose` with mode 600.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { baseTxUrl, solanaTxUrl } from "@rose/sdk";
 import { log, nearTxUrl } from "./env.ts";
@@ -65,7 +65,11 @@ export class Journal {
   }
 
   save(): void {
-    mkdirSync(dirname(this.path), { recursive: true });
+    const dir = dirname(this.path);
+    const secret = (this.mode & 0o077) === 0;
+    mkdirSync(dir, { recursive: true, ...(secret ? { mode: 0o700 } : {}) });
+    // A private journal's directory is closed to other users too (it may predate this mode).
+    if (secret) chmodSync(dir, 0o700);
     writeFileSync(this.path, `${JSON.stringify(this.file, null, 2)}\n`, { mode: this.mode });
   }
 
