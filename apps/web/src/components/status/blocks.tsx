@@ -8,7 +8,7 @@ import { viewCall } from "@/lib/engine";
 import { formatCount, formatUnits } from "@/lib/format";
 import { fetchEngineConfig } from "./engineConfig";
 import { fetchRecentEvents, nanosToMillis } from "./events";
-import { EXPLORERS, shorten } from "./explorers";
+import { EXPLORERS } from "./explorers";
 import { keylessCheck } from "./keys";
 import { FOREIGN_TX, formatLatency, KEY_RELEASE, pairLatencies, type LatencyReport } from "./latency";
 import { balanceOfData, decodeAddress, decodeString, decodeUint, EMPTY_CODE_HASH, ethBalance, ethCall, ethGetCode, SELECTORS, solanaBalance, viewAccessKeyList, viewAccount } from "./rpc";
