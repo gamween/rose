@@ -8,6 +8,11 @@ import { affordable, ONE, tender, type Bid, type ClassInfo, type Order, type Pri
 import { nsToMs, venueLabel } from "@/lib/amounts";
 import { nearAccountUrl } from "@/lib/explorer";
 
+/** Settled or cancelled, with every order settled: nothing in the report can change any more. */
+export function isFinalRound(round: Pick<Round, "status" | "bidCount" | "settledCount">): boolean {
+  return (round.status === "Settled" || round.status === "Cancelled") && round.settledCount >= round.bidCount;
+}
+
 export type CandidateRow = { price: bigint; supply: bigint; affordable: bigint; volume: bigint; best: boolean };
 
 export type Recomputed = { outcome: "cleared"; price: bigint; volume: bigint; charged: bigint; refund: bigint; matches: boolean | null } | { outcome: "no_crossing"; matches: boolean | null };

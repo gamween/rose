@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { checkRows, cohortSizeError, distributionDeposit, parseAllocationLines, rowsTotal, splitBatches } from "./allocations";
 import { dateTimeToSeconds, normalizeLinear, normalizeStepped, sablierScheduleArgs, secondsToDateTime, streamflowScheduleArgs } from "./class-schedule";
 import { sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, yoctoToNearText } from "./dao";
-import { askOrders, candidateTable, eventsOfRound, exactDecimal, recompute, tenderReportCsv } from "./report";
+import { askOrders, candidateTable, eventsOfRound, exactDecimal, isFinalRound, recompute, tenderReportCsv } from "./report";
 import { defaultRoundClass, isFullyUnlocked } from "./shared";
 import { maxPriceFromDiscount, percentToBps, tenderArgsFromForm, tenderEscrow, validateRetireTo, windowFromInput } from "./tender-form";
 
@@ -205,6 +205,13 @@ describe("tender report", () => {
       { seq: 2n, blockHeight: 2n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "0" } } },
     ] as unknown as StoredEvent[];
     expect(eventsOfRound(events, 0n).map((entry) => entry.seq)).toEqual([2n]);
+  });
+
+  it("treats a round as final once settled or cancelled with every order settled", () => {
+    expect(isFinalRound({ status: "Settled", bidCount: 2, settledCount: 2 })).toBe(true);
+    expect(isFinalRound({ status: "Settled", bidCount: 2, settledCount: 1 })).toBe(false);
+    expect(isFinalRound({ status: "Cancelled", bidCount: 0, settledCount: 0 })).toBe(true);
+    expect(isFinalRound({ status: "Open", bidCount: 0, settledCount: 0 })).toBe(false);
   });
 
   it("writes exact decimals", () => {

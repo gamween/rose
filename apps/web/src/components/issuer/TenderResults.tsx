@@ -17,10 +17,12 @@ import { nearAccountUrl } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { useEngineQuery } from "@/lib/use-engine-query";
 import { readEventRange } from "@/lib/event-pages";
-import { askOrders, candidateTable, eventsOfRound, pricingOf, recompute, tenderReportCsv, type TenderReportData } from "./report";
+import { askOrders, candidateTable, eventsOfRound, isFinalRound, pricingOf, recompute, tenderReportCsv, type TenderReportData } from "./report";
 import { classSymbol, downloadFile, resolveSymbols } from "./shared";
 
 const EVENTS_PAGE = 200;
+/** A final round is re-read every 10 minutes instead of every 20 s (each read pages the whole event history). */
+const FINAL_POLL_MS = 600_000;
 
 type Loaded = TenderReportData & { symbols: Map<string, string> };
 
@@ -258,7 +260,11 @@ export function TenderResults({ roundId, printable }: { roundId: string; printab
     },
     [id, roundId],
   );
-  const { state, refresh } = useEngineQuery(fetcher, { pollMs: printable ? 120_000 : 20_000 });
+  const [final, setFinal] = useState(false);
+  const { state, refresh } = useEngineQuery(fetcher, { pollMs: final ? FINAL_POLL_MS : printable ? 120_000 : 20_000 });
+  /* A settled or cancelled round whose every order is settled no longer changes: poll rarely. */
+  const nowFinal = state.status === "ok" && isFinalRound(state.value.round);
+  if (nowFinal !== final) setFinal(nowFinal);
   const [printed, setPrinted] = useState(false);
 
   const header = (
@@ -305,9 +311,9 @@ export function TenderResults({ roundId, printable }: { roundId: string; printab
   );
 
   return (
-    <div className={printable ? "flex flex-col gap-6 print:text-black" : "flex flex-col gap-6"}>
+    <div className={printable ? "flex flex-col gap-6 print:text-black" : "flex flex-col gap-6"} data-print-root={printable ? "" : undefined}>
       {printable ? (
-        <style>{`@media print { header[class*="sticky"], footer, [data-testnet-banner], nav, .print\\:hidden { display: none !important; } body, html { background: #fff !important; color: #000 !important; } [data-tender-report] * { color: #000 !important; border-color: #ccc !important; background: transparent !important; } }`}</style>
+        <style>{`@media print { header[class*="sticky"], footer, [data-testnet-banner], nav, .print\\:hidden { display: none !important; } body, html { background: #fff !important; color: #000 !important; } [data-print-root], [data-print-root] * { color: #000 !important; border-color: #ccc !important; background: transparent !important; box-shadow: none !important; } }`}</style>
       ) : null}
       {header}
       {state.status === "loading" ? (
