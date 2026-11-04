@@ -49,7 +49,7 @@ export function StatusPage({ deployment }: { deployment: Deployment }) {
           </Button>
         </div>
       </header>
-      <div className="mt-8 grid gap-4 md:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
         <EngineKeysBlock {...props} />
         <VersionsBlock {...props} />
         <MpcLatencyBlock {...props} className="md:col-span-2" />

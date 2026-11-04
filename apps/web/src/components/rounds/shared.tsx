@@ -72,7 +72,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry: () 
 
 export function LoadingCards({ count = 6 }: { count?: number }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-busy>
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" aria-busy>
       {Array.from({ length: count }, (_, index) => (
         <Skeleton key={index} className="h-[196px] w-full rounded-lg" />
       ))}

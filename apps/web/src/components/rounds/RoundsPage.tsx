@@ -177,7 +177,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
                     refreshing…
                   </span>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {rounds.map((round) => {
                     const cls = classesById.get(round.classId) ?? null;
                     const book = data.books.get(round.roundId.toString()) ?? list.extraBooks.get(round.roundId.toString()) ?? null;
