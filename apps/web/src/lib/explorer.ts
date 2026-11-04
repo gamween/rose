@@ -1,7 +1,9 @@
 /**
- * Explorer links per chain (spec section 6). NEAR: testnet.near.rocks is the primary explorer
- * (NearBlocks testnet is frozen and explorer.testnet.near.org is only a selector page), with
- * nearvalidate.org as the fallback shown next to it.
+ * Explorer links per chain (spec section 6), the one helper every page uses. NEAR:
+ * testnet.near.rocks is the primary explorer (NearBlocks testnet is frozen and
+ * explorer.testnet.near.org is only a selector page), with nearvalidate.org as the fallback shown
+ * next to transaction links. near.rocks routes are `/tx/<hash>`, `/account/<id>` and
+ * `/block/<height>` (`/address/<id>` renders an empty page); see docs/verification.md "Explorers".
  */
 
 import type { ExplorerLink } from "@/components/ui/Toast";
@@ -19,7 +21,11 @@ export function nearTxFallbackUrl(hash: string): string {
 }
 
 export function nearAccountUrl(accountId: string): string {
-  return `https://testnet.near.rocks/address/${accountId}`;
+  return `https://testnet.near.rocks/account/${accountId}`;
+}
+
+export function nearBlockUrl(height: string | number | bigint): string {
+  return `https://testnet.near.rocks/block/${String(height)}`;
 }
 
 export function baseTxUrl(hash: string): string {
@@ -73,6 +79,11 @@ export function addressUrl(chain: ChainId, address: string): string {
     case "solana":
       return solanaAddressUrl(address);
   }
+}
+
+/** `0x1234…abcd` for hashes and addresses that do not fit in `head + tail + 1` characters. */
+export function shorten(value: string, head = 6, tail = 4): string {
+  return value.length <= head + tail + 1 ? value : `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
 /** `0x1234…abcd` / `alice.testnet` style shortening for the top bar. */

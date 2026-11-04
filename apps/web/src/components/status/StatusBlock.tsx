@@ -5,6 +5,7 @@ import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
+import { formatUtcTime } from "@/lib/format";
 import type { QueryState } from "./useLiveQuery";
 
 /** One monitored item: a frame with loading, "not deployed yet", error (with retry) and live states. */
@@ -84,7 +85,7 @@ export function StatusBlock<T>({
       </div>
       {state.status === "ok" ? (
         <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-400">
-          Read at <time dateTime={new Date(state.fetchedAt).toISOString()}>{new Date(state.fetchedAt).toLocaleTimeString("en-GB", { timeZone: "UTC" })} UTC</time>
+          Read at <time dateTime={new Date(state.fetchedAt).toISOString()}>{formatUtcTime(state.fetchedAt)}</time>
         </footer>
       ) : state.status === "loading" ? (
         <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-400">Reading…</footer>

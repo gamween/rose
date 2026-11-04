@@ -1,9 +1,9 @@
-import { EngineCalls, ONE, type Bid, type ClassInfo, type Round, type RoundResult, type StoredEvent } from "@rose/sdk";
+import { EngineCalls, ONE, type Bid, type ClassInfo, type Round, type RoundResult } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
 import { checkRows, cohortSizeError, distributionDeposit, parseAllocationLines, rowsTotal, splitBatches } from "./allocations";
 import { dateTimeToSeconds, normalizeLinear, normalizeStepped, sablierScheduleArgs, secondsToDateTime, streamflowScheduleArgs } from "./class-schedule";
 import { sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, yoctoToNearText } from "./dao";
-import { askOrders, candidateTable, eventsOfRound, exactDecimal, isFinalRound, recompute, tenderReportCsv } from "./report";
+import { askOrders, candidateTable, eventsOfRound, isFinalRound, recompute, tenderReportCsv } from "./report";
 import { defaultRoundClass, isFullyUnlocked } from "./shared";
 import { maxPriceFromDiscount, percentToBps, tenderArgsFromForm, tenderEscrow, validateRetireTo, windowFromInput } from "./tender-form";
 
@@ -191,20 +191,25 @@ describe("tender report", () => {
     const csv = tenderReportCsv({ engine: "engine.rose-app.testnet", round, cls, symbol: "CINDR", bids, result: null, events: [], generatedAt: Date.UTC(2026, 10, 4) });
     const lines = csv.split("\n");
     expect(lines[0]).toBe("section,field,value,,,,");
-    expect(csv).toContain("parameters,budget,950\n");
+    // Exact, separator-free values and ISO times, so a spreadsheet or a script reads them back without loss.
+    expect(csv).toContain("parameters,budget_usdc,950\n");
     expect(csv).toContain("asks,0,halden.testnet,100,100,9,Opened");
-    /* Exact to the base unit, no thousands separator: 950 / 9 = 105.555… tokens at 18 decimals. */
     expect(csv).toContain("candidates,9,100,105.555555555555555555,100,true,");
     expect(csv).toContain(`parameters,opens_at_utc,${new Date(Number(T0) * 1000).toISOString()}`);
+    expect(csv).not.toMatch(/"\d{1,3}(,\d{3})+/);
+    const result: RoundResult = { price: 9_000_000n, volume: 1_666_666_666_666_666_666_666n, notional: 59_999_999n, fee: 180_000n, issuerCharged: 59_999_999n, issuerRefund: 1n, remainingLockSecs: DAY, fills: [] };
+    const settled = tenderReportCsv({ engine: "e", round, cls, symbol: "CINDR", bids, result, events: [], generatedAt: 0 });
+    expect(settled).toContain("result,volume_units,1666.666666666666666666\n");
+    expect(settled).toContain("result,notional_usdc,59.999999\n");
     expect(eventsOfRound([{ seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "7" } } }], 7n)).toHaveLength(1);
   });
 
-  it("keeps Base cash deposits labeled with the round id out of the round's events", () => {
+  it("leaves out base_cash_registered events, whose round id is only a depositCash earmark", () => {
     const events = [
-      { seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "base_cash_registered", data: { round_id: "0", account: "x.testnet" } } },
-      { seq: 2n, blockHeight: 2n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "0" } } },
-    ] as unknown as StoredEvent[];
-    expect(eventsOfRound(events, 0n).map((entry) => entry.seq)).toEqual([2n]);
+      { seq: 57n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "base_cash_registered", data: { round_id: "0" } } },
+      { seq: 58n, blockHeight: 2n, timestamp: 0n, predecessor: "a", event: { event: "round_cleared", data: { round_id: "0" } } },
+    ] as never;
+    expect(eventsOfRound(events, 0n).map((entry) => entry.seq)).toEqual([58n]);
   });
 
   it("treats a round as final once settled or cancelled with every order settled", () => {
@@ -212,13 +217,5 @@ describe("tender report", () => {
     expect(isFinalRound({ status: "Settled", bidCount: 2, settledCount: 1 })).toBe(false);
     expect(isFinalRound({ status: "Cancelled", bidCount: 0, settledCount: 0 })).toBe(true);
     expect(isFinalRound({ status: "Open", bidCount: 0, settledCount: 0 })).toBe(false);
-  });
-
-  it("writes exact decimals", () => {
-    expect(exactDecimal(1_666_666_666_666_666_666_666n, 18)).toBe("1666.666666666666666666");
-    expect(exactDecimal(59_990_000n, 6)).toBe("59.99");
-    expect(exactDecimal(0n, 6)).toBe("0");
-    expect(exactDecimal(5n, 6)).toBe("0.000005");
-    expect(exactDecimal(-1_500_000n, 6)).toBe("-1.5");
   });
 });

@@ -4,14 +4,15 @@ import Link from "next/link";
 import { useId, useState, type PointerEvent } from "react";
 import { Axes, ChartTable, ChartTooltip, formatDay, LegendItem, linearScale, MARGIN, Marker, useMeasure, type TooltipRow } from "./chart";
 import { CHART_REFERENCE, type ChartShape } from "./palette";
-import { compactNumber, distinctTicks, formatPercent, niceTicks, priceDomain, type ClassSeries, type PlottedPoint } from "./transforms";
+import { formatUtcDate } from "@/lib/format";
+import { compactNumber, distinctTicks, formatPercent, niceTicks, priceDomain, PRICE_UNIT_LABEL, type ClassSeries, type PlottedPoint } from "./transforms";
 
 const HEIGHT = 240;
 const DAY_MS = 86_400_000;
 
-function tooltipRows(point: PlottedPoint, color: string): TooltipRow[] {
+function tooltipRows(point: PlottedPoint, color: string, unit: string): TooltipRow[] {
   const rows: TooltipRow[] = [
-    { label: "USDC per locked token", value: point.priceText, color },
+    { label: unit, value: point.priceText, color },
     { label: `${point.kind} round`, value: `#${point.roundId}` },
     { label: "units traded", value: point.volumeText },
     { label: "remaining lock", value: `${compactNumber(point.remainingLockDays)} days` },
@@ -29,6 +30,8 @@ export function PriceHistoryChart({ series, color, shape, symbol }: { series: Cl
   const [active, setActive] = useState<number | null>(null);
   const titleId = useId();
   const points = series.points;
+  /** "USDC per locked token" for Tender and Exit lines, "USDC per claimed token" for an Advance line. */
+  const unit = PRICE_UNIT_LABEL[series.unit];
   const times = points.map((point) => point.settledAtMs);
   const prices = points.map((point) => point.price);
   const references = points.flatMap((point) => (point.referencePrice === null ? [] : [point.referencePrice]));
@@ -75,7 +78,7 @@ export function PriceHistoryChart({ series, color, shape, symbol }: { series: Cl
         </span>
       </figcaption>
       <ul className="mb-2 flex flex-wrap gap-x-5 gap-y-1" aria-label="Marks">
-        <LegendItem color={color} shape={shape} label="USDC per locked token at settlement" />
+        <LegendItem color={color} shape={shape} label={`${unit} at settlement`} />
         {references.length > 0 ? <LegendItem color={CHART_REFERENCE} shape="circle" hollow label="Issuer-declared reference (Tender)" /> : null}
       </ul>
       <div ref={ref} className="relative">
@@ -85,7 +88,7 @@ export function PriceHistoryChart({ series, color, shape, symbol }: { series: Cl
           viewBox={`0 0 ${plotWidth} ${HEIGHT}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={`Clearing price history, ${points.length} settled rounds, last ${points[points.length - 1]!.priceText} USDC per locked token`}
+          aria-label={`Clearing price history, ${points.length} settled rounds, last ${points[points.length - 1]!.priceText} ${unit}`}
           onPointerMove={onPointerMove}
           onPointerLeave={() => setActive(null)}
           className="block overflow-visible"
@@ -108,7 +111,7 @@ export function PriceHistoryChart({ series, color, shape, symbol }: { series: Cl
             <Link
               key={point.roundId}
               href={`/app/rounds/${point.roundId}`}
-              aria-label={`Round ${point.roundId}: ${point.priceText} USDC per locked token on ${formatDay(point.settledAtMs)}`}
+              aria-label={`Round ${point.roundId}: ${point.priceText} ${unit} on ${formatDay(point.settledAtMs)}`}
               onFocus={() => setActive(index)}
               onBlur={() => setActive(null)}
               className="outline-none"
@@ -124,15 +127,15 @@ export function PriceHistoryChart({ series, color, shape, symbol }: { series: Cl
             y={y(activePoint.price)}
             width={width || plotWidth}
             title={`Settled ${formatDay(activePoint.settledAtMs)}`}
-            rows={tooltipRows(activePoint, color)}
+            rows={tooltipRows(activePoint, color, unit)}
           />
         ) : null}
       </div>
       <ChartTable
         caption={`Clearing prices of ${series.label}`}
-        columns={["Settled", "Round", "USDC per locked token", "Units", "Remaining lock", "Declared reference", "Discount"]}
+        columns={["Settled", "Round", unit, "Units", "Remaining lock", "Declared reference", "Discount"]}
         rows={points.map((point) => [
-          new Date(point.settledAtMs).toLocaleDateString(),
+          formatUtcDate(point.settledAtMs),
           <Link key="round" href={`/app/rounds/${point.roundId}`} className="text-ember-300 hover:text-ember-200">
             #{point.roundId} {point.kind}
           </Link>,

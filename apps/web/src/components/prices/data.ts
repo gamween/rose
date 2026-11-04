@@ -36,7 +36,7 @@ async function fetchReferencePrices(account: string, options: ViewOptions): Prom
   for (;;) {
     const page: ViewResult<RoundsSummaryPage> = await viewCall(account, "get_rounds", { filter: { kind: "Tender", status: "Settled" }, from_index: from, limit: PAGE }, options);
     for (const round of page.value.rounds) {
-      if (round.reference_price) references.set(round.round_id, BigInt(round.reference_price));
+      if (round.reference_price) references.set(String(round.round_id), BigInt(round.reference_price));
     }
     if (page.value.next === null) break;
     from = page.value.next;
@@ -44,14 +44,21 @@ async function fetchReferencePrices(account: string, options: ViewOptions): Prom
   return references;
 }
 
+/** Every point of a class's price history: `get_price_history` returns at most 50 per call with the total. */
+export async function fetchPriceHistory(account: string, classId: string, options: ViewOptions): Promise<PricePoint[]> {
+  const points: PricePoint[] = [];
+  for (;;) {
+    const page = await viewCall<{ points: PricePoint[]; total: number }>(account, "get_price_history", { class_id: classId, from_index: points.length, limit: PAGE }, options);
+    points.push(...page.value.points);
+    if (page.value.points.length === 0 || points.length >= page.value.total) return points;
+  }
+}
+
 /** Everything the prices page plots, read live from the engine (token symbols from `lib/token-symbols`). */
 export async function fetchPricesData(account: string, options: ViewOptions = {}): Promise<PricesData> {
   const { classes, blockHeight } = await fetchAllClasses(account, options);
-  const [historyPages, references] = await Promise.all([
-    Promise.all(classes.map((cls) => viewCall<{ points: PricePoint[]; total: number }>(account, "get_price_history", { class_id: cls.class_id }, options))),
-    fetchReferencePrices(account, options),
-  ]);
-  const histories = new Map(classes.map((cls, index) => [cls.class_id, historyPages[index]!.value.points]));
+  const [historyPages, references] = await Promise.all([Promise.all(classes.map((cls) => fetchPriceHistory(account, cls.class_id, options))), fetchReferencePrices(account, options)]);
+  const histories = new Map(classes.map((cls, index) => [cls.class_id, historyPages[index] ?? []]));
   const resolved = await tokenSymbols(classes.map((cls) => ({ chain: cls.chain, token: cls.token })));
   const symbols = new Map<string, string>();
   for (const cls of classes) {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Deployment } from "@/components/docs/deployment";
 import { Button } from "@/components/ui/Button";
+import { formatUtcTime } from "@/lib/format";
 import { CashTokensBlock, EngineKeysBlock, MpcLatencyBlock, RoseVaultBlock, SolanaBlock, VerificationsBlock, VersionsBlock } from "./blocks";
 
 export const REFRESH_MS = 30_000;
@@ -37,7 +38,7 @@ export function StatusPage({ deployment }: { deployment: Deployment }) {
           <p aria-live="polite">
             {cycle.at ? (
               <>
-                Refreshed at <time dateTime={new Date(cycle.at).toISOString()} className="tabular text-ink-100">{new Date(cycle.at).toLocaleTimeString("en-GB", { timeZone: "UTC" })} UTC</time>, next
+                Refreshed at <time dateTime={new Date(cycle.at).toISOString()} className="tabular text-ink-100">{formatUtcTime(cycle.at)}</time>, next
                 in {REFRESH_MS / 1000} s
               </>
             ) : (

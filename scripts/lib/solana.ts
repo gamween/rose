@@ -61,16 +61,41 @@ export async function cindrMint(ctx: Context): Promise<PublicKey> {
   return new PublicKey(stored.mint);
 }
 
+/**
+ * A Strategic Round stream from the treasury to `recipient` with exactly these terms that the
+ * engine has never seen: what an earlier attempt leaves when it stops after `create` and before
+ * the step is recorded. A finished deposit moves the stream away from `recipient`, so a match is
+ * always an orphan, and depositing it is what that attempt would have done.
+ */
+async function orphanStrategicStream(ctx: Context, client: SolanaStreamClient, mint: PublicKey, recipient: PublicKey, total: bigint): Promise<string | null> {
+  const found = await client.searchStreams({ mint: mint.toBase58(), sender: ctx.ops.publicKey.toBase58(), recipient: recipient.toBase58() });
+  for (const { publicKey, account } of found) {
+    if (account.name.replace(/\0/g, "") !== STRATEGIC_SCHEDULE.name || account.depositedAmount.toString() !== total.toString() || !account.withdrawnAmount.isZero()) continue;
+    if ((await withRetry("get_sol_deposit", () => ctx.views.raw.getSolDeposit(publicKey.toBase58()))) !== null) continue;
+    return publicKey.toBase58();
+  }
+  return null;
+}
+
 /** Creates the Strategic Round stream of `amount` whole tokens to `recipient` and returns its metadata account. */
 export async function createStrategicStream(ctx: Context, scope: StepScope, label: string, mint: PublicKey, recipient: PublicKey, amount: number): Promise<string> {
   const unit = 10n ** BigInt(TOKEN.solanaDecimals);
   const total = BigInt(amount) * unit;
+  const client = new SolanaStreamClient(SOLANA_RPC, ICluster.Devnet, "confirmed");
+  const orphan = await orphanStrategicStream(ctx, client, mint, recipient, total);
+  if (orphan !== null) {
+    const signatures = await ctx.solana.getSignaturesForAddress(new PublicKey(orphan), {}, "finalized");
+    const creation = signatures.at(-1)?.signature;
+    if (creation === undefined) throw new Error(`stream ${orphan} has no finalized creation transaction yet: run the step again`);
+    log(`  ${label}: reusing stream ${orphan}, created by an earlier attempt`);
+    scope.tx(txRef(label, "solana", creation));
+    return orphan;
+  }
   const ata = await getOrCreateAssociatedTokenAccount(ctx.solana, ctx.ops, mint, ctx.ops.publicKey);
   if (ata.amount < total) {
     const signature = await mintTo(ctx.solana, ctx.ops, mint, ata.address, ctx.ops, total - ata.amount);
     scope.tx(txRef(`${label}: mintTo treasury`, "solana", signature));
   }
-  const client = new SolanaStreamClient(SOLANA_RPC, ICluster.Devnet, "confirmed");
   const created = await client.create(
     {
       recipient: recipient.toBase58(),

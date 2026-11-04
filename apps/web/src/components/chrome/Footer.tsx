@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { RoseGlyph } from "@/components/brand/Logo";
-import { FOOTER_NAV } from "@/lib/routes";
+import { footerNav } from "@/lib/routes";
 
 export function Footer() {
   return (
@@ -14,7 +14,7 @@ export function Footer() {
         </div>
         <nav aria-label="Footer">
           <ul className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            {FOOTER_NAV.map((item) => (
+            {footerNav().map((item) => (
               <li key={item.label}>
                 {item.external ? (
                   <a

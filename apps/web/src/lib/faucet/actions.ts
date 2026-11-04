@@ -15,7 +15,8 @@ export const SOLANA_TX_URL = "https://explorer.solana.com/tx/";
 export type FaucetSuccess =
   | { chain: "base"; txHash: string; amount: string; explorerUrl: string }
   | { chain: "solana"; signature: string; amount: string; explorerUrl: string }
-  | { chain: "near"; accountId: string; txHash: string; amount: string; explorerUrl: string };
+  | { chain: "near"; accountId: string; txHash: string; amount: string; explorerUrl: string }
+  | { chain: "solana-demo-token"; signature: string; amount: string; decimals: number; mint: string; explorerUrl: string };
 
 export type FaucetActionInfo = { configured: boolean; amount: string; unit: string; caps: SendCaps };
 
@@ -54,6 +55,15 @@ export const FAUCET_ACTIONS: { [C in FaucetChain]: FaucetAction<C> } = {
     send: async (senders, request) => {
       const { txHash, amount } = await senders.createNearAccount(request.accountId, request.publicKey);
       return { chain: "near", accountId: request.accountId, txHash, amount, explorerUrl: `${NEAR_TX_URL}${txHash}` };
+    },
+  },
+  "solana-demo-token": {
+    label: "Solana demo token",
+    configured: (config) => config["solana-demo-token"].configured,
+    info: (config) => ({ configured: config["solana-demo-token"].configured, amount: config["solana-demo-token"].wholeTokens.toString(), unit: "tokens", caps: config["solana-demo-token"].caps }),
+    send: async (senders, request) => {
+      const { signature, amount, decimals, mint } = await senders.sendSolanaDemoTokens(request.address);
+      return { chain: "solana-demo-token", signature, amount, decimals, mint, explorerUrl: `${SOLANA_TX_URL}${signature}?cluster=devnet` };
     },
   },
 };

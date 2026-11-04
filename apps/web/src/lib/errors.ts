@@ -49,10 +49,18 @@ function text(error: unknown): string {
   }
 }
 
-const REJECTED = /user rejected|user denied|rejected the request|user cancel|cancelled by user|canceled by user|request rejected|action_rejected|4001/i;
+/** EIP-1193 code 4001 only as an error code, never as digits inside an amount or an account id. */
+const REJECTED = /user rejected|user denied|rejected the request|user cancel|cancelled by user|canceled by user|request rejected|action_rejected|\bcode"?\s*[:=]\s*4001\b/i;
 const INSUFFICIENT = /insufficient funds|gas required exceeds allowance|insufficient lamports|insufficient balance|exceeds balance|not enough balance|attempt to debit an account|NotEnoughBalance|LackBalanceForState|Insufficient cash/i;
-const EXPIRED_BLOCKHASH = /blockhash not found|block height exceeded|transaction has expired|expired|BlockhashNotFound/i;
-const MPC_TIMEOUT = /request has timed out|timed out|Timeout|yield.*resumed|PromiseError/i;
+/** Solana's own expiry errors only: an engine panic that says "expired" is a contract error. */
+const EXPIRED_BLOCKHASH = /blockhash not found|block height exceeded|TransactionExpired|BlockhashNotFound/i;
+/**
+ * The MPC network's own failures (a signature or CKD request that timed out, a yield that
+ * resumed without a response, a callback's `PromiseError`), never the bare word "timeout": the
+ * engine's "Key timeout reached" and "Key timeout not reached" are contract refusals.
+ */
+const MPC_TIMEOUT = /request has timed out|yield.*resumed|PromiseError/i;
+const NETWORK = /fetch failed|Failed to fetch|NetworkError|ECONNREFUSED|ETIMEDOUT|TimeoutError|signal timed out|HTTP 5\d\d|\b429\b/i;
 
 /** Maps anything thrown by a wallet, an RPC or a contract to a message a person can act on. */
 export function toActionError(error: unknown): ActionError {
@@ -82,7 +90,7 @@ export function toActionError(error: unknown): ActionError {
     return { kind: "expired_blockhash", title: "Blockhash expired", message: "The Solana blockhash expired before the transaction landed. Nothing was debited; retry with a fresh blockhash.", retryable: true };
   }
   if (INSUFFICIENT.test(raw)) return describeContractMessage(raw, "insufficient_balance");
-  if (/fetch failed|Failed to fetch|NetworkError|ECONNREFUSED|ETIMEDOUT|HTTP 5\d\d|429/i.test(raw)) {
+  if (NETWORK.test(raw)) {
     return { kind: "rpc", title: "Network error", message: "The RPC did not answer. Check your connection and retry.", retryable: true };
   }
   const message = error instanceof Error ? error.message : raw;

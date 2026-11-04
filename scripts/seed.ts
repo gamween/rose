@@ -7,8 +7,9 @@
  *                        [--kol-wallet nadia]
  *
  * Steps, in order (`all` runs them all; each is recorded and never repeated):
- *   fund      NEAR sub-accounts of rose-app.testnet for the cast (created once, topped up per run),
- *             ETH for the KOL holder's wallet, devnet SOL for the Strategic Round holders and gas/sol
+ *   fund      NEAR sub-accounts of the root account (`ROSE_ROOT_ACCOUNT`, default rose-app.testnet,
+ *             which funds them) for the cast, created once for every engine and topped up once per
+ *             engine; ETH for the KOL holder's wallet, devnet SOL for the Strategic Round holders and gas/sol
  *   base      Seed Round and KOL Round streams created in custody (`RoseVault.createStreams`), the
  *             KOL holder's own DemoStreamFaucet stream deposited with `depositStream`, and the
  *             Tender cash deposited on Base (`depositCash`)
@@ -25,7 +26,8 @@
  * engine within a day of the last one names a fresh key; the redeem still returns the stream to
  * Nadia Solvik's own address.
  *
- * Records: `deployments/e2e/cindral.json` (the engine-independent cast and mint),
+ * Records: `deployments/e2e/cindral.json` (the engine-independent cast and mint; `cindral.<root>.json`
+ * under another root account),
  * `deployments/e2e/<engine>.seed.json` (every transaction with its explorer link). Keys:
  * `~/.config/rose/seed-accounts.json` (generated, mode 600); sealed orders until they are opened:
  * `~/.config/rose/seed-orders/<engine>.json` (mode 600).
@@ -291,13 +293,22 @@ async function stepCash(): Promise<void> {
       const current = cash.find((c) => c.venue === "Near")?.amount ?? 0n;
       if (current < target) {
         const amount = target - current;
-        const deposit = (await registered(actor.accountId)) ? 0n : BigInt(bounds.value.min);
         if (current === 0n) {
+          // Room for the cash row: registration, or one row's top-up, unless an earlier attempt
+          // that stopped before the deposit already paid it.
           const storage = await withRetry("storage_balance_of", () => ctx.views.storageBalanceOf(actor.accountId));
-          const engineDeposit = storage === null ? await withRetry("storage_balance_bounds", () => ctx.views.storageMinimum()) : CASH_ROW_STORAGE_DEPOSIT;
-          scope.tx(nearRef(`${CAST[who].name}: engine storage for the cash row`, await actor.call(ctx.calls.storageDeposit(engineDeposit))));
+          if (storage === null || storage.available < CASH_ROW_STORAGE_DEPOSIT) {
+            const engineDeposit = storage === null ? await withRetry("storage_balance_bounds", () => ctx.views.storageMinimum()) : CASH_ROW_STORAGE_DEPOSIT;
+            scope.tx(nearRef(`${CAST[who].name}: engine storage for the cash row`, await actor.call(ctx.calls.storageDeposit(engineDeposit))));
+          }
         }
-        scope.tx(nearRef(`${CAST[who].name}: tUSDC mint ${amount / 1_000_000n}`, await actor.call(mintTestUsdcCall(NEAR_CASH_TOKEN, amount, deposit))));
+        // tUSDC minted by an earlier attempt that stopped before `ft_transfer_call` is still in
+        // the wallet: deposit it instead of minting again.
+        const wallet = BigInt((await withRetry("ft_balance_of", () => rpc.viewFunction<string>(NEAR_CASH_TOKEN, "ft_balance_of", { account_id: actor.accountId }))).value);
+        if (wallet < amount) {
+          const deposit = (await registered(actor.accountId)) ? 0n : BigInt(bounds.value.min);
+          scope.tx(nearRef(`${CAST[who].name}: tUSDC mint ${(amount - wallet) / 1_000_000n}`, await actor.call(mintTestUsdcCall(NEAR_CASH_TOKEN, amount - wallet, deposit))));
+        }
         scope.tx(nearRef(`${CAST[who].name}: ft_transfer_call to the engine`, await actor.call(depositNearCashCall(NEAR_CASH_TOKEN, ctx.engine, amount))));
       }
       credited[actor.accountId] = (target / 1_000_000n).toString();

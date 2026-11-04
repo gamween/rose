@@ -88,6 +88,23 @@ function finalFailure(outcome: FinalExecutionOutcome): string | null {
   return typeof outcome.status === "object" && "Failure" in outcome.status ? describeFailure(outcome.status.Failure) : null;
 }
 
+function resultOf(outcome: FinalExecutionOutcome): NearResult {
+  const failure = finalFailure(outcome);
+  return {
+    hash: outcome.transaction.hash,
+    outcome,
+    gasTgas: gasOf(outcome),
+    value: failure === null ? outcomeValue(outcome) : undefined,
+    failure,
+    logs: outcomeLogs(outcome),
+  };
+}
+
+/** The final outcome of a transaction sent earlier (for example by a run that stopped before recording its result). */
+export async function nearOutcome(hash: string, senderId: string): Promise<NearResult> {
+  return resultOf(await withRetry(`tx ${hash}`, () => rpc.transactionStatus(hash, senderId, "FINAL")));
+}
+
 /** True for an RPC answer that rejected the request before it reached the chain (HTTP or JSON-RPC 429). */
 function rateLimited(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -145,15 +162,7 @@ export class NearActor {
         throwOnFailure: false,
       }),
     );
-    const outcome = response as unknown as FinalExecutionOutcome;
-    const result: NearResult = {
-      hash: outcome.transaction.hash,
-      outcome,
-      gasTgas: gasOf(outcome),
-      value: finalFailure(outcome) === null ? outcomeValue(outcome) : undefined,
-      failure: finalFailure(outcome),
-      logs: outcomeLogs(outcome),
-    };
+    const result = resultOf(response as unknown as FinalExecutionOutcome);
     if (result.failure !== null && options.allowFailure !== true) {
       throw new Error(`${this.accountId} -> ${fc.receiverId}.${fc.methodName} failed: ${result.failure} (${result.hash})`);
     }

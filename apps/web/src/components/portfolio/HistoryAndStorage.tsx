@@ -9,11 +9,13 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Field, NumberInput } from "@/components/ui/Input";
 import { amountToText, formatAmount, formatDate, nsToMs, parseAmount } from "@/lib/amounts";
 import { CASH_ROW_BYTES, HOLDING_ROW_BYTES, STORAGE_BYTE_COST } from "@/lib/engine-storage";
+import { deployedAddress } from "@/lib/deployment";
 import { nearAccountUrl } from "@/lib/explorer";
 import { eventAmountFormat } from "@/lib/event-format";
-import { describePayout } from "@/lib/payouts";
+import { describePayout, payoutExplorerLink } from "@/lib/payouts";
 import { ROUTES } from "@/lib/routes";
 import type { PayoutEntry, PortfolioData } from "./data";
+import { settledPayout } from "./transforms";
 
 const NEAR_DECIMALS = 24;
 
@@ -26,7 +28,7 @@ export function HistorySection({ data }: { data: PortfolioData }) {
   const [showAll, setShowAll] = useState(false);
   const events = showAll ? data.events : data.events.slice(0, 12);
   const amountFormat = eventAmountFormat((classId) => data.classes.get(classId)?.decimals ?? null);
-  const executed = data.payouts.filter((entry) => entry.state === "submitted" || entry.state === "failed");
+  const executed = data.payouts.filter((entry) => settledPayout(entry.state));
   return (
     <Card data-history>
       <CardHeader title="History" description="Your entries in the engine's bounded on-chain event history (no indexer) and your payouts." />
@@ -42,11 +44,11 @@ export function HistorySection({ data }: { data: PortfolioData }) {
                 <li key={entry.seq.toString()} className="flex flex-col gap-0.5 py-2" data-history-event={entry.event.event}>
                   <div className="flex items-start justify-between gap-3">
                     {href ? (
-                      <Link href={href} className="text-[13px] text-ink-100 underline-offset-2 hover:underline">
+                      <Link href={href} className="min-w-0 text-[13px] text-ink-100 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
                         {line}
                       </Link>
                     ) : (
-                      <span className="text-[13px] text-ink-100">{line}</span>
+                      <span className="min-w-0 text-[13px] text-ink-100 [overflow-wrap:anywhere]">{line}</span>
                     )}
                     <span className="tabular shrink-0 text-[11px] text-ink-400">{formatDate(nsToMs(entry.timestamp))}</span>
                   </div>
@@ -90,13 +92,28 @@ function PayoutLine({ entry, data }: { entry: PayoutEntry; data: PortfolioData }
   const payout: PayoutView = entry.payout;
   const decimalsOf = (token: string) => [...data.classes.values()].find((info) => info.token.toLowerCase() === token.toLowerCase())?.decimals ?? (data.config.base_cash_tokens.includes(token.toLowerCase()) ? 6 : null);
   const failure = typeof payout.status === "object" ? payout.status.Failed.reason : null;
+  const link = payoutExplorerLink(payout, deployedAddress("roseVault"));
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-[12px]">
-      <span className="text-ink-100">
+    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-[12px]" data-history-payout={payout.id}>
+      <span className="min-w-0 text-ink-100 [overflow-wrap:anywhere]">
         #{payout.id} · {describePayout(payout, decimalsOf, formatAmount)}
+        {link ? (
+          <>
+            {" "}
+            <a href={link.href} target="_blank" rel="noreferrer" className="text-ember-300 underline-offset-2 hover:underline">
+              {link.label}
+            </a>
+          </>
+        ) : null}
       </span>
       <span className="flex items-center gap-2 text-ink-400">
-        {failure ? <Badge tone="danger">Failed: {failure}</Badge> : <Badge tone="success">Executed</Badge>}
+        {failure ? (
+          <Badge tone="danger">Failed: {failure}</Badge>
+        ) : entry.state === "lapsed" ? (
+          <Badge tone="neutral">Expired, nothing debited</Badge>
+        ) : (
+          <Badge tone="success">Executed</Badge>
+        )}
         <span className="tabular">{formatDate(nsToMs(BigInt(payout.updated_at)))}</span>
       </span>
     </li>

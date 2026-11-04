@@ -6,10 +6,12 @@
  * `ft_transfer_call` of tUSDC into the engine, from one button. Base venue: `approve` and
  * `RoseVault.depositCash` with the connected EVM wallet, wait for Base's safe head, then
  * `register_base_cash` so the engine verifies the log through the MPC and credits the ledger
- * (it pays the cash row out of its record deposit).
+ * (it pays the cash row out of its record deposit). The cash is reported credited only once the
+ * engine consumed the log; a failed verification keeps the log and offers "Retry registration",
+ * which never deposits a second time.
  */
 
-import type { Venue } from "@rose/sdk";
+import type { CashDepositedLog, Venue } from "@rose/sdk";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field, NumberInput } from "@/components/ui/Input";
@@ -18,8 +20,8 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { amountToText } from "@/lib/amounts";
 import { cn } from "@/lib/cn";
 import { deployedAddress } from "@/lib/deployment";
-import { toActionError, type ActionError } from "@/lib/errors";
-import { txLinks } from "@/lib/explorer";
+import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
+import { txLinks, txUrl } from "@/lib/explorer";
 import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
 import { useAction } from "@/lib/use-action";
 import { useNearAction } from "./actions";
@@ -29,6 +31,8 @@ import { formatUsdc, parseDecimal, USDC_DECIMALS } from "./model";
 import { Notice } from "./shared";
 
 type BaseStep = "idle" | "approve" | "deposit" | "finality" | "register" | "done";
+
+type PendingCash = { log: CashDepositedLog; amount: bigint };
 
 const BASE_STEPS: { id: BaseStep; label: string }[] = [
   { id: "approve", label: "Approve the vault" },
@@ -48,6 +52,9 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
   const amount = editedAmount ?? amountToText(shortfall, USDC_DECIMALS);
   const [baseStep, setBaseStep] = useState<BaseStep>("idle");
   const [baseError, setBaseError] = useState<ActionError | null>(null);
+  const [failedStep, setFailedStep] = useState<BaseStep | null>(null);
+  /** A deposit already on RoseVault whose registration has not succeeded yet. */
+  const [pending, setPending] = useState<PendingCash | null>(null);
   const [finality, setFinality] = useState<string | null>(null);
   const parsed = parseDecimal(amount, USDC_DECIMALS);
   const valid = parsed !== null && parsed > 0n;
@@ -67,6 +74,45 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
     }
   };
 
+  /** Finality then registration of a deposited log; a failure keeps the log so "Retry registration" never deposits again. */
+  const registerLog = useCallback(
+    async (deposit: PendingCash) => {
+      setBaseError(null);
+      setFailedStep(null);
+      let step: BaseStep = "finality";
+      setBaseStep(step);
+      try {
+        const { basePublicClient, registerBaseCashArgs, registerCashDeposit, replayKeyOf, waitForSafeHead } = await import("./base-cash");
+        await waitForSafeHead(basePublicClient(), deposit.log.blockNumber, {
+          onProgress: (p) => setFinality(p.phase === "waiting_safe" ? `safe head ${p.safeHead.toString()} / ${p.target.toString()}` : p.phase === "margin" ? "safe head passed, 30 s margin for the MPC providers" : "ready"),
+        });
+        step = "register";
+        setBaseStep(step);
+        const args = registerBaseCashArgs(deposit.log);
+        await registerCashDeposit(engine.views, replayKeyOf(args.location), () =>
+          run({
+            label: "Registering the Base cash deposit (MPC verification, about 10 s)",
+            call: engine.calls.registerBaseCash(args.location, { ...args.fields }),
+            success: "register_base_cash executed: reading the MPC verdict",
+            receipt: { engine: engine.account, roundId, kind: "cash", label: "register_base_cash" },
+          }),
+        );
+        toast.show({ tone: "success", title: `${formatUsdc(deposit.amount)} credited to your Base cash`, description: "The engine verified the CashDeposited log through the MPC.", links: txLinks("base", deposit.log.transactionHash) });
+        setPending(null);
+        setBaseStep("done");
+        void refreshBalances();
+        onDeposited();
+      } catch (error) {
+        const described = toActionError(error);
+        setBaseError(described);
+        setFailedStep(step);
+        setBaseStep("idle");
+        toast.show({ tone: "error", title: described.title, description: described.message, links: txLinks("base", deposit.log.transactionHash) });
+      }
+    },
+    [engine, onDeposited, refreshBalances, roundId, run, toast],
+  );
+
   const depositBase = useCallback(async () => {
     if (!valid || parsed === null || venue === "Near") return;
     const vault = deployedAddress("roseVault");
@@ -76,49 +122,39 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
     }
     if (!near.accountId) return;
     setBaseError(null);
+    setFailedStep(null);
     const token = venue.Base.token as `0x${string}`;
-    setBaseStep("approve");
+    let step: BaseStep = "approve";
+    setBaseStep(step);
+    let deposit: PendingCash;
     try {
-      const { approveToken, basePublicClient, decodeCashDeposited, depositCash, registerBaseCashArgs, waitForSafeHead } = await import("./base-cash");
+      const { approveToken, basePublicClient, decodeCashDeposited, depositCash } = await import("./base-cash");
       const client = basePublicClient();
       const wallet = await getEvmWalletClient();
       const approveHash = await approveToken(wallet, token, vault, parsed);
       addReceipt(engine.account, roundId, { kind: "cash", chain: "base", hash: approveHash, at: Date.now(), label: "approve" });
       await client.waitForTransactionReceipt({ hash: approveHash });
-      setBaseStep("deposit");
+      step = "deposit";
+      setBaseStep(step);
       const hash = await depositCash(wallet, { vault, token, amount: parsed, nearAccount: near.accountId, roundId });
       addReceipt(engine.account, roundId, { kind: "cash", chain: "base", hash, at: Date.now(), label: "depositCash" });
       toast.show({ tone: "info", title: "Cash deposited on Base", description: "Waiting for the safe head before the engine can verify the log.", links: txLinks("base", hash) });
       const receipt = await client.waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") throw new RoseActionError("contract", "Deposit reverted on Base", "depositCash reverted: nothing left your wallet. Check the amount and retry.", true);
       const log = decodeCashDeposited(receipt)[0];
-      if (!log) throw new Error("The transaction emitted no CashDeposited log.");
-      setBaseStep("finality");
-      await waitForSafeHead(client, receipt.blockNumber, {
-        onProgress: (p) => setFinality(p.phase === "waiting_safe" ? `safe head ${p.safeHead.toString()} / ${p.target.toString()}` : p.phase === "margin" ? "safe head passed, 30 s margin for the MPC providers" : "ready"),
-      });
-      setBaseStep("register");
-      const args = registerBaseCashArgs(log);
-      const result = await run({
-        label: "Registering the Base cash deposit (MPC verification, about 10 s)",
-        call: engine.calls.registerBaseCash(args.location, { ...args.fields }),
-        success: `${formatUsdc(parsed)} credited to your Base cash`,
-        receipt: { engine: engine.account, roundId, kind: "cash", label: "register_base_cash" },
-      });
-      if (!result.ok) {
-        setBaseError(result.error);
-        setBaseStep("idle");
-        return;
-      }
-      setBaseStep("done");
-      void refreshBalances();
-      onDeposited();
+      if (!log) throw new RoseActionError("contract", "No CashDeposited log", "The transaction emitted no CashDeposited log.");
+      deposit = { log, amount: parsed };
+      setPending(deposit);
     } catch (error) {
       const described = toActionError(error);
       setBaseError(described);
+      setFailedStep(step);
       setBaseStep("idle");
       toast.show({ tone: "error", title: described.title, description: described.message });
+      return;
     }
-  }, [engine, getEvmWalletClient, near.accountId, onDeposited, parsed, refreshBalances, roundId, run, toast, valid, venue]);
+    await registerLog(deposit);
+  }, [engine, getEvmWalletClient, near.accountId, parsed, registerLog, roundId, toast, valid, venue]);
 
   if (venue === "Near") {
     const wallet = balances.nearTusdc;
@@ -156,25 +192,41 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
       <Field label="Amount to deposit" hint={baseBalance !== null ? `Wallet balance ${formatUsdc(baseBalance)} (rose tUSDC)` : "The venue token balance is read for rose tUSDC only."} error={!valid ? "Enter a positive amount." : null}>
         {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={amount} onValueChange={setAmount} unit="USDC" decimals={USDC_DECIMALS} />}
       </Field>
-      <ol className="flex flex-col gap-1 text-[12px]">
+      <ol className="flex flex-col gap-1 text-[12px]" data-base-cash-steps>
         {BASE_STEPS.map((step, index) => {
-          const order = BASE_STEPS.findIndex((s) => s.id === baseStep);
-          const state = baseStep === "done" || index < order ? "done" : index === order ? "active" : "upcoming";
+          const current = failedStep ?? baseStep;
+          const order = BASE_STEPS.findIndex((s) => s.id === current);
+          const state = baseStep === "done" || index < order ? "done" : index === order ? (failedStep ? "failed" : "active") : "upcoming";
           return (
-            <li key={step.id} className={cn("flex items-center gap-2", state === "done" ? "text-success-400" : state === "active" ? "text-ember-300" : "text-ink-400")}>
-              <span aria-hidden className={cn("size-2 rounded-sm", state === "done" ? "bg-success-500" : state === "active" ? "animate-pulse bg-ember-500" : "bg-ink-700")} />
+            <li key={step.id} data-step={step.id} data-state={state} className={cn("flex items-center gap-2", state === "done" ? "text-success-400" : state === "active" ? "text-ember-300" : state === "failed" ? "text-danger-400" : "text-ink-400")}>
+              <span aria-hidden className={cn("size-2 rounded-sm", state === "done" ? "bg-success-500" : state === "active" ? "animate-pulse bg-ember-500" : state === "failed" ? "bg-danger-500" : "bg-ink-700")} />
               {step.label}
               {state === "active" && step.id === "finality" && finality ? <span className="tabular text-ink-400">· {finality}</span> : null}
             </li>
           );
         })}
       </ol>
-      <div>
-        <Button size="sm" onClick={() => void depositBase()} disabled={!valid || evm.status !== "connected" || near.status !== "connected" || (baseStep !== "idle" && baseStep !== "done")} loading={baseStep !== "idle" && baseStep !== "done"} loadingLabel={BASE_STEPS.find((s) => s.id === baseStep)?.label ?? "Working…"}>
-          Deposit on Base
-        </Button>
+      {pending && baseStep !== "done" ? (
+        <p className="text-[12px] text-ink-300" data-pending-cash>
+          {formatUsdc(pending.amount)} sits in RoseVault (
+          <a href={txUrl("base", pending.log.transactionHash)} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+            depositCash ↗
+          </a>
+          ) until the engine verifies the log. A retry re-sends only the registration; nothing is deposited again.
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {pending && baseStep === "idle" ? (
+          <Button size="sm" onClick={() => void registerLog(pending)} disabled={near.status !== "connected"} data-retry-registration>
+            Retry registration
+          </Button>
+        ) : (
+          <Button size="sm" onClick={() => void depositBase()} disabled={!valid || evm.status !== "connected" || near.status !== "connected" || (baseStep !== "idle" && baseStep !== "done")} loading={baseStep !== "idle" && baseStep !== "done"} loadingLabel={BASE_STEPS.find((s) => s.id === baseStep)?.label ?? "Working…"} data-deposit-base>
+            {failedStep === "approve" || failedStep === "deposit" ? "Retry the deposit" : "Deposit on Base"}
+          </Button>
+        )}
       </div>
-      {baseError ? <Notice tone="danger">{baseError.message}</Notice> : null}
+      {baseError ? <Notice tone="danger">{baseError.title}: {baseError.message}</Notice> : null}
     </div>
   );
 }

@@ -2,13 +2,14 @@ import { PublicKey } from "@solana/web3.js";
 import { baseDecode } from "near-api-js";
 import { isAddress } from "viem";
 
-export type FaucetChain = "base" | "solana" | "near";
+export type FaucetChain = "base" | "solana" | "near" | "solana-demo-token";
 
-export const FAUCET_CHAINS: readonly FaucetChain[] = ["base", "solana", "near"];
+export const FAUCET_CHAINS: readonly FaucetChain[] = ["base", "solana", "near", "solana-demo-token"];
 
 export type FaucetRequest =
   | { chain: "base"; address: `0x${string}` }
   | { chain: "solana"; address: string }
+  | { chain: "solana-demo-token"; address: string }
   | { chain: "near"; accountId: string; publicKey: string };
 
 export type ParseResult = { ok: true; request: FaucetRequest } | { ok: false; message: string };
@@ -64,7 +65,7 @@ export function parseFaucetRequest(body: unknown): ParseResult {
   const chainField = field(record, "chain");
   const chain = FAUCET_CHAINS.find((candidate) => candidate === chainField);
   if (chain === undefined) {
-    return { ok: false, message: 'chain must be "base", "solana" or "near".' };
+    return { ok: false, message: 'chain must be "base", "solana", "near" or "solana-demo-token".' };
   }
   if (chain === "near") {
     const accountId = field(record, "accountId");

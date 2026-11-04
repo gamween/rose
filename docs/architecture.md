@@ -6,7 +6,7 @@ This document describes how rose is built. `docs/spec.md` says what rose is and 
 
 | Component | Where | Role |
 |---|---|---|
-| `rose-engine` | `contracts/engine`, NEAR testnet | Classes, positions, NEP-245 units, accrual ledger, liens, cash ledger, rounds, sealed bids, opening, clearing, settlement, foreign custody and payouts. Keyless after deployment, no upgrade path. |
+| `rose-engine` | `contracts/engine`, NEAR testnet | Classes, positions, NEP-245 units, accrual ledger, liens, cash ledger, rounds, sealed bids, opening, clearing, settlement, foreign custody and payouts. No upgrade path; the final deployment deletes every access key after init (`deploy-engine.sh --role final --keyless`), staging deployments keep one. |
 | `rose-ibe` | `contracts/ibe` | Boneh-Franklin IBE against the NEAR MPC CKD key (ported from Sealwell). Compiled into the engine (host-function backend) and into the browser (`packages/ibe-wasm`, wasm-bindgen). |
 | `rose-tusdc` | `contracts/tusdc`, NEAR testnet | NEP-141 Test USDC with a public capped mint. The NEAR cash venue. |
 | `RoseVault` | `contracts/evm`, Base Sepolia | Immutable custody of Sablier streams and Base USDC, releases funds only against EIP-712 authorizations signed by the engine's MPC-derived key. |
@@ -15,7 +15,7 @@ This document describes how rose is built. `docs/spec.md` says what rose is and 
 | `mock-mpc` | `contracts/mock-mpc` (tests only) | MPC stand-in of the NEAR sandbox integration tests: derives keys from a fixed test seed and signs what it is asked to sign (secp256k1 and Ed25519), signs the ForeignTx payload hash a test registered for an exact request, and replays recorded real responses only for the very payload or transaction they were recorded for. Never deployed. |
 | `@rose/sdk` | `packages/sdk` | TypeScript bindings, chain adapters, unlock math and the clearing reference used by the "Verify" panel. |
 | Web | `apps/web`, Vercel | Landing, app, docs, status. Reads chains directly. `/api/faucet` is a demo convenience, not part of the protocol. |
-| Scripts | `scripts` | Deployment (`deploy-base.sh`, `deploy-engine.sh`, `derive-vault-signer.sh`) and real-testnet end-to-end runs (`e2e-base-tender.sh`, `e2e-solana-stream.mjs`), recorded in `deployments/`. |
+| Scripts | `scripts` | Deployment (`deploy-base.sh`, `deploy-engine.sh` with its keyless path, `derive-vault-signer.sh`, `rehearse-keyless.sh`, `evm-keystore.ts`), the demo seed and its live proofs (`seed.ts`, `e2e-live.ts`, `demo-manifest.ts` for the guided demo), real-testnet end-to-end runs (`e2e-base-tender.sh`, `e2e-solana-stream.mjs`), the IBE wrapper they share (`ibe.mjs`) and the generator of the web3.js message vectors (`solana-vectors.ts`), recorded in `deployments/`. |
 
 ## Engine modules (`contracts/engine/src`)
 
@@ -29,7 +29,7 @@ This document describes how rose is built. `docs/spec.md` says what rose is and 
 | `rounds.rs` | `create_tender`, `create_exit`, `create_advance`, `cancel_round`, `place_bid`, `place_ask` | Round creation, sealed orders, bonds and storage deposits. |
 | `sealing.rs` | `close`, `on_round_key`, `submit_key`, `cancel_no_key`, `open_bid` | CKD key request and callback, open key submission, fully verified openings. `cancel_no_key` waits until no key request is in flight. |
 | `settlement.rs` | `clear`, `settle_bid`, `release_lien` | One bounded `clear` per round, per-bid settlement, liens. |
-| `custody/mod.rs` | `bootstrap`, `on_bootstrap`, `registration_deposit_for`, `get_replay`, `get_refused_deposit`, `compute_base_class_id`, `compute_sol_class_id` | Derived addresses, replay keys and the holds of pending registrations, the per-account count of custody actions in flight, the MPC call helpers, the gas accounting of callback chains and the free-balance reserve. |
+| `custody/mod.rs` | `bootstrap`, `on_bootstrap`, `registration_deposit_for`, `get_replay`, `get_refused_deposit`, `compute_base_class_id`, `compute_sol_class_id`, `nonce_seed_prefix_of` | Derived addresses, replay keys and the holds of pending registrations, the per-account count of custody actions in flight, the MPC call helpers, the gas accounting of callback chains and the free-balance reserve. |
 | `custody/base.rs` | `register_base_deposit`, `on_base_deposit_verified`, `register_base_cash`, `on_base_cash_verified`, `on_base_signed`, `submit_base_signature`, `retry_base_signature` | Base deposits attested through ForeignTx `Log` at `Safe`; refused deposits are recorded. EIP-712 signatures checked by `ecrecover` against the vault address before they are stored. |
 | `custody/solana.rs` | `attribute_sol_deposit`, `on_sol_deposit_key`, `on_sol_deposit_attested`, `move_sol_deposit`, `register_sol_deposit`, `on_sol_deposit_verified`, `get_sol_deposit`, `get_sol_stream`, `deposit_path_of` | The three-step Solana deposit (spec 7.2). |
 | `custody/payouts.rs` | `claim_base_tokens`, `withdraw_base_cash`, `claim_sol_tokens`, `redeem`, `on_sol_nonce_verified`, `on_sol_signed`, `resign_sol_gas`, `on_sol_gas_resigned`, `submit_sol_signature`, `retry_sol_payout`, `confirm_sol_payout`, `on_sol_payout_confirmed`, `confirm_sol_redeem`, `on_sol_redeem_confirmed`, `return_refused_deposit`, `get_payout`, `get_payouts`, `get_pending_release`, `payouts_total`, `get_sol_streams` | Signed foreign actions (spec 7.3): EIP-712 authorizations for RoseVault; two-phase durable-nonce Solana payouts drawing on named streams and in-kind releases, settled by a proof of landing; returns of refused deposits. |
@@ -62,7 +62,7 @@ All amounts are integers. Token amounts are base units of the token. Cash amount
 State is Borsh: an enum is stored as its variant index and a struct as its fields in order. Rules for every type that reaches storage (records, the event ring buffer, storage-key prefixes, the class schedule) or the MPC payload hash:
 
 - An enum only gains variants at the end; a variant is never inserted, reordered or removed. `tests::layout::borsh_enums_only_gain_variants_at_the_end` pins the stored order of every Borsh enum of the engine and fails on anything but an append.
-- A struct field, or a variant's fields, never change in a deployed engine. A change that needs one deploys to a new account (the final engine is keyless and never upgraded; a staging engine updated in place with an incompatible layout cannot read what it wrote before, which is how `get_events` failed on `engine-s3`).
+- A struct field, or a variant's fields, never change in a deployed engine. A change that needs one deploys to a new account (the final engine is deployed keyless and never upgraded; a staging engine updated in place with an incompatible layout cannot read what it wrote before, which is how `get_events` failed on `engine-s3`).
 
 ## Round state machine
 
@@ -96,5 +96,5 @@ Settlement is paginated by construction: `clear` computes the result once (at mo
 ## Tests
 
 - `cargo test --workspace`: unit and property tests of the pure modules, contract tests on the near-sdk mocked VM (`src/tests`), the recorded live vectors (`tests/vectors`: clearing, unlock, Sablier `streamedAmountOf` triples, ForeignTx round trips, MPC signatures, web3.js messages).
-- `ROSE_SANDBOX=1 cargo test -p rose-engine --test 'sandbox_*'`: NEAR sandbox integration tests with the real engine wasm and the signing `mock-mpc` (every stored signature verified against the bootstrapped keys), the two-phase Solana payout and redeem, and replays of real staging transactions with their gas (spec 10); see `docs/verification.md`.
+- `ROSE_SANDBOX=1 cargo test -p rose-engine --test <sandbox_lifecycle | sandbox_recorded | sandbox_staging> -- --test-threads=1`, one suite at a time: NEAR sandbox integration tests with the real engine wasm and the signing `mock-mpc` (every stored signature verified against the bootstrapped keys), the two-phase Solana payout and redeem, and replays of real staging transactions with their gas (spec 10); see `docs/verification.md`.
 - `forge test` (from the repo root): RoseVault and the demo contracts, including fork tests against the live Sablier Lockup.

@@ -4,7 +4,8 @@
   "sources": [
     "deployments/e2e/cindral.json",
     "deployments/e2e/engine-s3.rose-app.testnet.seed.json",
-    "deployments/e2e/engine-s3.rose-app.testnet.live.json"
+    "deployments/e2e/engine-s3.rose-app.testnet.live.json",
+    "deployments/e2e/engine-s3.rose-app.testnet.solana.json"
   ],
   "issuer": "Cindral Foundation",
   "token": {
@@ -918,6 +919,60 @@
               "gasUsed": null,
               "failed": false,
               "note": null
+            },
+            {
+              "label": "claim_sol_tokens: the engine signs a durable-nonce Solana transfer",
+              "chain": "near",
+              "hash": "BXfMqQpCMiwPJjBgwR7avPni5XQzS2KTa3qhWHRyQnfH",
+              "gasTgas": 45.05,
+              "gasUsed": null,
+              "failed": false,
+              "note": "Separate run on this engine (scripts/e2e-solana-stream.mjs) by b2.rose-ckd-1793753433.testnet on a test Solana stream"
+            },
+            {
+              "label": "Solana: the signed payout, broadcast by the holder",
+              "chain": "solana",
+              "hash": "5jAM8UFKZdGerAxMfKWsjsGCDudJFrCXTXYhXJi8BbPQzY3AGPEjEyKyLutvtXGchQhpTxkUdUk5mdV7kv4vA4w2",
+              "gasTgas": null,
+              "gasUsed": null,
+              "failed": false,
+              "note": "Separate run on this engine (scripts/e2e-solana-stream.mjs) by b2.rose-ckd-1793753433.testnet on a test Solana stream"
+            },
+            {
+              "label": "confirm_sol_payout: ForeignTx proves the nonce advanced",
+              "chain": "near",
+              "hash": "4N7426Wa6yc1PdJyB4v3xHEZdoLVb3rqWFCt4Q1yy4wJ",
+              "gasTgas": 17.16,
+              "gasUsed": null,
+              "failed": false,
+              "note": "Separate run on this engine (scripts/e2e-solana-stream.mjs) by b2.rose-ckd-1793753433.testnet on a test Solana stream"
+            },
+            {
+              "label": "redeem: the engine signs the stream's transfer back to the holder",
+              "chain": "near",
+              "hash": "HYzgNKg15URoFseEFPrWcXxmyoCEfCFBeDksKpECC9HT",
+              "gasTgas": 43.84,
+              "gasUsed": null,
+              "failed": false,
+              "note": "Separate run on this engine (scripts/e2e-solana-stream.mjs) by b2.rose-ckd-1793753433.testnet on a test Solana stream"
+            },
+            {
+              "label": "Solana: the signed release, broadcast by the holder",
+              "chain": "solana",
+              "hash": "4QV5DLubRwCAX8FA8pyrLMLJwo46PPFYp8B9Yu4KtNqVkD5q7tsFueEFF4MDP1Sdk15g8igQVri6qkwTm45fT1dh",
+              "gasTgas": null,
+              "gasUsed": null,
+              "failed": false,
+              "note": "Separate run on this engine (scripts/e2e-solana-stream.mjs) by b2.rose-ckd-1793753433.testnet on a test Solana stream"
+            },
+            {
+              "label": "confirm_sol_redeem: ForeignTx proof, the position is released",
+              "chain": "near",
+              "hash": "FDetXc54nJ92qVuMWD36n4shQApu9365BwsBg7RJq6ik",
+              "gasTgas": 17.84,
+              "gasUsed": null,
+              "failed": false,
+              "note": "Separate run on this engine (scripts/e2e-solana-stream.mjs) by b2.rose-ckd-1793753433.testnet on a test Solana stream"
             }
           ]
         }

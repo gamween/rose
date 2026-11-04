@@ -63,10 +63,10 @@ One holder sells a senior claim on the first `K` tokens that will unlock from `X
 
 ## Clearing prices
 
-Every settled round publishes its clearing price per locked token, its remaining lock duration and its volume. The Prices page (`/app/prices`) shows the history per class and price versus remaining lock time across classes of the same token.
+Every settled round publishes its clearing price per locked token (per claimed token in an Advance), its remaining lock duration and its volume. The Prices page (`/app/prices`) shows the history per class, with Advance prices on their own line, and the per-locked-token price versus remaining lock time across classes of the same token.
 
 There is no spot oracle on testnet, so no implied discount is computed on-chain. When an issuer declares a public reference price for a Tender, the page shows the discount to that declared reference, labeled as such.
 
 ## Cash venue
 
-Each round declares exactly one cash venue at creation: NEAR tUSDC, or Base USDC held by RoseVault. All escrows, bonds, fees and seller proceeds of that round live in that venue and are claimable only there. The bid form shows the venue.
+Each round declares exactly one cash venue at creation: NEAR tUSDC, or a Base ERC-20 the engine accepts (rose Base tUSDC or Circle USDC on Base Sepolia), held by RoseVault. All escrows, bonds, fees and seller proceeds of that round live in that venue and are claimable only there. The bid form shows the venue.

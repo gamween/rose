@@ -1,8 +1,9 @@
 /**
  * The deposits this browser attempted, kept in `localStorage` so the "Refused deposits" panel
  * can look each one up on the engine (`get_refused_deposit` is keyed by the foreign fact, and no
- * view lists refusals per account) and offer "Return my stream" after a reload, and so a Base
- * deposit whose registration never completed can be registered after a reload.
+ * view lists refusals per account) and offer "Return my stream" after a reload, and so a deposit
+ * interrupted before its registration (a Base log not registered, a Solana stream that left the
+ * wallet) can be resumed after a reload.
  */
 
 import type { ReplayKey } from "@rose/sdk";
@@ -19,6 +20,8 @@ export type AttemptedDeposit = {
   /** Base deposits only: the `depositStream` transaction and stream id, so a registration interrupted by a reload can be resumed. */
   baseTx?: string;
   streamId?: string;
+  /** Solana deposits only: the class the stream joins, recorded before it leaves the wallet, so an interrupted deposit can be resumed. */
+  solClassId?: string;
 };
 
 function storage(): Storage | null {

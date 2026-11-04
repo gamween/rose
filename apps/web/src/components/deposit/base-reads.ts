@@ -8,7 +8,8 @@ import { listOwnedStreams, readStream, type EngineViews, type ReplayKey, type Re
 import type { Address, PublicClient } from "viem";
 import { RoseActionError } from "@/lib/errors";
 import { baseVerdict, sablierScheduleArgs, scanRange, type Verdict } from "./eligibility";
-import { sleep } from "./solana-reads";
+import { sleep } from "@/lib/payouts";
+import { SETTLED_POLLS } from "./solana-reads";
 
 /** Ids scanned per page of the Sablier list (the Lockup NFT is not enumerable). */
 export const BASE_SCAN_SPAN = 200n;
@@ -62,24 +63,26 @@ const REPLAY_POLL_MS = 3_000;
 
 export type ReplayOutcome = "consumed" | "cleared";
 
-/**
- * Polls `get_replay(key)` after a registration call: `Consumed` means the MPC matched the log
- * (minted or refused, see `get_refused_deposit`); a key that was `Pending` and disappears means
- * the callback failed (`PromiseError` or mismatch) and the call may be sent again.
- */
 /** Units of `classId` held by `account`; zero while the class does not exist (a deposit's first stream creates it). */
 export async function holdingBalance(views: EngineViews, account: string, classId: string): Promise<bigint> {
   if ((await views.getClass(classId)) === null) return 0n;
   return (await views.getHolding(account, classId)).balance;
 }
 
-export async function waitForReplay(views: EngineViews, key: ReplayKey, options: { signal?: AbortSignal; onPoll?: (elapsedMs: number, state: ReplayStateView | null) => void } = {}): Promise<ReplayOutcome> {
+/**
+ * Polls `get_replay(key)` after a registration call: `Consumed` means the MPC matched the log
+ * (minted or refused, see `get_refused_deposit`); a key that was `Pending` and disappears means
+ * the callback failed (`PromiseError` or mismatch) and the call may be sent again. With
+ * `sentNow` (this tab's call just returned, its callback included) an absent key means the
+ * same at once, instead of after the 2.5-minute wait.
+ */
+export async function waitForReplay(views: EngineViews, key: ReplayKey, options: { signal?: AbortSignal; onPoll?: (elapsedMs: number, state: ReplayStateView | null) => void; sentNow?: boolean } = {}): Promise<ReplayOutcome> {
   const started = Date.now();
   let seenPending = false;
-  for (;;) {
+  for (let poll = 1; ; poll += 1) {
     const state = await views.raw.getReplay(key, { signal: options.signal });
     if (state === "Consumed") return "consumed";
-    if (state === null && seenPending) return "cleared";
+    if (state === null && (seenPending || (options.sentNow && poll >= SETTLED_POLLS))) return "cleared";
     if (state !== null) seenPending = true;
     const elapsed = Date.now() - started;
     options.onPoll?.(elapsed, state);

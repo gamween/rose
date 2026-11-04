@@ -22,8 +22,16 @@ test.describe("pages with a deployed engine (mocked chain reads)", () => {
     await expect(page.getByRole("heading", { name: "Clearing price history per class" })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: /CINDR/ })).toHaveAttribute("aria-pressed", "true");
     const charts = page.getByRole("img", { name: /Clearing price history/ });
-    await expect(charts).toHaveCount(2);
+    // Seed (Tender + Exit), KOL per locked token (Exit #4) and KOL per claimed token (Advance #6): never one line for both units.
+    await expect(charts).toHaveCount(3);
+    await expect(page.locator("[data-price-series='claimed']")).toHaveCount(1);
+    await expect(page.locator("[data-price-series='claimed']")).toContainText("USDC per claimed token at settlement");
+    await expect(page.locator("[data-price-series='claimed']")).toContainText("· Advance");
+    await expect(page.locator("[data-price-series='locked']").first()).toContainText("USDC per locked token at settlement");
     await expect(page.getByRole("img", { name: /remaining lock/ })).toBeVisible();
+    await expect(page.locator("[data-advance-note]")).toContainText("1 Advance round is left out");
+    await expect(page.getByRole("img", { name: /remaining lock/ })).toHaveAttribute("aria-label", /5 settled rounds/);
+    // The declared references come from get_rounds (string ids) and match the numeric price-history ids.
     await expect(page.getByText("Issuer-declared reference (Tender)")).toBeVisible();
     await charts.first().getByRole("link", { name: /^Round 7:/ }).focus();
     const tooltip = page.getByRole("status");

@@ -21,9 +21,9 @@ import type { HoldingRow } from "./transforms";
  * cell prints its column name (from `data-label`) above the value, so nothing scrolls sideways at
  * 375 px while the desktop keeps the dense table.
  */
-const CARD_ROW = "max-md:grid max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-2.5 max-md:px-3 max-md:py-3 max-md:hover:bg-transparent";
-const CARD_CELL = "max-md:h-auto max-md:px-0 max-md:text-left max-md:before:mb-0.5 max-md:before:block max-md:before:font-display max-md:before:text-[10px] max-md:before:uppercase max-md:before:tracking-wide max-md:before:text-ink-400 max-md:before:content-[attr(data-label)]";
-const CARD_WIDE = "max-md:col-span-2 max-md:h-auto max-md:px-0";
+export const CARD_ROW = "max-md:grid max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-2.5 max-md:px-3 max-md:py-3 max-md:hover:bg-transparent";
+export const CARD_CELL = "max-md:h-auto max-md:px-0 max-md:text-left max-md:before:mb-0.5 max-md:before:block max-md:before:font-display max-md:before:text-[10px] max-md:before:uppercase max-md:before:tracking-wide max-md:before:text-ink-400 max-md:before:content-[attr(data-label)]";
+export const CARD_WIDE = "max-md:col-span-2 max-md:h-auto max-md:px-0";
 
 function ChainBadge({ chain }: { chain: "Base" | "Solana" }) {
   return <Badge tone={chain === "Base" ? "info" : "ember"}>{chain === "Base" ? "Base" : "Solana"}</Badge>;

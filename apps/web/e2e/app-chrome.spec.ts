@@ -86,6 +86,45 @@ test.describe("app chrome", () => {
     await expect(page.getByRole("dialog", { name: /Connect a wallet/ })).toBeVisible();
   });
 
+  test("Enter runs the highlighted palette command, in the order the palette shows them", async ({ page }) => {
+    await page.goto(APP_PAGE);
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyK" : "Control+KeyK");
+    const input = page.locator("[data-palette-input]");
+    await expect(input).toBeFocused();
+    const options = page.getByRole("option");
+    await expect(options.first()).toHaveAttribute("aria-selected", "true");
+    await expect(options.first()).toContainText("Connect a wallet");
+    await expect(input).toHaveAttribute("aria-activedescendant", (await options.first().getAttribute("id")) ?? "");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
+    await expect(options.nth(2)).toContainText("Open the activity feed");
+    await expect(input).toHaveAttribute("aria-activedescendant", (await options.nth(2).getAttribute("id")) ?? "");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog", { name: "Activity" })).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/prices$/);
+  });
+
+  test("the mobile menu opens the activity feed and the command palette", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "the top-bar buttons cover wider screens");
+    await page.goto(APP_PAGE);
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await expect(page.locator("[data-activity]")).toBeHidden();
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await page.locator("[data-menu-action='activity']").click();
+    await expect(page.getByRole("dialog", { name: "Activity" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await page.locator("[data-menu-action='palette']").click();
+    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+    await page.locator("[data-palette-input]").fill("rounds");
+    await page.keyboard.press("Enter");
+    await page.waitForURL("**/app/rounds");
+  });
+
   test("opens the activity feed and the command palette navigation works", async ({ page }) => {
     await page.goto(APP_PAGE);
     await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));

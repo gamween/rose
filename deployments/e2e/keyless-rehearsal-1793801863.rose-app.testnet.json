@@ -1,0 +1,31 @@
+{
+  "account": "keyless-rehearsal-1793801863.rose-app.testnet",
+  "wasm": {
+    "sha256": "0fede26edc2ac811e86a42fe36ccc187dbd3119ba77f5a4fa450ddb0a6cb7e7e",
+    "bytes": 34
+  },
+  "steps": {
+    "create": {
+      "near_tx": "5VmkFoH6Zme4NqCYW54d15LBfrZA3nkGHdB4txyc3aii",
+      "link": "https://testnet.near.rocks/tx/5VmkFoH6Zme4NqCYW54d15LBfrZA3nkGHdB4txyc3aii"
+    },
+    "deploy": {
+      "near_tx": "BmL6RDDfAwsuHcNZGNmDjkibQsQhyMCbemHaPpYHFME7",
+      "link": "https://testnet.near.rocks/tx/BmL6RDDfAwsuHcNZGNmDjkibQsQhyMCbemHaPpYHFME7"
+    },
+    "add_key": {
+      "near_tx": "14NCQiorFt3LNXQWQVhweKYYMnm96DdgxTvJNyEj6aM5",
+      "link": "https://testnet.near.rocks/tx/14NCQiorFt3LNXQWQVhweKYYMnm96DdgxTvJNyEj6aM5"
+    },
+    "delete_keys": {
+      "near_tx": "LajMMx8zpF2HRvnYsDA4WMikPCnM75z52DBowXUSbTC",
+      "link": "https://testnet.near.rocks/tx/LajMMx8zpF2HRvnYsDA4WMikPCnM75z52DBowXUSbTC"
+    }
+  },
+  "access_keys_before": [
+    "ed25519:D9VEBP9sauteWCEGQABgbjBVm57HPp5rnwDMy4Rikdb3",
+    "ed25519:GHcZejtEKHuSVFrjc5VQZryBUXd642zYcqXGAYEoCSMZ"
+  ],
+  "access_keys_final": [],
+  "checked_at": "2026-11-04T14:18:00Z"
+}

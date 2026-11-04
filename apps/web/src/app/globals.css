@@ -121,6 +121,16 @@ body {
   image-rendering: pixelated;
 }
 
+/* Sideways-scroll cue: the covers scroll with the content (`local`), the ember edge shadows stay put
+   (`scroll`), so a shadow shows only on a side that hides more columns. */
+@utility scroll-cue {
+  background:
+    linear-gradient(to right, var(--color-ink-950) 40%, transparent) left center / 32px 100% no-repeat local,
+    linear-gradient(to left, var(--color-ink-950) 40%, transparent) right center / 32px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(242 98 46 / 0.45), transparent) left center / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(242 98 46 / 0.45), transparent) right center / 14px 100% no-repeat scroll;
+}
+
 @utility dither-glow {
   background-image: radial-gradient(closest-side, color-mix(in srgb, var(--color-ember-500) 55%, transparent), transparent);
   mask-image: var(--dither-50);

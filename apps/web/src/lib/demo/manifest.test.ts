@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { DEMO_MANIFESTS } from "@/content/demo";
-import { buildDemoManifest, ManifestError, parseDemoManifest, type Journal, type ManifestSources } from "./manifest";
+import { buildDemoManifest, ManifestError, parseDemoManifest, type Journal, type ManifestSources, type SolanaJournal } from "./manifest";
 
 const ROOT = fileURLToPath(new URL("../../../../../", import.meta.url));
 const ENGINE = "engine-s3.rose-app.testnet";
@@ -12,8 +12,9 @@ function journal(path: string): Journal {
 }
 
 function sources(): ManifestSources {
-  const paths = ["deployments/e2e/cindral.json", `deployments/e2e/${ENGINE}.seed.json`, `deployments/e2e/${ENGINE}.live.json`];
-  return { cast: journal(paths[0] ?? ""), seed: journal(paths[1] ?? ""), live: journal(paths[2] ?? ""), paths };
+  const paths = ["deployments/e2e/cindral.json", `deployments/e2e/${ENGINE}.seed.json`, `deployments/e2e/${ENGINE}.live.json`, `deployments/e2e/${ENGINE}.solana.json`];
+  const solana = JSON.parse(readFileSync(`${ROOT}${paths[3] ?? ""}`, "utf8")) as SolanaJournal;
+  return { cast: journal(paths[0] ?? ""), seed: journal(paths[1] ?? ""), live: journal(paths[2] ?? ""), solana, paths };
 }
 
 function clone<T>(value: T): T {
@@ -76,6 +77,26 @@ describe("buildDemoManifest on the recorded engine-s3 journals", () => {
   it("puts the in-kind redeem in the scenario whose class holds the position", () => {
     const owners = manifest.scenarios.filter((scenario) => scenario.steps.some((step) => step.id === "redeem")).map((scenario) => scenario.key);
     expect(owners).toEqual(["advance"]);
+  });
+
+  it("shows the two-phase Solana token payout and redeem in the payout step of the Exit on Solana", () => {
+    const payout = manifest.scenarios.find((scenario) => scenario.key === "exit")?.steps.find((step) => step.id === "payout");
+    const labels = payout?.txs.map((tx) => `${tx.chain} ${tx.label.split(":")[0] ?? ""}`) ?? [];
+    expect(labels.slice(-6)).toEqual(["near claim_sol_tokens", "solana Solana", "near confirm_sol_payout", "near redeem", "solana Solana", "near confirm_sol_redeem"]);
+    expect(payout?.txs.at(-1)?.note).toContain("scripts/e2e-solana-stream.mjs");
+    for (const key of ["tender", "advance"]) {
+      const steps = manifest.scenarios.find((scenario) => scenario.key === key)?.steps ?? [];
+      expect(steps.flatMap((step) => step.txs).some((tx) => tx.label.startsWith("claim_sol_tokens"))).toBe(false);
+    }
+  });
+
+  it("refuses a Solana journal of another engine", () => {
+    const input = sources();
+    const solana = clone(input.solana!);
+    solana.engine = "other.testnet";
+    expect(() => buildDemoManifest({ ...input, solana })).toThrow(/Solana journal is for other.testnet/);
+    const exit = buildDemoManifest({ cast: input.cast, seed: input.seed, live: input.live, paths: input.paths }).scenarios.find((scenario) => scenario.key === "exit");
+    expect(exit?.steps.find((step) => step.id === "payout")?.txs.some((tx) => tx.chain === "solana")).toBe(false);
   });
 });
 

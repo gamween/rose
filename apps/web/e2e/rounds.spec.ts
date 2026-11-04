@@ -42,14 +42,21 @@ test.describe("rounds with a mocked engine", () => {
     await mockRounds(page);
     await page.goto("/app/rounds");
     const cards = page.locator("[data-round-card]");
+    // Newest first: rounds 20 down to 9, then the older ones below #9.
     await expect(cards).toHaveCount(12, { timeout: 20_000 });
-    await expect(page.locator("[data-round-card='1']")).toContainText("Closes in");
-    await expect(page.locator("[data-round-card='1']")).toContainText("500.00 USDC escrowed");
-    await expect(page.locator("[data-round-card='2']")).toContainText("Cleared at");
-    await expect(page.locator("[data-round-card='5']")).toContainText("Key requested");
+    await expect(cards.first()).toHaveAttribute("data-round-card", "20");
+    await expect(page.locator("[data-round-card='1']")).toHaveCount(0);
+    await expect(page.locator("[data-load-more]")).toHaveText("Load older rounds (before #9)");
     await page.locator("[data-load-more]").click();
     await expect(cards).toHaveCount(20);
+    await expect(cards.last()).toHaveAttribute("data-round-card", "1");
     await expect(page.locator("[data-load-more]")).toHaveCount(0);
+    await expect(page.locator("[data-round-card='1']")).toContainText("Closes in");
+    await expect(page.locator("[data-round-card='1'] [data-round-book] dd")).toHaveText("500.00 USDC escrowed · 100 units locked");
+    await expect(page.locator("[data-round-card='2']")).toContainText("Cleared at");
+    await expect(page.locator("[data-round-card='3']")).toContainText("No crossing");
+    await expect(page.locator("[data-round-card='3']")).not.toContainText("Cleared at");
+    await expect(page.locator("[data-round-card='5']")).toContainText("Key requested");
 
     await page.getByRole("button", { name: "Tender", exact: true }).click();
     await expect(cards).toHaveCount(2, { timeout: 20_000 });
@@ -105,6 +112,98 @@ test.describe("rounds with a mocked engine", () => {
     await page.locator("[data-verify-run]").click();
     await expect(page.locator("[data-verify-status='match']")).toBeVisible();
     await expect(page.locator("[data-settlement]")).toContainText("Claim cash and units in the Portfolio");
+    await expect(page.locator("[data-participants]").getByRole("link", { name: /halden\.testnet/ })).toHaveAttribute("href", "https://testnet.near.rocks/account/halden.testnet");
+    await expect(page.locator("[data-participants]")).toContainText("ask #0 settled");
+    await expect(page.locator("[data-parameters]").getByRole("link", { name: "cindral.testnet" })).toHaveAttribute("href", "https://testnet.near.rocks/account/cindral.testnet");
+    // Settled orders lose their ciphertext in the engine (storage refund); the book says so.
+    await expect(page.locator("[data-sealed-book] [data-bid-row='0']")).toContainText("pruned at settlement");
+    await page.getByRole("button", { name: "Chart view" }).click();
+    const ticks = await page.locator("[data-price-tick]").allTextContents();
+    expect(ticks.length).toBeGreaterThan(2);
+    expect(new Set(ticks).size).toBe(ticks.length);
+    expect(errors).toEqual([]);
+  });
+
+  test("a cancelled round shows its refunds, never a clearing at 0.00", async ({ page }) => {
+    const errors = await collectErrors(page);
+    await mockRounds(page);
+    await page.goto("/app/rounds/3");
+    await expect(page.locator("[data-round-detail='3']")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("[data-fills-summary='cancelled']")).toContainText("Cancelled (no crossing)");
+    await expect(page.locator("[data-curves]")).toContainText("The curves never meet");
+    await expect(page.locator("[data-timeline] [data-step='clear']")).toContainText("no price crossed the book");
+    await expect(page.locator("main")).not.toContainText("Cleared at 0.00");
+    await expect(page.locator("main")).not.toContainText("P* 0.00");
+    expect(errors).toEqual([]);
+  });
+
+  test("an Open round past its key timeout offers cancel_no_key, and the cancelled round says so", async ({ page }) => {
+    const errors = await collectErrors(page);
+    const state = await mockRounds(page);
+    const round1 = state.rounds.get(1)!;
+    round1.closes_at = Math.floor(Date.now() / 1000) - round1.key_timeout - 60;
+    await page.addInitScript(demoWalletScript());
+    await page.goto("/app/rounds/1");
+    await expect(page.locator("[data-next-action='cancel_no_key']")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("[data-next-action='cancel_no_key']")).toHaveText("Key timeout passed without a close");
+    await expect(page.locator("[data-action='close']")).toHaveCount(0);
+    await page.locator("[data-action='cancel_no_key']").click();
+    await expect(page.locator("[data-round-status='Cancelled']")).toBeVisible({ timeout: 30_000 });
+    expect(state.sent.map((s) => s.method)).toEqual(["cancel_no_key"]);
+    await expect(page.locator("[data-fills-summary='cancelled']")).toContainText("Cancelled (no key)");
+    await expect(page.locator("[data-verify='cancelled']")).toContainText("Nothing to verify");
+    expect(errors).toEqual([]);
+  });
+
+  test("the key can be submitted by anyone from the public CKD response", async ({ page }) => {
+    const errors = await collectErrors(page);
+    const state = await mockRounds(page);
+    const now = Math.floor(Date.now() / 1000);
+    Object.assign(state.rounds.get(1)!, { phase: "KeyRequested", closes_at: now - 60, close_requested_at: now - 50, keyAfterReads: 1_000_000 });
+    await page.addInitScript(demoWalletScript());
+    await page.goto("/app/rounds/1");
+    await expect(page.locator("[data-next-action='waiting_key']")).toBeVisible({ timeout: 20_000 });
+    await page.locator("[data-submit-key-open]").click();
+    const input = page.locator("[data-submit-key-input]");
+    await input.fill("not a key");
+    await expect(page.locator("[data-submit-key]").getByRole("alert")).toContainText("Paste a bls12381g1: key");
+    await input.fill("bls12381g1:7KUB3YJyD2SdDtLWzNsnPEiWRtSigsAZVoVXLjnj9HHKic9TP1AbWjqoshCMk1HhGL");
+    await page.locator("[data-submit-key-run]").click();
+    await expect(page.locator("[data-submit-key]").getByRole("alert")).toContainText("does not open round #1", { timeout: 20_000 });
+    expect(state.sent).toEqual([]);
+    await input.fill(JSON.stringify({ request: { app_id: "305bd2a1" }, response: { big_y: ROUNDS_MOCK.round1BigY, big_c: ROUNDS_MOCK.round1BigC } }));
+    await page.locator("[data-submit-key-run]").click();
+    await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 30_000 });
+    expect(state.sent.map((s) => [s.method, s.args.key])).toEqual([["submit_key", ROUNDS_MOCK.round1Key]]);
+    await expect(page.locator("[data-key-release]")).toContainText("submitted by a participant");
+    expect(errors).toEqual([]);
+  });
+
+  test("an Advance holder's reserve seals exactly the claim, and a Tender issuer gets no ask form", async ({ page }) => {
+    const errors = await collectErrors(page);
+    const state = await mockRounds(page);
+    Object.assign(state.rounds.get(4)!, { creator: ROUNDS_MOCK.demoAccount, bids: [] });
+    state.cash = 50n * 1_000_000n;
+    const now = Math.floor(Date.now() / 1000);
+    Object.assign(state.rounds.get(7)!, { kind: "Tender", creator: ROUNDS_MOCK.demoAccount, opens_at: now - 60, budget: 100n * 1_000_000n, issuer_escrow: 100_300_000n });
+    await page.addInitScript(demoWalletScript());
+    await page.goto("/app/rounds/4");
+    const form = page.locator("[data-order-form]");
+    await expect(form.getByRole("heading", { name: "Place your reserve" })).toBeVisible({ timeout: 20_000 });
+    const claim = form.locator("[data-fixed-claim]");
+    await expect(claim).toHaveValue("100");
+    await expect(claim).toHaveAttribute("readonly", "");
+    await expect(form).toContainText("Fixed to the claim K");
+    await form.locator("[data-order-price]").fill("10");
+    await expect(form.locator("[data-order-preview]")).toContainText("12.00 USDC");
+    await expect(form.locator("[data-order-submit]")).toBeEnabled({ timeout: 20_000 });
+    await form.locator("[data-order-submit]").click();
+    await expect(page.getByRole("status").filter({ hasText: "Sealed ask #0 placed" })).toBeVisible({ timeout: 30_000 });
+    expect(state.sent.map((s) => [s.method, s.args.units])).toEqual([["place_ask", (100n * 10n ** 18n).toString()]]);
+
+    await page.goto("/app/rounds/7");
+    await expect(page.locator("[data-order-form='issuer']")).toContainText("You are the buyer of this Tender", { timeout: 20_000 });
+    await expect(page.locator("[data-order-submit]")).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 
@@ -164,6 +263,7 @@ test.describe("rounds with a mocked engine", () => {
     await expect(page.locator("[data-sealed-book] tbody tr")).toHaveCount(3);
 
     await expect(page.locator("[data-next-action='close']")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("[data-timeline]")).toContainText("80 Tgas prepaid");
     await page.locator("[data-action='close']").click();
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("[data-key-release]")).toContainText(ROUNDS_MOCK.round1Key);

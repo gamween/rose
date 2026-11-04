@@ -1,13 +1,12 @@
 /**
- * Human amounts for the engine's event lines (activity feed, portfolio history): cash in USDC
- * (6 decimals in every venue), units with their class's decimals, raw only while a class is
- * unknown to the caller.
+ * Human amounts for the engine's event lines (activity feed, portfolio history, guided demo):
+ * cash in USDC (6 decimals in every venue) with its significant decimals, so a clearing price of
+ * 0.025 reads 0.025; units with their class's decimals, raw only while a class is unknown to the
+ * caller; NEP-145 storage in NEAR.
  */
 
 import type { EventAmountFormat } from "@rose/sdk";
-import { formatUnits } from "@/lib/format";
-
-const USDC_DECIMALS = 6;
+import { formatCash, formatNearAmount, formatUnits } from "@/lib/format";
 
 function toBigInt(amount: string): bigint | null {
   return /^\d+$/.test(amount) ? BigInt(amount) : null;
@@ -17,12 +16,16 @@ export function eventAmountFormat(decimalsOf: (classId: string) => number | null
   return {
     cash: (amount) => {
       const value = toBigInt(amount);
-      return value === null ? amount : `${formatUnits(value, USDC_DECIMALS, 2)} USDC`;
+      return value === null ? amount : `${formatCash(value)} USDC`;
     },
     units: (amount, classId) => {
       const value = toBigInt(amount);
       const decimals = decimalsOf(classId);
       return value === null || decimals === null ? amount : formatUnits(value, decimals, 4);
+    },
+    near: (amount) => {
+      const value = toBigInt(amount);
+      return value === null ? amount : `${formatNearAmount(value)} NEAR`;
     },
   };
 }

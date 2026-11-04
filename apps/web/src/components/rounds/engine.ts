@@ -4,7 +4,7 @@
  * detection shared by every fetcher.
  */
 
-import { EngineCalls, EngineViews, NearRpc, NearRpcError, type ClassInfo, type RoundFilter, type RoundsPage } from "@rose/sdk";
+import { EngineCalls, EngineViews, NearRpc, NearRpcError, type ClassInfo, type Round, type RoundFilter, type RoundsPage } from "@rose/sdk";
 import { NotDeployedError } from "@/components/status/useLiveQuery";
 import { deployed, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL } from "@/lib/deployment";
 import { tokenSymbols } from "@/lib/token-symbols";
@@ -36,10 +36,35 @@ export function rethrowNotDeployed(error: unknown): never {
 }
 
 export const ROUNDS_PAGE_SIZE = 12;
+/** Ids read per window when a filter is set (the engine scans at most 200 ids per `get_rounds` call). */
+const FILTERED_WINDOW = 50n;
+/** Windows read for one page before handing the cursor back (sparse filters). */
+const MAX_WINDOWS = 5;
 
-/** One page of `get_rounds`: the engine scans at most 200 ids per call and returns the cursor to continue from. */
-export function fetchRoundsPage(engine: RoundsEngine, filter: RoundFilter, from: bigint | null, limit = ROUNDS_PAGE_SIZE, signal?: AbortSignal): Promise<RoundsPage> {
+/** One call of `get_rounds`: the engine scans ids upwards from `from`, at most 200 per call. */
+export function fetchRoundsPage(engine: Pick<RoundsEngine, "views">, filter: RoundFilter, from: bigint | null, limit = ROUNDS_PAGE_SIZE, signal?: AbortSignal): Promise<RoundsPage> {
   return engine.views.getRounds(Object.keys(filter).length > 0 ? filter : undefined, from ?? undefined, limit, { signal });
+}
+
+/**
+ * The newest rounds first (the open ones are the newest), read in windows of ids below `before`
+ * (exclusive; the first page starts at `stats().rounds_total`, the next round id). `get_rounds`
+ * only scans upwards, so each window `[start, end)` is one call with `limit = end - start`: it
+ * returns every match of the window (extra matches above `end` are dropped). Returns the rounds
+ * newest first and the id to continue below, or null once id 0 was read.
+ */
+export async function fetchNewestRounds(engine: Pick<RoundsEngine, "views">, filter: RoundFilter, before: bigint, signal?: AbortSignal): Promise<{ rounds: Round[]; next: bigint | null }> {
+  const span = Object.keys(filter).length > 0 ? FILTERED_WINDOW : BigInt(ROUNDS_PAGE_SIZE);
+  const rounds: Round[] = [];
+  let end = before;
+  for (let windows = 0; windows < MAX_WINDOWS && end > 0n && rounds.length < ROUNDS_PAGE_SIZE; windows += 1) {
+    const start = end > span ? end - span : 0n;
+    const page = await fetchRoundsPage(engine, filter, start, Number(end - start), signal);
+    const inWindow = page.rounds.filter((round) => round.roundId < end).sort((a, b) => (a.roundId > b.roundId ? -1 : a.roundId < b.roundId ? 1 : 0));
+    rounds.push(...inWindow);
+    end = start;
+  }
+  return { rounds, next: end > 0n ? end : null };
 }
 
 const CLASS_PAGE = 50;

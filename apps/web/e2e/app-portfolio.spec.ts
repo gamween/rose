@@ -31,7 +31,12 @@ function payout(id: string, status: unknown, extra: Record<string, unknown> = {}
   return { id, chain: "Base", kind: { BaseTransfer: { token: MOCK.baseTusdc, to: "0x7d4777cfc6ed48061b0bccae558d29919b412042", amount: "25000000" } }, debit: null, requester: "", status, digest: "ab", base: status === "Signed" ? { r: "11".repeat(32), s: "22".repeat(32), v: 27 } : null, solana: null, created_at: ns(NOW_SEC - 600), updated_at: ns(NOW_SEC - 590), requested_block: "276100000", ...extra };
 }
 
+/** `[2] || sig(gas) || sig(vault) || message` of a landed Solana payout. */
+const LANDED_WIRE = Buffer.from([2, ...new Array<number>(64).fill(5), ...new Array<number>(64).fill(6), 1, 0, 0]).toString("base64");
+
 const PAYOUTS = [
+  payout("14", "Landed", { chain: "Solana", kind: { SolTransfer: { mint: "3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w", to_owner: "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n", amount: "1000000000000" } }, base: null, solana: { message: "00", draws: [], authority_path: "vault/sol", authority: "v", cancel: false, nonce_account: "9vaultNonce111111111111111111111111111111111", nonce_value: "H1", transaction: LANDED_WIRE } }),
+  payout("13", "Requested", { requested_block: "276200500" }),
   payout("12", "Signed"),
   payout("11", "Requested", { requested_block: "276000000" }),
   payout("10", { Failed: { reason: "authority signature not produced" } }),
@@ -88,6 +93,8 @@ function overrides(state: { account: string; withdrawn: boolean }): MockOverride
           return String(args.round_id) === "1" ? { round_id: "1", class_id: SEED, retire_to: "0x000000000000000000000000000000000000dead", units: `100${ONE_E18}`, claimable: `9${ONE_E18}` } : null;
         case "get_round":
           return String(args.round_id) === "8" ? ROUND_8 : null;
+        case "get_sol_streams":
+          return args.class_id === STRATEGIC ? [{ position_id: "2", withdrawable: "0", redeem_claimable: "3000000000000", stream: { net_amount_deposited: "120000000000000", engine_withdrawn: "0" } }] : [];
         default:
           return undefined;
       }
@@ -161,6 +168,17 @@ test.describe("portfolio", () => {
     await expect(page.locator("[data-lien='4']")).toContainText("3.0000 of 4.0000 delivered");
     await expect(page.locator("[data-lien-share='9']")).toBeVisible();
     await expect(page.locator("[data-history]")).toContainText("Failed: authority signature not produced");
+    await expect(claims.locator("[data-payout='13']")).toHaveAttribute("data-payout-state", "requested");
+    await expect(claims.locator("[data-payout='13']")).toContainText('"Retry signature" opens at block 276201100');
+    const landed = page.locator("[data-history-payout='14']");
+    await expect(landed).toContainText("Executed");
+    await expect(landed.getByRole("link", { name: "Solana transaction ↗" })).toHaveAttribute("href", /^https:\/\/explorer\.solana\.com\/tx\/[1-9A-HJ-NP-Za-km-z]{64,88}\?cluster=devnet$/);
+    await expect(page.locator("[data-orders]")).toContainText("Bids and asks");
+    if ((page.viewportSize()?.width ?? 0) < 768) {
+      await expect(page.locator("[data-orders] thead")).toBeHidden();
+      await expect(page.locator("[data-orders] [data-label='Escrow']").first()).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
     await expect(page.locator("[data-storage]")).toContainText("Registered");
     expect(errors).toEqual([]);
   });

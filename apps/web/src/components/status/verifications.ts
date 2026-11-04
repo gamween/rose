@@ -1,6 +1,6 @@
 import type { StoredEvent } from "./events";
 import { formatUnits } from "@/lib/format";
-import { shorten } from "./explorers";
+import { shorten } from "@/lib/explorer";
 
 /**
  * The outcomes of the engine's ForeignTx proofs (spec 8.3 status: "recent ForeignTx

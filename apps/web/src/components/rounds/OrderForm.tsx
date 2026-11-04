@@ -12,7 +12,7 @@ import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
 import { useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
-import { Field, NumberInput } from "@/components/ui/Input";
+import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { readStorageNeed, type StorageNeed } from "@/lib/engine-storage";
@@ -44,7 +44,8 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   const { run, status } = useNearAction();
   const isCreator = viewer?.account === round.creator;
   const sides = useMemo<Side[]>(() => {
-    if (round.kind === "Tender") return ["Sell"];
+    // The issuer is the buyer of its own Tender: `place_ask` refuses it.
+    if (round.kind === "Tender") return isCreator ? [] : ["Sell"];
     if (round.kind === "Advance") return isCreator ? ["Sell"] : ["Buy"];
     return ["Buy", "Sell"];
   }, [isCreator, round.kind]);
@@ -62,9 +63,11 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   const pricing = roundPricing(round, cls.decimals);
   const open = round.status === "Open" && nowMs < Number(round.closesAt / 1_000_000n);
   const decimals = cls.decimals;
-  const qty = parseDecimal(quantity, decimals);
+  /** The Advance holder's reserve must seal exactly the claim K: `open_bid` voids any other quantity (`ClaimMismatch`) and slashes the bond. */
+  const fixedClaim = round.kind === "Advance" && side === "Sell" ? (round.advanceClaim ?? 0n) : null;
+  const qty = fixedClaim ?? parseDecimal(quantity, decimals);
   const limit = parseDecimal(price, USDC_DECIMALS);
-  const lockUnits = side === "Sell" ? (round.kind === "Advance" ? (round.advanceClaim ?? 0n) : parseDecimal(units === "" ? quantity : units, decimals)) : null;
+  const lockUnits = side === "Sell" ? (fixedClaim ?? parseDecimal(units === "" ? quantity : units, decimals)) : null;
   const escrowInput = parseDecimal(escrowText, USDC_DECIMALS);
   const existing = side === "Buy" ? viewer?.buyOrderId : viewer?.sellOrderId;
   const venueCash = viewer?.cash.find((c) => sameVenue(c.venue, round.venue))?.amount ?? 0n;
@@ -84,9 +87,11 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
         ? "Enter a positive quantity."
         : side === "Buy" && maxBuy !== null && qty !== null && qty > maxBuy
           ? `At most ${formatQty(maxBuy, decimals)} ${round.kind === "Advance" ? "claimed tokens are on offer" : "units (the class supply when the round was created)"}: a larger bid is void at opening and its bond slashed.`
-          : side === "Sell" && lockUnits !== null && qty !== null && qty > lockUnits
-            ? "The sealed quantity cannot exceed the units you lock."
-            : null,
+          : fixedClaim !== null && qty !== fixedClaim
+            ? "The reserve must seal exactly the claim K: any other quantity is void at opening and its bond slashed."
+            : side === "Sell" && lockUnits !== null && qty !== null && qty > lockUnits
+              ? "The sealed quantity cannot exceed the units you lock."
+              : null,
     price:
       limit !== null && limit <= 0n
         ? "Enter a positive price."
@@ -158,6 +163,17 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
     }
   };
 
+  if (sides.length === 0) {
+    return (
+      <section aria-label="Your Tender" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-order-form="issuer">
+        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Your Tender</h3>
+        <p className="mt-1 text-[12px] text-ink-400">
+          You are the buyer of this Tender: your escrowed budget is the demand side, and holders of the class submit the sealed asks. The engine refuses an ask from the issuer, so there is no order to place here.
+        </p>
+      </section>
+    );
+  }
+
   const title = round.kind === "Tender" ? "Place ask" : round.kind === "Advance" ? (isCreator ? "Place your reserve" : "Place bid") : side === "Buy" ? "Place bid" : "Place ask";
 
   return (
@@ -201,9 +217,15 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
           </p>
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={side === "Buy" ? (round.kind === "Advance" ? "Claimed tokens" : "Quantity (units)") : "Quantity to sell (units)"} hint={side === "Sell" && round.kind !== "Advance" ? `Free units: ${formatQty(freeUnits, decimals)}` : maxBuy !== null ? `At most ${formatQty(maxBuy, decimals)} per bid` : undefined} error={errors.quantity}>
-            {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={quantity} onValueChange={setQuantity} decimals={decimals} placeholder="1000" unit={round.kind === "Advance" ? "tokens" : "units"} data-order-quantity />}
-          </Field>
+          {fixedClaim !== null ? (
+            <Field label="Claim (tokens)" hint="Fixed to the claim K of the round: the reserve seals exactly this quantity, only its price is yours to set." error={errors.quantity}>
+              {({ inputId, describedBy, invalid }) => <Input id={inputId} aria-describedby={describedBy} invalid={invalid} value={formatQty(fixedClaim, decimals)} readOnly className="tabular text-ink-300" data-order-quantity data-fixed-claim />}
+            </Field>
+          ) : (
+            <Field label={side === "Buy" ? (round.kind === "Advance" ? "Claimed tokens" : "Quantity (units)") : "Quantity to sell (units)"} hint={side === "Sell" ? `Free units: ${formatQty(freeUnits, decimals)}` : maxBuy !== null ? `At most ${formatQty(maxBuy, decimals)} per bid` : undefined} error={errors.quantity}>
+              {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={quantity} onValueChange={setQuantity} decimals={decimals} placeholder="1000" unit={round.kind === "Advance" ? "tokens" : "units"} data-order-quantity />}
+            </Field>
+          )}
           <Field label={side === "Buy" ? "Limit price" : "Minimum price"} hint={`Per ${round.kind === "Advance" ? "claimed" : "locked"} token · max ${formatUsdc(round.maxPrice)}`} error={errors.price}>
             {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={price} onValueChange={setPrice} decimals={USDC_DECIMALS} placeholder={formatUsdc(round.maxPrice)} unit="USDC" data-order-price />}
           </Field>

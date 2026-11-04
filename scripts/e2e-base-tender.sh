@@ -14,18 +14,20 @@
 # Steps, in order: deposit, register, fund, tender, ask, close, open, clear, settle, claim, execute,
 # or `all`. Every transaction hash and its gas is appended to deployments/e2e/<engine>.json so
 # the run is reproducible and documented. The holder is the NEAR account the deposit credits (its
-# key must be in the legacy keychain), the issuer the NEAR account that funds the Tender.
-# --evm-env names the ~/.config/rose/<name>.env holding the EVM holder's key (EVM_PRIVATE_KEY,
-# or EVM_DEPLOYER_PRIVATE_KEY for the default evm-deployer); DemoStreamFaucet lets one address
-# mint one KOL position per day, so a second run the same day uses another EVM holder.
-# Keys: ~/.config/rose/<evm env>.env (never printed) and ~/.near-credentials.
+# key must be in the legacy keychain; required on the first run, then read from the state file),
+# the issuer the NEAR account that funds the Tender and opens the ask (default $ROSE_ROOT_ACCOUNT,
+# rose-app.testnet). --evm-env names the ~/.config/rose/<name>.env holding the EVM holder's key
+# (EVM_PRIVATE_KEY, or EVM_DEPLOYER_PRIVATE_KEY for the default evm-deployer); DemoStreamFaucet
+# lets one address mint one KOL position per day, so a second run the same day uses another EVM
+# holder. Keys: ~/.config/rose/<evm env>.env, signed through its encrypted keystore
+# (scripts/evm-keystore.ts) so the key never appears on a command line, and ~/.near-credentials.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_tools near cast jq curl node python3
 
 engine="${1:-}" step="${2:-}"
 shift 2 || true
-holder="b1.rose-ckd-1793753433.testnet" issuer="rose-app.testnet" stream_id="" receipt_file="" record_step="" record_hash="" evm_env="evm-deployer"
+holder="" issuer="" stream_id="" receipt_file="" record_step="" record_hash="" evm_env="evm-deployer"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --holder) holder="$2"; shift 2 ;;
@@ -41,6 +43,12 @@ done
 
 STATE="$ROSE_ROOT/deployments/e2e/$engine.json"
 mkdir -p "$(dirname "$STATE")"
+if [[ -f "$STATE" ]]; then
+  [[ -n "$holder" ]] || holder="$(jq -r '.holder // empty' "$STATE")"
+  [[ -n "$issuer" ]] || issuer="$(jq -r '.issuer // empty' "$STATE")"
+fi
+[[ -n "$holder" ]] || die "--holder <near account> is required on the first run (its key must be in the legacy keychain)"
+[[ -n "$issuer" ]] || issuer="$ROSE_ROOT_ACCOUNT"
 [[ -f "$STATE" ]] || jq -n --arg e "$engine" --arg h "$holder" --arg i "$issuer" '{engine:$e,holder:$h,issuer:$i,steps:{}}' >"$STATE"
 
 state_get() { jq -r "$1" "$STATE"; }
@@ -67,19 +75,21 @@ record_near() {
   printf '%s\n' "$status"
 }
 
-# evm_key: the EVM holder's private key from ~/.config/rose/<evm env>.env.
-evm_key() {
-  load_env "$evm_env"
-  local key="${EVM_PRIVATE_KEY:-${EVM_DEPLOYER_PRIVATE_KEY:-}}"
-  [[ -n "$key" ]] || die "no EVM_PRIVATE_KEY in $evm_env.env"
-  printf '%s' "$key"
-}
-
-vault="$(deployments_get "$engine" ".base.rose_vault.address" | jq -r .)"
-faucet="$(deployments_get "$engine" ".base.demo_stream_faucet.address" | jq -r .)"
-token="$(deployments_get "$engine" ".base.demo_token.address" | jq -r .)"
+vault="$(deployments_value "$engine" ".base.rose_vault.address")"
+faucet="$(deployments_value "$engine" ".base.demo_stream_faucet.address")"
+token="$(deployments_value "$engine" ".base.demo_token.address")"
+deployer="$(deployments_value "$engine" ".base.deployer")"
+for address in "$vault" "$faucet" "$token" "$deployer"; do
+  [[ "$address" =~ ^0x[0-9a-f]{40}$ ]] || die "deployments/testnet.json lacks the Base contracts of $engine (run scripts/deploy-base.sh)"
+done
 config="$(near_view "$engine" get_config)"
 mpk="$(jq -r .ckd_public_key <<<"$config")"
+
+# payout_id_of <tx status json>: the id in the transaction's own `payout_requested` event (the
+# engine is shared, so the global payout counter can already count someone else's request).
+payout_id_of() {
+  near_tx_logs "$1" | sed -n 's/^EVENT_JSON://p' | jq -r 'select(.standard == "rose" and .event == "payout_requested") | .data.payout_id' | head -1
+}
 
 step_deposit() {
   if [[ -n "$receipt_file" ]]; then
@@ -87,21 +97,30 @@ step_deposit() {
     save_deposit_receipt "$(cat "$receipt_file")" "$stream_id"
     return
   fi
-  local key r="$BASE_RPC_URL"
-  key="$(evm_key)"
+  local r="$BASE_RPC_URL"
+  evm_signer "$evm_env"
+  # A stream minted by an earlier run that stopped before its deposit is deposited, not minted again.
+  [[ -n "$stream_id" ]] || stream_id="$(state_get 'if .steps.deposit == null then (.steps.mint.stream_id // empty) else empty end')"
   if [[ -z "$stream_id" ]]; then
-    local mint
-    mint="$(cast send --rpc-url "$r" --private-key "$key" "$faucet" 'mintPosition(uint8)' 1 --json)"
-    stream_id="$(cast call --rpc-url "$r" "$SABLIER_LOCKUP" 'nextStreamId()(uint256)')"
-    stream_id=$((stream_id - 1))
+    local mint minted_topic
+    mint="$(cast send --rpc-url "$r" "${EVM_WALLET_ARGS[@]}" "$faucet" 'mintPosition(uint8)' 1 --json)"
+    # The stream id is the third indexed topic of the faucet's own PositionMinted log in this
+    # receipt (Sablier's nextStreamId is shared with every other user of the Lockup).
+    minted_topic="$(cast sig-event 'PositionMinted(address,uint8,uint256)')"
+    stream_id="$(jq -r --arg f "$faucet" --arg t "$minted_topic" \
+      '[.logs[] | select((.address | ascii_downcase) == $f and .topics[0] == $t)][0].topics[3] // empty' <<<"$mint")"
+    [[ -n "$stream_id" ]] || die "no PositionMinted log in $(jq -r .transactionHash <<<"$mint")"
+    stream_id="$(cast to-dec "$stream_id")"
     state_set '.steps.mint' "$(jq -cn --argjson s "$stream_id" --arg h "$(jq -r .transactionHash <<<"$mint")" \
       '{stream_id:$s,base_tx:$h,link:("https://sepolia.basescan.org/tx/"+$h)}')"
     log "minted KOL demo stream $stream_id"
-    cast send --rpc-url "$r" --private-key "$key" "$SABLIER_LOCKUP" 'approve(address,uint256)' "$vault" "$stream_id" --json >/dev/null
+  fi
+  if [[ "$(cast call --rpc-url "$r" "$SABLIER_LOCKUP" 'getApproved(uint256)(address)' "$stream_id" | tr '[:upper:]' '[:lower:]')" != "$vault" ]]; then
+    cast send --rpc-url "$r" "${EVM_WALLET_ARGS[@]}" "$SABLIER_LOCKUP" 'approve(address,uint256)' "$vault" "$stream_id" --json >/dev/null
   fi
   local fee receipt
   fee="$(cast call --rpc-url "$r" "$SABLIER_LOCKUP" 'calculateMinFeeWei(uint256)(uint256)' "$stream_id")"
-  receipt="$(cast send --rpc-url "$r" --private-key "$key" "$vault" 'depositStream(address,uint256,string)' \
+  receipt="$(cast send --rpc-url "$r" "${EVM_WALLET_ARGS[@]}" "$vault" 'depositStream(address,uint256,string)' \
     "$SABLIER_LOCKUP" "$stream_id" "$holder" --value "$fee" --json)"
   save_deposit_receipt "$receipt" "$stream_id"
 }
@@ -197,7 +216,7 @@ step_tender() {
   now="$(date +%s)"
   closes=$(((now + 150) * 1000000000))
   local params hash status round
-  params="$(jq -cn --arg c "$class" --arg r "$(deployments_get "$engine" ".base.deployer" | jq -r .)" --arg closes "$closes" \
+  params="$(jq -cn --arg c "$class" --arg r "$deployer" --arg closes "$closes" \
     '{params:{class_id:$c,venue:"Near",budget:"10000000",max_price:"10000",reference_price:"20000",retire_to:$r,window:{closes_at:$closes,reveal_window:"300000000000"}}}')"
   hash="$(near_call "$issuer" "$engine" create_tender "$params" '30 Tgas' '0.05 NEAR')"
   status="$(record_near tender "$hash")"
@@ -256,7 +275,7 @@ step_open() {
   record_near open "$hash" >/dev/null
   local view
   view="$(near_view "$engine" get_bid "$(jq -cn --arg r "$round" --argjson b "$bid" '{round_id:$r,bid_id:$b}')")"
-  log "opened by a third party: $(jq -c '.opened' <<<"$view")"
+  log "opened by $issuer, not the bidder $holder: $(jq -c '.opened' <<<"$view")"
 }
 
 step_clear() {
@@ -287,30 +306,44 @@ step_settle() {
 }
 
 step_claim() {
-  local class claimable to hash status payout
+  local class claimable hash status payout_id payout
   class="$(state_get .steps.register.class_id)"
-  claimable="$(near_view "$engine" get_claimable "$(jq -cn --arg a "$holder" --arg c "$class" '{account:$a,class_id:$c}')" | jq -r .)"
-  [[ "$claimable" != "0" ]] || die "nothing claimable yet (the stream unlocks continuously: wait a little)"
-  to="$(deployments_get "$engine" ".base.deployer" | jq -r .)"
-  hash="$(near_call "$holder" "$engine" claim_base_tokens "$(jq -cn --arg c "$class" --arg a "$claimable" --arg t "$to" \
-    '{source:{Holding:{class_id:$c}},amount:$a,to:$t}')" '80 Tgas' '0.025 NEAR')"
-  status="$(record_near claim "$hash" "$(jq -cn --arg a "$claimable" --arg t "$to" '{amount:$a,to:$t}')")"
-  payout="$(near_view "$engine" get_payout "$(jq -cn --argjson id "$(near_view "$engine" payouts_total | jq -r . | sed 's/"//g')" '{payout_id:(($id|tonumber)-1|tostring)}')")"
-  [[ "$(jq -r .status <<<"$payout")" == "Signed" ]] || die "payout not signed: $(jq -c .status <<<"$payout")"
+  hash="$(state_get '.steps.claim.near_tx // empty')"
+  if [[ -n "$hash" ]]; then
+    # An earlier run sent the claim and stopped before storing its authorization: resume it.
+    log "claim already sent: $NEAR_EXPLORER_TX/$hash"
+    status="$(near_tx_status "$hash" "$holder")"
+  else
+    claimable="$(near_view "$engine" get_claimable "$(jq -cn --arg a "$holder" --arg c "$class" '{account:$a,class_id:$c}')" | jq -r .)"
+    [[ "$claimable" != "0" ]] || die "nothing claimable yet (the stream unlocks continuously: wait a little)"
+    hash="$(near_call "$holder" "$engine" claim_base_tokens "$(jq -cn --arg c "$class" --arg a "$claimable" --arg t "$deployer" \
+      '{source:{Holding:{class_id:$c}},amount:$a,to:$t}')" '80 Tgas' '0.025 NEAR')"
+    status="$(record_near claim "$hash" "$(jq -cn --arg a "$claimable" --arg t "$deployer" '{amount:$a,to:$t}')")"
+  fi
+  payout_id="$(payout_id_of "$status")"
+  [[ -n "$payout_id" ]] || die "no payout_requested event in $hash"
+  for _ in $(seq 1 30); do
+    payout="$(near_view "$engine" get_payout "$(jq -cn --arg id "$payout_id" '{payout_id:$id}')")"
+    [[ "$(jq -r '.status | tostring' <<<"$payout")" == "Signed" || "$(jq -r '.status | type' <<<"$payout")" == "object" ]] && break
+    sleep 3
+  done
+  [[ "$(jq -r .status <<<"$payout")" == "Signed" ]] || die "payout $payout_id not signed: $(jq -c .status <<<"$payout")"
   state_set '.steps.claim.payout' "$(jq -c '{id, kind, digest, base}' <<<"$payout")"
   log "authorization signed: $(jq -c '{id, base}' <<<"$payout")"
 }
 
 step_execute() {
-  local key r="$BASE_RPC_URL" payout stream
-  key="$(evm_key)"
+  local r="$BASE_RPC_URL" payout stream
+  evm_signer "$evm_env"
   payout="$(jq -c .steps.claim.payout "$STATE")"
   stream="$(state_get .steps.deposit.fields.stream_id)"
   # Anyone may withdraw the stream's vested balance to its recipient (the vault); Sablier
   # reverts on a zero withdrawal, so skip it when nothing has vested since the last one.
   if [[ "$(cast call --rpc-url "$r" "$SABLIER_LOCKUP" 'withdrawableAmountOf(uint256)(uint128)' "$stream" | awk '{print $1}')" != "0" ]]; then
-    local withdraw
-    withdraw="$(cast send --rpc-url "$r" --private-key "$key" "$SABLIER_LOCKUP" 'withdrawMax(uint256,address)' "$stream" "$vault" --json)"
+    local withdraw fee
+    # Sablier's withdrawal fee is admin-controlled (spec 6): pay what the Lockup asks for now.
+    fee="$(cast call --rpc-url "$r" "$SABLIER_LOCKUP" 'calculateMinFeeWei(uint256)(uint256)' "$stream" | awk '{print $1}')"
+    withdraw="$(cast send --rpc-url "$r" "${EVM_WALLET_ARGS[@]}" "$SABLIER_LOCKUP" 'withdrawMax(uint256,address)' "$stream" "$vault" --value "$fee" --json)"
     state_set '.steps.withdraw_max' "$(jq -c '{base_tx:.transactionHash,link:("https://sepolia.basescan.org/tx/"+.transactionHash),gas_used:.gasUsed}' <<<"$withdraw")"
     log "withdrawMax($stream, vault): $BASE_EXPLORER_TX/$(jq -r .transactionHash <<<"$withdraw")"
   fi
@@ -319,7 +352,7 @@ step_execute() {
   amount="$(jq -r .kind.BaseTransfer.amount <<<"$payout")"
   to="$(jq -r .kind.BaseTransfer.to <<<"$payout")"
   v="$(jq -r .base.v <<<"$payout")"; rr="0x$(jq -r .base.r <<<"$payout")"; ss="0x$(jq -r .base.s <<<"$payout")"
-  receipt="$(cast send --rpc-url "$r" --private-key "$key" "$vault" \
+  receipt="$(cast send --rpc-url "$r" "${EVM_WALLET_ARGS[@]}" "$vault" \
     'executeTransfer((address,address,uint256,uint256),uint8,bytes32,bytes32)' "($token,$to,$amount,$id)" "$v" "$rr" "$ss" --json)"
   state_set '.steps.execute' "$(jq -c '{base_tx:.transactionHash,link:("https://sepolia.basescan.org/tx/"+.transactionHash),status:.status,gas_used:.gasUsed}' <<<"$receipt")"
   log "executeTransfer: $BASE_EXPLORER_TX/$(jq -r .transactionHash <<<"$receipt") status $(jq -r .status <<<"$receipt")"
