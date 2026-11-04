@@ -321,3 +321,18 @@ The demo issuer is the fictional **Cindral Foundation**, token **Cindral (CINDR)
 | `https://nearvalidate.org/txns/<hash>?network=testnet` | same `curl` for both hashes | `200 32613` in 0.1 s (client-rendered, title "Near Transaction \| Near Validate", "Built by NearBlocks", RPC based); in a browser it showed `8Pg3zu…yogf` with block 276,123,296 and the receipt tree. **Fallback** |
 | Base Sepolia | `https://sepolia.basescan.org/tx/<hash>` | live in a browser (every Base link above); 403 to plain curl (bot protection) |
 | Solana devnet | `https://explorer.solana.com/tx/<sig>?cluster=devnet` | live in a browser (every Solana link above); 429 to plain curl |
+
+## Sablier creation and status rules used by RoseVault
+
+| Fact | Command | Result (2026-11-04) |
+|---|---|---|
+| `isCancelable` is false once a stream is SETTLED | `gh api "repos/sablier-labs/evm-monorepo/contents/lockup/src/abstracts/SablierLockupState.sol?ref=lockup@v4.0.1" --jq .content \| base64 -d` | lines 233-237 return the stored flag only when `_statusOf != SETTLED`; `_statusOf` at 266-281 |
+| Stream creation mints without a receiver hook and charges no fee | `gh api -H "Accept: application/vnd.github.raw" "repos/sablier-labs/evm-monorepo/contents/lockup/src/SablierLockup.sol?ref=lockup@v4.0.1"` | `_create` (509-550) calls `_mint` at line 538, not `_safeMint`; the only `msg.value` read is in the withdrawal path (line 682) |
+| Creation checks | `lockup/src/libraries/LockupHelpers.sol` at `lockup@v4.0.1` | `_checkCreateStream` (254-289) and `_checkTimestampsAndUnlockAmounts` (182-240): sender != 0, deposit > 0, start > 0, strict ordering, cliff unlock only with a cliff, granularity <= streamable range; no rule that the end is in the future (RoseVault adds one) |
+
+## Build notes
+
+| Fact | Command | Result (2026-11-04) |
+|---|---|---|
+| tUSDC deployed wasm vs current build | `cargo near build non-reproducible-wasm` in `contracts/tusdc` | deployed wasm (bs58 `7JHPYMQ1o7QVhVyMwmzzxS3vVhyqEkcWQrGJUcmubizP`) was built with rustc 1.91.1 before the toolchain pin; builds under 1.95.0 give `HgPQd1QJ1rncPS2E8tYawonseJhJpM3RPfyF81QwFpaH`; the only source change between them is rustfmt and the removal of an unverified reproducible-build image tag |
+| SDK toolchain | `npm view <pkg> version` and `peerDependencies` | typescript 6.0.3 (typescript-eslint 8.72.1 peers `<6.1.0`), typescript-eslint 8.72.1, eslint 10.14.0 for the SDK (9.39.5 in the web app, pinned by eslint-config-next peers), vitest 5.1.0, fast-check 4.10.2, @types/node 22.20.5; SDK built with plain `tsc` |
