@@ -162,9 +162,24 @@ describe("tender report", () => {
     const csv = tenderReportCsv({ engine: "engine.rose-app.testnet", round, cls, symbol: "CINDR", bids, result: null, events: [], generatedAt: Date.UTC(2026, 10, 4) });
     const lines = csv.split("\n");
     expect(lines[0]).toBe("section,field,value,,,,");
-    expect(csv).toContain("parameters,budget,950.00");
-    expect(csv).toContain("asks,0,halden.testnet,100.0000,100.0000,9.000000,Opened");
-    expect(csv).toContain("candidates,9.000000,100.0000,105.5555,100.0000,true,");
+    // Exact, separator-free values and ISO times, so a spreadsheet or a script reads them back without loss.
+    expect(csv).toContain("parameters,budget_usdc,950\n");
+    expect(csv).toContain("asks,0,halden.testnet,100,100,9,Opened");
+    expect(csv).toContain("candidates,9,100,105.555555555555555555,100,true,");
+    expect(csv).toContain(`parameters,opens_at_utc,${new Date(Number(T0) * 1000).toISOString()}`);
+    expect(csv).not.toMatch(/"\d{1,3}(,\d{3})+/);
+    const result: RoundResult = { price: 9_000_000n, volume: 1_666_666_666_666_666_666_666n, notional: 59_999_999n, fee: 180_000n, issuerCharged: 59_999_999n, issuerRefund: 1n, remainingLockSecs: DAY, fills: [] };
+    const settled = tenderReportCsv({ engine: "e", round, cls, symbol: "CINDR", bids, result, events: [], generatedAt: 0 });
+    expect(settled).toContain("result,volume_units,1666.666666666666666666\n");
+    expect(settled).toContain("result,notional_usdc,59.999999\n");
     expect(eventsOfRound([{ seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "7" } } }], 7n)).toHaveLength(1);
+  });
+
+  it("leaves out base_cash_registered events, whose round id is only a depositCash earmark", () => {
+    const events = [
+      { seq: 57n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "base_cash_registered", data: { round_id: "0" } } },
+      { seq: 58n, blockHeight: 2n, timestamp: 0n, predecessor: "a", event: { event: "round_cleared", data: { round_id: "0" } } },
+    ] as never;
+    expect(eventsOfRound(events, 0n).map((entry) => entry.seq)).toEqual([58n]);
   });
 });

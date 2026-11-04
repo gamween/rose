@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { MOCK, mockChains, type MockOverrides } from "./fixtures/engine-mock";
 
@@ -283,7 +284,13 @@ test.describe("issuer console", () => {
     await shot(page, "results");
     const download = page.waitForEvent("download");
     await page.locator("[data-download-csv]").click();
-    expect((await download).suggestedFilename()).toBe("rose-tender-7.csv");
+    const file = await download;
+    expect(file.suggestedFilename()).toBe("rose-tender-7.csv");
+    // Machine-readable: exact decimals, no thousands separators, ISO 8601 times.
+    const csv = readFileSync((await file.path())!, "utf8");
+    expect(csv).toMatch(/^parameters,closes_at_utc,\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/m);
+    expect(csv).toMatch(/^result,clearing_price_usdc_per_locked_token,9$/m);
+    expect(csv).not.toMatch(/"\d{1,3}(,\d{3})+/);
     await page.locator("[data-open-printable]").click();
     await page.waitForURL("**/app/issuer/results/7/report");
     await expect(page.locator("[data-print]")).toBeVisible({ timeout: 30_000 });

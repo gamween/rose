@@ -24,6 +24,9 @@ const EVENTS_PAGE = 200;
 
 type Loaded = TenderReportData & { symbols: Map<string, string> };
 
+/** Events already read in this tab, so the 20 s refresh does not re-read the whole history (up to 1,024 events). */
+let eventCache: { engine: string; next: bigint; events: StoredEvent[] } | null = null;
+
 async function fetchReport(roundId: bigint, signal: AbortSignal): Promise<Loaded> {
   const engine = requireEngine();
   const round: Round | null = await engine.views.getRound(roundId, { signal });
@@ -31,11 +34,14 @@ async function fetchReport(roundId: bigint, signal: AbortSignal): Promise<Loaded
   if (round.kind !== "Tender") throw new Error(`Round #${roundId.toString()} is an ${round.kind} round, not a Tender.`);
   const [cls, bids, result, probe] = await Promise.all([engine.views.getClass(round.classId, { signal }), engine.views.getBids(roundId, { signal }), engine.views.getRoundResult(roundId, { signal }), engine.views.getEvents(undefined, 1, { signal })]);
   if (!cls) throw new Error("The round's class is missing.");
-  let events: StoredEvent[] = [];
-  for (let next = probe.oldest; next < probe.total; next += BigInt(EVENTS_PAGE)) {
+  // The history is append-only: each refresh reads only the events recorded since the last one (and drops what the ring buffer evicted).
+  const cached = eventCache?.engine === engine.account ? eventCache : { engine: engine.account, next: probe.oldest, events: [] as StoredEvent[] };
+  let events = cached.events.filter((entry) => entry.seq >= probe.oldest);
+  for (let next = cached.next > probe.oldest ? cached.next : probe.oldest; next < probe.total; next += BigInt(EVENTS_PAGE)) {
     const page = await readEventRange((fromSeq, limit) => engine.views.getEvents(fromSeq, limit, { signal }), next, EVENTS_PAGE);
     events = [...events, ...page.events];
   }
+  eventCache = { engine: engine.account, next: probe.total, events };
   const symbols = await resolveSymbols([cls]);
   return { engine: engine.account, round, cls, symbol: classSymbol(cls, symbols), bids, result, events: eventsOfRound(events, roundId), generatedAt: Date.now(), symbols };
 }
@@ -307,7 +313,7 @@ export function TenderResults({ roundId, printable }: { roundId: string; printab
   return (
     <div className={printable ? "flex flex-col gap-6 print:text-black" : "flex flex-col gap-6"}>
       {printable ? (
-        <style>{`@media print { header[class*="sticky"], footer, [data-testnet-banner], nav, .print\\:hidden { display: none !important; } body, html { background: #fff !important; color: #000 !important; } [data-tender-report] * { color: #000 !important; border-color: #ccc !important; background: transparent !important; } }`}</style>
+        <style>{`@media print { header[class*="sticky"], footer, [data-testnet-banner], nav, .print\\:hidden { display: none !important; } body, html { background: #fff !important; color: #000 !important; } main, main * { color: #000 !important; border-color: #ccc !important; background: transparent !important; box-shadow: none !important; } }`}</style>
       ) : null}
       {header}
       {state.status === "loading" ? (
