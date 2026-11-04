@@ -4,8 +4,8 @@ The script of the 3-minute demo video, scene by scene: what is on screen, what t
 say, and which explorer link to open. It follows the seeded story of spec section 9: the fictional
 **Cindral Foundation** and its token **Cindral (CINDR)**, whose cohorts, holders and rounds were
 created on the real testnets by `scripts/seed.ts` and driven to settlement by `scripts/e2e-live.ts`
-against the staging engine `engine-s3.rose-app.testnet`. Every transaction named below is listed in
-[`verification.md`](./verification.md), section "Demo seed and live end-to-end, engine-s3".
+against the staging engine `engine-s4.rose-app.testnet`. Every transaction named below is listed in
+[`verification.md`](./verification.md), section "Staging deployment 4".
 
 The Monad case in scene 1 is a sourced public fact, shown as a citation card. The video never uses
 Monad's name as a character, its logo or its branding, and never presents Cindral as a real project
@@ -27,16 +27,18 @@ Monad's name as a character, its logo or its branding, and never presents Cindra
 | Who | Role in the story | Positions |
 |---|---|---|
 | Cindral Foundation | Issuer: runs the buyback (Tender) | Treasury on Base and Solana |
-| Halden Ventures | Seed investor: sells in the Tender, buys in the Exit | Seed Round, Base (Sablier stream 90, 400,000 CINDR) |
-| Tessaro Capital | Seed investor: sells in the Tender, bids in the Exit | Seed Round, Base (stream 91, 250,000 CINDR) |
+| Halden Ventures | Seed investor: sells in the Tender, buys in the Exit | Seed Round, Base (Sablier stream 95, 400,000 CINDR) |
+| Tessaro Capital | Seed investor: sells in the Tender, bids in the Exit | Seed Round, Base (stream 96, 250,000 CINDR) |
 | Ines Marlow | Strategic investor: sells in the Exit, funds the Advance | Strategic Round, Solana (Streamflow, 300,000 CINDR) |
 | Varick Partners | Strategic investor: sells in the Exit, funds the Advance | Strategic Round, Solana (Streamflow, 200,000 CINDR) |
-| Teodor Vance | KOL: sells an Advance on his first unlocks | KOL Round, Base (stream 92, 60,000 CINDR) |
-| Nadia Solvik | KOL: places a malformed bid, then redeems her position in kind | KOL Round, Base (streams 93 and 94) |
+| Teodor Vance | KOL: sells an Advance on his first unlocks | KOL Round, Base (stream 97, 60,000 CINDR) |
+| Nadia Solvik | KOL: places a malformed bid, then redeems her position in kind | KOL Round, Base (streams 98 and 99) |
 
-The rounds: **round 1** Tender on the Seed Round (Base tUSDC), **round 2** Exit on the Strategic
-Round's Solana positions (NEAR tUSDC), **round 3** Advance on Teodor Vance's KOL units (NEAR tUSDC),
-**round 4** an Exit nobody closed, cancelled by `cancel_no_key`.
+The rounds: **round 0** Tender on the Seed Round (Base tUSDC), **round 1** Exit on the Strategic
+Round's Solana positions (NEAR tUSDC), **round 2** Advance on Teodor Vance's KOL units (NEAR tUSDC),
+**round 4** an Exit nobody closed, cancelled by `cancel_no_key`. Round 3 is an Exit the seed script
+created and abandoned when its bid failed (no order, cancelled); round 5 is an Exit run end to end
+from the app with two demo wallets.
 
 ## Scenes
 
@@ -62,7 +64,7 @@ Round's Solana positions (NEAR tUSDC), **round 3** Advance on Teodor Vance's KOL
 
 ### 3. A fictional issuer, real positions (0:35 to 0:55)
 
-- **Click:** "Launch app", then `/app/rounds`; filter nothing, show the four Cindral rounds.
+- **Click:** "Launch app", then `/app/rounds`; filter nothing, show the Cindral rounds.
 - **Screen:** the round cards with their classes (Seed Round, Strategic Round, KOL Round) and
   venues; then the Seed Round class on `/app/prices` or the round page's unlock timeline.
 - **Say:** "Cindral Foundation is a made-up issuer. Its cohorts are not: the Seed and KOL rounds are
@@ -70,13 +72,13 @@ Round's Solana positions (NEAR tUSDC), **round 3** Advance on Teodor Vance's KOL
   Streamflow streams on Solana. Every deposit was attested to the NEAR contract by the MPC network's
   foreign transaction verification."
 - **Explorer:** `createStreams` of the Seed Round,
-  [0x2f0cf0c4…](https://sepolia.basescan.org/tx/0x2f0cf0c454a2119d05cfc359ff921d075fd6feb8ece502ef7b27540b05945ff3),
+  [0xc63f1642…](https://sepolia.basescan.org/tx/0xc63f1642a8c1573b1c141f56c85ce7e86fb4d9d29a2db98b6f13d57c8d9cc70f),
   then its registration on NEAR,
-  [GaPZiJzS…](https://testnet.near.rocks/tx/GaPZiJzSCvS1VoggFtvBR7So9oB8cmL8P3Wi8GKxwbAK).
+  [71qRALY4…](https://testnet.near.rocks/tx/71qRALY4pQTarFLMiuq9Kvx8V7turw6b3tuGp3uGSnrt).
 
 ### 4. Watch a full round: the Tender (0:55 to 1:45)
 
-- **Click:** `/app/demo`, "Watch a full round" on round 1. The guided mode steps through the
+- **Click:** `/app/demo`, "Watch a full round" on round 0. The guided mode steps through the
   pre-seeded round with its real transactions; click "Next" at each step.
 - **Step "Sealed":** the book shows two sealed asks, their locked units and ciphertext hashes, and
   nothing else. **Say:** "The foundation offers fifteen hundred test dollars at most four cents per
@@ -84,30 +86,30 @@ Round's Solana positions (NEAR tUSDC), **round 3** Advance on Teodor Vance's KOL
   how many units each locked. Not one price."
 - **Step "Key released":** **Say:** "After the deadline anyone closes the round. The contract asks
   the NEAR MPC network for the round's key, and the network can only release it now. It arrived
-  4.1 seconds after the close." **Explorer:**
-  [close, AEmbLjSh…](https://testnet.near.rocks/tx/AEmbLjSh63d5u7G3fgGpcyfjYN6iUxhnkjfJYi9m6oMn).
+  4.2 seconds after the close." **Explorer:**
+  [close, 4qwvyUSD…](https://testnet.near.rocks/tx/4qwvyUSDoTSroGVnB9Nq5mSqVy8HNHYuFGZBfX17uHoV).
 - **Step "Opened":** **Say:** "Anyone can now open any ask, and the contract verifies every opening
   in full." **Explorer:**
-  [open_bid, B9jZyKqw…](https://testnet.near.rocks/tx/B9jZyKqw8VM3W4UFkg55fkEYdoirZeViVBZhiryFJMhz).
+  [open_bid, FjA2x3Z2…](https://testnet.near.rocks/tx/FjA2x3Z28YfdjrDMnSnavS8aEmj47WTMyELEum3cZZMB).
 - **Step "Cleared":** the supply curve meets the budget line at 0.036. **Say:** "One price for
   everyone: 3.6 cents. Halden sold all forty thousand tokens it asked at three cents, and was paid
   3.6. Tessaro, at the margin, was rationed. The foundation bought about forty-one thousand seven
   hundred locked tokens for exactly its budget." **Explorer:**
-  [clear, 8pNWktzo…](https://testnet.near.rocks/tx/8pNWktzoM4ZDe5oVVHUeKf7ijNkTkJitzXLUbpWAxg5p).
+  [clear, CJBBaNdH…](https://testnet.near.rocks/tx/CJBBaNdHLatJCamxktdHVmEMMqxLzKJWejnmv86GhpHm).
 - **Click:** "Verify" on the round page. **Say:** "And your browser recomputes the same price from
   the opened asks."
 
 ### 5. A bid nobody can open (1:45 to 2:10)
 
-- **Click:** `/app/rounds/2`, the Exit on the Strategic Round's Solana positions.
+- **Click:** `/app/rounds/1`, the Exit on the Strategic Round's Solana positions.
 - **Say:** "This Exit had five sealed orders. Nadia's bid was malformed on purpose. She cannot open
   it herself, even with her own plaintext: the contract refuses it. So nobody can wait, look at the
   book, and then decide to reveal. After the window her bond is slashed, and the round clears without
   her at 2.7 cents."
 - **Explorer:** her refused opening
-  [5cy62YfE…](https://testnet.near.rocks/tx/5cy62YfEpE4MioY1txbjGSGWWGAgqRNK2kzQZxSC4LEs), the slash at
-  settlement [3mMoWJc4…](https://testnet.near.rocks/tx/3mMoWJc42KYSES6Vx4wpBk8dXHgcifyZgweV8Wanjr9H),
-  the clearing [6QKNsWcC…](https://testnet.near.rocks/tx/6QKNsWcCSJnSDM3p8aqaQ8wTs5zVnKUhwjXMfWToU8gm).
+  [2kUWSs1V…](https://testnet.near.rocks/tx/2kUWSs1VVBDgZuHs1SwkDjeZw2xrULj92Pz1dhAkvc8u), the slash at
+  settlement [E5rDKqno…](https://testnet.near.rocks/tx/E5rDKqnoMMUC9qDxrw4rCM95kCHL9PZfxXfpvdTyCXf1),
+  the clearing [AFWLZaN4…](https://testnet.near.rocks/tx/AFWLZaN4cpPWQ3ziat5Ef9BsQiQvBYqVysYcBDAwTaHe).
 
 ### 6. Paid on the chain where the position lives (2:10 to 2:40)
 
@@ -118,19 +120,19 @@ Round's Solana positions (NEAR tUSDC), **round 3** Advance on Teodor Vance's KOL
   takes her whole stream back. And on Solana, a payout counts only once the chain proves it landed."
 - **Explorer, in order:**
   1. Halden, 1,460 tUSDC on Base: `withdraw_base_cash`
-     [HE2H2wpB…](https://testnet.near.rocks/tx/HE2H2wpBjwJpG9Lz85NWfhU7XA9ANLNhwmomeWT9eJ9A), then
+     [Edu51Jde…](https://testnet.near.rocks/tx/Edu51JdeRPQRuo2D3bLgwaWHbGfTspYpF79mDUF7Wc5y), then
      `executeTransfer`
-     [0x3e6fa1d8…](https://sepolia.basescan.org/tx/0x3e6fa1d87de796b5577535866ddaff4b94051f03bac9daaf646fff253eba1949).
+     [0xa36608c6…](https://sepolia.basescan.org/tx/0xa36608c6e51e09f9ea30837484a175e486d4bac2a62c4820b571111a7ad2f48d).
   2. Varick's Advance repayment in CINDR: `claim_base_tokens`
-     [6hgSgqMU…](https://testnet.near.rocks/tx/6hgSgqMU7RGqYWutEkLhFNqMYv8jjoAZXbwny28MtQcH), then
+     [J4nxAv6Z…](https://testnet.near.rocks/tx/J4nxAv6ZWUoEKBbtTRVMk3fmrw6og6GEyTpBnruauLd8), then
      `executeTransfer`
-     [0x407e89d5…](https://sepolia.basescan.org/tx/0x407e89d5c60b9257d64c2fd47a9ce1ccf56716f1c396636416b9a6e660cb46c8).
-  3. Nadia's redeem in kind: `executeRelease` of stream 94
-     [0x51b430b2…](https://sepolia.basescan.org/tx/0x51b430b29e8a9c965920c0a868bf6864292658bf70d8ad5f32e4dfce5343a744).
-  4. A Solana claim made in the app with a demo wallet: the engine-built transaction
-     [NkXBT57X…](https://explorer.solana.com/tx/NkXBT57X4y4DD2MVy6dh3omzc7dM6XjevnKz7MHtv8EYEPF6BPTx8sowH1qHtKg1RWa634Mqby3Ts2nKmisuo46?cluster=devnet),
+     [0xf6340246…](https://sepolia.basescan.org/tx/0xf63402467f24d1914f71702570c583e540b75fa821c35a47d92414db9804b902).
+  3. Nadia's redeem in kind: `executeRelease` of stream 99
+     [0x291c7f37…](https://sepolia.basescan.org/tx/0x291c7f37e43b1aa50ea673d2d55c41de2fef868f0d76deecf60f8c27cc21209a).
+  4. A Solana claim from a Streamflow position: the engine-built transaction
+     [4PPo8oWz…](https://explorer.solana.com/tx/4PPo8oWzp7WLRK9DQDrhZNHRbtFyGTWL8eHLa7C61mvH9hMTe4s2po313eYRDRUX9TtiWsJrkJtH4dLoSNZgjrBc?cluster=devnet),
      then `confirm_sol_payout` proving it landed
-     [AW7nZvw5…](https://testnet.near.rocks/tx/AW7nZvw5pwQQQFnf8vWMreX7StkF2aqX8d97DUVGZVgS).
+     [9HZ8GCwn…](https://testnet.near.rocks/tx/9HZ8GCwnmTTCJYgv9oUCvaMre6FcDJQZ7Zu5cATyJyHF).
 
 ### 7. Nobody to trust with the keys (2:40 to 2:55)
 
@@ -139,7 +141,7 @@ Round's Solana positions (NEAR tUSDC), **round 3** Advance on Teodor Vance's KOL
   key-release latency of recent rounds, the RoseVault signer check.
 - **Say:** "The final engine has no access key and no upgrade method. If the network never releases
   a key, anyone cancels the round and everyone is refunded. That is round four."
-- **Explorer:** [cancel_no_key, 4CszxtfB…](https://testnet.near.rocks/tx/4CszxtfbVfadaWgWZv7tF1eUt2NYbXVw16hQi3tNazk7).
+- **Explorer:** [cancel_no_key, 73EpPXUb…](https://testnet.near.rocks/tx/73EpPXUb8SnhN3pdraqHEPBhWTKeT1XbqUrwFQ4YGyAc).
 - If the deployed engine is still a staging engine, say instead: "The production engine is deployed
   with no access key and no upgrade method; this staging one still has one, and the status page says
   so."
@@ -172,7 +174,7 @@ app, the public repository and the video the owner attaches.
 >   through Chain Signatures and pays out on each chain.
 
 > 4/ In the video: a fictional issuer runs a buyback against two seed investors. The key arrives
-> 4.1 s after close, every opening is verified on chain, and it clears at one price, recomputed in
+> 4.2 s after close, every opening is verified on chain, and it clears at one price, recomputed in
 > your browser. A malformed bid can't be opened by anyone, its author included, and its bond is
 > slashed.
 
