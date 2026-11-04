@@ -13,6 +13,7 @@ import { ActivityFeedDrawer } from "./ActivityFeed";
 import { CommandPalette, usePaletteShortcut, type PaletteCommand } from "./CommandPalette";
 import { GetTestFundsDrawer } from "./GetTestFunds";
 import { GuidedTour, readTourDismissed } from "./GuidedTour";
+import { tourVisible, type TourState } from "@/lib/tour";
 import { TestnetBanner } from "./TestnetBanner";
 
 /**
@@ -27,13 +28,13 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
   const [fundsOpen, setFundsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
+  const [tour, setTour] = useState<TourState>("closed");
   const [connect, setConnect] = useState<ChainId | null>(null);
 
   useEffect(() => {
     if (onDemo) return;
     const timer = window.setTimeout(() => {
-      if (!readTourDismissed()) setTourOpen(true);
+      if (!readTourDismissed()) setTour("auto");
     }, 400);
     return () => window.clearTimeout(timer);
   }, [onDemo]);
@@ -45,7 +46,7 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
       { id: "act-connect", label: wallets.anyConnected ? "Connect another wallet" : "Connect a wallet", group: "Actions", keywords: "near evm solana demo", run: () => setConnect("near") },
       { id: "act-funds", label: "Get test funds", group: "Actions", keywords: "faucet tusdc eth sol mint", run: () => setFundsOpen(true) },
       { id: "act-activity", label: "Open the activity feed", group: "Actions", keywords: "events history", run: () => setActivityOpen(true) },
-      { id: "act-tour", label: "Replay the guided tour", group: "Help", keywords: "onboarding help", run: () => setTourOpen(true) },
+      { id: "act-tour", label: "Replay the guided tour", group: "Help", keywords: "onboarding help", run: () => setTour("requested") },
       { id: "act-refresh", label: "Refresh balances", group: "Actions", run: () => void wallets.refreshBalances() },
       ...(demo ? [{ id: "help-demo", label: "Watch a full round (guided demo)", group: "Help" as const, keywords: "demo walkthrough seeded tour video", run: () => router.push(ROUTES.demo) }] : []),
     ],
@@ -97,7 +98,7 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
       />
       <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
-      <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} />
+      <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} />
       <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
     </div>
   );
