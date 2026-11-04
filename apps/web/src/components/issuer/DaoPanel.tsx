@@ -255,7 +255,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
           ) : null}
         </section>
 
-        <section className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3" data-dao-tender>
           <FieldLabel htmlFor="dao-description">3 · The Tender proposal</FieldLabel>
           <Input id="dao-description" value={description} onChange={(event) => setDescription(event.target.value)} aria-label="Proposal description" />
           {tenderProposal ? (

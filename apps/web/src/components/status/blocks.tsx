@@ -529,7 +529,7 @@ export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
                 <tbody>
                   {recent.map((item) => {
                     const classDecimals = item.classId ? (decimals.get(item.classId) ?? null) : null;
-                    const units = item.units === null ? null : classDecimals === null ? `${item.units} base units` : `${formatUnits(BigInt(item.units), classDecimals, 2)} units`;
+                    const tokens = item.tokens === null ? null : classDecimals === null ? `${item.tokens} base units` : `${formatUnits(BigInt(item.tokens), classDecimals, 2)} tokens`;
                     return (
                       <tr key={item.event.seq} className="border-t border-ink-800" data-foreign-tx={item.event.event}>
                         <td className="whitespace-nowrap px-3 py-1.5 text-ink-300">
@@ -537,7 +537,7 @@ export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
                         </td>
                         <td className={`whitespace-nowrap px-3 py-1.5 ${OUTCOME_TONE[item.tone]}`}>{item.label}</td>
                         <td className="px-3 py-1.5 font-mono text-ink-100">{item.account ? <ExternalLink href={EXPLORERS.nearAccount(item.account)}>{item.account}</ExternalLink> : "—"}</td>
-                        <td className="px-3 py-1.5 text-ink-300">{[units, item.detail].filter(Boolean).join(" · ")}</td>
+                        <td className="px-3 py-1.5 text-ink-300">{[tokens, item.detail].filter(Boolean).join(" · ")}</td>
                       </tr>
                     );
                   })}

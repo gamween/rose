@@ -14,9 +14,10 @@ export type ForeignTxOutcome = {
   tone: OutcomeTone;
   label: string;
   account: string | null;
-  /** The class whose decimals format `units`, when the outcome registered a position. */
+  /** The class whose decimals format `tokens`, when the outcome registered a position. */
   classId: string | null;
-  units: string | null;
+  /** The position's allocation, in token base units. */
+  tokens: string | null;
   detail: string;
 };
 
@@ -37,10 +38,11 @@ export function replayKeyLabel(key: unknown): string {
 /** One outcome, or null for an event that is not the end of a ForeignTx proof. */
 export function foreignTxOutcome(event: StoredEvent): ForeignTxOutcome | null {
   const data = event.data;
-  const base = { event, account: null, classId: null, units: null } as const;
+  const base = { event, account: null, classId: null, tokens: null } as const;
   switch (event.event) {
-    case "deposit_registered":
-      return { ...base, tone: "success", label: `Position #${String(data.position_id)} on ${String(data.chain)}`, account: text(data.account), classId: text(data.class_id), units: text(data.units), detail: replayKeyLabel(data.key) };
+    /* A verified deposit logs position_registered (the allocation) and deposit_registered (the replay key): one row, from the first. */
+    case "position_registered":
+      return { ...base, tone: "success", label: `Position #${String(data.position_id)} registered`, account: text(data.depositor), classId: text(data.class_id), tokens: text(data.allocation), detail: "" };
     case "base_cash_registered":
       return { ...base, tone: data.accepted === false ? "warning" : "success", label: data.accepted === false ? "Base cash (token not accepted for rounds)" : "Base cash", account: text(data.account), detail: `${String(data.amount)} base units of ${shorten(String(data.token), 6, 4)}` };
     case "sol_deposit_attributed":

@@ -198,6 +198,8 @@ function baseCall(to: string, data: string): string {
       return `0x${word("6")}`;
     case "0x18160ddd":
       return `0x${word("2540be400")}`;
+    case "0x70a08231":
+      return `0x${word("3b9aca00")}`;
     default:
       throw new Error(`Unmocked selector ${selector}`);
   }
@@ -258,6 +260,7 @@ export async function mockChains(page: Page, overrides: MockOverrides = {}): Pro
     const custom = overrides.baseRequest?.(request.method, request.params);
     if (custom !== undefined) return fulfil(route, { jsonrpc: "2.0", id: request.id, result: custom });
     if (request.method === "eth_getCode") return fulfil(route, { jsonrpc: "2.0", id: request.id, result: "0x6080" });
+    if (request.method === "eth_getBalance") return fulfil(route, { jsonrpc: "2.0", id: request.id, result: "0x2386f26fc10000" });
     const call = request.params[0] as { to: string; data: string };
     return fulfil(route, { jsonrpc: "2.0", id: request.id, result: baseCall(call.to, call.data) });
   });

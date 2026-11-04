@@ -138,7 +138,12 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
   };
 }
 
-async function openConsole(page: Page, hash = ""): Promise<void> {
+/**
+ * `atFixtureTime` runs the page clock from NOW_SEC: the fixture's classes are still locked then,
+ * and the Tender form refuses a class that is fully unlocked at its close time.
+ */
+async function openConsole(page: Page, hash = "", options: { atFixtureTime?: boolean } = {}): Promise<void> {
+  if (options.atFixtureTime) await page.clock.install({ time: NOW_SEC * 1000 });
   await page.goto(`/app/issuer${hash}`);
   await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
   await page.reload();
@@ -216,7 +221,7 @@ test.describe("issuer console", () => {
   test("previews and creates a Tender with a declared reference and a max discount", async ({ page }) => {
     const state = { account: "", sent: [] as string[] };
     await mockChains(page, overrides(state));
-    await openConsole(page, "#tender");
+    await openConsole(page, "#tender", { atFixtureTime: true });
     state.account = await connectNearDemo(page);
     await expect(page.locator("[data-issuer-tab='tender']")).toBeVisible({ timeout: 30_000 });
     await page.locator("#tender-budget").fill("950");
@@ -240,7 +245,7 @@ test.describe("issuer console", () => {
     page.on("pageerror", (error) => errors.push(error.message));
     const state = { account: "", sent: [] as string[] };
     await mockChains(page, overrides(state));
-    await openConsole(page, "#dao");
+    await openConsole(page, "#dao", { atFixtureTime: true });
     state.account = await connectNearDemo(page);
     const panel = page.locator("[data-dao-panel]");
     await expect(panel).toBeVisible({ timeout: 30_000 });
@@ -271,7 +276,7 @@ test.describe("issuer console", () => {
     await expect(page.locator("[data-trezu-json]")).toContainText('"budget": "{{budget}}"');
     await shot(page, "dao");
     await page.locator("[data-file-proposal='tender']").click();
-    await expect(panel.locator("[data-action-success]").last()).toContainText(`Proposal #9 filed to ${DAO}`, { timeout: 30_000 });
+    await expect(panel.locator("[data-dao-tender] [data-action-success]")).toContainText(`Proposal #9 filed to ${DAO}`, { timeout: 30_000 });
     expect(state.sent).toHaveLength(3);
     await page.getByRole("tab", { name: "Results" }).click();
     const row = page.locator("[data-tender-row='8']");
@@ -284,7 +289,7 @@ test.describe("issuer console", () => {
   test("sends the missing tUSDC to a treasury that holds none, registering it on the token first", async ({ page }) => {
     const state = { account: "", sent: [] as string[] };
     await mockChains(page, overrides(state));
-    await openConsole(page, "#dao");
+    await openConsole(page, "#dao", { atFixtureTime: true });
     state.account = await connectNearDemo(page);
     const panel = page.locator("[data-dao-panel]");
     await expect(panel).toBeVisible({ timeout: 30_000 });

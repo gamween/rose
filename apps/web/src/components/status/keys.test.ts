@@ -60,6 +60,7 @@ describe("ForeignTx verifications", () => {
 
   it("describes every outcome kind and counts them", () => {
     const outcomes = [
+      event("position_registered", 1, { position_id: "4", class_id: "c", depositor: "h.testnet", allocation: "10" }),
       event("deposit_registered", 1, { key: log, chain: "Base", position_id: "4", class_id: "c", account: "h.testnet", units: "10", checkpoint: "0" }),
       event("base_cash_registered", 2, { key: log, account: "dao.testnet", token: "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01", amount: "5", round_id: "0", accepted: true }),
       event("sol_deposit_attributed", 3, { metadata: "9xQe", account: "h.testnet", class_id: "c", deposit_address: "d" }),
@@ -70,8 +71,8 @@ describe("ForeignTx verifications", () => {
     ]
       .map(foreignTxOutcome)
       .filter((item): item is ForeignTxOutcome => item !== null);
-    expect(outcomes.map((item) => item.label)).toEqual(["Position #4 on Base", "Base cash", "Solana stream attributed", "Payout #9 confirmed", "Deposit refused", "Mismatch"]);
-    expect(outcomes[0]).toMatchObject({ account: "h.testnet", classId: "c", units: "10" });
+    expect(outcomes.map((item) => item.label)).toEqual(["Position #4 registered", "Base cash", "Solana stream attributed", "Payout #9 confirmed", "Deposit refused", "Mismatch"]);
+    expect(outcomes[0]).toMatchObject({ account: "h.testnet", classId: "c", tokens: "10" });
     expect(countOutcomes(outcomes)).toEqual({ verified: 4, refused: 1, failed: 1 });
     expect(replayKeyLabel(log)).toBe("Base log 0xabab…abab:3");
   });
