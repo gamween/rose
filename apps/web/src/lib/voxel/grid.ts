@@ -74,8 +74,16 @@ export class VoxelGrid {
     });
   }
 
-  /** Rasterizes a thin triangle, `thickness` cells thick. `keep` can carve the triangle (for scalloped wing edges). */
-  triangle(a: Vec3, b: Vec3, c: Vec3, material: number, keep: (u: number, v: number) => boolean = () => true, overwrite = false): void {
+  /** Rasterizes a thin triangle. `keep` can carve the triangle (for scalloped wing edges). */
+  triangle(
+    a: Vec3,
+    b: Vec3,
+    c: Vec3,
+    material: number,
+    keep: (u: number, v: number) => boolean = () => true,
+    overwrite = false,
+    weight = 0,
+  ): void {
     const edge = Math.max(distance(a, b), distance(b, c), distance(c, a));
     const steps = Math.ceil(edge * 2.2);
     for (let i = 0; i <= steps; i += 1) {
@@ -87,7 +95,7 @@ export class VoxelGrid {
         const x = Math.round(a[0] * w + b[0] * u + c[0] * v);
         const y = Math.round(a[1] * w + b[1] * u + c[1] * v);
         const z = Math.round(a[2] * w + b[2] * u + c[2] * v);
-        this.set(x, y, z, material, 0, overwrite);
+        this.set(x, y, z, material, weight, overwrite);
       }
     }
   }

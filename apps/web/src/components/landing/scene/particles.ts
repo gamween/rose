@@ -33,7 +33,12 @@ export type SpawnOptions = {
   size: number;
   growth: number;
   kind: number;
+  /** Starting age in seconds, to fill a jet instantly. */
+  age?: number;
 };
+
+/** Critically damped springs pulling particles toward a plane of constant z and a line of constant y. */
+export type PlaneGuide = { z: number; y: number; stiffness: number };
 
 /**
  * CPU particle pool rendered as instanced voxels. Dead particles are swap-removed, so the live
@@ -109,16 +114,17 @@ export class ParticlePool {
     this.vel[i * 3] = options.vx;
     this.vel[i * 3 + 1] = options.vy;
     this.vel[i * 3 + 2] = options.vz;
-    this.age[i] = 0;
+    this.age[i] = options.age ?? 0;
     this.life[i] = options.life;
     this.size[i] = options.size;
     this.growth[i] = options.growth;
     this.kind[i] = options.kind;
   }
 
-  /** Integrates with drag, buoyancy and a cheap swirl. */
-  update(dt: number, time: number, drag: number, buoyancy: number, swirl: number): void {
+  /** Integrates with drag, buoyancy, a cheap swirl and an optional pull toward a plane. */
+  update(dt: number, time: number, drag: number, buoyancy: number, swirl: number, guide?: PlaneGuide): void {
     const damping = Math.exp(-drag * dt);
+    const pullDamping = guide ? 2 * Math.sqrt(guide.stiffness) : 0;
     let i = 0;
     while (i < this.count) {
       const age = (this.age[i] ?? 0) + dt;
@@ -137,6 +143,10 @@ export class ParticlePool {
       vx += Math.sin(py * 0.21 + time * 1.3 + i) * swirl * dt;
       vz += Math.cos(px * 0.17 + time * 1.1) * swirl * dt;
       vy += Math.sin(pz * 0.19 + time * 0.9) * swirl * 0.5 * dt;
+      if (guide) {
+        vz += ((guide.z - pz) * guide.stiffness - vz * pullDamping) * dt;
+        vy += ((guide.y - py) * guide.stiffness * 0.1 - vy * pullDamping * 0.1) * dt;
+      }
       this.vel[p] = vx;
       this.vel[p + 1] = vy;
       this.vel[p + 2] = vz;

@@ -2,21 +2,26 @@ import {
   Color,
   Group,
   InstancedBufferAttribute,
+  Matrix4,
   Mesh,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
   ShaderMaterial,
   Vector2,
   Vector3,
+  Vector4,
   WebGLRenderer,
 } from "three";
-import { buildDragon, type DragonModel } from "@/lib/voxel/dragon";
-import type { Vec3 } from "@/lib/voxel/grid";
+import { FAR_WING_BONE, HEAD_BONE, JOINTS, buildDragon, type DragonModel } from "@/lib/voxel/dragon";
 import { sequenceAt, lerp, clamp01, type SequenceState } from "@/lib/landing/timeline";
 import { QUALITY_TIERS, createQualityState, sampleFrame, type QualityState, type QualityTier } from "@/lib/landing/quality";
 import { ParticlePool, instancedBox } from "./particles";
 import { DitherPipeline } from "./post";
+import { DragonRig } from "./rig";
 import {
+  backdropFragment,
+  backdropVertex,
   dragonFragment,
   dragonVertex,
   fireFragment,
@@ -30,7 +35,7 @@ import { buildVoxelText, type VoxelText } from "./text";
 export type SceneStats = { fps: number; frameMs: number; tier: QualityTier["name"]; particles: number };
 
 export type FrameAnchors = {
-  /** Tail tip in CSS pixels relative to the canvas. */
+  /** Glowing tail tip in CSS pixels relative to the canvas. */
   tail: { x: number; y: number };
   launchReady: boolean;
 };
@@ -59,25 +64,54 @@ export type LandingScene = {
   dispose: () => void;
 };
 
-const FOV = 32;
+const FOV = 24;
 const TEXT_Z = 60;
-const LOOK_AT = new Vector3(0, 30, 0);
-const CAMERA_HEIGHT = 36;
-const SLEEP_PITCH = 0.55;
-const SLEEP_YAW = -0.12;
+const BACKDROP_Z = -130;
+/** The fire travels in a plane just behind the phrase, so it never covers the letters. */
+const FIRE_Z = 50;
+const SLEEP_PITCH = 1.05;
+const SLEEP_YAW = -0.22;
+const IDLE_PITCH = 0.08;
 
-function bend(point: Vec3, pivot: Vec3, pitch: number, yaw: number, weight = 1): Vector3 {
-  const p = pitch * weight;
-  const y = yaw * weight;
-  const lx = point[0] - pivot[0];
-  const ly = point[1] - pivot[1];
-  const lz = point[2] - pivot[2];
-  const ry = ly * Math.cos(p) - lz * Math.sin(p);
-  const rz = ly * Math.sin(p) + lz * Math.cos(p);
-  const fx = lx * Math.cos(y) + rz * Math.sin(y);
-  const fz = -lx * Math.sin(y) + rz * Math.cos(y);
-  return new Vector3(fx + pivot[0], ry + pivot[1], fz + pivot[2]);
-}
+/** Composition per orientation: camera framing, phrase placement and where the dragon stands. */
+type Layout = {
+  cameraHeight: number;
+  lookAtY: number;
+  fitWidth: number;
+  fitHeight: number;
+  textX: number;
+  textY: number;
+  textShare: number;
+  dragonScale: number;
+  dragonPosition: Vector3;
+  dragonYaw: number;
+};
+
+const LANDSCAPE: Layout = {
+  cameraHeight: 44,
+  lookAtY: 28,
+  fitWidth: 130,
+  fitHeight: 76,
+  textX: 20,
+  textY: 36,
+  textShare: 0.54,
+  dragonScale: 1,
+  dragonPosition: new Vector3(6, 0, 0),
+  dragonYaw: 0,
+};
+
+const PORTRAIT: Layout = {
+  cameraHeight: 58,
+  lookAtY: 24,
+  fitWidth: 78,
+  fitHeight: 150,
+  textX: 2,
+  textY: 46,
+  textShare: 0.84,
+  dragonScale: 0.62,
+  dragonPosition: new Vector3(12, -2, 0),
+  dragonYaw: 0.1,
+};
 
 function damp(current: number, target: number, rate: number, dt: number): number {
   return lerp(current, target, 1 - Math.exp(-rate * dt));
@@ -115,22 +149,28 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   renderer.autoClear = true;
 
   const scene = new Scene();
-  const camera = new PerspectiveCamera(FOV, 1, 1, 600);
+  const camera = new PerspectiveCamera(FOV, 1, 1, 700);
   const pipeline = new DitherPipeline(renderer);
   const model = buildDragon();
   const { anchors } = model;
+  const rig = new DragonRig();
 
   const lightUniforms = {
-    uLightPos: { value: [new Vector3(), new Vector3(), new Vector3(), new Vector3(0, 90, 50)] },
+    uLightPos: { value: [new Vector3(), new Vector3(), new Vector3(), new Vector3(30, 60, 120)] },
     uLightColor: { value: [new Vector3(), new Vector3(), new Vector3(), new Vector3()] },
-    uLightRange: { value: [30, 9, 30, 160] },
+    uLightRange: { value: [34, 26, 40, 220] },
+    uKeyDir: { value: new Vector3(0.45, 0.75, 0.5).normalize() },
+    uKeyColor: { value: new Vector3() },
+    uRimDir: { value: new Vector3(-0.7, 0.45, -0.55).normalize() },
+    uRimColor: { value: new Vector3() },
   };
   const time = { value: 0 };
 
   const dragonUniforms = {
     ...lightUniforms,
+    uBones: { value: rig.bones },
     uTime: time,
-    uBreath: { value: 1.2 },
+    uBreath: { value: 1.1 },
     uBody: { value: 0 },
     uEyes: { value: 0 },
     uEyelid: { value: 1 },
@@ -138,13 +178,26 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     uTail: { value: 0 },
     uSmoke: { value: 0 },
     uBackGlow: { value: 0 },
-    uPivot: { value: new Vector3(...anchors.neckPivot) },
-    uPitch: { value: 0.1 },
-    uYaw: { value: 0 },
-    uEyeCenter: { value: new Vector3(0, anchors.eyes[0]![1], anchors.eyes[0]![2]) },
+    uChest: { value: new Vector3(...anchors.chest) },
+    uEyeCenter: { value: new Vector3(...anchors.eye) },
   };
+  const dragonGroup = new Group();
   const dragon = createDragonMesh(model, dragonUniforms);
-  scene.add(dragon);
+  dragonGroup.add(dragon);
+  scene.add(dragonGroup);
+
+  const backdropUniforms = {
+    uGlow: { value: [new Vector4(), new Vector4(), new Vector4()] },
+    uGlowColor: { value: [new Vector3(1, 0.32, 0.1), new Vector3(1, 0.5, 0.16), new Vector3(0.9, 0.2, 0.12)] },
+    uHaze: { value: 0 },
+  };
+  const backdrop = new Mesh(
+    new PlaneGeometry(520, 360),
+    new ShaderMaterial({ vertexShader: backdropVertex, fragmentShader: backdropFragment, uniforms: backdropUniforms }),
+  );
+  backdrop.position.set(0, 40, BACKDROP_Z);
+  backdrop.frustumCulled = false;
+  scene.add(backdrop);
 
   const textUniforms = {
     ...lightUniforms,
@@ -162,16 +215,15 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   let textBase = { y: 0, scale: 1, visibleHeight: 1 };
 
   const maxParticles = QUALITY_TIERS[0]!.particles;
-  const fire = new ParticlePool(maxParticles, particleVertex, fireFragment, {
-    additive: true,
-    uniforms: { uFadeZ: { value: TEXT_Z + 4 } },
-  });
-  const smoke = new ParticlePool(420, particleVertex, smokeFragment, {
+  const jetUniforms = { uFrontPoint: { value: new Vector3() }, uFrontDir: { value: new Vector3(1, 0, 0) } };
+  const fire = new ParticlePool(maxParticles, particleVertex, fireFragment, { additive: true, uniforms: jetUniforms });
+  const smoke = new ParticlePool(360, particleVertex, smokeFragment, {
     additive: false,
-    uniforms: { uFadeZ: { value: 1000 }, uSmokeColor: { value: new Vector3(0.13, 0.1, 0.09) } },
+    uniforms: { ...jetUniforms, uSmokeColor: { value: new Vector3(0.42, 0.36, 0.33) } },
   });
   scene.add(fire.mesh, smoke.mesh);
 
+  let layout = LANDSCAPE;
   let tierIndex = options.forcedTier ?? options.initialTier;
   let quality: QualityState = createQualityState(tierIndex);
   let width = 1;
@@ -179,7 +231,7 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   let progress = 0;
   let state: SequenceState = sequenceAt(0);
   const pointer = { x: 0, y: 0, sx: 0, sy: 0 };
-  const head = { pitch: 0.1, yaw: 0 };
+  const pose = { pitch: IDLE_PITCH, yaw: 0, jaw: 0, wingFold: 0 };
   let fireMix = 0;
   let fireAccumulator = 0;
   let smokeAccumulator = 0;
@@ -190,6 +242,11 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   let fade = 0;
   const statWindow = { frames: 0, elapsed: 0, last: 0 };
   const scratch = new Vector3();
+  const mouth = new Vector3();
+  const jetDirection = new Vector3(1, 0, 0);
+  const jetTarget = new Vector3();
+  const flameMid = new Vector3();
+  const toLocal = new Matrix4();
 
   function applyTier(index: number): void {
     tierIndex = index;
@@ -220,38 +277,41 @@ export function createLandingScene(options: SceneOptions): LandingScene {
 
   function frameCamera(): void {
     const aspect = width / height;
+    layout = aspect < 1 ? PORTRAIT : LANDSCAPE;
     camera.aspect = aspect;
     const tan = Math.tan((FOV * Math.PI) / 360);
-    const needHeight = aspect < 1 ? 78 : 74;
-    const needWidth = aspect < 1 ? 58 : 112;
-    const distance = Math.max(needHeight / (2 * tan), needWidth / (2 * tan * aspect));
-    camera.position.set(0, CAMERA_HEIGHT, distance);
-    camera.lookAt(LOOK_AT);
+    const textDistance = Math.max(layout.fitHeight / (2 * tan), layout.fitWidth / (2 * tan * aspect));
+    camera.position.set(0, layout.cameraHeight, TEXT_Z + textDistance);
+    camera.lookAt(0, layout.lookAtY, 0);
     camera.updateProjectionMatrix();
 
+    dragonGroup.position.copy(layout.dragonPosition);
+    dragonGroup.scale.setScalar(layout.dragonScale);
+    dragonGroup.rotation.y = layout.dragonYaw;
+    dragonGroup.updateMatrixWorld();
+
     if (!text) return;
-    const textDistance = distance - TEXT_Z;
     const visibleHeight = 2 * textDistance * tan;
     const visibleWidth = visibleHeight * aspect;
-    const share = aspect < 1 ? 0.86 : Math.min(0.72, 1100 / width);
-    const scale = Math.min((visibleWidth * share) / text.width, (visibleHeight * 0.3) / text.height);
-    const centerY = CAMERA_HEIGHT + (LOOK_AT.y - CAMERA_HEIGHT) * (textDistance / distance);
-    textBase = { y: centerY - visibleHeight * 0.04, scale, visibleHeight };
+    const scale = Math.min((visibleWidth * layout.textShare) / text.width, (visibleHeight * 0.26) / text.height);
+    textBase = { y: layout.textY, scale, visibleHeight };
   }
 
-  function letterTarget(front: number): Vector3 {
-    if (!text || text.letterCenters.length === 0) return scratch.set(0, textBase.y, TEXT_Z);
+  /** World position of the letter at the flame front (or the next one when `ahead` is set). */
+  function letterTarget(front: number, out: Vector3): Vector3 {
+    if (!text || text.letterCenters.length === 0) return out.set(layout.textX, textBase.y, TEXT_Z);
     const centers = text.letterCenters;
     let chosen = centers[0]!;
     for (const center of centers) if (center.order <= front + 0.02) chosen = center;
-    return textGroup.localToWorld(scratch.set(chosen.x, chosen.y, 0));
+    return textGroup.localToWorld(out.set(chosen.x, chosen.y, 0));
   }
 
   function updateText(): void {
     const exit = state.phraseExit;
-    const scale = textBase.scale * (1 + 1.1 * exit * exit);
-    textGroup.scale.setScalar(scale);
-    textGroup.position.set(0, textBase.y + exit * exit * textBase.visibleHeight * 0.95, TEXT_Z);
+    const rise = exit * exit * (3 - 2 * exit);
+    const lift = exit * exit;
+    textGroup.scale.setScalar(textBase.scale * (1 + 1.6 * lift));
+    textGroup.position.set(layout.textX * (1 - rise), textBase.y + rise * textBase.visibleHeight * 1.25, TEXT_Z);
     textGroup.visible = exit < 0.999;
     textGroup.updateMatrixWorld();
     textUniforms.uFront.value = state.front;
@@ -259,52 +319,63 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     textUniforms.uRose.value = state.rose;
   }
 
-  function simulate(dt: number): void {
-    const inFire = progress > 0.3 && progress < 0.72 ? 1 : 0;
-    fireMix = damp(fireMix, inFire, 3, dt);
-    const target = letterTarget(state.front + 0.12 * state.fire).clone();
-    const mouthIdle = bend(anchors.mouth, anchors.neckPivot, head.pitch, head.yaw);
-    const aimYaw = Math.max(-0.55, Math.min(0.55, Math.atan2(target.x - anchors.neckPivot[0], target.z - anchors.neckPivot[2]) * 0.9));
-    const aimPitch = Math.max(0.05, Math.min(0.55, Math.atan2(mouthIdle.y - target.y, target.z - mouthIdle.z) * 0.6));
-    let pitchGoal = lerp(0.12 + Math.sin(time.value * 0.6) * 0.02, aimPitch, fireMix);
-    let yawGoal = lerp(Math.sin(time.value * 0.35) * 0.05, aimYaw, fireMix);
+  function updatePose(dt: number): void {
+    const breathing = progress > 0.3 && progress < 0.72 ? 1 : 0;
+    fireMix = damp(fireMix, breathing, 3, dt);
+    letterTarget(state.front + 0.1 * state.fire, jetTarget).setZ(FIRE_Z);
+    toLocal.copy(dragonGroup.matrixWorld).invert();
+    const localTarget = scratch.copy(jetTarget).applyMatrix4(toLocal);
+    const skull = anchors.head;
+    const dx = localTarget.x - skull[0];
+    const dy = localTarget.y - skull[1];
+    const dz = localTarget.z - skull[2];
+    const aimYaw = Math.max(-0.5, Math.min(0.5, -Math.atan2(dz, dx) * 0.8));
+    const aimPitch = Math.max(-0.7, Math.min(0.5, Math.atan2(-dy, Math.hypot(dx, dz)) * 0.8));
+    const idlePitch = IDLE_PITCH + Math.sin(time.value * 0.5) * 0.025;
+    const idleYaw = Math.sin(time.value * 0.33) * 0.04;
+    let pitchGoal = lerp(idlePitch, aimPitch, fireMix);
+    let yawGoal = lerp(idleYaw, aimYaw, fireMix);
     pitchGoal = lerp(pitchGoal, SLEEP_PITCH, state.sleep);
     yawGoal = lerp(yawGoal, SLEEP_YAW, state.sleep);
-    head.pitch = damp(head.pitch, pitchGoal, 4, dt);
-    head.yaw = damp(head.yaw, yawGoal, 4, dt);
-    dragonUniforms.uPitch.value = head.pitch;
-    dragonUniforms.uYaw.value = head.yaw;
+    pose.pitch = damp(pose.pitch, pitchGoal, 3.5, dt);
+    pose.yaw = damp(pose.yaw, yawGoal, 3.5, dt);
+    pose.jaw = damp(pose.jaw, Math.min(1, state.fire * 1.4), 6, dt);
+    pose.wingFold = damp(pose.wingFold, state.sleep, 2.5, dt);
+    rig.update(pose);
+    dragonGroup.localToWorld(rig.transform(anchors.mouth, HEAD_BONE, mouth));
+    jetDirection.copy(jetTarget).sub(mouth).normalize();
+  }
 
-    const mouth = bend(anchors.mouth, anchors.neckPivot, head.pitch, head.yaw);
-    const direction = target.clone().sub(mouth).normalize();
-
-    fireAccumulator += state.fire * 650 * dt * (QUALITY_TIERS[tierIndex]!.particles / maxParticles + 0.25);
+  function simulate(dt: number): void {
+    const tier = QUALITY_TIERS[tierIndex]!;
+    const jetLength = jetTarget.distanceTo(mouth);
+    fireAccumulator += state.fire * 420 * dt * (tier.particles / maxParticles + 0.3);
     while (fireAccumulator >= 1) {
       fireAccumulator -= 1;
-      const speed = random(48, 70);
-      const spread = 0.09;
+      const speed = random(50, 72);
+      const spread = 0.11;
+      const along = Math.random() ** 2 * Math.min(1, jetLength / speed) * 0.8;
       fire.spawn({
-        x: mouth.x + random(-0.8, 0.8),
-        y: mouth.y + random(-0.6, 0.6),
-        z: mouth.z + random(0, 1),
-        vx: (direction.x + random(-spread, spread)) * speed,
-        vy: (direction.y + random(-spread, spread)) * speed,
-        vz: (direction.z + random(-spread * 0.5, spread * 0.5)) * speed,
-        life: random(0.9, 1.3),
-        size: random(0.5, 1.0),
-        growth: random(1.0, 2.2),
+        x: mouth.x + jetDirection.x * speed * along + random(-0.8, 0.8),
+        y: mouth.y + jetDirection.y * speed * along + random(-1.2, 1.2),
+        z: mouth.z + jetDirection.z * speed * along + random(-0.8, 0.8),
+        vx: (jetDirection.x + random(-spread, spread)) * speed,
+        vy: (jetDirection.y + random(-spread, spread)) * speed,
+        vz: (jetDirection.z + random(-spread * 0.5, spread * 0.5)) * speed,
+        life: random(1.1, 1.5),
+        size: random(0.6, 1.1) * layout.dragonScale,
+        growth: random(0.8, 1.6),
         kind: 0,
+        age: along,
       });
     }
 
     if (text && textMesh && roseVoxels.length > 0 && state.phraseExit < 0.9) {
-      sparkAccumulator += (2 + 9 * state.rose) * dt;
+      sparkAccumulator += (2 + 10 * state.rose) * dt;
       while (sparkAccumulator >= 1) {
         sparkAccumulator -= 1;
         const index = roseVoxels[Math.floor(Math.random() * roseVoxels.length)]!;
-        const world = textGroup.localToWorld(
-          scratch.set(text.offsets[index * 3]!, text.offsets[index * 3 + 1]!, 1.2),
-        );
+        const world = textGroup.localToWorld(scratch.set(text.offsets[index * 3]!, text.offsets[index * 3 + 1]!, 1.2));
         fire.spawn({
           x: world.x,
           y: world.y,
@@ -320,37 +391,42 @@ export function createLandingScene(options: SceneOptions): LandingScene {
       }
     }
 
-    smokeAccumulator += (state.smoke * 24 + fireMix * (1 - state.fire) * 4) * dt;
+    smokeAccumulator += (state.smoke * 12 + fireMix * (1 - state.fire) * 3) * dt;
     while (smokeAccumulator >= 1) {
       smokeAccumulator -= 1;
-      const side = Math.random() < 0.5 ? -1 : 1;
+      const nostril = anchors.nostrils[Math.random() < 0.5 ? 0 : 1]!;
+      dragonGroup.localToWorld(rig.transform(nostril, HEAD_BONE, scratch));
       smoke.spawn({
-        x: mouth.x + side * random(0.5, 2),
-        y: mouth.y + random(0, 1.5),
-        z: mouth.z + random(-0.5, 0.5),
-        vx: random(-0.9, 0.9),
-        vy: random(1.2, 2.8),
-        vz: random(-0.6, 0.8),
-        life: random(3, 5.5),
-        size: random(0.35, 0.7),
-        growth: random(0.8, 1.6),
+        x: scratch.x + random(-0.3, 0.3),
+        y: scratch.y + random(0, 0.5),
+        z: scratch.z + random(-0.3, 0.3),
+        vx: random(0.6, 1.6) * layout.dragonScale,
+        vy: random(1.6, 2.6) * layout.dragonScale,
+        vz: random(-0.2, 0.3),
+        life: random(3.5, 6),
+        size: random(0.45, 0.8) * layout.dragonScale,
+        growth: random(0.6, 1.2),
         kind: 2,
       });
     }
 
-    fire.update(dt, time.value, 0.7, 8, 5);
-    smoke.update(dt, time.value, 0.35, 0.6, 2.6);
+    jetUniforms.uFrontPoint.value.copy(jetTarget);
+    jetUniforms.uFrontDir.value.copy(jetDirection);
+    fire.update(dt, time.value, 0.45, 5, 9, { z: FIRE_Z, y: jetTarget.y, stiffness: 14 });
+    smoke.update(dt, time.value, 0.3, 0.35, 1.4);
 
-    const fireLight = mouth.clone().addScaledVector(direction, 16);
+    flameMid.copy(mouth).lerp(jetTarget, 0.7);
     const [firePos, tailPos, rosePos] = lightUniforms.uLightPos.value;
     const [fireColor, tailColor, roseColor, fillColor] = lightUniforms.uLightColor.value;
-    firePos!.copy(fireLight);
-    fireColor!.set(1.9, 0.75, 0.22).multiplyScalar(state.fire);
-    tailPos!.set(anchors.tailTip[0], anchors.tailTip[1] + 2.5, anchors.tailTip[2] + 2.5);
-    tailColor!.set(1.4, 0.45, 0.1).multiplyScalar(state.tail);
-    rosePos!.copy(letterTarget(0.9)).setZ(TEXT_Z - 20);
-    roseColor!.set(0.9, 0.22, 0.06).multiplyScalar(state.rose * (1 - state.phraseExit) * 0.8);
-    fillColor!.set(0.2, 0.15, 0.12).multiplyScalar(state.body * (1 - 0.7 * state.sleep));
+    firePos!.copy(flameMid);
+    fireColor!.set(1.3, 0.5, 0.14).multiplyScalar(state.fire);
+    dragonGroup.localToWorld(tailPos!.set(anchors.tailTip[0], anchors.tailTip[1] + 4, anchors.tailTip[2] + 3));
+    tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * (0.7 + 0.5 * state.sleep));
+    letterTarget(0.9, rosePos!).setZ(TEXT_Z - 16);
+    roseColor!.set(0.9, 0.22, 0.06).multiplyScalar(state.rose * (1 - state.phraseExit) * 0.9);
+    fillColor!.set(0.35, 0.22, 0.18).multiplyScalar(state.body * (1 - 0.55 * state.sleep));
+    lightUniforms.uKeyColor.value.set(0.95, 0.62, 0.5).multiplyScalar(state.body * (1 - 0.6 * state.sleep) * (0.85 + 0.15 * Math.sin(time.value * 0.8)));
+    lightUniforms.uRimColor.value.set(1.6, 0.7, 0.9).lerp(scratch.set(1.3, 0.95, 1.2), state.sleep).multiplyScalar(state.body * (1 + 0.25 * state.sleep));
 
     dragonUniforms.uBody.value = state.body;
     dragonUniforms.uEyes.value = state.eyes;
@@ -358,8 +434,16 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     dragonUniforms.uFire.value = state.fire;
     dragonUniforms.uTail.value = state.tail;
     dragonUniforms.uSmoke.value = state.smoke;
-    dragonUniforms.uBackGlow.value = 0.04 * state.body * (1 - state.sleep) + 0.35 * state.fire;
-    dragonUniforms.uBreath.value = lerp(1.2, 0.55, state.sleep);
+    dragonUniforms.uBackGlow.value = 0.05 * state.body * (1 - state.sleep) + 0.4 * state.fire;
+    dragonUniforms.uBreath.value = lerp(1.1, 0.5, state.sleep);
+
+    const [chestGlow, fireGlow, tailGlow] = backdropUniforms.uGlow.value;
+    const chest = dragonGroup.localToWorld(scratch.set(...anchors.chest));
+    chestGlow!.set(chest.x + 10, chest.y + 16, 150, 0.008 * state.body * (1 - 0.4 * state.sleep));
+    fireGlow!.set(flameMid.x, flameMid.y, 110, 0.012 * state.fire);
+    const tail = dragonGroup.localToWorld(scratch.set(...anchors.tailTip));
+    tailGlow!.set(tail.x, tail.y + 4, 60, 0.014 * state.tail);
+    backdropUniforms.uHaze.value = 0.05 * state.body;
   }
 
   function project(point: Vector3): { x: number; y: number } {
@@ -373,20 +457,43 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     return Math.hypot(b.x - a.x, b.y - a.y);
   }
 
-  function renderFrame(dt: number): void {
-    time.value += dt;
+  function updateCamera(dt: number): void {
     pointer.sx = damp(pointer.sx, pointer.x, 2.5, dt);
     pointer.sy = damp(pointer.sy, pointer.y, 2.5, dt);
-    camera.position.x = pointer.sx * 4;
-    camera.position.y = CAMERA_HEIGHT + pointer.sy * 2;
-    camera.lookAt(LOOK_AT);
+    const drift = Math.sin(time.value * 0.21) * 2.5;
+    const settle = state.sleep * 7;
+    camera.position.x = pointer.sx * 4 + drift;
+    camera.position.y = layout.cameraHeight + pointer.sy * 2 + Math.sin(time.value * 0.17) * 0.8 - settle;
+    camera.lookAt(0, layout.lookAtY - settle * 0.6, 0);
+  }
+
+  function updateHeat(): void {
+    if (state.fire <= 0.001) {
+      pipeline.setHeat(0, 0, 1, 0, time.value);
+      return;
+    }
+    const mid = project(scratch.copy(mouth).lerp(jetTarget, 0.6));
+    const extent = project(jetTarget);
+    const radius = Math.max(0.12, Math.hypot(mid.x - extent.x, mid.y - extent.y) / height + 0.1);
+    pipeline.setHeat(mid.x / width, 1 - mid.y / height, radius, state.fire * 0.9, time.value);
+  }
+
+  function tailAnchor(): Vector3 {
+    return dragonGroup.localToWorld(new Vector3(...anchors.tailTip));
+  }
+
+  function renderFrame(dt: number): void {
+    time.value += dt;
     state = sequenceAt(progress);
+    updateCamera(dt);
     updateText();
+    updatePose(dt);
     simulate(dt);
+    updateHeat();
     fade = Math.min(1, fade + dt * 1.6);
     pipeline.setFade(fade);
     pipeline.render(scene, camera);
-    options.onFrame?.({ tail: project(new Vector3(...anchors.tailTip)), launchReady: state.launchReady });
+    options.onFrame?.({ tail: project(tailAnchor()), launchReady: state.launchReady });
   }
 
   function loop(now: number): void {
@@ -418,19 +525,22 @@ export function createLandingScene(options: SceneOptions): LandingScene {
 
   function renderStatic(): void {
     progress = 1;
-    state = sequenceAt(1);
-    head.pitch = SLEEP_PITCH;
-    head.yaw = SLEEP_YAW;
+    pose.pitch = SLEEP_PITCH;
+    pose.yaw = SLEEP_YAW;
+    pose.wingFold = 1;
     fade = 1;
-    for (let i = 0; i < 150; i += 1) {
+    for (let i = 0; i < 180; i += 1) {
       time.value += 1 / 30;
       state = sequenceAt(1);
+      updateCamera(1 / 30);
       updateText();
+      updatePose(1 / 30);
       simulate(1 / 30);
     }
+    updateHeat();
     pipeline.setFade(1);
     pipeline.render(scene, camera);
-    options.onFrame?.({ tail: project(new Vector3(...anchors.tailTip)), launchReady: true });
+    options.onFrame?.({ tail: project(tailAnchor()), launchReady: true });
   }
 
   const onContextLost = (event: Event) => {
@@ -450,22 +560,19 @@ export function createLandingScene(options: SceneOptions): LandingScene {
       pointer.y = y;
     },
     hitTest(x, y) {
-      const tailTip = new Vector3(...anchors.tailTip);
-      const tail = project(tailTip);
-      if (Math.hypot(x - tail.x, y - tail.y) < Math.max(28, projectedRadius(tailTip, 6))) return "tail";
-      const headPoint = bend(anchors.head, anchors.neckPivot, head.pitch, head.yaw);
+      const tip = tailAnchor();
+      const tail = project(tip);
+      if (Math.hypot(x - tail.x, y - tail.y) < Math.max(30, projectedRadius(tip, 7 * layout.dragonScale))) return "tail";
       const regions: [Vector3, number][] = [
-        [headPoint, 11],
-        [new Vector3(...anchors.chest), 16],
-        [new Vector3(0, 8, -12), 14],
-        [new Vector3(26, 30, -15), 15],
-        [new Vector3(-26, 30, -15), 15],
-        [new Vector3(18, 3, 6), 6],
-        [new Vector3(4, 3, 17), 5],
+        [dragonGroup.localToWorld(rig.transform(anchors.head, HEAD_BONE, new Vector3())), 13],
+        ...JOINTS.map((joint, i): [Vector3, number] => [dragonGroup.localToWorld(rig.transform(joint, i, new Vector3())), 8]),
+        [dragonGroup.localToWorld(rig.transform(anchors.farWingElbow, FAR_WING_BONE, new Vector3())), 14],
+        ...anchors.body.map(({ point, radius }): [Vector3, number] => [dragonGroup.localToWorld(new Vector3(...point)), radius]),
+        ...anchors.tail.map(({ point, radius }): [Vector3, number] => [dragonGroup.localToWorld(new Vector3(...point)), radius]),
       ];
       for (const [point, radius] of regions) {
         const center = project(point);
-        if (Math.hypot(x - center.x, y - center.y) < projectedRadius(point, radius)) return "dragon";
+        if (Math.hypot(x - center.x, y - center.y) < projectedRadius(point, radius * layout.dragonScale)) return "dragon";
       }
       return null;
     },
@@ -496,6 +603,8 @@ export function createLandingScene(options: SceneOptions): LandingScene {
       pipeline.dispose();
       dragon.geometry.dispose();
       (dragon.material as ShaderMaterial).dispose();
+      backdrop.geometry.dispose();
+      backdrop.material.dispose();
       if (textMesh) {
         textMesh.geometry.dispose();
         (textMesh.material as ShaderMaterial).dispose();
@@ -505,4 +614,3 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   };
   return api;
 }
-

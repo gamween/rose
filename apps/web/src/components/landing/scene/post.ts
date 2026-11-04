@@ -8,6 +8,7 @@ import {
   Scene,
   ShaderMaterial,
   Vector2,
+  Vector4,
   WebGLRenderTarget,
   type Camera,
   type WebGLRenderer,
@@ -72,6 +73,9 @@ export class DitherPipeline {
         uBloom: { value: this.bloomA.texture },
         uBloomStrength: { value: 0.9 },
         uFade: { value: 1 },
+        uTime: { value: 0 },
+        uHeat: { value: new Vector4() },
+        uAspect: { value: new Vector2(1, 1) },
       },
       depthTest: false,
       depthWrite: false,
@@ -87,10 +91,17 @@ export class DitherPipeline {
     const bh = Math.max(1, Math.round(height / 4));
     this.bloomA.setSize(bw, bh);
     this.bloomB.setSize(bw, bh);
+    (this.dither.uniforms.uAspect!.value as Vector2).set(width / Math.max(1, height), 1);
   }
 
   setFade(value: number): void {
     this.dither.uniforms.uFade!.value = value;
+  }
+
+  /** Heat shimmer: center in uv space, radius as a fraction of the height, strength 0..1. */
+  setHeat(x: number, y: number, radius: number, strength: number, time: number): void {
+    (this.dither.uniforms.uHeat!.value as Vector4).set(x, y, radius, strength);
+    this.dither.uniforms.uTime!.value = time;
   }
 
   render(scene: Scene, camera: Camera): void {

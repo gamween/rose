@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KIND, buildDragon } from "./dragon";
+import { BONE_COUNT, FAR_WING_BONE, HEAD_BONE, JAW_BONE, KIND, buildDragon } from "./dragon";
 
 describe("procedural voxel dragon", () => {
   const model = buildDragon();
@@ -11,40 +11,41 @@ describe("procedural voxel dragon", () => {
 
   it("is deterministic and sized for instanced rendering", () => {
     expect(buildDragon().positions).toEqual(model.positions);
-    expect(model.count).toBeGreaterThan(4000);
-    expect(model.count).toBeLessThan(15000);
+    expect(model.count).toBeGreaterThan(6000);
+    expect(model.count).toBeLessThan(26000);
     expect(model.positions).toHaveLength(model.count * 3);
     expect(model.colors).toHaveLength(model.count * 3);
     expect(model.data).toHaveLength(model.count * 4);
   });
 
-  it("has glowing eyes, a mouth, a tail tip and wing membranes", () => {
-    expect(kinds.get(KIND.eye)).toBeGreaterThanOrEqual(8);
+  it("has slit eyes, a mouth, nostrils, a tail tip and wing membranes", () => {
+    expect(kinds.get(KIND.eye)).toBeGreaterThanOrEqual(6);
     expect(kinds.get(KIND.mouth)).toBeGreaterThan(0);
+    expect(kinds.get(KIND.nostril)).toBe(2);
     expect(kinds.get(KIND.tail)).toBeGreaterThan(0);
-    expect(kinds.get(KIND.membrane)).toBeGreaterThan(500);
+    expect(kinds.get(KIND.membrane)).toBeGreaterThan(800);
   });
 
-  it("bends only the neck and head", () => {
+  it("skins every voxel to a valid bone and keeps the head, jaw and far wing on their bones", () => {
+    let head = 0;
+    let jaw = 0;
+    let wing = 0;
     for (let i = 0; i < model.count; i += 1) {
-      const weight = model.data[i * 4 + 1]!;
-      expect(weight).toBeGreaterThanOrEqual(0);
-      expect(weight).toBeLessThanOrEqual(1);
-      if (weight > 0) expect(model.positions[i * 3 + 1]!).toBeGreaterThan(model.anchors.neckPivot[1] - 3);
+      const bone = model.data[i * 4 + 1]!;
+      expect(bone).toBeGreaterThanOrEqual(0);
+      expect(bone).toBeLessThan(BONE_COUNT);
+      if (bone === HEAD_BONE) head += 1;
+      if (bone === JAW_BONE) jaw += 1;
+      if (bone === FAR_WING_BONE) wing += 1;
+      if (bone > 0 && bone < FAR_WING_BONE) expect(model.positions[i * 3]!).toBeLessThan(model.anchors.chest[0] + 6);
     }
+    expect(head).toBeGreaterThan(400);
+    expect(jaw).toBeGreaterThan(40);
+    expect(wing).toBeGreaterThan(500);
   });
 
-  it("is symmetric left to right except for the tail", () => {
-    const set = new Set<string>();
-    for (let i = 0; i < model.count; i += 1) set.add(`${model.positions[i * 3]},${model.positions[i * 3 + 1]},${model.positions[i * 3 + 2]}`);
-    let mirrored = 0;
-    let total = 0;
-    for (let i = 0; i < model.count; i += 1) {
-      const y = model.positions[i * 3 + 1]!;
-      if (y < 12) continue;
-      total += 1;
-      if (set.has(`${-model.positions[i * 3]!},${y},${model.positions[i * 3 + 2]}`)) mirrored += 1;
-    }
-    expect(mirrored / total).toBeGreaterThan(0.9);
+  it("places the mouth in front of the eye and the tail tip in the foreground", () => {
+    expect(model.anchors.mouth[0]).toBeGreaterThan(model.anchors.eye[0]);
+    expect(model.anchors.tailTip[2]).toBeGreaterThan(model.anchors.chest[2] + 60);
   });
 });
