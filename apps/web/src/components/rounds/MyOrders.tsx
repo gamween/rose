@@ -22,6 +22,7 @@ function parseLocal(raw: string): LocalOrder | null {
 
 function OutcomeLine({ bid, decimals }: { bid: Bid; decimals: number }) {
   if (bid.status === "Settled" || bid.fillQuantity > 0n || bid.cash > 0n) {
+    if (bid.void) return <span className="text-danger-400">void ({bid.void}) · collateral refunded, bond slashed</span>;
     if (bid.fillQuantity === 0n) return <span className="text-ink-400">unfilled · collateral and bond refunded</span>;
     return (
       <span className="tabular text-ink-100">

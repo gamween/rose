@@ -116,4 +116,19 @@ describe("verifyRound", () => {
     const sealed = [bid(0, "Buy", U(10), U(5)), { ...bid(1, "Sell", U(10), U(8)), opened: null, status: "Sealed" as const }];
     expect(verifyRound(base({ status: "Settled", result: { price: U(5), volume: 0n, notional: 0n, fee: 0n, issuerCharged: 0n, issuerRefund: 0n, remainingLockSecs: 0n, fills: [] } }), 6, sealed).status).toBe("incomplete");
   });
+
+  it("agrees with a no-crossing cancellation whose stored result only records the orders to settle", () => {
+    // engine-s4 round 5: the ask was opened, the bid never was (void, bond slashed); the engine
+    // cancelled the round for no crossing and stored price 0, volume 0 with both orders unfilled.
+    const voided = { ...bid(1, "Buy", 0n, 0n), opened: null, void: "Unopened" as const };
+    const bids = [bid(0, "Sell", U(20_000), U(2) / 100n), voided];
+    const fills = [
+      outcome(0, "Sell", 0n, 0n, { quantity: U(20_000), price: U(2) / 100n }),
+      { ...outcome(1, "Buy", 0n, 0n, { quantity: 0n, price: 0n }), opened: null, void: "Unopened" as const },
+    ];
+    const round = base({ status: "Cancelled", cancelReason: "NoCrossing", bidCount: 2, openedCount: 1, result: { price: 0n, volume: 0n, notional: 0n, fee: 0n, issuerCharged: 0n, issuerRefund: 0n, remainingLockSecs: 0n, fills } });
+    const verification = verifyRound(round, 6, bids);
+    expect(verification.status).toBe("match");
+    expect(verification.onChain?.outcome).toBe("no_crossing");
+  });
 });

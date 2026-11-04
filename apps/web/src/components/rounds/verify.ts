@@ -79,8 +79,10 @@ export function verifyRound(round: Round, decimals: number, bids: readonly Bid[]
   } catch (error) {
     return { status: "unsupported", book, local: null, onChain: null, differences: [], reason: error instanceof Error ? error.message : "The reference refused the book." };
   }
+  // A no-crossing cancellation still stores a result (price 0, volume 0) so its orders can be
+  // settled: the outcome on chain is "no crossing" whatever that record holds.
   const onChain =
-    round.result !== null
+    round.status === "Settled" && round.result !== null
       ? {
           outcome: "cleared" as const,
           price: round.result.price,
