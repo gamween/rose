@@ -7,7 +7,7 @@ section: Reference
 
 **Accrual accounting.** The per-class ledger `(balance, checkpoint, claimable, carry)` each account holds. On every balance change the contract first accrues `balance * (f(now) - checkpoint)` into `claimable` and sets `checkpoint = f(now)`, carrying the fraction below one base unit into the next accrual. Rounding always favors the pool.
 
-**AccountState.** The ForeignTx extractor that proves the contents of a Solana account as the MPC nodes read it. rose uses it on a Streamflow stream's metadata account (recipient, schedule, flags, withdrawn amount), on its mint, on payout nonce accounts and on recipients' token accounts.
+**AccountState.** The ForeignTx extractor that proves the contents of a Solana account as the MPC nodes read it. rose uses it on a Streamflow stream's metadata account (recipient, schedule, flags, withdrawn amount), on its mint, on payout nonce and receipt accounts and on recipients' token accounts.
 
 **Advance.** A round in which one holder sells a senior claim on the first `K` tokens that will unlock from `X` of their units (`K <= X * (1 - f(ts))`) to funders who bid sealed, per claimed token. Winners receive lien shares.
 
@@ -41,7 +41,7 @@ section: Reference
 
 **Deposit address.** On Solana, the MPC-derived address `dep/<near_account>/<class>` a holder transfers a stream to, so the deposit is attributed to that NEAR account and class.
 
-**Durable nonce.** A Solana mechanism that makes a transaction valid until its nonce is advanced instead of expiring with a blockhash. A rose payout or redeem uses the claimant's nonce account (authority = vault), created from their wallet with a seed that starts with `nonce_seed_prefix_of` their NEAR account, and reused across claims. A durable-nonce transaction that fails on chain still advances its nonce, which is why Solana payouts are confirmed separately.
+**Durable nonce.** A Solana mechanism that makes a transaction valid until its nonce is advanced instead of expiring with a blockhash. A rose payout or redeem uses two nonce accounts of the claimant (authority = vault), created from their wallet with seeds that start with `nonce_seed_prefix_of` their NEAR account, and reused across claims: the transaction advances the durable nonce first and the receipt nonce account last. A durable-nonce transaction that fails on chain still advances its nonce but rolls back the receipt's advance, which is why Solana payouts are confirmed separately, on the receipt.
 
 **Encumbered units.** Units pledged in an Advance. Non-transferable, cannot enter other rounds, cannot be redeemed, until the lien is delivered.
 
@@ -75,7 +75,7 @@ section: Reference
 
 **Marginal level.** The price level that does not fit entirely in the traded volume and is rationed pro rata.
 
-**Max price.** The public ceiling an issuer sets on a Tender. Asks above it are never filled. Also the valuation used for sellers' bonds.
+**Max price.** The public price ceiling of a round, set by the issuer on a Tender. An order priced above it (a buyer's limit or a seller's minimum) takes no part in the clearing, and its bond, escrow and locked units come back at settlement. Also the valuation used for sellers' bonds.
 
 **Midpoint rule.** In an Exit or Advance, after maximal volume and minimal imbalance, `P*` is the midpoint of the tied price interval, rounded down to a tick.
 
@@ -93,13 +93,15 @@ section: Reference
 
 **opens_at.** The block timestamp from which bids are accepted.
 
-**Payout.** A pull-based transfer of cash or tokens to a beneficiary on a foreign chain, authorized by an MPC signature stored on NEAR. On Solana it is two-phase: the signed transaction stays `Signed` until `confirm_sol_payout` proves it landed, or proves twice, 150 blocks apart, that it did not execute (then the claim is refunded).
+**Payout.** A pull-based transfer of cash or tokens to a beneficiary on a foreign chain, authorized by an MPC signature stored on NEAR. On Solana it is two-phase: the signed transaction stays `Signed` until `confirm_sol_payout` proves it landed (the receipt nonce account holds the nonce's new value), or proves twice, 150 blocks apart, that it did not execute (the receipt stays behind; then the claim is refunded).
 
 **Position.** One locked allocation on a foreign chain held by rose's vault: a Sablier Lockup Linear stream on Base or a Streamflow stream on Solana.
 
 **Pull-based.** The beneficiary (or anyone) submits a stored authorization on the foreign chain; the protocol pushes nothing.
 
 **Q(P).** In a Tender, the volume bought at `P`: `min(S(P), floor(budget / cost per unit at P))`.
+
+**Receipt nonce account.** The second nonce account of a Solana payout or redeem (authority = vault, created from the claimant's wallet like the durable nonce). The transaction advances it last, so it holds the nonce's new value only if the transaction executed: `confirm_sol_payout` and `confirm_sol_redeem` settle on it.
 
 **Redeem (in kind).** Burning a position's allocation in units to take the position itself back to your own address.
 
@@ -123,11 +125,13 @@ section: Reference
 
 **Sputnik DAO.** The NEAR DAO framework. The issuer console builds a function-call proposal so a DAO can create and fund a Tender after a vote.
 
-**Streamflow.** The Solana vesting protocol rose supports, program `HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ` on devnet.
+**Streamflow.** The Solana vesting protocol rose supports, program `HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ` on devnet. Its auto-claim withdraws every ended stream into its recipient's token account one second after the end, even with `automatic_withdrawal` = 0; rose books it for the vault's streams in the class's swept balance.
 
 **submit_key.** The public engine method that accepts a round key from anyone, verified with a pairing check, so a lost MPC callback cannot freeze a round.
 
 **Supply `S(P)`.** The sum of ask quantities with minimum price `<= P`.
+
+**Swept balance.** Per Solana class, the tokens Streamflow's auto-claim moved from the vault's ended streams into the vault's token account, booked by anyone's `sync_sol_stream` and read with `get_sol_swept`. A claim can take from it (`swept` in `claim_sol_tokens`), paid with `transfer_checked` alone.
 
 **Tender.** A round with one public buyer (the issuer), a public budget and max price, and sealed asks. Bought units are retired.
 

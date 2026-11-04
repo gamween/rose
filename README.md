@@ -196,7 +196,7 @@ Fees: 30 bps of settled notional, charged to the buying side.
 | Chain | Positions | Custody | Proof of deposit | Payouts |
 |---|---|---|---|---|
 | Base Sepolia | Sablier Lockup v4 Linear streams, transferable and non-cancelable | RoseVault: immutable, no owner, no upgrade | ForeignTx `Log` at `Safe`, the payload hash recomputed by the engine | EIP-712 authorizations signed by the MPC, checked by `ecrecover` before they are stored, submitted by the claimant |
-| Solana devnet | Fee-free Streamflow streams of classic SPL mints without a freeze authority | MPC-derived Ed25519 vault | ForeignTx `AccountState` at `Finalized`, after a proof that the stream came from the depositor's own deposit address | Durable-nonce transactions built and signed by the engine, broadcast by anyone, final only once `confirm_sol_payout` proves they landed |
+| Solana devnet | Fee-free Streamflow streams of classic SPL mints without a freeze authority | MPC-derived Ed25519 vault | ForeignTx `AccountState` at `Finalized`, after a proof that the stream came from the depositor's own deposit address | Durable-nonce transactions built and signed by the engine, broadcast by anyone, final only once `confirm_sol_payout` proves on the claimant's receipt nonce account that they landed |
 
 Details: [spec section 7](./docs/spec.md#7-cross-chain-flows) and
 [`docs/architecture.md`](./docs/architecture.md).
@@ -222,8 +222,11 @@ normative version):
 - **Tokens:** on Base, an ERC-20 whose issuer keeps pause or blacklist powers can freeze RoseVault's
   balance or its transfers to a claimant; rose cannot remove that trust. On Solana, mints with a
   freeze authority and Token-2022 mints are refused at deposit.
-- **Third-party programs:** Sablier's withdrawal fee is admin-controlled (0 today); Streamflow's
-  program is upgradeable and its on-chain source is not public.
+- **Third-party programs:** Sablier's withdrawal fee is admin-controlled (0 today; RoseVault
+  forwards it, so withdrawals and releases keep working); Streamflow's program is upgradeable and
+  its on-chain source is not public, and its auto-claim withdraws every ended stream into its
+  recipient's token account one second after the end, which rose books (`sync_sol_stream`) and
+  relies on for an ended stream's last tranche.
 - **Gas:** every user-facing method stays under the 300 Tgas wallet cap (the highest, a verified
   opening, burns about 132 Tgas); the 1 PGas protocol limit is used only by the scripts and the
   in-app demo wallet.
@@ -254,9 +257,14 @@ Every row links the testnet transactions that show it; all of them, with the com
 
 | Claim | Evidence | Result |
 |---|---|---|
-| A payout is final only once the chain proves it landed | `claim_sol_tokens` [5d9B9nPG…](https://testnet.near.rocks/tx/5d9B9nPGsCAExncNTAzx1BzMfYsgawDiCRURYimMwbk5), the engine-built transaction [4PPo8oWz…](https://explorer.solana.com/tx/4PPo8oWzp7WLRK9DQDrhZNHRbtFyGTWL8eHLa7C61mvH9hMTe4s2po313eYRDRUX9TtiWsJrkJtH4dLoSNZgjrBc?cluster=devnet), `confirm_sol_payout` [9HZ8GCwn…](https://testnet.near.rocks/tx/9HZ8GCwnmTTCJYgv9oUCvaMre6FcDJQZ7Zu5cATyJyHF) | `AdvanceNonceAccount` + Streamflow `withdraw` + `TransferChecked`; payout `Landed` with the stream's withdrawn amount proven |
+| A payout is final only once the chain proves it landed | `claim_sol_tokens` [5d9B9nPG…](https://testnet.near.rocks/tx/5d9B9nPGsCAExncNTAzx1BzMfYsgawDiCRURYimMwbk5), the engine-built transaction [4PPo8oWz…](https://explorer.solana.com/tx/4PPo8oWzp7WLRK9DQDrhZNHRbtFyGTWL8eHLa7C61mvH9hMTe4s2po313eYRDRUX9TtiWsJrkJtH4dLoSNZgjrBc?cluster=devnet), `confirm_sol_payout` [9HZ8GCwn…](https://testnet.near.rocks/tx/9HZ8GCwnmTTCJYgv9oUCvaMre6FcDJQZ7Zu5cATyJyHF) | `AdvanceNonceAccount` + Streamflow `withdraw` + `TransferChecked`; payout `Landed` |
 | An in-kind release is final only once proven | `redeem` [5Ja4ux9U…](https://testnet.near.rocks/tx/5Ja4ux9Ui1xUCJztEBKj7rbtsrc89wcVYEhcLTPMSJgf), `transfer_recipient` [44Jfunex…](https://explorer.solana.com/tx/44Jfunex69dnNFHReftyF73YHctoAD22vuwLH1T8AM47mnspgHfnUAKeeV97iYbJomMG2N7rKuLmdiUEszcpq8R8?cluster=devnet), `confirm_sol_redeem` [H2UGrjhS…](https://testnet.near.rocks/tx/H2UGrjhSVFPEUkaEmZ2fov2a6T9G5L7GrebC1chF2kLM) | Position `Released` |
 | The same flow from the app, with a demo wallet (on `engine-s3`) | `claim_sol_tokens` [6bgV7dtT…](https://testnet.near.rocks/tx/6bgV7dtT1VZcX7uXDF97HGY8Ct3rt3cZb8Y8LrdM8Y4E), broadcast [NkXBT57X…](https://explorer.solana.com/tx/NkXBT57X4y4DD2MVy6dh3omzc7dM6XjevnKz7MHtv8EYEPF6BPTx8sowH1qHtKg1RWa634Mqby3Ts2nKmisuo46?cluster=devnet), `confirm_sol_payout` [AW7nZvw5…](https://testnet.near.rocks/tx/AW7nZvw5pwQQQFnf8vWMreX7StkF2aqX8d97DUVGZVgS) | Landed in 25 s for the whole flow |
+
+These runs predate the receipt nonce account: the current engine also advances the claimant's
+receipt nonce account last and settles every Solana payout and redeem on it, not on the streams,
+because Streamflow's auto-claim empties an ended stream whether or not a payout drew on it
+([security model](./docs/security.md#payouts-two-phase-on-solana)).
 
 ### Measured once, relied on everywhere
 
@@ -270,8 +278,9 @@ Every row links the testnet transactions that show it; all of them, with the com
   `contracts/engine/tests/sablier_live.rs` and by the TypeScript port's tests.
 - **ForeignTx:** a mismatch with `expected_payload_hash` is a silent 2-minute timeout, so the engine
   omits it and recomputes the hash itself (measured both ways).
-- **A failing durable-nonce transaction still advances its nonce** (measured on devnet), which is why
-  Solana payouts are two-phase.
+- **A failing durable-nonce transaction still advances its nonce** and rolls back every other
+  instruction (measured on devnet), which is why Solana payouts are two-phase and settle on a
+  receipt nonce account the transaction advances last.
 - **Keyless Test USDC:** keys deleted [EjiBFUNB…](https://testnet.near.rocks/tx/EjiBFUNB8CmiY8qTERPvaqYc8jFkBds51iTSAGShq1MG);
   `view_access_key_list` on `tusdc.rose-app.testnet` returns `[]`.
 - **Keyless deployment, rehearsed:** the exact helpers of `deploy-engine.sh --keyless` ran on a
@@ -282,7 +291,7 @@ Every row links the testnet transactions that show it; all of them, with the com
 - **Gas:** every user-facing call measured live and in the sandbox stays under 300 Tgas.
 
 Tests: `cargo test --workspace` (unit, property and recorded live vectors), the NEAR sandbox suites
-with the real engine wasm, `forge test` (128 tests, fork tests against the live Sablier Lockup),
+with the real engine wasm, `forge test` (139 tests, fork tests against the live Sablier Lockup),
 `pnpm -r test` (SDK and web app), and Playwright against the deployed app.
 
 ## Deployed contracts
@@ -329,7 +338,7 @@ The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 | At most 64 orders per round, no sybil resistance | Bond and storage deposit per order; a new round | Larger rounds with paginated clearing |
 | Positions: Sablier Lockup v4 Linear on Base, fee-free Streamflow on Solana | Everything else refused at deposit, with the reason | Sablier Tranched and Dynamic, more chains served by ForeignTx |
 | ERC-20 issuer pause or blacklist powers | Stated trust assumption; Solana freeze-authority and Token-2022 mints refused | A per-class token risk note in the app |
-| No keeper: rounds and Solana payouts advance when someone calls the next step | The app shows the next action to whoever looks; anyone can call it | None needed |
+| No keeper: rounds, Solana payouts and Streamflow syncs advance when someone calls the next step | The app shows the next action to whoever looks; anyone can call it | None needed |
 | Finding buyers is a cold-start problem | Exit rounds are open to anyone; prices are published per class | Issuer-run Tenders first, where the buyer is known |
 
 ## Tech stack

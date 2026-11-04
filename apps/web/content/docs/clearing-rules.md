@@ -20,6 +20,8 @@ Once the clearing price `P*` is known, every eligible order is sorted by price p
 
 Strictly better prices therefore fill fully, level by level: every level before the marginal one fills fully, and the marginal level may itself be above `P*` for bids (or below it for asks), because `P*` usually lies inside a tie interval where no order sits. Only the marginal level is rationed, and only on the long side.
 
+An opened order priced above the round's `max_price` (a buyer's limit or a seller's minimum) is not eligible: it takes no part in the clearing, is neither filled nor void, and its bond, escrow and locked units come back at settlement as for any unfilled order. The order form refuses such a price.
+
 ## Tender
 
 One public buyer (the issuer) with a public `budget` and a public `max_price`; sealed asks from holders.

@@ -26,7 +26,7 @@ Go to `/app/deposit` and choose Base.
 
 Go to `/app/deposit` and choose Solana.
 
-1. The wizard lists your Streamflow streams and flags eligibility (the recipient can transfer the stream; not cancelable or transferable by the sender, not pausable, no rate updates, no top-ups, no automatic withdrawal, no Streamflow or partner fee; at least one whole token left to lock; a classic SPL Token mint without a freeze authority).
+1. The wizard lists your Streamflow streams and flags eligibility (the recipient can transfer the stream; not cancelable or transferable by the sender, not pausable, no rate updates, no top-ups, no automatic withdrawal, no Streamflow or partner fee; at least one whole token left to lock; an end more than one hour away, since Streamflow's auto-claim empties a stream at its end; a classic SPL Token mint without a freeze authority).
 2. The app derives your deposit address for the class (`dep/<near_account>/<class>`). Call `transfer_recipient` to it from your Solana wallet. You see the transaction.
 3. The wizard attributes the stream to your NEAR account (`attribute_sol_deposit`): the engine proves with ForeignTx `AccountState` that the stream sits at your deposit address. An ineligible stream is recorded as refused and can be returned to your Solana address.
 4. The engine builds and signs the move from the deposit address to the vault (`move_sol_deposit`); the app broadcasts it (fees paid by the engine's `gas/sol`). You see the transaction.
@@ -63,10 +63,10 @@ There is no oracle and no liquidation. The claim is repaid by the schedule.
 Your portfolio (`/app`) shows the claimable tokens per class and chain.
 
 - Base: click "Claim". The app calls Sablier `withdrawMax(streamId, RoseVault)` if needed, then asks the engine for a `Transfer` authorization signed by the MPC, then submits `executeTransfer` to RoseVault from your EVM wallet (you pay the Base gas). You see three explorer links.
-- Solana: click "Claim". The first time, you create your payout nonce account from your Solana wallet (a durable nonce account derived with a seed tied to your NEAR account, authority = the engine's vault; it is reused for later claims). The engine proves it and your token account, builds and signs the withdrawal, the app broadcasts it, then confirms on NEAR that it landed (`confirm_sol_payout`). You see the NEAR and Solana links.
+- Solana: click "Claim". The first time, you create your two payout nonce accounts from your Solana wallet in one transaction (the durable nonce and the receipt, derived with seeds tied to your NEAR account, authority = the engine's vault; both are reused for later claims). The engine proves them and your token account, builds and signs the withdrawal, the app broadcasts it, then confirms on NEAR that it landed (`confirm_sol_payout`, which reads the receipt). You see the NEAR and Solana links. A stream takes no new draw from five minutes before its end; Streamflow's auto-claim then moves its remainder into the vault's token account; once anyone books it with `sync_sol_stream`, a claim made with the [SDK](/docs/sdk) can take it from the class's swept balance (`swept` in `claim_sol_tokens`).
 - Cash: click "Claim" next to your cash balance in the venue where it lives (NEAR tUSDC or Base USDC).
 
-An authorization that was signed but not submitted stays in your portfolio until you submit it; it never expires and cannot be used twice. A signed Solana payout likewise stays until it is broadcast and confirmed; it is refunded only if the engine proves, twice and 150 blocks apart, that it did not execute.
+An authorization that was signed but not submitted stays in your portfolio until you submit it; it never expires and cannot be used twice. A signed Solana payout likewise stays until it is broadcast and confirmed; it is refunded only if the engine proves, twice and 150 blocks apart, that its receipt stayed behind, so it did not execute.
 
 ## Redeem in kind
 
@@ -74,6 +74,6 @@ If you hold at least `D_p` units of a class, where `D_p` is the allocation of a 
 
 1. In your portfolio, choose to redeem the position (`redeem(position_id, to)`). The engine burns `D_p` units from your free units.
 2. On Base, the engine authorizes an ERC-721 `Release` with `vestedToRecipient = false`: any withdrawable balance is first withdrawn to the vault so accrued tokens stay with unit holders. Submit `executeRelease` from your EVM wallet. You see the stream NFT in your wallet.
-3. On Solana, the stream must carry no unconfirmed payout, and you also pay, from your claimable tokens of the class, what the stream still owes the unit holders. The engine builds `AdvanceNonceAccount` then `transfer_recipient` from the vault to your address, the app broadcasts it, then confirms it on NEAR (`confirm_sol_redeem`). You see the stream with your address as recipient.
+3. On Solana, the stream must carry no unconfirmed payout and be more than five minutes from its end, and you also pay, from your claimable tokens of the class, what the stream still owes the unit holders. The engine builds `AdvanceNonceAccount`, `transfer_recipient` from the vault to your address, then the receipt's `AdvanceNonceAccount`; the app broadcasts it, then confirms it on NEAR (`confirm_sol_redeem`, which reads the receipt). You see the stream with your address as recipient.
 
 Units locked in a round and encumbered units cannot be redeemed.

@@ -70,7 +70,7 @@ The seller, until `ts = closes_at`. Sold units accrue to the buyer from `ts`. Un
 
 ### What positions are supported?
 
-Sablier Lockup v4 streams on Base Sepolia (Lockup Linear only, created `transferable = true`, non-cancelable or renounced, not canceled or depleted, at least one whole token left to lock) and fee-free Streamflow streams on Solana devnet (`transfer_recipient` allowed for the recipient, no sender power left, a classic SPL Token mint without a freeze authority). Cancelable positions, Token-2022 mints and mints with a freeze authority are refused.
+Sablier Lockup v4 streams on Base Sepolia (Lockup Linear only, created `transferable = true`, non-cancelable or renounced, not canceled or depleted, at least one whole token left to lock) and fee-free Streamflow streams on Solana devnet (`transfer_recipient` allowed for the recipient, no sender power left, an end more than one hour away, a classic SPL Token mint without a freeze authority). Cancelable positions, Token-2022 mints and mints with a freeze authority are refused.
 
 ### My team vesting is not transferable. Can I use rose?
 
@@ -132,7 +132,7 @@ No. Every lifecycle transition is a public method callable by anyone; the app sh
 
 ### Why are payouts "pull-based"?
 
-Because pushing a payout to a foreign chain would need a relayer. Instead the engine debits your balance, stores an MPC-signed authorization (or a signed Solana transaction) on NEAR, and you submit it yourself. It never expires, cannot be used twice, and anyone can submit it for you. A Solana payout is then confirmed on NEAR (`confirm_sol_payout`) with a proof that it landed; it is refunded only on two proofs, 150 blocks apart, that it did not execute.
+Because pushing a payout to a foreign chain would need a relayer. Instead the engine debits your balance, stores an MPC-signed authorization (or a signed Solana transaction) on NEAR, and you submit it yourself. It never expires, cannot be used twice, and anyone can submit it for you. A Solana payout is then confirmed on NEAR (`confirm_sol_payout`) with a proof of its receipt nonce account, which the transaction advances last: on the nonce's new value it landed; it is refunded only on two proofs, 150 blocks apart, that the receipt stayed behind.
 
 ## Chains
 
