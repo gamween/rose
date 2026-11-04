@@ -1,0 +1,52 @@
+[package]
+name = "rose-ibe"
+version = "0.1.0"
+description = "Boneh-Franklin IBE (Fujisaki-Okamoto) for rose sealed bids, keyed to NEAR MPC Confidential Key Derivation identities"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = ["std"]
+std = [
+    "ark-bls12-381/std",
+    "ark-ec/std",
+    "ark-ff/std",
+    "ark-serialize/std",
+    "bs58/std",
+    "hex?/std",
+    "sha2/std",
+    "sha3/std",
+]
+near = ["std", "dep:near-sdk"]
+wasm = [
+    "std",
+    "dep:getrandom",
+    "dep:hex",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "getrandom/js",
+    "rand_core/getrandom",
+]
+
+[dependencies]
+ark-bls12-381 = { version = "0.4", default-features = false, features = ["curve"] }
+ark-ec = { version = "0.4", default-features = false }
+ark-ff = { version = "0.4", default-features = false }
+ark-serialize = { version = "0.4", default-features = false }
+bs58 = { version = "0.5", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+hex = { version = "0.4", default-features = false, features = ["alloc"], optional = true }
+rand_core = { version = "0.6", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false }
+near-sdk = { version = "5.30", default-features = false, optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+getrandom = { version = "0.2", optional = true }
+
+[dev-dependencies]
+near-sdk = { version = "5.30", default-features = false, features = ["unit-testing"] }
+hex = "0.4"
+rand = "0.8"

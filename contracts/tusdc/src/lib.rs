@@ -92,7 +92,10 @@ impl Contract {
             let cost = self.storage_balance_bounds().min;
             require!(
                 refund >= cost,
-                format!("Attach {} yoctoNEAR to register the account", cost.as_yoctonear())
+                format!(
+                    "Attach {} yoctoNEAR to register the account",
+                    cost.as_yoctonear()
+                )
             );
             self.token.internal_register_account(&account);
             refund = refund.saturating_sub(cost);
@@ -274,7 +277,11 @@ mod tests {
         let cost = registration_cost(&c);
         context(accounts(1), cost, 1);
         c.mint(U128(MINT_CAP));
-        context(accounts(1), NearToken::from_yoctonear(0), 1 + MINT_WINDOW_NS);
+        context(
+            accounts(1),
+            NearToken::from_yoctonear(0),
+            1 + MINT_WINDOW_NS,
+        );
         c.mint(U128(MINT_CAP));
         assert_eq!(c.ft_balance_of(accounts(1)).0, 2 * MINT_CAP);
     }

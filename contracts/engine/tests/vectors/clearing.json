@@ -1,0 +1,2034 @@
+{
+  "bps_denominator": 10000,
+  "cases": [
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "900",
+            "id": 1,
+            "qty": "100"
+          },
+          {
+            "cash": "0",
+            "id": 2,
+            "qty": "0"
+          }
+        ],
+        "charged": "900",
+        "fee": "3",
+        "outcome": "cleared",
+        "price": "9",
+        "refund": "50",
+        "volume": "100"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "9",
+            "qty": "100"
+          },
+          {
+            "id": 2,
+            "price": "10",
+            "qty": "10"
+          }
+        ],
+        "budget": "950",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: spec example",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "240",
+            "id": 1,
+            "qty": "30"
+          },
+          {
+            "cash": "104",
+            "id": 2,
+            "qty": "13"
+          },
+          {
+            "cash": "56",
+            "id": 3,
+            "qty": "7"
+          }
+        ],
+        "charged": "400",
+        "fee": "2",
+        "outcome": "cleared",
+        "price": "8",
+        "refund": "0",
+        "volume": "50"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "5",
+            "qty": "30"
+          },
+          {
+            "id": 2,
+            "price": "8",
+            "qty": "40"
+          },
+          {
+            "id": 3,
+            "price": "8",
+            "qty": "20"
+          }
+        ],
+        "budget": "400",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: marginal level rationed by largest remainder",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "50",
+            "id": 1,
+            "qty": "10"
+          },
+          {
+            "cash": "0",
+            "id": 2,
+            "qty": "0"
+          }
+        ],
+        "charged": "50",
+        "fee": "1",
+        "outcome": "cleared",
+        "price": "5",
+        "refund": "10",
+        "volume": "10"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "5",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "6",
+            "qty": "10"
+          }
+        ],
+        "budget": "60",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: equal volumes tie to the lowest price",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "0",
+            "id": 9,
+            "qty": "0"
+          },
+          {
+            "cash": "5",
+            "id": 3,
+            "qty": "1"
+          },
+          {
+            "cash": "5",
+            "id": 5,
+            "qty": "1"
+          }
+        ],
+        "charged": "10",
+        "fee": "1",
+        "outcome": "cleared",
+        "price": "5",
+        "refund": "0",
+        "volume": "2"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 9,
+            "price": "5",
+            "qty": "1"
+          },
+          {
+            "id": 3,
+            "price": "5",
+            "qty": "1"
+          },
+          {
+            "id": 5,
+            "price": "5",
+            "qty": "1"
+          }
+        ],
+        "budget": "10",
+        "max_price": "5",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: equal remainders tie to the lower id",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "11",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "12",
+            "qty": "5"
+          }
+        ],
+        "budget": "1000",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: asks above the max price never fill",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "1",
+            "qty": "10"
+          }
+        ],
+        "budget": "0",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: zero budget",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "asks": [],
+        "budget": "1000",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: empty book",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "0",
+            "id": 1,
+            "qty": "7"
+          },
+          {
+            "cash": "0",
+            "id": 2,
+            "qty": "0"
+          }
+        ],
+        "charged": "0",
+        "fee": "0",
+        "outcome": "cleared",
+        "price": "0",
+        "refund": "8",
+        "volume": "7"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "0",
+            "qty": "7"
+          },
+          {
+            "id": 2,
+            "price": "4",
+            "qty": "3"
+          }
+        ],
+        "budget": "8",
+        "max_price": "5",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: zero-price asks",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "1",
+            "id": 1,
+            "qty": "5"
+          },
+          {
+            "cash": "1",
+            "id": 2,
+            "qty": "4"
+          }
+        ],
+        "charged": "3",
+        "fee": "1",
+        "outcome": "cleared",
+        "price": "100",
+        "refund": "0",
+        "volume": "9"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "100",
+            "qty": "7"
+          },
+          {
+            "id": 2,
+            "price": "100",
+            "qty": "5"
+          }
+        ],
+        "budget": "3",
+        "max_price": "100",
+        "pricing": {
+          "locked_fraction_e18": "333333333333333333",
+          "token_decimals": 2
+        }
+      },
+      "name": "tender: rounding dust stays in the pool",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "61500000000",
+            "id": 1,
+            "qty": "250000000000000000000000"
+          },
+          {
+            "cash": "24600000000",
+            "id": 2,
+            "qty": "100000000000000000000000"
+          },
+          {
+            "cash": "0",
+            "id": 3,
+            "qty": "0"
+          }
+        ],
+        "charged": "86100000000",
+        "fee": "258300000",
+        "outcome": "cleared",
+        "price": "410000",
+        "refund": "13900000000",
+        "volume": "350000000000000000000000"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "410000",
+            "qty": "250000000000000000000000"
+          },
+          {
+            "id": 2,
+            "price": "395000",
+            "qty": "100000000000000000000000"
+          },
+          {
+            "id": 3,
+            "price": "450000",
+            "qty": "400000000000000000000000"
+          }
+        ],
+        "budget": "100000000000",
+        "max_price": "430000",
+        "pricing": {
+          "locked_fraction_e18": "600000000000000000",
+          "token_decimals": 18
+        }
+      },
+      "name": "tender: 18 decimals, 60% locked, USDC prices",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "120",
+            "id": 1,
+            "qty": "15"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "80",
+            "fee": "1",
+            "id": 1,
+            "qty": "10"
+          },
+          {
+            "cash": "40",
+            "fee": "1",
+            "id": 2,
+            "qty": "5"
+          }
+        ],
+        "notional": "120",
+        "outcome": "cleared",
+        "price": "8",
+        "volume": "15"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "5",
+            "qty": "15"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "15",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "12",
+            "qty": "10"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: midpoint of the tied interval",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "60",
+            "id": 1,
+            "qty": "10"
+          },
+          {
+            "cash": "0",
+            "id": 2,
+            "qty": "0"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "60",
+            "fee": "1",
+            "id": 1,
+            "qty": "10"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 2,
+            "qty": "0"
+          }
+        ],
+        "notional": "60",
+        "outcome": "cleared",
+        "price": "6",
+        "volume": "10"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "6",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "8",
+            "qty": "10"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "10",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "7",
+            "qty": "5"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: smallest imbalance wins the tie",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "100",
+            "id": 1,
+            "qty": "10"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "30",
+            "fee": "1",
+            "id": 3,
+            "qty": "3"
+          },
+          {
+            "cash": "40",
+            "fee": "1",
+            "id": 1,
+            "qty": "4"
+          },
+          {
+            "cash": "30",
+            "fee": "1",
+            "id": 2,
+            "qty": "3"
+          }
+        ],
+        "notional": "100",
+        "outcome": "cleared",
+        "price": "10",
+        "volume": "10"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "10",
+            "qty": "10"
+          }
+        ],
+        "bids": [
+          {
+            "id": 3,
+            "price": "10",
+            "qty": "6"
+          },
+          {
+            "id": 1,
+            "price": "10",
+            "qty": "6"
+          },
+          {
+            "id": 2,
+            "price": "10",
+            "qty": "6"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: long buyers rationed, extra unit to the lowest id",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "130",
+            "id": 1,
+            "qty": "10"
+          },
+          {
+            "cash": "117",
+            "id": 2,
+            "qty": "9"
+          },
+          {
+            "cash": "78",
+            "id": 3,
+            "qty": "6"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "325",
+            "fee": "1",
+            "id": 1,
+            "qty": "25"
+          }
+        ],
+        "notional": "325",
+        "outcome": "cleared",
+        "price": "13",
+        "volume": "25"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "3",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "7",
+            "qty": "12"
+          },
+          {
+            "id": 3,
+            "price": "7",
+            "qty": "8"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "20",
+            "qty": "25"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: long sellers rationed at the margin",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "70",
+            "id": 1,
+            "qty": "10"
+          },
+          {
+            "cash": "70",
+            "id": 2,
+            "qty": "10"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "70",
+            "fee": "1",
+            "id": 1,
+            "qty": "10"
+          },
+          {
+            "cash": "70",
+            "fee": "1",
+            "id": 2,
+            "qty": "10"
+          }
+        ],
+        "notional": "140",
+        "outcome": "cleared",
+        "price": "7",
+        "volume": "20"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "6",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "7",
+            "qty": "10"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "9",
+            "qty": "10"
+          },
+          {
+            "id": 2,
+            "price": "8",
+            "qty": "10"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: balanced book",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "5",
+            "qty": "10"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "4",
+            "qty": "10"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: no overlap",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "asks": [],
+        "bids": [],
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: empty book",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "1850000000",
+            "id": 1,
+            "qty": "4000000000"
+          },
+          {
+            "cash": "0",
+            "id": 2,
+            "qty": "0"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "1387500000",
+            "fee": "4162500",
+            "id": 1,
+            "qty": "3000000000"
+          },
+          {
+            "cash": "462500000",
+            "fee": "1387500",
+            "id": 2,
+            "qty": "1000000000"
+          }
+        ],
+        "notional": "1850000000",
+        "outcome": "cleared",
+        "price": "1850000",
+        "volume": "4000000000"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "1800000",
+            "qty": "4000000000"
+          },
+          {
+            "id": 2,
+            "price": "2000000",
+            "qty": "900000000"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "2100000",
+            "qty": "3000000000"
+          },
+          {
+            "id": 2,
+            "price": "1900000",
+            "qty": "1500000000"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "250000000000000000",
+          "token_decimals": 6
+        }
+      },
+      "name": "exit: 6 decimals, 25% locked",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "500",
+            "id": 7,
+            "qty": "50"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "300",
+            "fee": "1",
+            "id": 1,
+            "qty": "30"
+          },
+          {
+            "cash": "200",
+            "fee": "1",
+            "id": 2,
+            "qty": "20"
+          }
+        ],
+        "notional": "500",
+        "outcome": "cleared",
+        "price": "10",
+        "volume": "50"
+      },
+      "input": {
+        "ask": {
+          "claim": "100",
+          "id": 7,
+          "min_fill": "40",
+          "reserve": "10"
+        },
+        "bids": [
+          {
+            "id": 1,
+            "price": "12",
+            "qty": "30"
+          },
+          {
+            "id": 2,
+            "price": "11",
+            "qty": "20"
+          }
+        ],
+        "token_decimals": 0
+      },
+      "name": "advance: partial fill above the minimum",
+      "round": "advance"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "ask": {
+          "claim": "100",
+          "id": 7,
+          "min_fill": "51",
+          "reserve": "10"
+        },
+        "bids": [
+          {
+            "id": 1,
+            "price": "12",
+            "qty": "30"
+          },
+          {
+            "id": 2,
+            "price": "11",
+            "qty": "20"
+          }
+        ],
+        "token_decimals": 0
+      },
+      "name": "advance: below the minimum fill",
+      "round": "advance"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "400",
+            "id": 1,
+            "qty": "50"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "216",
+            "fee": "1",
+            "id": 1,
+            "qty": "27"
+          },
+          {
+            "cash": "104",
+            "fee": "1",
+            "id": 2,
+            "qty": "13"
+          },
+          {
+            "cash": "80",
+            "fee": "1",
+            "id": 3,
+            "qty": "10"
+          }
+        ],
+        "notional": "400",
+        "outcome": "cleared",
+        "price": "8",
+        "volume": "50"
+      },
+      "input": {
+        "ask": {
+          "claim": "50",
+          "id": 1,
+          "min_fill": "50",
+          "reserve": "8"
+        },
+        "bids": [
+          {
+            "id": 1,
+            "price": "9",
+            "qty": "40"
+          },
+          {
+            "id": 2,
+            "price": "9",
+            "qty": "20"
+          },
+          {
+            "id": 3,
+            "price": "12",
+            "qty": "10"
+          }
+        ],
+        "token_decimals": 0
+      },
+      "name": "advance: oversubscribed, funders rationed",
+      "round": "advance"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "3550000000",
+            "id": 1,
+            "qty": "5000000000000000000000"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "1420000000",
+            "fee": "4260000",
+            "id": 1,
+            "qty": "2000000000000000000000"
+          },
+          {
+            "cash": "2130000000",
+            "fee": "6390000",
+            "id": 2,
+            "qty": "3000000000000000000000"
+          }
+        ],
+        "notional": "3550000000",
+        "outcome": "cleared",
+        "price": "710000",
+        "volume": "5000000000000000000000"
+      },
+      "input": {
+        "ask": {
+          "claim": "5000000000000000000000",
+          "id": 1,
+          "min_fill": "1000000000000000000000",
+          "reserve": "700000"
+        },
+        "bids": [
+          {
+            "id": 1,
+            "price": "750000",
+            "qty": "2000000000000000000000"
+          },
+          {
+            "id": 2,
+            "price": "720000",
+            "qty": "4000000000000000000000"
+          }
+        ],
+        "token_decimals": 18
+      },
+      "name": "advance: 18 decimals",
+      "round": "advance"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "0",
+            "id": 1,
+            "qty": "0"
+          },
+          {
+            "cash": "48",
+            "id": 3,
+            "qty": "24"
+          },
+          {
+            "cash": "0",
+            "id": 5,
+            "qty": "0"
+          },
+          {
+            "cash": "8",
+            "id": 7,
+            "qty": "4"
+          },
+          {
+            "cash": "34",
+            "id": 9,
+            "qty": "17"
+          },
+          {
+            "cash": "10",
+            "id": 11,
+            "qty": "5"
+          },
+          {
+            "cash": "68",
+            "id": 13,
+            "qty": "34"
+          },
+          {
+            "cash": "0",
+            "id": 15,
+            "qty": "0"
+          }
+        ],
+        "charged": "168",
+        "fee": "1",
+        "outcome": "cleared",
+        "price": "2",
+        "refund": "0",
+        "volume": "84"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "5",
+            "qty": "16"
+          },
+          {
+            "id": 3,
+            "price": "1",
+            "qty": "24"
+          },
+          {
+            "id": 5,
+            "price": "12",
+            "qty": "18"
+          },
+          {
+            "id": 7,
+            "price": "2",
+            "qty": "30"
+          },
+          {
+            "id": 9,
+            "price": "1",
+            "qty": "17"
+          },
+          {
+            "id": 11,
+            "price": "2",
+            "qty": "39"
+          },
+          {
+            "id": 13,
+            "price": "1",
+            "qty": "34"
+          },
+          {
+            "id": 15,
+            "price": "6",
+            "qty": "10"
+          }
+        ],
+        "budget": "168",
+        "max_price": "5",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: generated 0",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "0",
+            "id": 1,
+            "qty": "0"
+          },
+          {
+            "cash": "15",
+            "id": 3,
+            "qty": "5"
+          },
+          {
+            "cash": "96",
+            "id": 5,
+            "qty": "32"
+          }
+        ],
+        "charged": "111",
+        "fee": "1",
+        "outcome": "cleared",
+        "price": "3",
+        "refund": "297",
+        "volume": "37"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "13",
+            "qty": "1"
+          },
+          {
+            "id": 3,
+            "price": "2",
+            "qty": "5"
+          },
+          {
+            "id": 5,
+            "price": "3",
+            "qty": "32"
+          }
+        ],
+        "budget": "408",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: generated 1",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "13",
+            "qty": "8"
+          },
+          {
+            "id": 3,
+            "price": "2",
+            "qty": "2"
+          }
+        ],
+        "budget": "438",
+        "max_price": "1",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: generated 2",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "90",
+            "id": 1,
+            "qty": "15"
+          },
+          {
+            "cash": "108",
+            "id": 3,
+            "qty": "18"
+          }
+        ],
+        "charged": "198",
+        "fee": "1",
+        "outcome": "cleared",
+        "price": "6",
+        "refund": "554",
+        "volume": "33"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "4",
+            "qty": "15"
+          },
+          {
+            "id": 3,
+            "price": "6",
+            "qty": "18"
+          }
+        ],
+        "budget": "752",
+        "max_price": "10",
+        "pricing": {
+          "locked_fraction_e18": "1000000000000000000",
+          "token_decimals": 0
+        }
+      },
+      "name": "tender: generated 3",
+      "round": "tender"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "130",
+            "id": 1,
+            "qty": "14"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 1,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 3,
+            "qty": "0"
+          },
+          {
+            "cash": "131",
+            "fee": "1",
+            "id": 5,
+            "qty": "14"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 7,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 9,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 11,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 13,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 15,
+            "qty": "0"
+          }
+        ],
+        "notional": "131",
+        "outcome": "cleared",
+        "price": "11",
+        "volume": "14"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "3",
+            "qty": "14"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "7",
+            "qty": "20"
+          },
+          {
+            "id": 3,
+            "price": "5",
+            "qty": "38"
+          },
+          {
+            "id": 5,
+            "price": "11",
+            "qty": "26"
+          },
+          {
+            "id": 7,
+            "price": "9",
+            "qty": "3"
+          },
+          {
+            "id": 9,
+            "price": "9",
+            "qty": "36"
+          },
+          {
+            "id": 11,
+            "price": "10",
+            "qty": "36"
+          },
+          {
+            "id": 13,
+            "price": "10",
+            "qty": "29"
+          },
+          {
+            "id": 15,
+            "price": "6",
+            "qty": "4"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "845087000000000001",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: generated 0",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "62",
+            "id": 1,
+            "qty": "7"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 1,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 3,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 5,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 7,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 9,
+            "qty": "0"
+          },
+          {
+            "cash": "63",
+            "fee": "1",
+            "id": 11,
+            "qty": "7"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 13,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 15,
+            "qty": "0"
+          }
+        ],
+        "notional": "63",
+        "outcome": "cleared",
+        "price": "13",
+        "volume": "7"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "4",
+            "qty": "7"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "3",
+            "qty": "30"
+          },
+          {
+            "id": 3,
+            "price": "12",
+            "qty": "31"
+          },
+          {
+            "id": 5,
+            "price": "10",
+            "qty": "38"
+          },
+          {
+            "id": 7,
+            "price": "9",
+            "qty": "31"
+          },
+          {
+            "id": 9,
+            "price": "6",
+            "qty": "6"
+          },
+          {
+            "id": 11,
+            "price": "13",
+            "qty": "8"
+          },
+          {
+            "id": 13,
+            "price": "5",
+            "qty": "33"
+          },
+          {
+            "id": 15,
+            "price": "4",
+            "qty": "22"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "684241000000000001",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: generated 1",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "145",
+            "id": 1,
+            "qty": "38"
+          },
+          {
+            "cash": "0",
+            "id": 3,
+            "qty": "0"
+          },
+          {
+            "cash": "49",
+            "id": 5,
+            "qty": "13"
+          },
+          {
+            "cash": "19",
+            "id": 7,
+            "qty": "5"
+          },
+          {
+            "cash": "0",
+            "id": 9,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "id": 11,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "id": 13,
+            "qty": "0"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "96",
+            "fee": "1",
+            "id": 1,
+            "qty": "25"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 3,
+            "qty": "0"
+          },
+          {
+            "cash": "4",
+            "fee": "1",
+            "id": 5,
+            "qty": "1"
+          },
+          {
+            "cash": "115",
+            "fee": "1",
+            "id": 7,
+            "qty": "30"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 9,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 11,
+            "qty": "0"
+          }
+        ],
+        "notional": "215",
+        "outcome": "cleared",
+        "price": "8",
+        "volume": "56"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "2",
+            "qty": "38"
+          },
+          {
+            "id": 3,
+            "price": "13",
+            "qty": "7"
+          },
+          {
+            "id": 5,
+            "price": "2",
+            "qty": "13"
+          },
+          {
+            "id": 7,
+            "price": "8",
+            "qty": "12"
+          },
+          {
+            "id": 9,
+            "price": "9",
+            "qty": "33"
+          },
+          {
+            "id": 11,
+            "price": "10",
+            "qty": "17"
+          },
+          {
+            "id": 13,
+            "price": "10",
+            "qty": "36"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "11",
+            "qty": "25"
+          },
+          {
+            "id": 3,
+            "price": "0",
+            "qty": "12"
+          },
+          {
+            "id": 5,
+            "price": "12",
+            "qty": "1"
+          },
+          {
+            "id": 7,
+            "price": "13",
+            "qty": "30"
+          },
+          {
+            "id": 9,
+            "price": "0",
+            "qty": "1"
+          },
+          {
+            "id": 11,
+            "price": "7",
+            "qty": "9"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "477102000000000001",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: generated 2",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "276",
+            "id": 1,
+            "qty": "30"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 1,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 3,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 5,
+            "qty": "0"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 7,
+            "qty": "0"
+          },
+          {
+            "cash": "19",
+            "fee": "1",
+            "id": 9,
+            "qty": "2"
+          },
+          {
+            "cash": "258",
+            "fee": "1",
+            "id": 11,
+            "qty": "28"
+          }
+        ],
+        "notional": "277",
+        "outcome": "cleared",
+        "price": "12",
+        "volume": "30"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "12",
+            "qty": "30"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "9",
+            "qty": "27"
+          },
+          {
+            "id": 3,
+            "price": "11",
+            "qty": "7"
+          },
+          {
+            "id": 5,
+            "price": "4",
+            "qty": "39"
+          },
+          {
+            "id": 7,
+            "price": "11",
+            "qty": "1"
+          },
+          {
+            "id": 9,
+            "price": "13",
+            "qty": "2"
+          },
+          {
+            "id": 11,
+            "price": "12",
+            "qty": "30"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "767436000000000001",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: generated 3",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "0",
+            "id": 1,
+            "qty": "0"
+          },
+          {
+            "cash": "15",
+            "id": 3,
+            "qty": "11"
+          },
+          {
+            "cash": "0",
+            "id": 5,
+            "qty": "0"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "16",
+            "fee": "1",
+            "id": 1,
+            "qty": "11"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 3,
+            "qty": "0"
+          }
+        ],
+        "notional": "16",
+        "outcome": "cleared",
+        "price": "2",
+        "volume": "11"
+      },
+      "input": {
+        "asks": [
+          {
+            "id": 1,
+            "price": "4",
+            "qty": "15"
+          },
+          {
+            "id": 3,
+            "price": "2",
+            "qty": "38"
+          },
+          {
+            "id": 5,
+            "price": "7",
+            "qty": "10"
+          }
+        ],
+        "bids": [
+          {
+            "id": 1,
+            "price": "7",
+            "qty": "11"
+          },
+          {
+            "id": 3,
+            "price": "1",
+            "qty": "5"
+          }
+        ],
+        "pricing": {
+          "locked_fraction_e18": "697263000000000001",
+          "token_decimals": 0
+        }
+      },
+      "name": "exit: generated 4",
+      "round": "exit"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "ask": {
+          "claim": "42",
+          "id": 1,
+          "min_fill": "40",
+          "reserve": "8"
+        },
+        "bids": [
+          {
+            "id": 1,
+            "price": "0",
+            "qty": "30"
+          },
+          {
+            "id": 3,
+            "price": "0",
+            "qty": "22"
+          },
+          {
+            "id": 5,
+            "price": "9",
+            "qty": "17"
+          },
+          {
+            "id": 7,
+            "price": "4",
+            "qty": "16"
+          },
+          {
+            "id": 9,
+            "price": "2",
+            "qty": "20"
+          }
+        ],
+        "token_decimals": 0
+      },
+      "name": "advance: generated 0",
+      "round": "advance"
+    },
+    {
+      "expected": {
+        "asks": [
+          {
+            "cash": "144",
+            "id": 1,
+            "qty": "48"
+          }
+        ],
+        "bids": [
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 1,
+            "qty": "0"
+          },
+          {
+            "cash": "42",
+            "fee": "1",
+            "id": 3,
+            "qty": "14"
+          },
+          {
+            "cash": "30",
+            "fee": "1",
+            "id": 5,
+            "qty": "10"
+          },
+          {
+            "cash": "0",
+            "fee": "0",
+            "id": 7,
+            "qty": "0"
+          },
+          {
+            "cash": "36",
+            "fee": "1",
+            "id": 9,
+            "qty": "12"
+          },
+          {
+            "cash": "36",
+            "fee": "1",
+            "id": 11,
+            "qty": "12"
+          }
+        ],
+        "notional": "144",
+        "outcome": "cleared",
+        "price": "3",
+        "volume": "48"
+      },
+      "input": {
+        "ask": {
+          "claim": "48",
+          "id": 1,
+          "min_fill": "32",
+          "reserve": "2"
+        },
+        "bids": [
+          {
+            "id": 1,
+            "price": "0",
+            "qty": "12"
+          },
+          {
+            "id": 3,
+            "price": "3",
+            "qty": "31"
+          },
+          {
+            "id": 5,
+            "price": "10",
+            "qty": "10"
+          },
+          {
+            "id": 7,
+            "price": "2",
+            "qty": "25"
+          },
+          {
+            "id": 9,
+            "price": "3",
+            "qty": "26"
+          },
+          {
+            "id": 11,
+            "price": "12",
+            "qty": "12"
+          }
+        ],
+        "token_decimals": 0
+      },
+      "name": "advance: generated 1",
+      "round": "advance"
+    },
+    {
+      "expected": {
+        "outcome": "no_crossing"
+      },
+      "input": {
+        "ask": {
+          "claim": "109",
+          "id": 1,
+          "min_fill": "92",
+          "reserve": "12"
+        },
+        "bids": [
+          {
+            "id": 1,
+            "price": "13",
+            "qty": "11"
+          },
+          {
+            "id": 3,
+            "price": "6",
+            "qty": "8"
+          },
+          {
+            "id": 5,
+            "price": "2",
+            "qty": "28"
+          },
+          {
+            "id": 7,
+            "price": "6",
+            "qty": "16"
+          },
+          {
+            "id": 9,
+            "price": "12",
+            "qty": "13"
+          },
+          {
+            "id": 11,
+            "price": "2",
+            "qty": "14"
+          },
+          {
+            "id": 13,
+            "price": "3",
+            "qty": "32"
+          }
+        ],
+        "token_decimals": 0
+      },
+      "name": "advance: generated 2",
+      "round": "advance"
+    }
+  ],
+  "description": "rose clearing vectors. Quantities are units (token base units); prices are cash base units per whole locked token (per claimed token in an Advance); buyers' cash is rounded up, sellers' cash rounded down; fees are ceil(cash * fee_bps / bps_denominator) per buyer.",
+  "fee_bps": 30
+}
