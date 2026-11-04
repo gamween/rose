@@ -4,10 +4,12 @@ import type { Page } from "@playwright/test";
 import { mockChains } from "./engine-mock";
 
 /**
- * The engine views the guided demo reads, recorded from `engine-s3.rose-app.testnet` after the
- * seed and the live end-to-end run of 2026-11-04 (`get_round`, `get_bids`, `get_class`,
- * `get_position`, `get_config` and every readable `get_events` entry; the staging engine cannot
- * deserialize seq 19, which is left out as it is on chain).
+ * The engine views the guided demo reads, recorded after the seed and the live end-to-end run of
+ * each seeded staging engine (`get_round`, `get_bids`, `get_class`, `get_position`, `get_config`
+ * and every readable `get_events` entry): `demo-engine-s3.json` (2026-11-04; `engine-s3` cannot
+ * deserialize seq 19, which is left out as it is on chain) and `demo-engine-s4.json` (2026-11-04).
+ * The suite uses the recording of the engine the app is built with (`NEXT_PUBLIC_ENGINE_ACCOUNT`).
+ * `expected` holds the values of that run the walkthrough must show.
  */
 
 interface Recording {
@@ -20,9 +22,26 @@ interface Recording {
   events: { seq: string }[];
   total: string;
   oldest: string;
+  expected: {
+    /** First 16 hex characters of the SHA-256 of the Exit's first sealed order, as posted. */
+    exitFirstSealedHash: string;
+    /** The Exit's close-to-key latency as the step shows it. */
+    exitKeyLatency: string;
+    /** The verification gas of the Exit's first opening as the step shows it. */
+    exitFirstOpeningGas: string;
+    /** The no-key round's id. */
+    noKeyRoundId: string;
+    /** The position redeemed in kind at the end of the Advance walkthrough. */
+    redeemedPositionId: string;
+  };
 }
 
-export const DEMO_RECORDING = JSON.parse(readFileSync(resolve(import.meta.dirname, "demo-engine-s3.json"), "utf8")) as Recording;
+const RECORDINGS = ["demo-engine-s4.json", "demo-engine-s3.json"].map(
+  (file) => JSON.parse(readFileSync(resolve(import.meta.dirname, file), "utf8")) as Recording,
+);
+
+export const DEMO_RECORDING: Recording =
+  RECORDINGS.find((recording) => recording.engine === process.env.NEXT_PUBLIC_ENGINE_ACCOUNT) ?? RECORDINGS[0]!;
 
 /** The latest final block the rounds list reads its clock from: the recording's last event. */
 function latestBlock() {

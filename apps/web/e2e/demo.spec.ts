@@ -4,9 +4,9 @@ import { DEMO_RECORDING, mockDemoEngine } from "./fixtures/demo-mock";
 
 /**
  * "Watch a full round" (spec 9). The demo exists only for an engine with a committed manifest,
- * so the suite needs a build configured with the seeded staging engine
- * (`deployments/engine-s3.rose-app.testnet.env`); the engine views are served from a recording
- * of that engine (`fixtures/demo-mock.ts`), the explorer links come from the manifest.
+ * so the suite needs a build configured with a seeded staging engine that has a recording
+ * (`deployments/engine-s4.rose-app.testnet.env` or `engine-s3`); the engine views are served from
+ * that recording (`fixtures/demo-mock.ts`), the explorer links come from the manifest.
  */
 
 const DEMO_BUILD = process.env.NEXT_PUBLIC_ENGINE_ACCOUNT === DEMO_RECORDING.engine;
@@ -53,19 +53,19 @@ test.describe("guided demo", () => {
     await page.locator("[data-demo-next]").click();
     await expect(page.locator("[data-demo-step]")).toHaveAttribute("data-demo-step", "seal");
     await expect(page.locator("[data-demo-sealed]")).toHaveCount(5);
-    await expect(page.locator("[data-demo-hash]").first()).toHaveAttribute("title", /^25881856ae31a85e/);
+    await expect(page.locator("[data-demo-hash]").first()).toHaveAttribute("title", new RegExp(`^${DEMO_RECORDING.expected.exitFirstSealedHash}`));
     await expect(page.getByText("as posted", { exact: true })).toHaveCount(5);
     await expect(page.locator("[data-demo-step]")).toContainText("Nadia Solvik posted a deliberately malformed ciphertext");
 
     await page.keyboard.press("ArrowRight");
-    await expect(page.locator("[data-demo-latency]")).toHaveText("4.25 s");
+    await expect(page.locator("[data-demo-latency]")).toHaveText(DEMO_RECORDING.expected.exitKeyLatency);
     await expect(page.locator("[data-demo-event='key_received']")).toHaveCount(1);
 
     await page.keyboard.press("ArrowRight");
     await expect(page.locator("[data-demo-step]")).toHaveAttribute("data-demo-step", "open");
     await expect(page.locator("[data-demo-check='match']")).toHaveCount(4);
     await expect(page.locator("[data-demo-opening='4'] [data-demo-check='unopenable']")).toBeVisible();
-    await expect(page.locator("[data-demo-opening='0']")).toContainText("132.1 Tgas");
+    await expect(page.locator("[data-demo-opening='0']")).toContainText(DEMO_RECORDING.expected.exitFirstOpeningGas);
     await expect(page.getByText("refused on chain, as intended")).toBeVisible();
 
     await page.keyboard.press("ArrowRight");
@@ -97,7 +97,7 @@ test.describe("guided demo", () => {
     await page.locator("[data-demo-scenario='no-key']").click();
     await expect(page.locator("[data-demo-step]")).toHaveAttribute("data-demo-step", "create");
     await expect(page.locator("[data-demo-position]")).toHaveCount(0);
-    await expect(page.locator("[data-demo-panel='parameters']")).toContainText("Round #4");
+    await expect(page.locator("[data-demo-panel='parameters']")).toContainText(`Round #${DEMO_RECORDING.expected.noKeyRoundId}`);
     await page.locator("[data-demo-play]").click();
     await expect(page.locator("[data-demo-play]")).toHaveAttribute("aria-pressed", "true");
     await expect(page).toHaveURL(/autoplay=1/);
@@ -110,7 +110,7 @@ test.describe("guided demo", () => {
     await page.locator("[data-demo-scenario='advance']").click();
     await page.keyboard.press("End");
     await expect(page.locator("[data-demo-step]")).toHaveAttribute("data-demo-step", "redeem");
-    await expect(page.locator("[data-demo-position='11']")).toContainText("Released");
+    await expect(page.locator(`[data-demo-position='${DEMO_RECORDING.expected.redeemedPositionId}']`)).toContainText("Released");
     expect(errors).toEqual([]);
   });
 });
