@@ -6,11 +6,12 @@ use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use proptest::prelude::*;
 use rose_engine::foreign::evm::{
     address_from_near_public_key, address_from_public_key, is_low_s, is_valid_ecdsa_payload,
-    is_valid_near_account_id, keccak256, parse_address, parse_near_secp256k1, CashDeposited,
-    Eip712Domain, EvmSignature, KeyError, LogError, LogLocation, ReleaseAuthorization,
-    SignatureError, StreamDeposited, TransferAuthorization, Word, BASE_SEPOLIA_CHAIN_ID,
-    CASH_DEPOSITED_TOPIC, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH, EIP712_DOMAIN_TYPEHASH,
-    RELEASE_TYPEHASH, SECP256K1_HALF_N, SECP256K1_N, STREAM_DEPOSITED_TOPIC, TRANSFER_TYPEHASH,
+    is_valid_near_account_id, keccak256, parse_address, parse_near_secp256k1, word_from_address,
+    word_from_u128, CashDeposited, Eip712Domain, EvmSignature, KeyError, LogError, LogLocation,
+    ReleaseAuthorization, SignatureError, StreamDeposited, TransferAuthorization, Word,
+    BASE_SEPOLIA_CHAIN_ID, CASH_DEPOSITED_TOPIC, DOMAIN_NAME_HASH, DOMAIN_VERSION_HASH,
+    EIP712_DOMAIN_TYPEHASH, RELEASE_TYPEHASH, SECP256K1_HALF_N, SECP256K1_N,
+    STREAM_DEPOSITED_TOPIC, TRANSFER_TYPEHASH,
 };
 use rose_engine::foreign::mpc::{
     parse_hex, parse_hex_array, Bytes20, Bytes32, EvmLog, Secp256k1Signature,
@@ -98,7 +99,9 @@ fn event_signatures_and_typehashes_are_keccak_of_their_strings() {
         TRANSFER_TYPEHASH
     );
     assert_eq!(
-        keccak256(b"Release(address lockup,uint256 streamId,address to,uint256 id)"),
+        keccak256(
+            b"Release(address lockup,uint256 streamId,address to,bool vestedToRecipient,uint256 id)"
+        ),
         RELEASE_TYPEHASH
     );
     assert_eq!(
@@ -326,11 +329,20 @@ fn eip712_digests_match_the_known_answer_vectors() {
         lockup: address("0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e"),
         stream_id: 81,
         to: address("0x000000000000000000000000000000000000b0b0"),
+        vested_to_recipient: false,
         id: 8,
     };
     assert_eq!(
         release.digest(&domain),
-        word("0x87ab8e82a059a262d10be8885c9b5993c14f8bbe9ba38e33cc96179b5f5ee308")
+        word("0xab3684e318c5c016035a36f948f02e970040e271317ea09a327d2c59f6fef666")
+    );
+    let refused_return = ReleaseAuthorization {
+        vested_to_recipient: true,
+        ..release
+    };
+    assert_eq!(
+        refused_return.digest(&domain),
+        word("0x1aa2f755fbde4c0062a5437278478f1b0f3820980c2ef5560ac419d7dc5eafe3")
     );
     let deployed = Eip712Domain {
         chain_id: BASE_SEPOLIA_CHAIN_ID,
@@ -509,12 +521,18 @@ fn vault_spike_release_and_transfer_signatures_recover_the_spike_signer() {
         chain_id: BASE_SEPOLIA_CHAIN_ID,
         verifying_contract: address("0x3985dDBBE8477Dd42bd5E19F8726Aae7a339b5e0"),
     };
-    let release = ReleaseAuthorization {
-        lockup: address("0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e"),
-        stream_id: 83,
-        to: signer,
-        id: 1,
-    };
+    // The spike vault predates `vestedToRecipient`: its release digest uses the four-field type.
+    let spike_release_typehash =
+        keccak256(b"Release(address lockup,uint256 streamId,address to,uint256 id)");
+    let mut spike_release = Vec::with_capacity(5 * 32);
+    spike_release.extend_from_slice(&spike_release_typehash);
+    spike_release.extend_from_slice(&word_from_address(&address(
+        "0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e",
+    )));
+    spike_release.extend_from_slice(&word_from_u128(83));
+    spike_release.extend_from_slice(&word_from_address(&signer));
+    spike_release.extend_from_slice(&word_from_u128(1));
+    let release_digest = domain.digest(&keccak256(&spike_release));
     let transfer = TransferAuthorization {
         token: address("0x17E75069DD837EDA977AbEDF7a455aDda42868A9"),
         to: signer,
@@ -523,7 +541,7 @@ fn vault_spike_release_and_transfer_signatures_recover_the_spike_signer() {
     };
     let cases = [
         (
-            release.digest(&domain),
+            release_digest,
             "0xe25bf93a17740ebde1054daaac8fde302fbaab819e01b917c92f6066aeaf3d74",
             "0xc6fc6fd56b93fec5a1fd7cc0634db7f068bb4b8f4da7e4b509dc3c462f216da1",
             "0x7e9ee972d847a7ba2d827f4091f9e81051856615fee4f6d8be9e4dcfbedd4f52",

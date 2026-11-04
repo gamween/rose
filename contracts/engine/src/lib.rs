@@ -45,11 +45,15 @@ pub use custody::{
     RECORD_STORAGE_DEPOSIT,
 };
 pub use events::{RoseEvent, StoredEvent, EVENT_CAPACITY, EVENT_STANDARD, EVENT_VERSION};
-pub use storage::{StorageBalance, StorageBalanceBounds, HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
+pub use storage::{
+    StorageBalance, StorageBalanceBounds, CASH_ROW_BYTES, HOLDING_ROW_BYTES, LIEN_SHARE_ROW_BYTES,
+    STORAGE_ACCOUNT_BYTES,
+};
 pub use types::*;
 pub use units::{MtReceiver, Token};
 
 use events::StoredEvent as HistoryEvent;
+use foreign::evm;
 
 /// Storage deposit required to place a bid or an ask. Refunded when the bid settles, net of the
 /// bytes the engine keeps for it (its outcome in the round result and, for an Advance funder, its
@@ -68,6 +72,22 @@ pub const ONE_USDC: u128 = 1_000_000;
 pub const DEFAULT_KEY_TIMEOUT_NS: u64 = 60 * 60 * 1_000_000_000;
 /// Default `reveal_window`: ten minutes (spec: 24 h suggested in production).
 pub const DEFAULT_REVEAL_WINDOW_NS: u64 = 10 * 60 * 1_000_000_000;
+/// Shortest `key_timeout`: one minute, enough for a `close` sent right after `closes_at` to land
+/// and get its key (about 5 s). A shorter timeout could let a round be cancelled before anyone
+/// can close it.
+pub const MIN_KEY_TIMEOUT_NS: u64 = 60 * 1_000_000_000;
+/// Longest `key_timeout`: seven days. Past it `cancel_no_key` must become available, so a round
+/// whose key never comes cannot hold escrows, bonds and locked units for longer.
+pub const MAX_KEY_TIMEOUT_NS: u64 = 7 * 24 * 60 * 60 * 1_000_000_000;
+/// Shortest `reveal_window`: five minutes. The key arrives in a callback, so a window measured in
+/// blocks would let nobody open anything and every bond would be slashed; five minutes leave
+/// time to open a full book (64 orders, one transaction each, about 2 s apart).
+pub const MIN_REVEAL_WINDOW_NS: u64 = 5 * 60 * 1_000_000_000;
+/// Longest `reveal_window`: seven days. `clear` waits for the end of the window, so an unbounded
+/// window would freeze every escrow, bond and locked unit of the round.
+pub const MAX_REVEAL_WINDOW_NS: u64 = 7 * 24 * 60 * 60 * 1_000_000_000;
+/// Longest time between a round's creation and its `closes_at`: thirty days.
+pub const MAX_ROUND_HORIZON_NS: u64 = 30 * 24 * 60 * 60 * 1_000_000_000;
 
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 
@@ -130,18 +150,27 @@ impl Contract {
             rose_ibe::parse_near_g2_bytes(&args.ckd_public_key).is_ok(),
             "Invalid CKD public key"
         );
-        require!(
-            args.base_cash_tokens.iter().all(|t| is_evm_address(t)),
-            "Base cash tokens must be lowercase 0x addresses"
-        );
-        require!(
-            is_evm_address(&args.rose_vault),
-            "Invalid RoseVault address"
-        );
-        require!(
-            is_evm_address(&args.sablier_lockup),
-            "Invalid Sablier Lockup address"
-        );
+        let base_cash_tokens: Vec<String> = args
+            .base_cash_tokens
+            .iter()
+            .map(|token| {
+                evm::canonical_address(token).unwrap_or_else(|| {
+                    env::panic_str("Base cash tokens must be 20-byte hex addresses")
+                })
+            })
+            .collect();
+        let rose_vault = evm::canonical_address(&args.rose_vault)
+            .unwrap_or_else(|| env::panic_str("Invalid RoseVault address"));
+        let sablier_lockup = evm::canonical_address(&args.sablier_lockup)
+            .unwrap_or_else(|| env::panic_str("Invalid Sablier Lockup address"));
+        let default_key_timeout = args
+            .default_key_timeout
+            .unwrap_or(U64(DEFAULT_KEY_TIMEOUT_NS));
+        let default_reveal_window = args
+            .default_reveal_window
+            .unwrap_or(U64(DEFAULT_REVEAL_WINDOW_NS));
+        rounds::require_key_timeout(default_key_timeout.0);
+        rounds::require_reveal_window(default_reveal_window.0);
         require!(args.base_chain_id != 0, "Base chain id is required");
         require!(
             !args.streamflow_program.is_empty(),
@@ -157,17 +186,13 @@ impl Contract {
                 ckd_public_key: args.ckd_public_key,
                 fee_recipient: args.fee_recipient,
                 near_cash_token: args.near_cash_token,
-                base_cash_tokens: args.base_cash_tokens,
-                rose_vault: args.rose_vault,
+                base_cash_tokens,
+                rose_vault,
                 base_chain_id: args.base_chain_id,
-                sablier_lockup: args.sablier_lockup,
+                sablier_lockup,
                 streamflow_program: args.streamflow_program,
-                default_key_timeout: args
-                    .default_key_timeout
-                    .unwrap_or(U64(DEFAULT_KEY_TIMEOUT_NS)),
-                default_reveal_window: args
-                    .default_reveal_window
-                    .unwrap_or(U64(DEFAULT_REVEAL_WINDOW_NS)),
+                default_key_timeout,
+                default_reveal_window,
                 derived_addresses: None,
             },
             classes: IterableMap::new(StorageKey::Classes),
@@ -340,15 +365,6 @@ pub(crate) fn now_secs() -> u64 {
 /// Unix seconds of a block timestamp in nanoseconds.
 pub(crate) fn secs_of(timestamp_ns: u64) -> u64 {
     timestamp_ns / NANOS_PER_SECOND
-}
-
-/// True for a lowercase `0x` + 40 hex characters EVM address.
-pub(crate) fn is_evm_address(value: &str) -> bool {
-    value.len() == 42
-        && value.starts_with("0x")
-        && value[2..]
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Requires exactly one yoctoNEAR attached (NEP-245 transfers).

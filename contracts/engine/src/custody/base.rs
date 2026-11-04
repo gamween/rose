@@ -49,7 +49,9 @@ impl Contract {
     /// refuses is recorded so `return_refused_deposit` can send the stream back to its sender.
     /// Anyone; attach `registration_deposit_for(nearAccount, class)` (the records' storage,
     /// kept, plus the credited account's holder storage, whose unused part is returned; without
-    /// a valid account or class, just [`RECORD_STORAGE_DEPOSIT`]) and about 60 Tgas. A failure on
+    /// a valid account or class, just [`RECORD_STORAGE_DEPOSIT`]) and 80 Tgas (after its own work
+    /// the call keeps 50 Tgas for the proof and its 20 Tgas callback, so 50 attached fails). A
+    /// failure on
     /// the MPC side (wrong values, unknown transaction, wrong log index, finality not reached)
     /// surfaces after about two minutes; the key is cleared, everything attached is returned and
     /// the call can be retried.
@@ -60,6 +62,7 @@ impl Contract {
         fields: StreamDepositedFields,
     ) -> Promise {
         Self::require_mpc_reserve();
+        let fields = canonical_stream_fields(fields);
         let event = stream_deposited(&fields);
         let needed = match self.base_deposit_target(&fields) {
             Some((account, class_id)) => {
@@ -126,10 +129,10 @@ impl Contract {
                     RefusedDeposit {
                         chain: Chain::Base,
                         asset: RefusedAsset::BaseStream {
-                            lockup: fields.lockup.to_lowercase(),
+                            lockup: fields.lockup.clone(),
                             stream_id: fields.stream_id,
                         },
-                        return_to: fields.sender.to_lowercase(),
+                        return_to: fields.sender.clone(),
                         near_account: fields.near_account.clone(),
                         reason,
                         return_payout: None,
@@ -148,8 +151,8 @@ impl Contract {
     /// engine does not accept for rounds (or earmarked for a round that does not exist) is never
     /// lost: it can only leave again through `withdraw_base_cash`, since rounds refuse venues
     /// outside the accepted list. Anyone; attach exactly [`RECORD_STORAGE_DEPOSIT`] for the
-    /// replay key and the cash row (kept; returned when the log is not attested) and about
-    /// 60 Tgas.
+    /// replay key, the credited account's cash row and, when it has none, its registration
+    /// (kept; returned when the log is not attested) and 80 Tgas.
     #[payable]
     pub fn register_base_cash(
         &mut self,
@@ -161,6 +164,7 @@ impl Contract {
             env::attached_deposit() == RECORD_STORAGE_DEPOSIT,
             "Attach exactly 0.015 NEAR as the record storage deposit"
         );
+        let fields = canonical_cash_fields(fields);
         let event = cash_deposited(&fields);
         let (key, request, hash) = self.base_log_request(&location, event.topics(), &event.data());
         self.mark_pending(&key);
@@ -200,11 +204,12 @@ impl Contract {
             self.refuse_cash(&key, "amount is zero");
             return false;
         }
-        let token = fields.token.to_lowercase();
+        let token = fields.token.clone();
         let venue = Venue::Base {
             token: token.clone(),
         };
         let accepted = self.venue_accepted(&venue);
+        self.pay_cash_row(&account, &venue);
         self.credit_cash(&account, &venue, fields.amount.0);
         self.emit(RoseEvent::CashDeposited {
             account: account.clone(),
@@ -283,6 +288,22 @@ impl Contract {
         self.custody.refused.insert(key.clone(), refused);
     }
 
+    /// Pays the storage of `account`'s new cash row in `venue` (and of its registration, when it
+    /// has none) out of the record deposit the registration kept, so the credited account never
+    /// needs to have registered before its Base cash arrives.
+    fn pay_cash_row(&mut self, account: &AccountId, venue: &Venue) {
+        let mut bytes = self.cash_row_bytes_needed(account, venue);
+        if bytes == 0 {
+            return;
+        }
+        if !self.is_registered(account) {
+            bytes += crate::STORAGE_ACCOUNT_BYTES;
+        }
+        let budget = crate::storage::bytes_cost(bytes);
+        let rest = self.register_with_budget(account, budget);
+        self.top_up_storage(account, rest);
+    }
+
     fn refuse_cash(&mut self, key: &ReplayKey, reason: &str) {
         self.emit(RoseEvent::DepositRefused {
             key: key.clone(),
@@ -296,12 +317,7 @@ impl Contract {
         let account = fields.near_account.parse::<AccountId>().ok()?;
         let stream = SablierLinearStream::new(stream_deposited(fields).sablier_params()).ok()?;
         let schedule = ClassSchedule::from_sablier(&stream, fields.decimals).ok()?;
-        let class_id = crate::class_id_of(
-            Chain::Base,
-            &fields.token.to_lowercase(),
-            fields.decimals,
-            &schedule,
-        );
+        let class_id = crate::class_id_of(Chain::Base, &fields.token, fields.decimals, &schedule);
         Some((account, class_id))
     }
 
@@ -314,7 +330,7 @@ impl Contract {
         fields: &StreamDepositedFields,
         budget: u128,
     ) -> Result<u128, String> {
-        if fields.lockup.to_lowercase() != self.config.sablier_lockup {
+        if fields.lockup != self.config.sablier_lockup {
             return Err("stream is not on the canonical Sablier Lockup".to_string());
         }
         if fields.cancelable {
@@ -334,8 +350,8 @@ impl Contract {
             .map_err(|e| e.to_string())?;
         let schedule =
             ClassSchedule::from_sablier(&stream, fields.decimals).map_err(|e| e.to_string())?;
-        let token = fields.token.to_lowercase();
-        let class_id = self.ensure_class(Chain::Base, token, fields.decimals, schedule);
+        let class_id =
+            self.ensure_class(Chain::Base, fields.token.clone(), fields.decimals, schedule);
         let remainder = self.cover_holder_storage(&account, &class_id, budget);
         let (units, checkpoint) = self.deposit_units(
             &class_id,
@@ -385,7 +401,9 @@ impl Contract {
         )
     }
 
-    /// Signs `Release(lockup, streamId, to, id)` for a refused Base stream.
+    /// Signs `Release(lockup, streamId, to, vestedToRecipient = true, id)` for a refused Base
+    /// stream: no unit was minted for it, so what vested while the vault held it goes back to
+    /// `to` with the stream.
     pub(super) fn return_base_stream(
         &mut self,
         key: &ReplayKey,
@@ -400,6 +418,7 @@ impl Contract {
                 lockup: lockup.to_string(),
                 stream_id,
                 to: to.to_string(),
+                vested_to_recipient: true,
             },
             PayoutDebit::None,
             &caller,
@@ -414,6 +433,7 @@ impl Contract {
             lockup: evm::parse_address(lockup).expect("stored lowercase address"),
             stream_id,
             to: evm::parse_address(to).expect("stored lowercase address"),
+            vested_to_recipient: true,
             id,
         };
         self.request_base_signature(id, authorization.digest(&self.eip712_domain()))
@@ -511,8 +531,8 @@ impl Contract {
 
     /// Re-requests the `vault/base` signature of a Base authorization still `Requested`, once its
     /// last request failed or [`PENDING_EXPIRY_BLOCKS`] blocks after it (its callback ran out of
-    /// gas): the same digest and id are signed again and nothing is debited. Anyone; about
-    /// 60 Tgas.
+    /// gas): the same digest and id are signed again and nothing is debited. Anyone; attach
+    /// 80 Tgas.
     pub fn retry_base_signature(&mut self, payout_id: U64) -> Promise {
         let payout = self.payout(payout_id.0).clone();
         require!(payout.chain == Chain::Base, "Not a Base authorization");
@@ -593,7 +613,34 @@ pub fn deposit_units_of(
     (units, checkpoint)
 }
 
-/// The typed event of decoded `StreamDeposited` fields (addresses in any case).
+/// `fields` with every address in its canonical spelling (see [`evm::canonical_address`]).
+/// Applied first by every Base registration, so the class id, the venue, the lockup check and
+/// the return address never depend on how the caller spelled an address.
+fn canonical_stream_fields(fields: StreamDepositedFields) -> StreamDepositedFields {
+    StreamDepositedFields {
+        sender: canonical_address(&fields.sender, "sender"),
+        lockup: canonical_address(&fields.lockup, "lockup"),
+        token: canonical_address(&fields.token, "token"),
+        ..fields
+    }
+}
+
+/// `fields` with every address in its canonical spelling.
+fn canonical_cash_fields(fields: CashDepositedFields) -> CashDepositedFields {
+    CashDepositedFields {
+        sender: canonical_address(&fields.sender, "sender"),
+        token: canonical_address(&fields.token, "token"),
+        ..fields
+    }
+}
+
+/// The canonical spelling of an EVM address argument, or a panic naming it.
+pub(crate) fn canonical_address(text: &str, what: &str) -> String {
+    evm::canonical_address(text)
+        .unwrap_or_else(|| env::panic_str(&format!("{what} must be a 20-byte hex address")))
+}
+
+/// The typed event of decoded `StreamDeposited` fields.
 fn stream_deposited(fields: &StreamDepositedFields) -> StreamDeposited {
     StreamDeposited {
         sender: parse_address(&fields.sender, "sender"),

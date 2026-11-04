@@ -2,7 +2,9 @@
 //!
 //! The `Near` venue is funded by `ft_transfer_call` of the configured NEP-141 token and emptied by
 //! `withdraw_near_cash`. Base venues are funded by RoseVault `depositCash` proofs and emptied by
-//! RoseVault authorizations (foreign wiring), through `credit_cash` and `debit_cash`.
+//! RoseVault authorizations (foreign wiring), through `credit_cash` and `debit_cash`. Each
+//! `(account, venue)` row with a balance is charged to the account's NEP-145 storage
+//! ([`CASH_ROW_BYTES`]) and released when the balance returns to zero.
 
 use near_sdk::json_types::U128;
 use near_sdk::{
@@ -10,6 +12,7 @@ use near_sdk::{
     PromiseOrValue,
 };
 
+use crate::storage::CASH_ROW_BYTES;
 use crate::types::Venue;
 use crate::{Contract, ContractExt, RoseEvent};
 
@@ -26,8 +29,9 @@ pub trait FungibleToken {
 #[near]
 impl Contract {
     /// NEP-141 receiver: credits `amount` of the configured NEAR cash token to `sender_id`'s
-    /// `Near` venue. Only the cash token may call it; `msg` must be empty. Returns `0` (nothing
-    /// is refunded).
+    /// `Near` venue. Only the cash token may call it; `msg` must be empty. A sender without a
+    /// cash row yet must be registered (`storage_deposit`) with room for one: otherwise the call
+    /// fails and the token refunds the whole transfer. Returns `0` (nothing is refunded).
     pub fn ft_on_transfer(
         &mut self,
         sender_id: AccountId,
@@ -40,6 +44,10 @@ impl Contract {
         );
         require!(msg.is_empty(), "msg must be empty");
         require!(amount.0 > 0, "Amount must be positive");
+        self.require_storage_capacity(
+            &sender_id,
+            self.cash_row_bytes_needed(&sender_id, &Venue::Near),
+        );
         self.credit_cash(&sender_id, &Venue::Near, amount.0);
         self.emit(RoseEvent::CashDeposited {
             account: sender_id,
@@ -113,18 +121,35 @@ impl Contract {
             .unwrap_or(0)
     }
 
+    /// Bytes a new cash row of `venue` would add to `account`: [`CASH_ROW_BYTES`] when it has
+    /// no balance there yet, `0` otherwise.
+    pub(crate) fn cash_row_bytes_needed(&self, account: &AccountId, venue: &Venue) -> u64 {
+        if self.cash.contains_key(&(account.clone(), venue.clone())) {
+            0
+        } else {
+            CASH_ROW_BYTES
+        }
+    }
+
     /// Adds `amount` to `account`'s free cash in `venue`. Internal API for Base cash deposits,
-    /// refunds and proceeds. A zero amount is a no-op.
+    /// refunds and proceeds. A zero amount is a no-op. A new row is charged to the account's
+    /// storage: voluntary deposits check the capacity first (`ft_on_transfer`) or pay it
+    /// (`register_base_cash`); for what the engine owes (refunds, proceeds) a missing deposit is
+    /// paid by the engine, as for holding rows.
     pub fn credit_cash(&mut self, account: &AccountId, venue: &Venue, amount: u128) {
         if amount == 0 {
             return;
         }
         let key = (account.clone(), venue.clone());
-        let balance = self.cash.get(&key).copied().unwrap_or(0);
-        let balance = balance
+        let existing = self.cash.get(&key).copied();
+        let balance = existing
+            .unwrap_or(0)
             .checked_add(amount)
             .unwrap_or_else(|| env::panic_str("Cash overflow"));
         self.cash.insert(key, balance);
+        if existing.is_none() {
+            self.charge_storage(account, CASH_ROW_BYTES);
+        }
     }
 
     /// Removes `amount` from `account`'s free cash in `venue`, or panics with
@@ -140,6 +165,7 @@ impl Contract {
             .unwrap_or_else(|| env::panic_str("Insufficient cash"));
         if balance == 0 {
             self.cash.remove(&key);
+            self.release_storage(account, CASH_ROW_BYTES);
         } else {
             self.cash.insert(key, balance);
         }

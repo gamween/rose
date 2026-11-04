@@ -321,3 +321,100 @@ fn a_round_holds_at_most_64_sealed_orders_and_clears_them_in_one_call() {
     assert_eq!(cash(&contract, &seller), USDC + 63 * 500_000);
     assert_eq!(contract.get_round(U64(round)).unwrap().settled_count, 64);
 }
+
+#[test]
+fn a_covered_bid_is_measured_against_the_supply_at_creation_not_after_a_redeem() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let (seller, redeemer, buyer, greedy) = (accounts(1), accounts(2), accounts(3), accounts(4));
+    mint(&mut contract, &class, &seller, 1_800_000, ts(1_000));
+    mint(&mut contract, &class, &redeemer, 200_000, ts(1_000));
+    let round = create_exit(
+        &mut contract,
+        &accounts(0),
+        &class,
+        2_000_000,
+        ts(2_500),
+        ts(6_000),
+    );
+    assert_eq!(
+        contract.get_round(U64(round)).unwrap().max_buy_quantity,
+        Some(U128(2_000_000))
+    );
+    let quote = contract.quote_buy(U64(round), U128(2_000_000), U128(1_000_000));
+    let escrow = quote.escrow_required.0;
+    fund(&mut contract, &seller, USDC, ts(1_000));
+    fund(&mut contract, &buyer, escrow + quote.bond.0, ts(1_000));
+    let over = contract.quote_buy(U64(round), U128(2_000_001), U128(1_000_000));
+    fund(
+        &mut contract,
+        &greedy,
+        over.escrow_required.0 + over.bond.0,
+        ts(1_000),
+    );
+    let (ask, ask_sealed) = place_ask(
+        &mut contract,
+        round,
+        &seller,
+        1_800_000,
+        900_000,
+        1_800_000,
+        ts(3_000),
+    );
+    let (bid, bid_sealed) = place_bid(
+        &mut contract,
+        round,
+        &buyer,
+        2_000_000,
+        1_000_000,
+        escrow,
+        ts(3_500),
+    );
+    let (greedy_bid, greedy_sealed) = place_bid(
+        &mut contract,
+        round,
+        &greedy,
+        2_000_001,
+        1_000_000,
+        over.escrow_required.0,
+        ts(3_500),
+    );
+    // A redeem burns 200,000 units before the opening: the live supply drops to 1,800,000.
+    env_at(&engine(), ts(4_000));
+    contract.burn_units(&class, &redeemer, 200_000);
+    assert_eq!(contract.mt_supply(class.clone()), Some(U128(1_800_000)));
+
+    let received = close_and_release(&mut contract, round, ts(6_000));
+    open(&mut contract, round, ask, &ask_sealed, received + NS);
+    open(&mut contract, round, bid, &bid_sealed, received + NS);
+    open(
+        &mut contract,
+        round,
+        greedy_bid,
+        &greedy_sealed,
+        received + NS,
+    );
+    let book = contract.get_bids(U64(round));
+    assert_eq!(
+        book[bid as usize].void, None,
+        "covered at creation: never void"
+    );
+    assert_eq!(
+        book[greedy_bid as usize].void,
+        Some(VoidReason::QuantityAboveSupply),
+        "above the supply the round fixed at creation"
+    );
+    clear(&mut contract, round, received + REVEAL_WINDOW);
+    let result = contract.get_round_result(U64(round)).unwrap();
+    assert_eq!(result.fills[bid as usize].fill_quantity, U128(1_800_000));
+    assert_eq!(result.fills[bid as usize].void, None);
+    settle(&mut contract, round, bid, received + REVEAL_WINDOW);
+    assert_eq!(
+        contract.mt_balance_of(buyer.clone(), class.clone()),
+        U128(1_800_000)
+    );
+    assert!(
+        cash(&contract, &buyer) >= quote.bond.0,
+        "the bond came back"
+    );
+}

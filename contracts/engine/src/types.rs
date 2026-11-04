@@ -43,6 +43,19 @@ pub enum Venue {
     Base { token: String },
 }
 
+impl Venue {
+    /// The venue with its token address in canonical spelling (any spelling of a valid address
+    /// names the same venue); an invalid address is kept, and no venue list contains it.
+    pub fn canonical(self) -> Self {
+        match self {
+            Self::Base { token } => Self::Base {
+                token: crate::foreign::evm::canonical_address(&token).unwrap_or(token),
+            },
+            Self::Near => Self::Near,
+        }
+    }
+}
+
 /// Owner of class units in the holdings ledger.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
 pub enum Holder {
@@ -207,7 +220,8 @@ pub enum VoidReason {
     Unopened,
     /// A buyer's `charge(limit, quantity) + fee` exceeds its escrow.
     EscrowTooSmall,
-    /// A buyer's quantity exceeds what exists: the class supply (Exit) or the claim (Advance).
+    /// A buyer's quantity exceeds the round's `max_buy_quantity`: the class supply when the
+    /// round was created (Exit), the claim (Advance).
     QuantityAboveSupply,
     /// A seller's quantity exceeds its locked units.
     QuantityAboveLocked,
@@ -346,6 +360,10 @@ pub struct Round {
     pub max_price: u128,
     /// Issuer-declared reference price, display only.
     pub reference_price: Option<u128>,
+    /// Largest quantity a buy order may name, fixed at creation: the class supply then (Exit),
+    /// the claim (Advance); `None` for a Tender, which takes no buy orders. Fixed so that a later
+    /// redeem, which shrinks the supply, never voids a covered bid sealed against it.
+    pub max_buy_quantity: Option<u128>,
     /// Class fraction at `closes_at`.
     pub f_ts: u128,
     /// End of the class schedule, Unix seconds.
@@ -367,7 +385,7 @@ pub struct Round {
     pub advance: Option<AdvanceTerms>,
     pub result: Option<RoundResult>,
     pub cancel_reason: Option<CancelReason>,
-    /// NEAR attached by the creator as storage deposit, yoctoNEAR; `0` once refunded.
+    /// NEAR attached by the creator as storage deposit, yoctoNEAR; it stays with the record.
     pub storage_deposit: u128,
     pub created_at: u64,
     pub ended_at: Option<u64>,
@@ -527,10 +545,13 @@ pub struct InitArgs {
 pub struct RoundWindow {
     /// Defaults to the current block timestamp.
     pub opens_at: Option<U64>,
-    /// Bids close (and the settlement time `ts`).
+    /// Bids close (and the settlement time `ts`); in the future, at most
+    /// [`crate::MAX_ROUND_HORIZON_NS`] (30 days) ahead.
     pub closes_at: U64,
-    /// Defaults to the configured default.
+    /// Defaults to the configured default; between [`crate::MIN_KEY_TIMEOUT_NS`] (1 minute)
+    /// and [`crate::MAX_KEY_TIMEOUT_NS`] (7 days).
     pub key_timeout: Option<U64>,
-    /// Defaults to the configured default.
+    /// Defaults to the configured default; between [`crate::MIN_REVEAL_WINDOW_NS`] (5 minutes)
+    /// and [`crate::MAX_REVEAL_WINDOW_NS`] (7 days).
     pub reveal_window: Option<U64>,
 }

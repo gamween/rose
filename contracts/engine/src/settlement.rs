@@ -12,14 +12,12 @@ use near_sdk::{env, near, require, AccountId, NearToken, Promise};
 use crate::clearing::{self, AdvanceAsk, ClearingError, Fill, Order, Outcome};
 use crate::ledger::Lien;
 use crate::rounds::{remaining_lock_secs, reveal_deadline, round_pricing};
+use crate::storage::LIEN_SHARE_ROW_BYTES;
 use crate::types::{
     Bid, BidId, BidOutcome, CancelReason, ClaimReceipt, ClaimSource, Holder, LienId, LienRecord,
     LienShare, Phase, PricePoint, Round, RoundId, RoundKind, RoundResult, Side, VoidReason,
 };
 use crate::{Contract, ContractExt, RoseEvent};
-
-/// Bytes of a lien share row: hashed key, `LienShare` and the trie record overhead.
-const LIEN_SHARE_ROW_BYTES: u64 = 32 + 32 + 40;
 
 #[near]
 impl Contract {

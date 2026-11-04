@@ -56,11 +56,15 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     /// @param lockup The Sablier Lockup contract; must equal `LOCKUP`.
     /// @param streamId The stream (NFT) to release.
     /// @param to The new owner of the stream NFT.
+    /// @param vestedToRecipient Where the vested balance goes before the NFT leaves: `false` for a registered
+    /// position (an in-kind redeem), whose vested tokens belong to unit holders and are withdrawn to the vault;
+    /// `true` for the return of a stream the engine refused, whose vested tokens belong to `to` with the stream.
     /// @param id Unique authorization id, shared with `Transfer` ids in the same replay bitmap.
     struct Release {
         address lockup;
         uint256 streamId;
         address to;
+        bool vestedToRecipient;
         uint256 id;
     }
 
@@ -98,9 +102,9 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     bytes32 public constant TRANSFER_TYPEHASH =
         keccak256("Transfer(address token,address to,uint256 amount,uint256 id)");
 
-    /// @notice keccak256("Release(address lockup,uint256 streamId,address to,uint256 id)")
+    /// @notice keccak256("Release(address lockup,uint256 streamId,address to,bool vestedToRecipient,uint256 id)")
     bytes32 public constant RELEASE_TYPEHASH =
-        keccak256("Release(address lockup,uint256 streamId,address to,uint256 id)");
+        keccak256("Release(address lockup,uint256 streamId,address to,bool vestedToRecipient,uint256 id)");
 
     /// @notice The canonical Sablier Lockup v4 contract; streams of any other contract are refused.
     ISablierLockup public immutable LOCKUP;
@@ -182,13 +186,18 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     /// @notice An ERC-20 transfer authorization was used.
     event TransferExecuted(uint256 indexed id, address indexed token, address indexed to, uint256 amount);
 
-    /// @notice A stream release authorization was used. `withdrawnToVault` is the vested balance moved into the
-    /// vault immediately before the NFT left it.
-    /// @dev `withdrawnToVault` is informational only: it is legitimately zero when a third party already called
+    /// @notice A stream release authorization was used. `vestedWithdrawn` is the vested balance withdrawn to
+    /// `vestedTo` (the vault, or `to` for a refused stream returned) immediately before the NFT left the vault.
+    /// @dev `vestedWithdrawn` is informational only: it is legitimately zero when a third party already called
     /// `withdrawMax(streamId, vault)` (open to anyone, since the vault is the recipient), so the engine must not
     /// account from this field; it accrues from the stream's withdrawn amount instead.
     event ReleaseExecuted(
-        uint256 indexed id, uint256 indexed streamId, address indexed to, address lockup, uint128 withdrawnToVault
+        uint256 indexed id,
+        uint256 indexed streamId,
+        address indexed to,
+        address lockup,
+        address vestedTo,
+        uint128 vestedWithdrawn
     );
 
     error ZeroAddress();
@@ -458,8 +467,10 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
     }
 
     /// @notice Releases a stream NFT held by the vault, as authorized by `SIGNER`. Anyone can submit.
-    /// @dev Any vested balance is withdrawn to the vault first, so tokens accrued while the stream was held stay with
-    /// unit holders. That withdrawal pays Sablier's minimum fee out of `msg.value`; the rest is refunded.
+    /// @dev Any vested balance is withdrawn first: to the vault for a registered position, so tokens accrued while
+    /// the stream was held stay with unit holders; to `to` for a refused stream returned, so its owner keeps what
+    /// vested while the vault held it (the vault, being the recipient, may withdraw to any address). That withdrawal
+    /// pays Sablier's minimum fee out of `msg.value`; the rest is refunded.
     function executeRelease(Release calldata authorization, uint8 v, bytes32 r, bytes32 s)
         external
         payable
@@ -473,10 +484,13 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         }
         _useAuthorization(authorization.id, hashRelease(authorization), v, r, s);
 
-        (uint128 withdrawn, uint256 feePaid) = _withdrawVested(authorization.streamId, address(this), msg.value);
+        address vestedTo = authorization.vestedToRecipient ? authorization.to : address(this);
+        (uint128 withdrawn, uint256 feePaid) = _withdrawVested(authorization.streamId, vestedTo, msg.value);
         LOCKUP.transferFrom(address(this), authorization.to, authorization.streamId);
 
-        emit ReleaseExecuted(authorization.id, authorization.streamId, authorization.to, address(LOCKUP), withdrawn);
+        emit ReleaseExecuted(
+            authorization.id, authorization.streamId, authorization.to, address(LOCKUP), vestedTo, withdrawn
+        );
         _refund(msg.value - feePaid);
     }
 
@@ -505,7 +519,12 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         return _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    RELEASE_TYPEHASH, authorization.lockup, authorization.streamId, authorization.to, authorization.id
+                    RELEASE_TYPEHASH,
+                    authorization.lockup,
+                    authorization.streamId,
+                    authorization.to,
+                    authorization.vestedToRecipient,
+                    authorization.id
                 )
             )
         );

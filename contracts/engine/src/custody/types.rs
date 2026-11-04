@@ -28,6 +28,21 @@ pub enum ReplayKey {
     SolNonce { account: String, value: String },
 }
 
+impl ReplayKey {
+    /// The key as the engine stores it: a Base transaction hash written with or without `0x`,
+    /// in any case, becomes lowercase hex without `0x`, so every spelling finds the same record.
+    pub fn canonical(self) -> Self {
+        match self {
+            Self::BaseLog { tx_hash, log_index } => Self::BaseLog {
+                tx_hash: crate::foreign::mpc::parse_hex_array::<32>(&tx_hash)
+                    .map_or(tx_hash, hex::encode),
+                log_index,
+            },
+            other => other,
+        }
+    }
+}
+
 /// State of a replay key.
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -234,11 +249,14 @@ pub enum PayoutKind {
         to: String,
         amount: U128,
     },
-    /// RoseVault `Release(lockup, streamId, to, id)`.
+    /// RoseVault `Release(lockup, streamId, to, vestedToRecipient, id)`: the vested balance goes
+    /// to the vault for a redeem (`false`) and to `to` for the return of a refused stream
+    /// (`true`).
     BaseRelease {
         lockup: String,
         stream_id: u64,
         to: String,
+        vested_to_recipient: bool,
     },
     /// Streamflow withdrawals from the drawn streams into the vault's token account, then SPL
     /// `TransferChecked` of their sum, `amount`, of `mint` to `to_owner`'s associated token

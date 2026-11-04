@@ -236,6 +236,24 @@ pub fn init() -> Contract {
     })
 }
 
+/// Engine-derived foreign addresses of the tests that do not exercise `bootstrap` (the custody
+/// tests bootstrap with mocked MPC keys instead).
+pub const TEST_VAULT_BASE: &str = "0x00000000000000000000000000000000000000b5";
+pub const TEST_VAULT_SOL: &str = "So1VAu1t11111111111111111111111111111111111";
+pub const TEST_GAS_SOL: &str = "GasPayer11111111111111111111111111111111111";
+
+/// Stores test derived addresses when the engine is not bootstrapped yet: a Tender's `retire_to`
+/// is checked against them.
+pub fn with_derived_addresses(contract: &mut Contract) {
+    if contract.config.derived_addresses.is_none() {
+        contract.config.derived_addresses = Some(crate::types::DerivedAddresses {
+            vault_base: TEST_VAULT_BASE.to_string(),
+            vault_sol: TEST_VAULT_SOL.to_string(),
+            gas_sol: TEST_GAS_SOL.to_string(),
+        });
+    }
+}
+
 /// A stepped (Streamflow-like) schedule: `f(t)` rises by exactly `0.1` every 1,000 s from
 /// `t = 1,000 s` to `t = 11,000 s`.
 pub fn stepped_schedule() -> ClassSchedule {
@@ -291,7 +309,10 @@ pub fn mint(contract: &mut Contract, class_id: &str, account: &AccountId, units:
     contract.mint_units(&class_id.to_string(), account, units, f_from);
 }
 
+/// Deposits NEAR cash for `account`, registering it first: a NEAR cash deposit needs room for
+/// its cash row.
 pub fn fund(contract: &mut Contract, account: &AccountId, amount: u128, at: u64) {
+    register(contract, account, at);
     env_at(&cash_token(), at);
     contract
         .ft_on_transfer(account.clone(), U128(amount), String::new())
@@ -339,6 +360,7 @@ pub fn create_tender(
     at: u64,
     closes_at: u64,
 ) -> u64 {
+    with_derived_addresses(contract);
     env(issuer, ROUND_STORAGE_DEPOSIT, at);
     contract
         .create_tender(TenderParams {
@@ -475,6 +497,22 @@ pub fn transferred_to(receiver: &AccountId) -> u128 {
             _ => None,
         })
         .sum()
+}
+
+/// JSON arguments of the last function call receipt to `method` created so far (the arguments a
+/// callback receives from the call that scheduled it).
+pub fn last_call_args(method: &str) -> serde_json::Value {
+    all_receipts()
+        .iter()
+        .rev()
+        .flat_map(|receipt| receipt.actions.iter())
+        .find_map(|action| match action {
+            near_sdk::mock::MockAction::FunctionCallWeight {
+                method_name, args, ..
+            } if method_name == method.as_bytes() => Some(serde_json::from_slice(args).unwrap()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no call to {method}"))
 }
 
 /// Parsed `EVENT_JSON:` logs with the given standard.

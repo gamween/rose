@@ -192,7 +192,7 @@ contract RoseVaultForkTest is Test {
         uint256 fee = SABLIER.calculateMinFeeWei(streamId);
         uint256 claimantEthBefore = claimant.balance;
 
-        RoseVault.Release memory release = RoseVault.Release(address(SABLIER), streamId, claimant, 1);
+        RoseVault.Release memory release = RoseVault.Release(address(SABLIER), streamId, claimant, false, 1);
         (uint8 v, bytes32 r, bytes32 s) = MpcSignature.sign(SIGNER_KEY, vault.hashRelease(release));
         vm.prank(claimant);
         vault.executeRelease{value: fee + 1 gwei}(release, v, r, s);
@@ -206,6 +206,28 @@ contract RoseVaultForkTest is Test {
         vault.executeTransfer(payout, v, r, s);
         assertEq(token.balanceOf(claimant), vested);
         assertEq(token.balanceOf(address(vault)), 0);
+    }
+
+    /// @dev The return of a refused stream against the real Lockup: the vault, recipient of the stream, withdraws the
+    /// vested balance straight to the returnee (Sablier lets the recipient withdraw to any address), so nothing that
+    /// vested while the vault held the stream stays in the vault.
+    function test_fork_returnSendsVestedToTheReturnee() public {
+        uint256 streamId = _mintAndDeposit(DemoStreamFaucet.Class.Seed, 0);
+        vm.warp(t0 + 200 days);
+        uint128 vested = SABLIER.withdrawableAmountOf(streamId);
+        assertGt(vested, 25_000e18);
+        uint256 fee = SABLIER.calculateMinFeeWei(streamId);
+
+        RoseVault.Release memory release = RoseVault.Release(address(SABLIER), streamId, holder, true, 4);
+        (uint8 v, bytes32 r, bytes32 s) = MpcSignature.sign(SIGNER_KEY, vault.hashRelease(release));
+        uint256 holderBefore = token.balanceOf(holder);
+        vm.prank(claimant);
+        vault.executeRelease{value: fee}(release, v, r, s);
+
+        assertEq(SABLIER.ownerOf(streamId), holder);
+        assertEq(token.balanceOf(holder), holderBefore + vested);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(SABLIER.withdrawableAmountOf(streamId), 0);
     }
 
     /// @dev Issuer path against the real Lockup: three cohort streams minted straight into the vault, with the exact
@@ -303,7 +325,7 @@ contract RoseVaultForkTest is Test {
         assertGt(vested, 25_000e18);
         uint256 fee = SABLIER.calculateMinFeeWei(streamId);
 
-        RoseVault.Release memory release = RoseVault.Release(address(SABLIER), streamId, claimant, 3);
+        RoseVault.Release memory release = RoseVault.Release(address(SABLIER), streamId, claimant, false, 3);
         (uint8 v, bytes32 r, bytes32 s) = MpcSignature.sign(SIGNER_KEY, vault.hashRelease(release));
         vm.prank(claimant);
         vault.executeRelease{value: fee}(release, v, r, s);

@@ -74,10 +74,10 @@ pub const TRANSFER_TYPEHASH: Word = [
     0xb8, 0x4e, 0xeb, 0x1a, 0xac, 0xc5, 0x3a, 0x08, 0xe3, 0x4d, 0x36, 0x89, 0xf9, 0x92, 0x5e, 0x51,
 ];
 
-/// `keccak256("Release(address lockup,uint256 streamId,address to,uint256 id)")`.
+/// `keccak256("Release(address lockup,uint256 streamId,address to,bool vestedToRecipient,uint256 id)")`.
 pub const RELEASE_TYPEHASH: Word = [
-    0x83, 0x09, 0xfb, 0xd7, 0x02, 0x4d, 0xfe, 0x91, 0x29, 0x3e, 0x3c, 0xb9, 0xab, 0x5d, 0x73, 0xdb,
-    0x26, 0xf8, 0xf3, 0xfa, 0x42, 0x30, 0xd5, 0x29, 0x1f, 0xad, 0x1a, 0x14, 0x3e, 0xb6, 0x9b, 0x0b,
+    0x30, 0x98, 0x79, 0x2e, 0x9c, 0xb6, 0x67, 0xf2, 0xd9, 0x00, 0x3d, 0xce, 0x0f, 0x73, 0x18, 0x71,
+    0x43, 0xb5, 0xc0, 0x98, 0x05, 0xd6, 0x89, 0xc3, 0xa7, 0xe0, 0xb9, 0xb2, 0xa9, 0x5e, 0xce, 0xaa,
 ];
 
 /// secp256k1 group order `n`, big-endian.
@@ -108,6 +108,14 @@ pub fn parse_address(text: &str) -> Option<Address> {
 /// `0x` followed by lowercase hex, the form the engine stores and compares.
 pub fn format_address(address: &Address) -> String {
     format!("0x{}", hex::encode(address))
+}
+
+/// The canonical spelling (`0x` followed by 40 lowercase hex characters) of an address written
+/// with or without `0x`, in any case; `None` unless it is exactly 20 bytes of hex. Every EVM
+/// address that enters the engine goes through it before it is hashed, stored, compared or used
+/// as a key, so two spellings of one address can never name two things.
+pub fn canonical_address(text: &str) -> Option<String> {
+    parse_address(text).map(|address| format_address(&address))
 }
 
 /// Where a log sits in the chain: the receipt fields the MPC nodes include in the attested
@@ -590,8 +598,10 @@ impl TransferAuthorization {
     }
 }
 
-/// `Release(address lockup,uint256 streamId,address to,uint256 id)`: a stream NFT leaving the
-/// vault after its withdrawable balance was moved into the vault.
+/// `Release(address lockup,uint256 streamId,address to,bool vestedToRecipient,uint256 id)`: a
+/// stream NFT leaving the vault after its withdrawable balance was withdrawn, to the vault
+/// (`vested_to_recipient = false`, a registered position) or to `to` (`true`, the return of a
+/// refused stream).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReleaseAuthorization {
     /// Sablier Lockup contract.
@@ -600,18 +610,21 @@ pub struct ReleaseAuthorization {
     pub stream_id: u64,
     /// New owner of the stream.
     pub to: Address,
+    /// Whether the vested balance goes to `to` rather than to the vault.
+    pub vested_to_recipient: bool,
     /// Authorization id, unique across transfers and releases.
     pub id: u64,
 }
 
 impl ReleaseAuthorization {
-    /// `keccak256(abi.encode(RELEASE_TYPEHASH, lockup, streamId, to, id))`.
+    /// `keccak256(abi.encode(RELEASE_TYPEHASH, lockup, streamId, to, vestedToRecipient, id))`.
     pub fn struct_hash(&self) -> Word {
-        let mut encoded = Vec::with_capacity(5 * 32);
+        let mut encoded = Vec::with_capacity(6 * 32);
         encoded.extend_from_slice(&RELEASE_TYPEHASH);
         encoded.extend_from_slice(&word_from_address(&self.lockup));
         encoded.extend_from_slice(&word_from_u128(u128::from(self.stream_id)));
         encoded.extend_from_slice(&word_from_address(&self.to));
+        encoded.extend_from_slice(&word_from_bool(self.vested_to_recipient));
         encoded.extend_from_slice(&word_from_u128(u128::from(self.id)));
         keccak256(&encoded)
     }

@@ -16,8 +16,9 @@ use crate::types::{
 };
 use crate::unlock::ClassSchedule;
 use crate::{
-    secs_of, Contract, ContractExt, RoseEvent, BID_STORAGE_DEPOSIT, MAX_BIDS_PER_ROUND, ONE_USDC,
-    ROUND_STORAGE_DEPOSIT,
+    secs_of, Contract, ContractExt, RoseEvent, BID_STORAGE_DEPOSIT, MAX_BIDS_PER_ROUND,
+    MAX_KEY_TIMEOUT_NS, MAX_REVEAL_WINDOW_NS, MAX_ROUND_HORIZON_NS, MIN_KEY_TIMEOUT_NS,
+    MIN_REVEAL_WINDOW_NS, ONE_USDC, ROUND_STORAGE_DEPOSIT,
 };
 
 /// Public parameters of a Tender.
@@ -32,7 +33,10 @@ pub struct TenderParams {
     pub max_price: U128,
     /// Display-only reference price (spec section 4, "Clearing prices").
     pub reference_price: Option<U128>,
-    /// Foreign address receiving the retired units' unlocked tokens (burn address allowed).
+    /// Foreign address receiving the retired units' unlocked tokens: an EVM address in any
+    /// spelling (stored canonical) for a Base class, a base58 key for a Solana class. A burn
+    /// address such as `0x…dead` is allowed; the zero address, RoseVault and the engine's own
+    /// keys are refused.
     pub retire_to: String,
     pub window: RoundWindow,
 }
@@ -73,12 +77,17 @@ impl Contract {
     pub fn create_tender(&mut self, params: TenderParams) -> U64 {
         require!(params.budget.0 > 0, "Budget must be positive");
         let chain = self.class(&params.class_id).chain;
+        let retire_to = canonical_foreign_address(chain, &params.retire_to).unwrap_or_else(|| {
+            env::panic_str(
+                "retire_to must be a 20-byte hex address (Base) or a 32-byte base58 key (Solana)",
+            )
+        });
         require!(
-            foreign_address_valid(chain, &params.retire_to),
-            "retire_to must be a lowercase 0x address (Base) or a 32-byte base58 key (Solana)"
+            !(chain == Chain::Base && retire_to == crate::foreign::evm::format_address(&[0u8; 20])),
+            "retire_to must not be the zero address: the retired lot could never be paid out"
         );
         require!(
-            !self.is_engine_address(chain, &params.retire_to),
+            !self.is_engine_address(chain, &retire_to),
             "retire_to must not be RoseVault or one of the engine's own keys: tokens sent there would sit outside every record"
         );
         let fee =
@@ -99,7 +108,7 @@ impl Contract {
             Some(TenderTerms {
                 budget: params.budget.0,
                 escrow,
-                retire_to: params.retire_to,
+                retire_to,
             }),
             None,
         );
@@ -173,7 +182,8 @@ impl Contract {
     }
 
     /// Cancels a round before its first bid. Only the creator, never after `closes_at`. Refunds
-    /// the issuer escrow (Tender), returns the encumbered units (Advance) and the storage deposit.
+    /// the issuer escrow (Tender) and returns the encumbered units (Advance); the round's storage
+    /// deposit stays with its record, which remains as public history.
     pub fn cancel_round(&mut self, round_id: U64) {
         let round = self.round(round_id.0).clone();
         require!(
@@ -192,7 +202,8 @@ impl Contract {
     /// Places a sealed bid (buy side) in an Exit or Advance round. `ciphertext_hex` is the
     /// 192-byte IBE ciphertext of `(quantity, limit_price, salt)` encrypted to the round
     /// identity and bound to `(round_id, caller, side = Buy)`. `escrow` cash base units are taken
-    /// from the caller's cash in the round venue, plus the bond `max(1 USDC, 1% of escrow)`.
+    /// from the caller's cash in the round venue, plus the bond `max(1 USDC, 1% of escrow)`. An
+    /// Exit buyer must be registered with room for a holding row of the class.
     /// Attaches `BID_STORAGE_DEPOSIT`, refunded when the bid settles. One bid per account per
     /// round. Returns the bid id.
     #[payable]
@@ -206,10 +217,9 @@ impl Contract {
             "A Tender has one buyer, the issuer"
         );
         if round.kind == RoundKind::Exit {
-            require!(
-                self.is_registered(&bidder),
-                "Exit buyers receive units: call storage_deposit first"
-            );
+            // An Exit buyer receives units: its storage must already hold the row they will
+            // need, so the engine never pays it (storage cannot be withdrawn while the bid lives).
+            self.check_row_capacity(&bidder, &round.class_id);
         }
         let bond = (escrow.0 / 100).max(ONE_USDC);
         let total = escrow
@@ -289,8 +299,9 @@ impl Contract {
 }
 
 impl Contract {
-    /// Shared creation path: validates the window, the class and the venue, stores the round
-    /// and takes the storage deposit.
+    /// Shared creation path: validates the window (every duration within the bounds of
+    /// [`RoundWindow`]), the class and the venue, stores the round and takes the storage
+    /// deposit.
     #[allow(clippy::too_many_arguments)]
     fn create_round(
         &mut self,
@@ -308,12 +319,17 @@ impl Contract {
             "Attach the round storage deposit (0.05 NEAR)"
         );
         require!(max_price > 0, "max_price must be positive");
+        let venue = venue.canonical();
         require!(self.venue_accepted(&venue), "Unsupported cash venue");
         let now = env::block_timestamp();
         let opens_at = window.opens_at.map_or(now, |t| t.0);
         let closes_at = window.closes_at.0;
         require!(closes_at > now, "closes_at must be in the future");
         require!(closes_at > opens_at, "closes_at must be after opens_at");
+        require!(
+            closes_at - now <= MAX_ROUND_HORIZON_NS,
+            "closes_at must be at most 30 days ahead"
+        );
         let key_timeout = window
             .key_timeout
             .unwrap_or(self.config.default_key_timeout)
@@ -322,8 +338,8 @@ impl Contract {
             .reveal_window
             .unwrap_or(self.config.default_reveal_window)
             .0;
-        require!(key_timeout > 0, "key_timeout must be positive");
-        require!(reveal_window > 0, "reveal_window must be positive");
+        require_key_timeout(key_timeout);
+        require_reveal_window(reveal_window);
         let class = self.class(&class_id);
         let f_ts = class.schedule.fraction(secs_of(closes_at));
         require!(
@@ -332,6 +348,11 @@ impl Contract {
         );
         let token_decimals = class.decimals;
         let schedule_end_secs = schedule_end(&class.schedule);
+        let max_buy_quantity = match kind {
+            RoundKind::Tender => None,
+            RoundKind::Exit => Some(class.total_units),
+            RoundKind::Advance => advance.as_ref().map(|terms| terms.claim),
+        };
         let creator = env::predecessor_account_id();
         let round_id = self.next_round_id;
         self.next_round_id += 1;
@@ -347,6 +368,7 @@ impl Contract {
             reveal_window,
             max_price,
             reference_price,
+            max_buy_quantity,
             f_ts,
             schedule_end_secs,
             token_decimals,
@@ -550,31 +572,46 @@ pub(crate) fn remaining_lock_secs(round: &Round) -> u64 {
         .saturating_sub(secs_of(round.closes_at))
 }
 
-/// True when `address` is a valid payout address on `chain`: a lowercase `0x` address on Base,
-/// a base58 32-byte key on Solana.
 impl Contract {
-    /// True when `address` is RoseVault or one of the engine's derived foreign keys on `chain`.
-    fn is_engine_address(&self, chain: Chain, address: &str) -> bool {
-        let derived = self.config.derived_addresses.as_ref();
+    /// True when `address` (canonical spelling) is RoseVault or one of the engine's derived
+    /// foreign keys on `chain`. Panics before `bootstrap`: until the derived keys are known, no
+    /// address can be shown not to be one of them.
+    pub(crate) fn is_engine_address(&self, chain: Chain, address: &str) -> bool {
+        let derived = self.derived();
         match chain {
-            Chain::Base => {
-                address == self.config.rose_vault
-                    || derived.is_some_and(|keys| keys.vault_base == address)
-            }
-            Chain::Solana => {
-                derived.is_some_and(|keys| keys.vault_sol == address || keys.gas_sol == address)
-            }
+            Chain::Base => address == self.config.rose_vault || derived.vault_base == address,
+            Chain::Solana => derived.vault_sol == address || derived.gas_sol == address,
         }
     }
 }
 
-fn foreign_address_valid(chain: Chain, address: &str) -> bool {
+/// The canonical spelling of a payout address on `chain`, or `None` when it is not one: an EVM
+/// address in any spelling becomes `0x` plus lowercase hex on Base; a Solana key must be base58
+/// of 32 bytes and is kept as written (base58 has a single spelling).
+fn canonical_foreign_address(chain: Chain, address: &str) -> Option<String> {
     match chain {
-        Chain::Base => crate::is_evm_address(address),
+        Chain::Base => crate::foreign::evm::canonical_address(address),
         Chain::Solana => bs58::decode(address)
             .into_vec()
-            .is_ok_and(|bytes| bytes.len() == 32),
+            .is_ok_and(|bytes| bytes.len() == 32)
+            .then(|| address.to_string()),
     }
+}
+
+/// Panics unless `key_timeout` is within [`MIN_KEY_TIMEOUT_NS`, `MAX_KEY_TIMEOUT_NS`].
+pub(crate) fn require_key_timeout(key_timeout: u64) {
+    require!(
+        (MIN_KEY_TIMEOUT_NS..=MAX_KEY_TIMEOUT_NS).contains(&key_timeout),
+        "key_timeout must be between 1 minute and 7 days"
+    );
+}
+
+/// Panics unless `reveal_window` is within [`MIN_REVEAL_WINDOW_NS`, `MAX_REVEAL_WINDOW_NS`].
+pub(crate) fn require_reveal_window(reveal_window: u64) {
+    require!(
+        (MIN_REVEAL_WINDOW_NS..=MAX_REVEAL_WINDOW_NS).contains(&reveal_window),
+        "reveal_window must be between 5 minutes and 7 days"
+    );
 }
 
 /// The 192-byte ciphertext of a sealed order.

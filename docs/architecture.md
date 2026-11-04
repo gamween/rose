@@ -48,9 +48,9 @@ All amounts are integers. Token amounts are base units of the token. Cash amount
 - `classes`: `class_id -> Class { chain, token, decimals, schedule, positions, total_units, created_at }`. `class_id` is the hex SHA-256 of the borsh-encoded `(chain, token, decimals, normalized schedule)`, so the same economic position always maps to the same class.
 - `positions`: `position_id -> Position { class_id, source (Base stream or Streamflow metadata pubkey), allocation, depositor, deposited_at, state (Held, Releasing, Released) }`.
 - `holdings`: `(holder, class_id) -> Holding { balance, checkpoint, claimable, carry }`, the NEP-245 ledger with accrual accounting (spec 4); the holder is an account or a Tender's retired lot. Every balance change accrues `balance * (f(now) - checkpoint)` into `claimable` first, carrying the fraction below one base unit into the next accrual (`carry`), so a holding's lifetime accrual is the floor of its exact accrual.
-- `storage_accounts`: NEP-145 deposits and bytes used per account (the account record plus one row per class held).
-- `cash`: `(account, venue) -> free cash`. Venues: `Near` (tUSDC NEP-141) and `Base { token }` (an ERC-20 held by RoseVault; every token is credited, only accepted ones can host rounds).
-- `rounds`, `bids`, `orders`: `round_id -> Round { kind, class_id, venue, creator, window, max_price, f_ts, phase, key, result, terms, … }`, one sealed order per `(round, bidder, side)`.
+- `storage_accounts`: NEP-145 deposits, bytes used and the list of classes held per account (the account record plus one row per class held and per cash venue with a balance, charged at their measured size for a 64-character account id; the class list is what `get_portfolio` reads).
+- `cash`: `(account, venue) -> free cash`. Venues: `Near` (tUSDC NEP-141) and `Base { token }` (an ERC-20 held by RoseVault, its address in canonical spelling; every token is credited, only accepted ones can host rounds).
+- `rounds`, `bids`, `orders`: `round_id -> Round { kind, class_id, venue, creator, window, max_price, max_buy_quantity, f_ts, phase, key, result, terms, … }`, one sealed order per `(round, bidder, side)`.
 - `liens`, `lien_shares`: `lien_id -> LienRecord { class_id, round_id, holder, lien { units, claim_total, delivered, f_start, excess_credited }, released }` and `(lien_id, funder) -> LienShare { claim, claimed }`.
 - `account_index`: per account, the unsettled bids, live Advances, liens held and lien shares (what the views cannot scan and what blocks storage withdrawals).
 - `price_history`: per class, the clearing price points.
@@ -70,7 +70,7 @@ State is Borsh: an enum is stored as its variant index and a struct as its field
 
 | Method | Who | Guard | Effect |
 |---|---|---|---|
-| `create_tender`, `create_exit`, `create_advance` | issuer, anyone, holder | parameters valid; Tender escrow (budget + 30 bps) and Advance units available; 0.05 NEAR attached | Round `Scheduled` or `Open` |
+| `create_tender`, `create_exit`, `create_advance` | issuer, anyone, holder | parameters valid (`closes_at` at most 30 days ahead, `key_timeout` 1 minute to 7 days, `reveal_window` 5 minutes to 7 days; a Tender needs the engine bootstrapped); Tender escrow (budget + 30 bps) and Advance units available; 0.05 NEAR attached | Round `Scheduled` or `Open` |
 | `place_bid`, `place_ask` | anyone | `opens_at <= now < closes_at`, fewer than 64 orders, one order per side per account; 0.02 NEAR attached | Stores the ciphertext, escrows cash or locks units, takes the bond |
 | `cancel_round` | creator | before the first bid and before `closes_at` | `Cancelled`, everything refundable |
 | `close` | anyone | `closes_at <= now < closes_at + key_timeout` | Requests the round key from CKD (retries unbounded until the timeout); a round without orders is cancelled instead |

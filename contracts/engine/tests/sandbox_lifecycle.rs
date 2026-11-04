@@ -923,15 +923,18 @@ async fn key_timeout_cancel_waits_for_the_key_request() -> Result<()> {
     let class = deposit_for(&engine, &holder, 6, 1_000, 10_000, 10_000 * USDC, &gas).await?;
     engine.fund(&holder, 10 * USDC, &gas).await?;
 
-    // A failed CKD request leaves the round KeyRequested; after the key timeout, and once the
-    // request can no longer be answered (250 blocks after `close`), anyone cancels it and the
-    // ask settles as a refund.
+    // A failed CKD request leaves the round KeyRequested; after the key timeout (60 s, the
+    // minimum), and once the request can no longer be answered (250 blocks after `close`),
+    // anyone cancels it and the ask settles as a refund. The close is sent 50 s after
+    // `closes_at`, so the timeout passes while its request is still in flight.
     let round = engine.create_exit(&holder, &class, USDC, 5, &gas).await?;
     let (ask, _) = engine
         .place_ask(&holder, round, 100 * USDC, USDC, 100 * USDC, &gas)
         .await?;
     let view = engine.round(round).await?;
-    engine.advance_past(u64_of(&view["closes_at"])?).await?;
+    engine
+        .advance_past(u64_of(&view["closes_at"])? + 50 * NS)
+        .await?;
     engine
         .mock
         .call("set_fail_next")
@@ -954,7 +957,7 @@ async fn key_timeout_cancel_waits_for_the_key_request() -> Result<()> {
         .await?;
     gas.fails_with("cancel_no_key (too early)", result, "timeout")?;
     engine
-        .advance_past(u64_of(&view["closes_at"])? + 40 * NS)
+        .advance_past(u64_of(&view["closes_at"])? + 62 * NS)
         .await?;
     let result = holder
         .call(engine.id(), "cancel_no_key")
@@ -993,7 +996,7 @@ async fn key_timeout_cancel_waits_for_the_key_request() -> Result<()> {
         .await?;
     let view = engine.round(late).await?;
     engine
-        .advance_past(u64_of(&view["closes_at"])? + 40 * NS)
+        .advance_past(u64_of(&view["closes_at"])? + 70 * NS)
         .await?;
     let result = holder
         .call(engine.id(), "close")
@@ -1177,5 +1180,85 @@ async fn storage_registration_and_transfer_call_refund() -> Result<()> {
         .await?;
     assert!(gone.is_null());
     gas.print();
+    Ok(())
+}
+
+/// Gas of `get_portfolio(holder)` called as a transaction, and the number of holdings it lists.
+async fn portfolio_tgas(
+    engine: &Engine,
+    holder: &Account,
+    label: &str,
+    gas: &GasTable,
+) -> Result<(f64, usize)> {
+    let result = holder
+        .call(engine.id(), "get_portfolio")
+        .args_json(json!({ "account": holder.id() }))
+        .gas(Gas::from_tgas(300))
+        .transact()
+        .await?;
+    let view: Value = gas.ok(label, result)?.json()?;
+    Ok((
+        gas.tgas(label).unwrap_or_default(),
+        view["holdings"].as_array().map_or(0, Vec::len),
+    ))
+}
+
+/// `get_portfolio` reads only the classes of the account it describes (spec 4: the per-account
+/// class list), so classes created by other accounts never make it heavier. Called as a
+/// transaction to measure its gas: 20 classes of the holder, then 40 more classes of a stranger.
+#[tokio::test]
+async fn portfolio_cost_does_not_grow_with_other_accounts_classes() -> Result<()> {
+    if !enabled("portfolio_cost_does_not_grow_with_other_accounts_classes") {
+        return Ok(());
+    }
+    let engine = Engine::deploy(EngineSpec::test(&TestKey::new())).await?;
+    let gas = GasTable::new("portfolio");
+    engine.bootstrap(&gas).await?;
+    let holder = engine.account().await?;
+    let stranger = engine.account().await?;
+    let deposit = |account: Account, index: u64| {
+        let (engine, gas) = (&engine, &gas);
+        async move {
+            deposit_for(
+                engine,
+                &account,
+                1_000 + index,
+                100,
+                100_000 + index,
+                1_000_000_000,
+                gas,
+            )
+            .await
+        }
+    };
+    deposit(holder.clone(), 0).await?;
+    let (one, held) = portfolio_tgas(&engine, &holder, "get_portfolio (1 class)", &gas).await?;
+    assert_eq!(held, 1);
+    for index in 1..20 {
+        deposit(holder.clone(), index).await?;
+    }
+    let (twenty, held) =
+        portfolio_tgas(&engine, &holder, "get_portfolio (20 classes)", &gas).await?;
+    assert_eq!(held, 20);
+    for index in 20..60 {
+        deposit(stranger.clone(), index).await?;
+    }
+    let (crowded, held) = portfolio_tgas(
+        &engine,
+        &holder,
+        "get_portfolio (20 classes, 40 foreign)",
+        &gas,
+    )
+    .await?;
+    assert_eq!(held, 20);
+    gas.print();
+    let per_class = (twenty - one) / 19.0;
+    println!(
+        "get_portfolio: {one:.2} Tgas for 1 class, {twenty:.2} for 20, {crowded:.2} with 40 foreign classes in the engine; {per_class:.2} Tgas per held class"
+    );
+    assert!(
+        (crowded - twenty).abs() < 1.0,
+        "foreign classes changed the portfolio cost: {twenty:.2} -> {crowded:.2} Tgas"
+    );
     Ok(())
 }

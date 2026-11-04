@@ -190,7 +190,7 @@ impl Contract {
     /// Fills the MPC-derived foreign addresses once: `vault/base` (domain 0, the RoseVault
     /// signer), `vault/sol` and `gas/sol` (domain 1), read from the MPC contract's
     /// `derived_public_key` for this account. Anyone, once; a second call after the addresses
-    /// are stored is refused, and a failed request can be retried. Attach about 60 Tgas.
+    /// are stored is refused, and a failed request can be retried. Attach 80 Tgas.
     pub fn bootstrap(&mut self) -> Promise {
         require!(
             self.config.derived_addresses.is_none(),
@@ -280,12 +280,12 @@ impl Contract {
 
     /// State of a replay key, or `None` when the fact was never requested.
     pub fn get_replay(&self, key: ReplayKey) -> Option<ReplayState> {
-        self.custody.replays.get(&key).copied()
+        self.custody.replays.get(&key.canonical()).copied()
     }
 
     /// A refused deposit, or `None`.
     pub fn get_refused_deposit(&self, key: ReplayKey) -> Option<RefusedDeposit> {
-        self.custody.refused.get(&key).cloned()
+        self.custody.refused.get(&key.canonical()).cloned()
     }
 
     /// The class id a Sablier Lockup Linear stream of `token` with `decimals` decimals lands in,
@@ -297,6 +297,8 @@ impl Contract {
         decimals: u8,
         schedule: SablierScheduleArgs,
     ) -> Result<ClassId, String> {
+        let token = evm::canonical_address(&token)
+            .ok_or_else(|| "token must be a 20-byte hex address".to_string())?;
         let stream = SablierLinearStream::new((&schedule).into()).map_err(|e| e.to_string())?;
         let class = ClassSchedule::from_sablier(&stream, decimals).map_err(|e| e.to_string())?;
         Ok(class_id_of(Chain::Base, &token, decimals, &class))

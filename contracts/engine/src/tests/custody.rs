@@ -511,12 +511,14 @@ fn refused_base_stream_is_recorded_and_returned_to_its_sender() {
             lockup: fields.lockup.clone(),
             stream_id: 82,
             to: fields.sender.clone(),
+            vested_to_recipient: true,
         }
     );
     let expected = ReleaseAuthorization {
         lockup: evm::parse_address(&fields.lockup).unwrap(),
         stream_id: 82,
         to: evm::parse_address(&fields.sender).unwrap(),
+        vested_to_recipient: true,
         id: 0,
     }
     .digest(&Eip712Domain {
@@ -614,13 +616,16 @@ fn base_cash_is_credited_for_any_token_and_only_accepted_ones_host_rounds() {
             fields,
             accounts(5)
         ));
-        let venue = Venue::Base { token };
         assert_fits(
             record_bytes(1 + borsh_len(&key), borsh_len(&ReplayState::Consumed))
-                + record_bytes(1 + borsh_len(&(accounts(1), venue)), 16),
+                + crate::STORAGE_ACCOUNT_BYTES
+                + crate::CASH_ROW_BYTES,
             RECORD_STORAGE_DEPOSIT,
-            "a cash registration (replay key and a new cash row)",
+            "a cash registration (replay key, the credited account's registration and cash row)",
         );
+        // The record deposit paid the credited account's registration and its new cash row.
+        assert!(contract.is_registered(&accounts(1)));
+        assert_eq!(contract.storage_shortfall(&accounts(1), 0), 0);
     }
     let accepted_venue = Venue::Base {
         token: accepted.clone(),
@@ -1111,7 +1116,8 @@ fn redeem_burns_exactly_the_allocation_and_refuses_locked_units() {
         PayoutKind::BaseRelease {
             lockup: base_fields().lockup,
             stream_id: 82,
-            to: RECIPIENT.into()
+            to: RECIPIENT.into(),
+            vested_to_recipient: false,
         }
     );
     assert_eq!(payout.sign_requests, 2);
@@ -1366,4 +1372,297 @@ proptest! {
                 "the largest unit count keeping the bound");
         }
     }
+}
+
+/// The three spellings of one address: canonical, bare lowercase hex, and mixed case with `0x`.
+fn spellings(canonical: &str) -> [String; 3] {
+    let bare = canonical.trim_start_matches("0x").to_string();
+    let mixed: String = bare
+        .chars()
+        .enumerate()
+        .map(|(i, c)| {
+            if i % 2 == 0 {
+                c.to_ascii_uppercase()
+            } else {
+                c
+            }
+        })
+        .collect();
+    [canonical.to_string(), bare, format!("0x{mixed}")]
+}
+
+/// Respells the addresses of `fields` as `spelling` (0: canonical, 1: bare, 2: mixed case).
+fn respelled(fields: &StreamDepositedFields, spelling: usize) -> StreamDepositedFields {
+    StreamDepositedFields {
+        sender: spellings(&fields.sender)[spelling].clone(),
+        lockup: spellings(&fields.lockup)[spelling].clone(),
+        token: spellings(&fields.token)[spelling].clone(),
+        ..fields.clone()
+    }
+}
+
+#[test]
+fn every_spelling_of_a_stream_deposit_registers_the_canonical_position_once() {
+    let canonical_class = {
+        let mut contract = bootstrapped();
+        register_base(&mut contract, base_fields())
+    };
+    for spelling in [1, 2] {
+        let mut contract = bootstrapped();
+        let fields = respelled(&base_fields(), spelling);
+        let class = contract
+            .compute_base_class_id(
+                fields.token.clone(),
+                18,
+                crate::custody::SablierScheduleArgs {
+                    start: fields.start,
+                    cliff: fields.cliff,
+                    end: fields.end,
+                    granularity: 1,
+                    start_unlock: fields.start_unlock,
+                    cliff_unlock: fields.cliff_unlock,
+                    deposited: fields.deposited,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            class, canonical_class,
+            "the class id view ignores the spelling"
+        );
+        let deposit = registration_deposit(&contract, &accounts(1));
+        env(&accounts(5), deposit, ts(BASE_NOW));
+        contract
+            .register_base_deposit(base_location(), fields.clone())
+            .detach();
+        let forwarded: StreamDepositedFields =
+            serde_json::from_value(last_call_args("on_base_deposit_verified")["fields"].clone())
+                .unwrap();
+        assert_eq!(forwarded.sender, base_fields().sender);
+        assert_eq!(forwarded.lockup, base_fields().lockup);
+        assert_eq!(forwarded.token, base_fields().token);
+        let hash = stream_hash(&contract, &base_location(), &base_fields());
+        env_with_results(ts(BASE_NOW + 7), vec![foreign_response(hash)]);
+        assert!(contract.on_base_deposit_verified(
+            base_key(),
+            hex::encode(hash),
+            forwarded,
+            accounts(5),
+            U128(deposit.as_yoctonear()),
+        ));
+        let position = contract.get_position(U64(0)).unwrap().position;
+        assert_eq!(position.class_id, canonical_class);
+        assert_eq!(position.depositor, accounts(1));
+        assert_eq!(
+            contract.mt_balance_of(accounts(1), canonical_class.clone()),
+            base_fields().deposited
+        );
+        for other in 0..3 {
+            env(&accounts(3), deposit, ts(BASE_NOW + 100));
+            panics_with("Already registered", || {
+                contract.register_base_deposit(base_location(), respelled(&base_fields(), other))
+            });
+        }
+    }
+}
+
+#[test]
+fn every_spelling_of_a_refused_stream_records_the_canonical_return() {
+    for spelling in [1, 2] {
+        let mut contract = bootstrapped();
+        let fields = StreamDepositedFields {
+            cancelable: true,
+            ..respelled(&base_fields(), spelling)
+        };
+        let deposit = registration_deposit(&contract, &accounts(1));
+        env(&accounts(5), deposit, ts(BASE_NOW));
+        contract
+            .register_base_deposit(base_location(), fields)
+            .detach();
+        let forwarded: StreamDepositedFields =
+            serde_json::from_value(last_call_args("on_base_deposit_verified")["fields"].clone())
+                .unwrap();
+        let canonical = StreamDepositedFields {
+            cancelable: true,
+            ..base_fields()
+        };
+        let hash = stream_hash(&contract, &base_location(), &canonical);
+        env_with_results(ts(BASE_NOW + 7), vec![foreign_response(hash)]);
+        assert!(!contract.on_base_deposit_verified(
+            base_key(),
+            hex::encode(hash),
+            forwarded,
+            accounts(5),
+            U128(deposit.as_yoctonear()),
+        ));
+        let refused = contract.get_refused_deposit(base_key()).unwrap();
+        assert_eq!(refused.reason, "stream is cancelable");
+        assert_eq!(refused.return_to, base_fields().sender);
+        assert_eq!(
+            refused.asset,
+            RefusedAsset::BaseStream {
+                lockup: base_fields().lockup,
+                stream_id: 82
+            }
+        );
+        // The replay views find the record under any spelling of the transaction hash.
+        let ReplayKey::BaseLog { tx_hash, log_index } = base_key() else {
+            unreachable!()
+        };
+        let upper = ReplayKey::BaseLog {
+            tx_hash: format!("0x{}", tx_hash.to_ascii_uppercase()),
+            log_index,
+        };
+        assert_eq!(
+            contract.get_replay(upper.clone()),
+            Some(ReplayState::Consumed)
+        );
+        assert!(contract.get_refused_deposit(upper.clone()).is_some());
+        payout_env(&accounts(3), ts(BASE_NOW + 20));
+        contract.return_refused_deposit(upper, None).detach();
+        assert_eq!(
+            contract.get_payout(U64(0)).unwrap().kind,
+            PayoutKind::BaseRelease {
+                lockup: base_fields().lockup,
+                stream_id: 82,
+                to: base_fields().sender,
+                vested_to_recipient: true,
+            }
+        );
+    }
+}
+
+#[test]
+fn every_spelling_of_a_cash_deposit_credits_the_canonical_venue() {
+    let accepted = "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
+    for spelling in [1, 2] {
+        let mut contract = bootstrapped();
+        let fields = CashDepositedFields {
+            sender: spellings("0xfa76b8f304d2a87fcaee0c258a76118368d0d671")[spelling].clone(),
+            token: spellings(accepted)[spelling].clone(),
+            round_id: 7,
+            near_account: accounts(1).to_string(),
+            amount: U128(5 * USDC),
+            timestamp: 1793753725,
+        };
+        env(&accounts(5), RECORD_STORAGE_DEPOSIT, ts(BASE_NOW));
+        contract
+            .register_base_cash(base_location(), fields.clone())
+            .detach();
+        let forwarded: CashDepositedFields =
+            serde_json::from_value(last_call_args("on_base_cash_verified")["fields"].clone())
+                .unwrap();
+        assert_eq!(forwarded.token, accepted);
+        assert_eq!(
+            forwarded.sender,
+            "0xfa76b8f304d2a87fcaee0c258a76118368d0d671"
+        );
+        let event = evm::CashDeposited {
+            sender: evm::parse_address(&forwarded.sender).unwrap(),
+            token: evm::parse_address(accepted).unwrap(),
+            round_id: 7,
+            near_account: accounts(1).to_string(),
+            amount: 5 * USDC,
+            timestamp: 1793753725,
+        };
+        let tx_hash = crate::foreign::mpc::parse_hex_array(&base_location().tx_hash).unwrap();
+        let log = event.evm_log(
+            evm::parse_address(&contract.get_config().rose_vault).unwrap(),
+            &LogLocation {
+                transaction_hash: tx_hash,
+                transaction_index: 2,
+                block_hash: crate::foreign::mpc::parse_hex_array(&base_location().block_hash)
+                    .unwrap(),
+                block_number: base_location().block_number,
+                log_index: 2,
+            },
+        );
+        let request = ForeignChainRpcRequest::Base(EvmRpcRequest {
+            tx_id: Bytes32(tx_hash),
+            extractors: vec![EvmExtractor::Log { log_index: 2 }],
+            finality: EvmFinality::Safe,
+        });
+        let hash = payload_hash(request, vec![ExtractedValue::log(log)]);
+        env_with_results(ts(BASE_NOW + 7), vec![foreign_response(hash)]);
+        assert!(contract.on_base_cash_verified(
+            base_key(),
+            hex::encode(hash),
+            forwarded,
+            accounts(5)
+        ));
+        let venue = Venue::Base {
+            token: accepted.to_string(),
+        };
+        assert_eq!(contract.cash_of(&accounts(1), &venue), 5 * USDC);
+        assert!(contract
+            .get_cash(accounts(1))
+            .iter()
+            .any(|cash| cash.venue == venue && cash.amount == U128(5 * USDC)));
+        // The cash leaves under any spelling of its token too.
+        payout_env(&accounts(1), ts(BASE_NOW + 10));
+        contract
+            .withdraw_base_cash(
+                spellings(accepted)[3 - spelling].clone(),
+                U128(USDC),
+                RECIPIENT.into(),
+            )
+            .detach();
+        assert_eq!(contract.cash_of(&accounts(1), &venue), 4 * USDC);
+        for other in 0..3 {
+            env(&accounts(3), RECORD_STORAGE_DEPOSIT, ts(BASE_NOW + 100));
+            panics_with("Already registered", || {
+                contract.register_base_cash(
+                    base_location(),
+                    CashDepositedFields {
+                        token: spellings(accepted)[other].clone(),
+                        ..fields.clone()
+                    },
+                )
+            });
+        }
+    }
+}
+
+#[test]
+fn base_payouts_store_the_canonical_recipient_and_refuse_custody_addresses() {
+    let (mut contract, class) = midstream_holder();
+    let source = || ClaimSourceArgs::Holding {
+        class_id: class.clone(),
+    };
+    let vault = contract.get_config().rose_vault;
+    for refused in spellings(&vault)
+        .into_iter()
+        .chain(spellings(&vault_base()))
+    {
+        payout_env(&accounts(1), ts(8_000));
+        panics_with(
+            "to must not be RoseVault or the engine's vault/base address",
+            || contract.claim_base_tokens(source(), U128(1), refused.clone()),
+        );
+        payout_env(&accounts(1), ts(8_000));
+        panics_with(
+            "to must not be RoseVault or the engine's vault/base address",
+            || contract.redeem(U64(0), refused.clone(), None),
+        );
+    }
+    payout_env(&accounts(1), ts(8_000));
+    contract
+        .claim_base_tokens(source(), U128(1), spellings(RECIPIENT)[2].clone())
+        .detach();
+    let PayoutKind::BaseTransfer { to, .. } = contract.get_payout(U64(0)).unwrap().kind else {
+        panic!("a Base transfer")
+    };
+    assert_eq!(to, RECIPIENT);
+    payout_env(&accounts(1), ts(8_001));
+    contract
+        .redeem(U64(0), spellings(RECIPIENT)[1].clone(), None)
+        .detach();
+    assert_eq!(
+        contract.get_payout(U64(1)).unwrap().kind,
+        PayoutKind::BaseRelease {
+            lockup: base_fields().lockup,
+            stream_id: 82,
+            to: RECIPIENT.into(),
+            vested_to_recipient: false,
+        }
+    );
 }

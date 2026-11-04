@@ -103,6 +103,9 @@ pub struct RoundView {
     pub reveal_window: U64,
     pub max_price: U128,
     pub reference_price: Option<U128>,
+    /// Largest quantity a buy order may name (a larger one is void at opening): the class
+    /// supply when the round was created (Exit), the claim (Advance); `None` for a Tender.
+    pub max_buy_quantity: Option<U128>,
     /// Class fraction at `closes_at`.
     pub f_ts: U128,
     pub remaining_lock_secs: U64,
@@ -320,6 +323,11 @@ impl Contract {
             max_distribution_receivers: crate::MAX_DISTRIBUTION_RECEIVERS as u32,
             fee_bps: clearing::FEE_BPS as u32,
             bond_floor: U128(crate::ONE_USDC),
+            min_key_timeout: U64(crate::MIN_KEY_TIMEOUT_NS),
+            max_key_timeout: U64(crate::MAX_KEY_TIMEOUT_NS),
+            min_reveal_window: U64(crate::MIN_REVEAL_WINDOW_NS),
+            max_reveal_window: U64(crate::MAX_REVEAL_WINDOW_NS),
+            max_round_horizon: U64(crate::MAX_ROUND_HORIZON_NS),
         }
     }
 
@@ -461,11 +469,36 @@ impl Contract {
         })
     }
 
-    /// Everything `account` holds: units per class, live orders, liens, cash.
+    /// Everything `account` holds: units per class, live orders, liens, cash. Only the account's
+    /// own classes are read (its holding rows, and the classes of its live orders, Advances and
+    /// liens, where units sit outside the holding), so the cost does not grow with the number
+    /// of classes in the engine.
     pub fn get_portfolio(&self, account: AccountId) -> PortfolioView {
-        let holdings = self
-            .classes
-            .keys()
+        let index = self
+            .account_index
+            .get(&account)
+            .cloned()
+            .unwrap_or_default();
+        let mut classes = self.classes_held(&account);
+        let elsewhere = index
+            .bids
+            .iter()
+            .map(|(round_id, _)| *round_id)
+            .chain(index.advances.iter().copied())
+            .filter_map(|round_id| self.rounds.get(&round_id).map(|r| r.class_id.clone()))
+            .chain(
+                index
+                    .liens_held
+                    .iter()
+                    .filter_map(|lien_id| self.liens.get(lien_id).map(|l| l.class_id.clone())),
+            );
+        for class_id in elsewhere {
+            if !classes.contains(&class_id) {
+                classes.push(class_id);
+            }
+        }
+        let holdings = classes
+            .iter()
             .map(|class_id| self.holding_view(&account, class_id))
             .filter(|view| {
                 view.balance.0 > 0
@@ -474,11 +507,6 @@ impl Contract {
                     || view.encumbered.0 > 0
             })
             .collect();
-        let index = self
-            .account_index
-            .get(&account)
-            .cloned()
-            .unwrap_or_default();
         let bids = index
             .bids
             .iter()
@@ -630,6 +658,14 @@ pub struct Limits {
     pub max_distribution_receivers: u32,
     pub fee_bps: u32,
     pub bond_floor: U128,
+    /// Bounds of a round's `key_timeout`, nanoseconds.
+    pub min_key_timeout: U64,
+    pub max_key_timeout: U64,
+    /// Bounds of a round's `reveal_window`, nanoseconds.
+    pub min_reveal_window: U64,
+    pub max_reveal_window: U64,
+    /// Longest time from a round's creation to its `closes_at`, nanoseconds.
+    pub max_round_horizon: U64,
 }
 
 /// The retired lot of a Tender.
@@ -674,6 +710,7 @@ impl Contract {
             reveal_window: U64(round.reveal_window),
             max_price: U128(round.max_price),
             reference_price: round.reference_price.map(U128),
+            max_buy_quantity: round.max_buy_quantity.map(U128),
             f_ts: U128(round.f_ts),
             remaining_lock_secs: U64(crate::rounds::remaining_lock_secs(round)),
             app_id: hex::encode(rose_ibe::round_app_id(

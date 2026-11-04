@@ -25,7 +25,8 @@ contract RoseVaultTest is Test {
     uint40 internal constant NOW = 1_800_000_000;
     string internal constant NEAR_ACCOUNT = "alice.rose-app.testnet";
     bytes32 internal constant KAT_TRANSFER_DIGEST = 0x652ed7c219938bcc420b0786454c4e4a58b5baeed9dd1cfdf3ba8c4b1e08ac01;
-    bytes32 internal constant KAT_RELEASE_DIGEST = 0x87ab8e82a059a262d10be8885c9b5993c14f8bbe9ba38e33cc96179b5f5ee308;
+    bytes32 internal constant KAT_RELEASE_DIGEST = 0xab3684e318c5c016035a36f948f02e970040e271317ea09a327d2c59f6fef666;
+    bytes32 internal constant KAT_RETURN_DIGEST = 0x1aa2f755fbde4c0062a5437278478f1b0f3820980c2ef5560ac419d7dc5eafe3;
 
     MockLockup internal lockupMock;
     ISablierLockup internal lockup;
@@ -135,7 +136,10 @@ contract RoseVaultTest is Test {
 
     function test_typehashes() public view {
         assertEq(vault.TRANSFER_TYPEHASH(), keccak256("Transfer(address token,address to,uint256 amount,uint256 id)"));
-        assertEq(vault.RELEASE_TYPEHASH(), keccak256("Release(address lockup,uint256 streamId,address to,uint256 id)"));
+        assertEq(
+            vault.RELEASE_TYPEHASH(),
+            keccak256("Release(address lockup,uint256 streamId,address to,bool vestedToRecipient,uint256 id)")
+        );
     }
 
     function test_domainSeparator_matchesEip712() public view {
@@ -165,9 +169,9 @@ contract RoseVaultTest is Test {
     }
 
     function test_hashRelease_matchesManualDigest() public view {
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), 9, bob, 43);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), 9, bob, false, 43);
         bytes32 structHash =
-            keccak256(abi.encode(vault.RELEASE_TYPEHASH(), auth.lockup, auth.streamId, auth.to, auth.id));
+            keccak256(abi.encode(vault.RELEASE_TYPEHASH(), auth.lockup, auth.streamId, auth.to, auth.vestedToRecipient, auth.id));
         bytes32 expected = keccak256(abi.encodePacked("\x19\x01", vault.domainSeparator(), structHash));
         assertEq(vault.hashRelease(auth), expected);
     }
@@ -183,10 +187,12 @@ contract RoseVaultTest is Test {
             0x036CbD53842c5426634e7929541eC2318f3dCF7e, 0x000000000000000000000000000000000000b0b0, 1_000_000, 7
         );
         RoseVault.Release memory release = RoseVault.Release(
-            0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e, 81, 0x000000000000000000000000000000000000b0b0, 8
+            0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e, 81, 0x000000000000000000000000000000000000b0b0, false, 8
         );
         assertEq(fixedVault.hashTransfer(auth), KAT_TRANSFER_DIGEST);
         assertEq(fixedVault.hashRelease(release), KAT_RELEASE_DIGEST);
+        release.vestedToRecipient = true;
+        assertEq(fixedVault.hashRelease(release), KAT_RETURN_DIGEST);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -263,7 +269,7 @@ contract RoseVaultTest is Test {
 
     function test_executeTransfer_rejectsReleaseSignatureForSameFields() public {
         _fundVault(500e6);
-        RoseVault.Release memory release = RoseVault.Release(address(usdc), uint256(uint160(bob)), bob, 1);
+        RoseVault.Release memory release = RoseVault.Release(address(usdc), uint256(uint160(bob)), bob, false, 1);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, release);
         RoseVault.Transfer memory auth = RoseVault.Transfer(address(usdc), bob, uint256(uint160(bob)), 1);
         vm.expectPartialRevert(RoseVault.InvalidSigner.selector);
@@ -317,7 +323,7 @@ contract RoseVaultTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = _signTransfer(SIGNER_KEY, auth);
         vault.executeTransfer(auth, v, r, s);
 
-        RoseVault.Release memory release = RoseVault.Release(address(lockup), streamId, bob, 5);
+        RoseVault.Release memory release = RoseVault.Release(address(lockup), streamId, bob, false, 5);
         (v, r, s) = _signRelease(SIGNER_KEY, release);
         vm.expectRevert(abi.encodeWithSelector(RoseVault.AuthorizationUsed.selector, 5));
         vault.executeRelease(release, v, r, s);
@@ -747,12 +753,12 @@ contract RoseVaultTest is Test {
         uint128 vested = lockup.withdrawableAmountOf(streamId);
         assertGt(vested, 0);
 
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 11);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 11);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         uint256 ethBefore = alice.balance;
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit RoseVault.ReleaseExecuted(11, streamId, bob, address(lockup), vested);
+        emit RoseVault.ReleaseExecuted(11, streamId, bob, address(lockup), address(vault), vested);
         vm.prank(alice);
         vault.executeRelease{value: 1 ether / 10}(auth, v, r, s);
 
@@ -765,14 +771,49 @@ contract RoseVaultTest is Test {
         assertTrue(vault.isAuthorizationUsed(11));
     }
 
-    function test_executeRelease_zeroWithdrawable_needsNoFee() public {
+    function test_executeRelease_vestedToRecipient_sendsVestedToTheReturnee() public {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 12);
+        vm.warp(NOW + 60 days);
+        uint128 vested = lockup.withdrawableAmountOf(streamId);
+        assertGt(vested, 0);
+        uint256 vaultBefore = token.balanceOf(address(vault));
+
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, true, 25);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit RoseVault.ReleaseExecuted(12, streamId, bob, address(lockup), 0);
+        emit RoseVault.ReleaseExecuted(25, streamId, bob, address(lockup), bob, vested);
+        vm.prank(alice);
+        vault.executeRelease{value: FEE}(auth, v, r, s);
+
+        assertEq(lockup.ownerOf(streamId), bob);
+        assertEq(token.balanceOf(bob), vested);
+        assertEq(token.balanceOf(address(vault)), vaultBefore);
+        assertEq(lockup.withdrawableAmountOf(streamId), 0);
+    }
+
+    function test_executeRelease_vestedFlagIsSigned() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        vm.warp(NOW + 60 days);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 26);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+        auth.vestedToRecipient = true;
+        address recovered = ecrecover(vault.hashRelease(auth), v, r, s);
+        vm.expectRevert(abi.encodeWithSelector(RoseVault.InvalidSigner.selector, recovered));
+        vault.executeRelease{value: FEE}(auth, v, r, s);
+        assertFalse(vault.isAuthorizationUsed(26));
+    }
+
+    function test_executeRelease_zeroWithdrawable_needsNoFee() public {
+        uint256 streamId = _lockedStream(alice);
+        _deposit(alice, streamId);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 12);
+        (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit RoseVault.ReleaseExecuted(12, streamId, bob, address(lockup), address(vault), 0);
         vault.executeRelease(auth, v, r, s);
         assertEq(lockup.ownerOf(streamId), bob);
     }
@@ -781,7 +822,7 @@ contract RoseVaultTest is Test {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
         vm.warp(NOW + 60 days);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 18);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 18);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         uint256 ethBefore = alice.balance;
 
@@ -797,7 +838,7 @@ contract RoseVaultTest is Test {
     function test_executeRelease_zeroWithdrawable_refundsWholeValue() public {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 19);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 19);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         uint256 ethBefore = alice.balance;
 
@@ -813,7 +854,7 @@ contract RoseVaultTest is Test {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
         vm.warp(NOW + 60 days);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 20);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 20);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         RejectingSubmitter submitter = new RejectingSubmitter();
         uint256 ethBefore = address(this).balance;
@@ -831,7 +872,7 @@ contract RoseVaultTest is Test {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
         vm.warp(NOW + 60 days);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 21);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 21);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         RejectingSubmitter submitter = new RejectingSubmitter();
         uint256 ethBefore = address(this).balance;
@@ -848,7 +889,7 @@ contract RoseVaultTest is Test {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
         vm.warp(NOW + 60 days);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 13);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 13);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         vm.expectRevert(abi.encodeWithSelector(RoseVault.InsufficientFee.selector, 0, FEE));
         vault.executeRelease(auth, v, r, s);
@@ -856,14 +897,14 @@ contract RoseVaultTest is Test {
     }
 
     function test_executeRelease_rejectsWrongLockup() public {
-        RoseVault.Release memory auth = RoseVault.Release(address(token), 1, bob, 14);
+        RoseVault.Release memory auth = RoseVault.Release(address(token), 1, bob, false, 14);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         vm.expectRevert(abi.encodeWithSelector(RoseVault.WrongLockup.selector, address(token)));
         vault.executeRelease(auth, v, r, s);
     }
 
     function test_executeRelease_rejectsZeroRecipient() public {
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), 1, address(0), 15);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), 1, address(0), false, 15);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         vm.expectRevert(RoseVault.ZeroAddress.selector);
         vault.executeRelease(auth, v, r, s);
@@ -872,7 +913,7 @@ contract RoseVaultTest is Test {
     function test_executeRelease_rejectsReplay() public {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 16);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 16);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         vault.executeRelease(auth, v, r, s);
         vm.expectRevert(abi.encodeWithSelector(RoseVault.AuthorizationUsed.selector, 16));
@@ -881,7 +922,7 @@ contract RoseVaultTest is Test {
 
     function test_executeRelease_streamNotHeldKeepsIdUnused() public {
         uint256 streamId = _lockedStream(alice);
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, 17);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, bob, false, 17);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         vm.expectRevert();
         vault.executeRelease(auth, v, r, s);
@@ -1468,7 +1509,7 @@ contract RoseVaultTest is Test {
         uint256 streamId = _lockedStream(alice);
         _deposit(alice, streamId);
         address recipient = address(new RejectingSubmitter());
-        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, recipient, 22);
+        RoseVault.Release memory auth = RoseVault.Release(address(lockup), streamId, recipient, false, 22);
         (uint8 v, bytes32 r, bytes32 s) = _signRelease(SIGNER_KEY, auth);
         vault.executeRelease(auth, v, r, s);
         assertEq(lockup.ownerOf(streamId), recipient);
@@ -1600,7 +1641,7 @@ contract RoseVaultTest is Test {
         RoseVault.Transfer memory payout = RoseVault.Transfer(address(usdc), bob, 100e6, 23);
         (uint8 v, bytes32 r, bytes32 s) = _signTransfer(SIGNER_KEY, payout);
         submitter.arm(abi.encodeCall(vault.executeTransfer, (payout, v, r, s)));
-        RoseVault.Release memory release = RoseVault.Release(address(lockup), streamId, bob, 24);
+        RoseVault.Release memory release = RoseVault.Release(address(lockup), streamId, bob, false, 24);
         (v, r, s) = _signRelease(SIGNER_KEY, release);
         submitter.release{value: FEE + 1}(release, v, r, s);
         assertEq(submitter.lastReason(), _reentrantCall());

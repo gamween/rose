@@ -367,8 +367,14 @@ impl Contract {
         }
         if let Holder::Account(account) = holder {
             match (existed, holding.is_empty()) {
-                (false, false) => self.charge_storage(account, HOLDING_ROW_BYTES),
-                (true, true) => self.release_storage(account, HOLDING_ROW_BYTES),
+                (false, false) => {
+                    self.charge_storage(account, HOLDING_ROW_BYTES);
+                    self.track_class(account, class_id, true);
+                }
+                (true, true) => {
+                    self.release_storage(account, HOLDING_ROW_BYTES);
+                    self.track_class(account, class_id, false);
+                }
                 _ => {}
             }
         }

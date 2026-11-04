@@ -1,30 +1,56 @@
 //! NEP-145 storage management for unit holders.
 //!
-//! Every holding row (one per account and class) costs [`HOLDING_ROW_BYTES`] of contract storage
-//! and is paid by its owner: an account registers once with `storage_deposit` and tops up when it
-//! holds more classes. Receiving units (mint, transfer, settlement, distribution) requires the
-//! receiver to be registered with enough deposit; `distribute_units` can register its receivers
-//! from the NEAR attached to the call. Bids and rounds carry their own deposits (see `rounds.rs`).
+//! Every holding row (one per account and class) costs [`HOLDING_ROW_BYTES`] of contract storage,
+//! and every cash row (one per account and venue with a balance) [`CASH_ROW_BYTES`]; both are
+//! paid by their owner: an account registers once with `storage_deposit` and tops up when it
+//! holds more classes or venues. Receiving units (mint, transfer, settlement, distribution) or
+//! depositing NEAR cash requires the receiver to be registered with enough deposit;
+//! `distribute_units` can register its receivers from the NEAR attached to the call, and a Base
+//! cash registration pays its row from its record deposit. Bids and rounds carry their own
+//! deposits (see `rounds.rs`).
+//!
+//! The byte figures are the trie records as NEAR charges them (key, value and 40 bytes of record
+//! overhead) for the longest account id (64 characters), measured in `tests::storage`; shorter
+//! ids pay the same, so the engine never pays for a row it charged.
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::json_types::U128;
 use near_sdk::{env, near, require, AccountId, NearToken, Promise};
 
+use crate::types::ClassId;
 use crate::{assert_one_yocto, Contract, ContractExt, RoseEvent};
 
-/// Bytes of one holding row: a 32-byte hashed key, the 64-byte `Holding` and the 40-byte record
-/// overhead of the NEAR trie.
-pub const HOLDING_ROW_BYTES: u64 = 32 + 64 + 40;
-/// Bytes of the storage account record itself.
-pub const STORAGE_ACCOUNT_BYTES: u64 = 32 + 24 + 40;
+/// Longest NEAR account id, in bytes.
+const MAX_ACCOUNT_LEN: u64 = 64;
+/// Borsh length of a class id (`u32` length prefix and 64 hex characters).
+const CLASS_ID_LEN: u64 = 4 + 64;
+/// Overhead NEAR charges per trie record on top of its key and value.
+const RECORD_OVERHEAD: u64 = 40;
+/// Bytes of the storage account record itself: key (map prefix, account id) and the
+/// [`StorageAccount`] value with an empty class list.
+pub const STORAGE_ACCOUNT_BYTES: u64 = RECORD_OVERHEAD + (1 + 4 + MAX_ACCOUNT_LEN) + (16 + 8 + 4);
+/// Bytes of one holding row: key (map prefix, `Holder::Account` tag, account id, class id), the
+/// 64-byte `Holding`, and the class id it adds to its owner's class list (see
+/// [`StorageAccount::classes`]).
+pub const HOLDING_ROW_BYTES: u64 =
+    RECORD_OVERHEAD + (1 + 1 + 4 + MAX_ACCOUNT_LEN + CLASS_ID_LEN) + 64 + CLASS_ID_LEN;
+/// Bytes of one cash row: key (map prefix, account id, `Venue::Base` with its 42-character
+/// token, the longest venue) and the `u128` balance.
+pub const CASH_ROW_BYTES: u64 = RECORD_OVERHEAD + (1 + 4 + MAX_ACCOUNT_LEN + 1 + 4 + 42) + 16;
+/// Bytes of one lien share row: key (map prefix, lien id, account id) and the 32-byte
+/// `LienShare`. Paid from the funder's bid deposit.
+pub const LIEN_SHARE_ROW_BYTES: u64 = RECORD_OVERHEAD + (1 + 8 + 4 + MAX_ACCOUNT_LEN) + 32;
 
 /// Storage deposit and usage of an account.
-#[derive(Clone, Copy, Debug, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Default, BorshSerialize, BorshDeserialize)]
 pub struct StorageAccount {
     /// NEAR deposited, yoctoNEAR.
     pub deposit: u128,
-    /// Bytes charged to the account (the record itself plus its holding rows).
+    /// Bytes charged to the account (the record itself plus its holding and cash rows).
     pub used_bytes: u64,
+    /// Classes the account has a holding row of, in the order it got them: the portfolio view
+    /// reads these rather than every class of the engine. Each entry is paid with its row.
+    pub classes: Vec<ClassId>,
 }
 
 /// NEP-145 balance.
@@ -60,7 +86,7 @@ impl Contract {
         let attached = env::attached_deposit().as_yoctonear();
         let registration_only = registration_only.unwrap_or(false);
         let min = self.min_storage_deposit();
-        let refund = match self.storage_accounts.get(&account).copied() {
+        let refund = match self.storage_accounts.get(&account).cloned() {
             Some(existing) if registration_only => {
                 self.storage_accounts.insert(account.clone(), existing);
                 attached
@@ -70,11 +96,12 @@ impl Contract {
                     .deposit
                     .checked_add(attached)
                     .unwrap_or_else(|| env::panic_str("Deposit overflow"));
+                let total = existing.deposit;
                 self.storage_accounts.insert(account.clone(), existing);
                 self.emit(RoseEvent::StorageDeposited {
                     account: account.clone(),
                     amount: U128(attached),
-                    total: U128(existing.deposit),
+                    total: U128(total),
                 });
                 0
             }
@@ -110,7 +137,7 @@ impl Contract {
         let mut record = self
             .storage_accounts
             .get(&account)
-            .copied()
+            .cloned()
             .unwrap_or_else(|| env::panic_str("Account is not registered"));
         let available = available_of(&record, self.min_storage_deposit());
         let amount = amount.map_or(available, |a| a.0);
@@ -139,7 +166,7 @@ impl Contract {
     pub fn storage_unregister(&mut self, force: Option<bool>) -> bool {
         assert_one_yocto();
         let account = env::predecessor_account_id();
-        let Some(record) = self.storage_accounts.get(&account).copied() else {
+        let Some(record) = self.storage_accounts.get(&account).cloned() else {
             return false;
         };
         require!(
@@ -149,9 +176,9 @@ impl Contract {
         require!(
             record.used_bytes <= STORAGE_ACCOUNT_BYTES,
             if force.unwrap_or(false) {
-                "Cannot force-unregister an account holding units or claimable tokens"
+                "Cannot force-unregister an account holding units, claimable tokens or cash"
             } else {
-                "Account still holds units or claimable tokens"
+                "Account still holds units, claimable tokens or cash"
             }
         );
         self.storage_accounts.remove(&account);
@@ -167,7 +194,7 @@ impl Contract {
         true
     }
 
-    /// NEP-145 bounds: the minimum covers the account record and one holding row.
+    /// NEP-145 bounds: the minimum covers the account record, one holding row and one cash row.
     pub fn storage_balance_bounds(&self) -> StorageBalanceBounds {
         StorageBalanceBounds {
             min: U128(self.min_storage_deposit()),
@@ -235,9 +262,10 @@ impl Contract {
         self.storage_accounts.contains_key(account)
     }
 
-    /// Registration deposit: the account record plus one holding row.
+    /// Registration deposit: the account record, one holding row and one cash row, so a
+    /// registered account can always hold one class and one cash venue.
     pub fn min_storage_deposit(&self) -> u128 {
-        bytes_cost(STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES)
+        bytes_cost(STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES + CASH_ROW_BYTES)
     }
 
     /// Charges `bytes` to `account`'s storage usage (a new holding row). An owed credit can land
@@ -255,7 +283,29 @@ impl Contract {
         record.used_bytes = record.used_bytes.saturating_add(bytes);
     }
 
-    /// Releases `bytes` from `account`'s storage usage (a removed holding row).
+    /// Adds or removes `class_id` in `account`'s class list as its holding row appears or goes
+    /// (the row's bytes, the entry's included, are charged by the caller).
+    pub(crate) fn track_class(&mut self, account: &AccountId, class_id: &ClassId, held: bool) {
+        if let Some(record) = self.storage_accounts.get_mut(account) {
+            if held {
+                if !record.classes.contains(class_id) {
+                    record.classes.push(class_id.clone());
+                }
+            } else {
+                record.classes.retain(|class| class != class_id);
+            }
+        }
+    }
+
+    /// Classes `account` has a holding row of.
+    pub(crate) fn classes_held(&self, account: &AccountId) -> Vec<ClassId> {
+        self.storage_accounts
+            .get(account)
+            .map(|record| record.classes.clone())
+            .unwrap_or_default()
+    }
+
+    /// Releases `bytes` from `account`'s storage usage (a removed holding or cash row).
     pub(crate) fn release_storage(&mut self, account: &AccountId, bytes: u64) {
         if let Some(record) = self.storage_accounts.get_mut(account) {
             record.used_bytes = record
@@ -302,6 +352,7 @@ impl Contract {
             StorageAccount {
                 deposit,
                 used_bytes: STORAGE_ACCOUNT_BYTES,
+                classes: Vec::new(),
             },
         );
         self.emit(RoseEvent::StorageDeposited {
@@ -321,7 +372,7 @@ pub(crate) fn bytes_cost(bytes: u64) -> u128 {
 
 /// Withdrawable part of a deposit: what exceeds both the bytes in use and the registration
 /// minimum, so a registered account always keeps the deposit `storage_balance_bounds().min`
-/// promises (room for its record and one holding row) unless it unregisters.
+/// promises (room for its record, one holding row and one cash row) unless it unregisters.
 fn available_of(record: &StorageAccount, min: u128) -> u128 {
     record
         .deposit

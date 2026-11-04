@@ -18,11 +18,14 @@ use crate::{Contract, ContractExt, RoseEvent};
 
 /// Gas attached to `request_app_private_key` (19 Tgas is the measured minimum).
 const GAS_FOR_CKD_REQUEST: Gas = Gas::from_tgas(25);
-/// Static gas of the CKD callback (12.4 Tgas measured: unwrap plus pairing check).
+/// Static gas of the CKD callback: 12.4 Tgas measured (unwrap plus pairing check), 20 Tgas
+/// attached so a slower host never starves the callback that stores the key.
 const GAS_FOR_CKD_CALLBACK: Gas = Gas::from_tgas(20);
 /// Blocks a CKD request may stay in flight: the MPC yield times out after 200 blocks and the
-/// callback runs right after. `cancel_no_key` waits for them, so a key cannot arrive (and become
-/// public in the MPC's receipt) for a round already cancelled.
+/// callback runs right after. `cancel_no_key` waits for them, so the engine can never store a
+/// key, nor open or clear anything, for a round already cancelled. The key itself may still
+/// become public afterwards (a late MPC response is readable in its failed transaction): spec
+/// 5.6 states this privacy-only consequence.
 pub const KEY_REQUEST_FLIGHT_BLOCKS: u64 = 250;
 
 #[derive(Serialize)]
@@ -59,7 +62,7 @@ impl Contract {
     /// scalar, 1 yoctoNEAR paid by the engine). Anyone, once `now >= closes_at`; callable again
     /// while no key has arrived (the key is deterministic) until `closes_at + key_timeout`, when
     /// the round becomes cancellable instead. A round without any sealed order is cancelled
-    /// instead: there is nothing to reveal. Attach about 60 Tgas.
+    /// instead: there is nothing to reveal. Attach 80 Tgas.
     pub fn close(&mut self, round_id: U64) -> Option<Promise> {
         let round = self.round(round_id.0).clone();
         require!(
@@ -196,7 +199,7 @@ impl Contract {
     /// Opens a sealed order with its `(plaintext, sigma)` opening (48 and 32 bytes, hex). Anyone,
     /// during the reveal window. The identity, bidder and side come from the stored bid, never
     /// from the caller. The opening is fully verified; a valid opening whose values break the
-    /// bid's collateral marks it void. Costs about 124 Tgas: attach 300 Tgas.
+    /// bid's collateral marks it void. Costs about 124 to 132 Tgas: attach 200 Tgas.
     pub fn open_bid(
         &mut self,
         round_id: U64,
@@ -240,10 +243,9 @@ impl Contract {
         let pricing = round_pricing(&round);
         let void = match bid.side {
             Side::Buy => {
-                let supply = match round.kind {
-                    RoundKind::Advance => round.advance.as_ref().expect("advance terms").claim,
-                    RoundKind::Exit | RoundKind::Tender => self.class(&round.class_id).total_units,
-                };
+                let supply = round
+                    .max_buy_quantity
+                    .expect("rounds taking buy orders fix their maximum quantity");
                 let covered = pricing
                     .charge(plaintext.quantity, plaintext.limit_price)
                     .ok()

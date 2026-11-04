@@ -656,8 +656,10 @@ impl Engine {
         Ok(())
     }
 
-    /// Mints `amount` tUSDC to `account` and deposits it as NEAR-venue cash in the engine.
+    /// Mints `amount` tUSDC to `account` and deposits it as NEAR-venue cash in the engine,
+    /// registering `account` on the engine first (a NEAR cash deposit needs room for its row).
     pub async fn fund(&self, account: &Account, amount: u128, gas: &GasTable) -> Result<()> {
+        self.register(account, gas).await?;
         let bounds: Value = self.tusdc.view("storage_balance_bounds").await?.json()?;
         account
             .call(self.tusdc.id(), "mint")
@@ -897,14 +899,15 @@ impl Engine {
         round_id_of(gas.ok("create_exit", result)?)
     }
 
-    /// A round window closing in `open_secs`, key timeout 30 s, reveal window 600 s (deadlines
+    /// A round window closing in `open_secs`, key timeout 60 s (the minimum), reveal window
+    /// 600 s (deadlines
     /// are passed by fast-forwarding blocks, so long windows cost nothing and keep the tests
     /// independent of the machine's speed).
     pub async fn window(&self, open_secs: u64) -> Result<Value> {
         Ok(json!({
             "opens_at": null,
             "closes_at": (self.now_ns().await? + open_secs * NS).to_string(),
-            "key_timeout": (30 * NS).to_string(),
+            "key_timeout": (60 * NS).to_string(),
             "reveal_window": (600 * NS).to_string(),
         }))
     }

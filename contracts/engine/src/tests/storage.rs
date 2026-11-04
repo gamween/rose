@@ -7,17 +7,17 @@ use near_sdk::NearToken;
 
 use super::*;
 use crate::types::Holder;
-use crate::{StorageBalance, HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
+use crate::{StorageBalance, CASH_ROW_BYTES, HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
 
 fn byte_cost() -> u128 {
     near_sdk::env::storage_byte_cost().as_yoctonear()
 }
 
 #[test]
-fn registration_covers_the_record_and_one_holding_row() {
+fn registration_covers_the_record_one_holding_row_and_one_cash_row() {
     let mut contract = init();
     let bounds = contract.storage_balance_bounds();
-    let min = u128::from(STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES) * byte_cost();
+    let min = u128::from(STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES + CASH_ROW_BYTES) * byte_cost();
     assert_eq!(bounds.min, U128(min));
     assert_eq!(bounds.max, None);
     let alice = accounts(1);
@@ -53,12 +53,13 @@ fn holding_rows_consume_the_deposit_and_free_it_when_emptied() {
     let class_a = stepped_class(&mut contract, 6);
     let class_b = stepped_class(&mut contract, 9);
     let alice = accounts(1);
+    fund(&mut contract, &alice, USDC, ts(1_000));
     mint(&mut contract, &class_a, &alice, 1_000, ts(1_000));
     let balance = contract.storage_balance_of(alice.clone()).unwrap();
     assert_eq!(
         balance.available,
         U128(0),
-        "one row: the registration is fully used"
+        "one holding row and one cash row: the registration is fully used"
     );
     env_at(&engine(), ts(1_000));
     panics_with(
@@ -96,6 +97,20 @@ fn holding_rows_consume_the_deposit_and_free_it_when_emptied() {
         .unwrap()
         .available;
     assert_eq!(available, U128(u128::from(HOLDING_ROW_BYTES) * byte_cost()));
+    // Emptying the cash venue releases its row; the registration minimum keeps room for one, so
+    // nothing more becomes withdrawable.
+    let used = |contract: &Contract| contract.storage_accounts.get(&alice).unwrap().used_bytes;
+    let before = used(&contract);
+    env(&alice, one_yocto(), ts(1_000));
+    contract.withdraw_near_cash(U128(USDC)).detach();
+    assert_eq!(used(&contract), before - CASH_ROW_BYTES);
+    assert_eq!(
+        contract
+            .storage_balance_of(alice.clone())
+            .unwrap()
+            .available,
+        available
+    );
     // Withdraw what is free, not more.
     env(&alice, one_yocto(), ts(1_000));
     panics_with("Amount exceeds the available storage balance", || {
@@ -119,9 +134,10 @@ fn unregister_requires_an_empty_account() {
     env(&nobody, one_yocto(), ts(1_000));
     assert!(!contract.storage_unregister(None));
     env(&alice, one_yocto(), ts(1_000));
-    panics_with("Account still holds units or claimable tokens", || {
-        contract.storage_unregister(None)
-    });
+    panics_with(
+        "Account still holds units, claimable tokens or cash",
+        || contract.storage_unregister(None),
+    );
     env(&alice, one_yocto(), ts(1_000));
     panics_with("Cannot force-unregister an account holding units", || {
         contract.storage_unregister(Some(true))
@@ -329,4 +345,115 @@ fn mt_transfer_call_holds_the_sender_until_its_refund_lands() {
     );
     env(&sender, one_yocto(), ts(1_103));
     panics_with("still holds units", || contract.storage_unregister(None));
+}
+
+/// Bytes the trie gains between two flushes.
+fn measured(contract: &mut Contract, change: impl FnOnce(&mut Contract)) -> u64 {
+    flush(contract);
+    let before = near_sdk::env::storage_usage();
+    change(contract);
+    flush(contract);
+    near_sdk::env::storage_usage() - before
+}
+
+fn flush(contract: &mut Contract) {
+    contract.storage_accounts.flush();
+    contract.holdings.flush();
+    contract.cash.flush();
+    contract.lien_shares.flush();
+}
+
+#[test]
+fn charged_rows_cover_their_measured_bytes_for_the_longest_account_ids() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let base = Venue::Base {
+        token: "0x036cbd53842c5426634e7929541ec2318f3dcf7e".into(),
+    };
+    let longest: AccountId = "a".repeat(64).parse().unwrap();
+    for (account, worst) in [(longest, true), (accounts(1), false)] {
+        env_at(&engine(), ts(1_000));
+        let record = measured(&mut contract, |c| {
+            c.register_with_budget(&account, 0);
+        });
+        let holding = measured(&mut contract, |c| {
+            let mut row = crate::ledger::Holding::default();
+            row.credit(0, 1_000).unwrap();
+            c.put_holding(&Holder::Account(account.clone()), &class, row);
+        });
+        let cash = measured(&mut contract, |c| c.credit_cash(&account, &base, 1));
+        let lien_share = measured(&mut contract, |c| {
+            c.lien_shares.insert(
+                (u64::MAX, account.clone()),
+                crate::types::LienShare {
+                    claim: 1,
+                    claimed: 0,
+                },
+            );
+        });
+        let charged = [
+            ("storage record", record, STORAGE_ACCOUNT_BYTES),
+            ("holding row", holding, HOLDING_ROW_BYTES),
+            ("cash row", cash, CASH_ROW_BYTES),
+            ("lien share row", lien_share, crate::LIEN_SHARE_ROW_BYTES),
+        ];
+        for (row, bytes, charge) in charged {
+            assert!(
+                bytes <= charge,
+                "{row} of {account} uses {bytes} bytes, charged {charge}"
+            );
+            if worst {
+                assert_eq!(
+                    bytes, charge,
+                    "{row}: the charge is the measured worst case"
+                );
+            }
+        }
+        let used = contract.storage_accounts.get(&account).unwrap().used_bytes;
+        assert_eq!(
+            used,
+            STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES + CASH_ROW_BYTES,
+            "the account is charged its record, its holding row and its cash row"
+        );
+    }
+    assert_eq!(
+        contract.storage_balance_bounds().min,
+        U128(u128::from(STORAGE_ACCOUNT_BYTES + HOLDING_ROW_BYTES + CASH_ROW_BYTES) * byte_cost())
+    );
+    assert_eq!(STORAGE_ACCOUNT_BYTES, 137);
+    assert_eq!(HOLDING_ROW_BYTES, 310);
+    assert_eq!(CASH_ROW_BYTES, 172);
+    assert_eq!(crate::LIEN_SHARE_ROW_BYTES, 149);
+}
+
+#[test]
+fn a_near_cash_deposit_needs_room_for_its_row() {
+    let mut contract = init();
+    let alice = accounts(1);
+    env_at(&cash_token(), ts(1_000));
+    panics_with(
+        "Account bob is not registered: call storage_deposit first",
+        || contract.ft_on_transfer(alice.clone(), U128(USDC), String::new()),
+    );
+    assert_eq!(cash(&contract, &alice), 0);
+    register(&mut contract, &alice, ts(1_000));
+    env_at(&cash_token(), ts(1_000));
+    contract
+        .ft_on_transfer(alice.clone(), U128(USDC), String::new())
+        .detach();
+    assert_eq!(cash(&contract, &alice), USDC);
+    // A second deposit to the same venue needs no new row.
+    let record = contract.storage_accounts.get(&alice).unwrap().clone();
+    contract.storage_accounts.insert(
+        alice.clone(),
+        crate::storage::StorageAccount {
+            deposit: crate::storage::bytes_cost(record.used_bytes),
+            ..record
+        },
+    );
+    env_at(&cash_token(), ts(1_000));
+    contract
+        .ft_on_transfer(alice.clone(), U128(USDC), String::new())
+        .detach();
+    assert_eq!(cash(&contract, &alice), 2 * USDC);
 }

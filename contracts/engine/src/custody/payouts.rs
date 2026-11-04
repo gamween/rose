@@ -74,7 +74,8 @@ impl Contract {
     /// source, then asks the MPC to sign RoseVault `Transfer(token, to, amount, id)`; the
     /// signature is stored in the payout and the claimant submits `executeTransfer`. Holdings
     /// and lien shares are the caller's; a retired lot is payable by anyone to its `retire_to`
-    /// address only. Attach the payout storage deposit and about 60 Tgas.
+    /// address only. Attach the payout storage deposit and 80 Tgas (the call keeps 50 Tgas for
+    /// the signature request and its callback).
     #[payable]
     pub fn claim_base_tokens(
         &mut self,
@@ -87,7 +88,7 @@ impl Contract {
         let source = source.resolve(&caller);
         let receipt = self.take_claimable(&source, amount.0);
         require!(receipt.chain == Chain::Base, "Not a Base class");
-        let to = evm_recipient(&to, receipt.restricted_to.as_deref());
+        let to = self.evm_recipient(&to, receipt.restricted_to.as_deref());
         let id = self.new_payout(
             Chain::Base,
             PayoutKind::BaseTransfer {
@@ -112,19 +113,18 @@ impl Contract {
     }
 
     /// Withdraws `amount` of the caller's Base cash in `token` to the EVM address `to` through a
-    /// RoseVault `Transfer` authorization. Attach the payout storage deposit and about 60 Tgas.
+    /// RoseVault `Transfer` authorization. Attach the payout storage deposit and 80 Tgas.
     #[payable]
     pub fn withdraw_base_cash(&mut self, token: String, amount: U128, to: String) -> Promise {
         Self::assert_payout_deposit();
         require!(amount.0 > 0, "Amount must be positive");
         let caller = env::predecessor_account_id();
-        let token = token.to_lowercase();
-        require!(crate::is_evm_address(&token), "Invalid token address");
+        let token = super::base::canonical_address(&token, "token");
         let venue = Venue::Base {
             token: token.clone(),
         };
         self.debit_cash(&caller, &venue, amount.0);
-        let to = evm_recipient(&to, None);
+        let to = self.evm_recipient(&to, None);
         let id = self.new_payout(
             Chain::Base,
             PayoutKind::BaseTransfer {
@@ -256,8 +256,8 @@ impl Contract {
     /// durable nonce account and `to`'s existing token account for the mint; the transaction is
     /// `[AdvanceNonce] + transfer_recipient(vault -> to)` and stays `Signed` until
     /// `confirm_sol_redeem` proves it executed (the burn is then final) or not (the units and
-    /// the claimable tokens come back). Attach the payout storage deposit; about 60 Tgas on
-    /// Base, 200 Tgas on Solana.
+    /// the claimable tokens come back). Attach the payout storage deposit; 80 Tgas on Base,
+    /// 200 Tgas on Solana.
     #[payable]
     pub fn redeem(
         &mut self,
@@ -281,7 +281,7 @@ impl Contract {
         match &position.source {
             PositionSource::BaseStream { lockup, stream_id } => {
                 let stream_id = u64::try_from(stream_id.0).expect("stored from u64");
-                let to = evm_recipient(&to, None);
+                let to = self.evm_recipient(&to, None);
                 self.burn_units(&class_id, &caller, position.allocation.0);
                 let id = self.new_payout(
                     Chain::Base,
@@ -289,6 +289,7 @@ impl Contract {
                         lockup: lockup.clone(),
                         stream_id,
                         to: evm::format_address(&to),
+                        vested_to_recipient: false,
                     },
                     PayoutDebit::Units {
                         position_id,
@@ -306,6 +307,7 @@ impl Contract {
                     lockup: evm::parse_address(lockup).expect("stored lowercase address"),
                     stream_id,
                     to,
+                    vested_to_recipient: false,
                     id,
                 };
                 self.request_base_signature(id, authorization.digest(&self.eip712_domain()))
@@ -617,7 +619,7 @@ impl Contract {
     /// stream below its proven amount (a stale read) or between that and the payout's amount
     /// (Streamflow withdraws exactly the amount or fails) is refused. `anchor_tx` is any
     /// successful finalized transaction not newer than the reads (the payout's own transaction
-    /// when it succeeded). Anyone; about 60 Tgas. Bytes are hex, read at `finalized`.
+    /// when it succeeded). Anyone; attach 100 Tgas. Bytes are hex, read at `finalized`.
     pub fn confirm_sol_payout(
         &mut self,
         payout_id: U64,
@@ -706,7 +708,7 @@ impl Contract {
     /// answer: the units come back to the redeemer (accruing from the burn), so do the claimable
     /// tokens it paid, and the position is `Held` again. A proof that can only be a stale read
     /// (less withdrawn than proven, or the stream still at its deposit address) is refused.
-    /// Anyone; about 60 Tgas. Bytes are hex, read at `finalized`.
+    /// Anyone; attach 100 Tgas. Bytes are hex, read at `finalized`.
     pub fn confirm_sol_redeem(
         &mut self,
         position_id: U64,
@@ -1497,6 +1499,7 @@ impl Contract {
         recent_blockhash: Option<String>,
     ) -> Promise {
         Self::assert_payout_deposit();
+        let key = key.canonical();
         let refused = self
             .custody
             .refused
@@ -1599,18 +1602,26 @@ fn with_transaction(payout: &Payout) -> Payout {
     payout
 }
 
-/// An EVM recipient, required to equal `restricted_to` when a source restricts it.
-fn evm_recipient(to: &str, restricted_to: Option<&str>) -> evm::Address {
-    let address = evm::parse_address(to)
-        .unwrap_or_else(|| env::panic_str("to must be a 20-byte hex address"));
-    require!(address != [0u8; 20], "to must not be the zero address");
-    if let Some(restricted) = restricted_to {
+impl Contract {
+    /// An EVM recipient in any spelling, required to equal `restricted_to` when a source
+    /// restricts it. The zero address, RoseVault and the engine's `vault/base` address are
+    /// refused: tokens or a stream sent there would sit in custody outside every record.
+    fn evm_recipient(&self, to: &str, restricted_to: Option<&str>) -> evm::Address {
+        let address = evm::parse_address(to)
+            .unwrap_or_else(|| env::panic_str("to must be a 20-byte hex address"));
+        require!(address != [0u8; 20], "to must not be the zero address");
         require!(
-            evm::parse_address(restricted) == Some(address),
-            "This source pays only to its retire_to address"
+            !self.is_engine_address(Chain::Base, &evm::format_address(&address)),
+            "to must not be RoseVault or the engine's vault/base address: what is sent there sits outside every record"
         );
+        if let Some(restricted) = restricted_to {
+            require!(
+                evm::parse_address(restricted) == Some(address),
+                "This source pays only to its retire_to address"
+            );
+        }
+        address
     }
-    address
 }
 
 /// A Solana recipient owner, required to equal `restricted_to` when a source restricts it.

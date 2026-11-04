@@ -320,3 +320,46 @@ fn events_are_logged_and_paged_from_a_ring_buffer() {
         .events
         .is_empty());
 }
+
+#[test]
+fn portfolio_lists_the_accounts_own_classes_including_units_away_from_the_holding() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let others: Vec<String> = (7..10).map(|d| stepped_class(&mut contract, d)).collect();
+    let (alice, bob) = (accounts(1), accounts(2));
+    mint(&mut contract, &class, &alice, 1_000, ts(500));
+    register(&mut contract, &bob, ts(500));
+    env(
+        &bob,
+        near_sdk::NearToken::from_yoctonear(
+            2 * u128::from(crate::HOLDING_ROW_BYTES)
+                * near_sdk::env::storage_byte_cost().as_yoctonear(),
+        ),
+        ts(500),
+    );
+    contract.storage_deposit(None, None);
+    for other in &others {
+        mint(&mut contract, other, &bob, 1_000, ts(500));
+    }
+    fund(&mut contract, &alice, USDC, ts(500));
+    let round = create_exit(&mut contract, &accounts(0), &class, USDC, ts(500), ts(900));
+    place_ask(&mut contract, round, &alice, 1_000, 1, 1_000, ts(500));
+    assert_eq!(
+        contract
+            .holding(&crate::types::Holder::Account(alice.clone()), &class)
+            .balance,
+        0,
+        "every unit is locked in the ask: the holding row is gone"
+    );
+    let portfolio = contract.get_portfolio(alice.clone());
+    assert_eq!(portfolio.holdings.len(), 1);
+    assert_eq!(portfolio.holdings[0].class_id, class);
+    assert_eq!(portfolio.holdings[0].locked_in_rounds, U128(1_000));
+    let bobs: Vec<String> = contract
+        .get_portfolio(bob)
+        .holdings
+        .into_iter()
+        .map(|h| h.class_id)
+        .collect();
+    assert_eq!(bobs, others);
+}
