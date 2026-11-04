@@ -272,6 +272,10 @@ async function stepTransfer() {
 }
 
 async function stepAttribute() {
+  // The engine refuses a stream ending within an hour (DEPOSIT_END_MARGIN_SECS) and records it as
+  // refused at the deposit address, which only a return undoes: stop before that.
+  const left = schedule().end_time - Math.floor(Date.now() / 1000);
+  if (left <= 3_600 + 60) throw new Error(`the stream ends in ${left} s: the engine would refuse it (end within an hour); start a new run with a new stream`);
   const metadata = await accountHex(state.steps.setup.metadata);
   const mint = await accountHex(state.steps.setup.mint);
   if (metadata.owner !== STREAMFLOW_PROGRAM) throw new Error(`metadata owner ${metadata.owner}`);
@@ -429,6 +433,7 @@ async function stepWaitEnd() {
     const net = BigInt(schedule().net_amount_deposited);
     if (withdrawn === net) {
       const latest = (await conn.getSignaturesForAddress(metadata, { limit: 10 }, "finalized")).find((entry) => entry.err === null);
+      if (!latest) throw new Error("no successful finalized transaction among the stream's 10 newest: run wait-end again");
       state.steps.wait_end = { amount_withdrawn: withdrawn.toString(), auto_claim_tx: latest.signature, auto_claim_link: explorer(latest.signature), memo: latest.memo ?? null };
       save();
       log(`auto-claim seen at finality (${latest.memo ?? "no memo"}): ${explorer(latest.signature)}; amount_withdrawn ${withdrawn} of ${net}`);
@@ -452,9 +457,11 @@ async function stepSync() {
   if (!listed || BigInt(listed.stream.engine_withdrawn) >= BigInt(state.steps.wait_end.amount_withdrawn)) {
     // Anyone may sync (the app's Sync button, for example): record the booking found in the event history.
     const head = await nearView(engine, "get_events", { from_seq: null, limit: 1 });
-    const from = BigInt(head.total) > 200n ? BigInt(head.total) - 200n : 0n;
-    const page = await nearView(engine, "get_events", { from_seq: String(from > BigInt(head.oldest) ? from : BigInt(head.oldest)), limit: 200 });
-    const booked = page.events.find((entry) => entry.event === "sol_stream_swept" && entry.data?.position_id === positionId);
+    let booked = null;
+    for (let from = BigInt(head.oldest); !booked && from < BigInt(head.total); from += 100n) {
+      const page = await nearView(engine, "get_events", { from_seq: String(from), limit: 100 });
+      booked = page.events.find((entry) => entry.event === "sol_stream_swept" && entry.data?.position_id === positionId) ?? null;
+    }
     if (!booked) throw new Error(`position ${positionId} shows no withdrawal left to sync and no sol_stream_swept event`);
     state.steps.sync = { booked_by: booked.predecessor, event_seq: booked.seq, block_height: booked.block_height, booked: booked.data.amount, swept_after: await nearView(engine, "get_sol_swept", { class_id: classId }), stream_pruned: !listed };
     save();
