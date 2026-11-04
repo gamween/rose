@@ -984,6 +984,13 @@ impl StreamflowMetadata {
             amount_per_period: self.amount_per_period,
             net_amount_deposited: self.net_amount_deposited,
             end_time: self.end_time,
+            pausable: self.pausable,
+            can_update_rate: self.can_update_rate,
+            can_topup: self.can_topup,
+            current_pause_start: self.current_pause_start,
+            pause_cumulative: self.pause_cumulative,
+            last_rate_change_time: self.last_rate_change_time,
+            funds_unlocked_at_last_rate_change: self.funds_unlocked_at_last_rate_change,
         }
     }
 }

@@ -121,11 +121,11 @@ pub fn hash_to_g1(msg: &[u8]) -> G1Affine {
     let uniform = expand_message_xmd(msg, NEAR_CKD_DST, 128);
     let mut fps = Vec::with_capacity(96);
     for chunk in uniform.chunks(64) {
-        let be = Fq::from_be_bytes_mod_order(chunk)
-            .into_bigint()
-            .to_bytes_be();
-        fps.extend(core::iter::repeat_n(0u8, 48 - be.len()));
-        fps.extend(be);
+        fps.extend(
+            Fq::from_be_bytes_mod_order(chunk)
+                .into_bigint()
+                .to_bytes_be(),
+        );
     }
     let points = env::bls12381_map_fp_to_g1(&fps).expect("canonical Fp elements map to G1");
     let mut sum_input = Vec::with_capacity(2 * (1 + G1_UNCOMPRESSED_LEN));
@@ -152,25 +152,45 @@ pub fn app_public_key_pv_host(a: &Fr) -> (G1Affine, G2Affine) {
     )
 }
 
+/// A round key that passed [`verify_key_host`] for its round: the only key type
+/// [`verify_opening_host`] accepts, so an unverified key cannot open a bid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VerifiedKey([u8; G1_LEN]);
+
+impl VerifiedKey {
+    /// The compressed key bytes, for storage and display.
+    pub fn as_bytes(&self) -> &[u8; G1_LEN] {
+        &self.0
+    }
+
+    /// Wraps key bytes the caller stored after a successful [`verify_key_host`] of the same
+    /// round. Only for bytes that came out of that check: wrapping anything else makes the
+    /// opening check meaningless.
+    pub fn from_stored(bytes: [u8; G1_LEN]) -> Self {
+        Self(bytes)
+    }
+}
+
 /// Check an identity key with one host pairing check: the key is a non-zero G1 subgroup point
 /// and `e(key, -G2) * e(H(mpk, app_id), mpk) == 1`. `mpk` is the compressed master public key.
-pub fn verify_key_host(mpk: &[u8; G2_LEN], app_id: &AppId, key: &[u8; G1_LEN]) -> bool {
-    let Some(key_point) = g1_decompress(key) else {
-        return false;
-    };
+/// Returns the key as a [`VerifiedKey`] when it verifies.
+pub fn verify_key_host(
+    mpk: &[u8; G2_LEN],
+    app_id: &AppId,
+    key: &[u8; G1_LEN],
+) -> Option<VerifiedKey> {
+    let key_point = g1_decompress(key)?;
     if key_point.is_zero() {
-        return false;
+        return None;
     }
-    let Some(mpk_point) = g2_decompress(mpk) else {
-        return false;
-    };
+    let mpk_point = g2_decompress(mpk)?;
     let h = identity_point(mpk, app_id);
     let mut input = Vec::with_capacity(2 * (G1_UNCOMPRESSED_LEN + G2_UNCOMPRESSED_LEN));
     input.extend_from_slice(&g1_uncompressed(&key_point));
     input.extend_from_slice(&g2_uncompressed(&-G2Affine::generator()));
     input.extend_from_slice(&g1_uncompressed(&h));
     input.extend_from_slice(&g2_uncompressed(&mpk_point));
-    env::bls12381_pairing_check(&input) == Some(true)
+    (env::bls12381_pairing_check(&input) == Some(true)).then_some(VerifiedKey(*key))
 }
 
 /// Unwrap a CKD output `(Y, C)` (compressed G1) with the app scalar `a`: `key = C - a * Y`.
@@ -185,10 +205,10 @@ pub fn ckd_unwrap_host(a: &Fr, big_y: &[u8; G1_LEN], big_c: &[u8; G1_LEN]) -> Op
 /// Full opening check of a ciphertext with the round key:
 /// `U == H3(app_id, ad, sigma, M) * G2` through a host multiexp, then
 /// `V XOR H2(U, e(key, U)) == sigma` (one pairing in wasm) and the AEAD opens `W` to `M` under
-/// `ad`. Precondition: `key` passed [`verify_key_host`] for `app_id`.
+/// `ad`. `key` is a [`VerifiedKey`] of `app_id`.
 pub fn verify_opening_host(
     app_id: &AppId,
-    key: &[u8; G1_LEN],
+    key: &VerifiedKey,
     ct: &[u8],
     ad: &AssociatedData<'_>,
     pt: &Plaintext,
@@ -204,7 +224,7 @@ pub fn verify_opening_host(
     if g2_to_bytes(&u)[..] != ct[..G2_LEN] {
         return false;
     }
-    let Some(key_point) = g1_decompress(key) else {
+    let Some(key_point) = g1_decompress(&key.0) else {
         return false;
     };
     check_v_w(app_id, &key_point, &u, ct, &ad, &msg, sigma)
@@ -258,18 +278,16 @@ mod tests {
     fn key_check_matches_pure_backend() {
         let (msk, mpk, app_id, key) = setup();
         let mpk_bytes = g2_to_bytes(&mpk);
-        assert!(verify_key_host(&mpk_bytes, &app_id, &g1_to_bytes(&key)));
+        let verified = verify_key_host(&mpk_bytes, &app_id, &g1_to_bytes(&key)).unwrap();
+        assert_eq!(verified.as_bytes(), &g1_to_bytes(&key));
+        assert_eq!(VerifiedKey::from_stored(g1_to_bytes(&key)), verified);
         assert!(verify_key(&mpk, &app_id, &key));
         let other = round_app_id(ENGINE, 6);
-        assert!(!verify_key_host(&mpk_bytes, &other, &g1_to_bytes(&key)));
+        assert!(verify_key_host(&mpk_bytes, &other, &g1_to_bytes(&key)).is_none());
         let wrong = (crate::identity_point(&mpk, &app_id) * (msk + Fr::from(1u64))).into_affine();
-        assert!(!verify_key_host(&mpk_bytes, &app_id, &g1_to_bytes(&wrong)));
-        assert!(!verify_key_host(
-            &mpk_bytes,
-            &app_id,
-            &g1_to_bytes(&G1Affine::zero())
-        ));
-        assert!(!verify_key_host(&mpk_bytes, &app_id, &[0xffu8; G1_LEN]));
+        assert!(verify_key_host(&mpk_bytes, &app_id, &g1_to_bytes(&wrong)).is_none());
+        assert!(verify_key_host(&mpk_bytes, &app_id, &g1_to_bytes(&G1Affine::zero())).is_none());
+        assert!(verify_key_host(&mpk_bytes, &app_id, &[0xffu8; G1_LEN]).is_none());
     }
 
     #[test]
@@ -293,7 +311,7 @@ mod tests {
     #[test]
     fn opening_check_matches_pure_backend() {
         let (_, mpk, app_id, key) = setup();
-        let key_bytes = g1_to_bytes(&key);
+        let key_bytes = verify_key_host(&g2_to_bytes(&mpk), &app_id, &g1_to_bytes(&key)).unwrap();
         let ad = AssociatedData {
             round_id: 5,
             bidder: "bob.testnet",

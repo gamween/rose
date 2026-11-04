@@ -5,10 +5,12 @@
 
 mod accrual;
 mod advance;
+mod custody;
 mod exit;
 mod guards;
 mod liens;
 mod sealing;
+mod storage;
 mod tender;
 mod units;
 mod views;
@@ -34,6 +36,8 @@ pub const ENGINE: &str = "engine.rose-app.testnet";
 pub const CASH_TOKEN: &str = "tusdc.rose-app.testnet";
 pub const TREASURY: &str = "treasury.rose-app.testnet";
 pub const USDC: u128 = 1_000_000;
+/// Solana payout address of the test Tenders (the stepped class lives on Solana).
+pub const RETIRE_TO: &str = "11111111111111111111111111111111";
 pub const NS: u64 = 1_000_000_000;
 /// Ten minutes, the configured reveal window.
 pub const REVEAL_WINDOW: u64 = 600 * NS;
@@ -240,6 +244,7 @@ pub fn stepped_schedule() -> ClassSchedule {
         amount_per_period: 100,
         net_amount_deposited: 1_000,
         end_time: 11_000,
+        ..StreamflowParams::default()
     })
     .unwrap();
     ClassSchedule::from_streamflow(&stream)
@@ -256,7 +261,25 @@ pub fn stepped_class(contract: &mut Contract, decimals: u8) -> String {
     )
 }
 
+/// Registers `account` for storage with the minimum deposit when it is not registered yet.
+pub fn register(contract: &mut Contract, account: &AccountId, at: u64) {
+    if contract.is_registered(account) {
+        return;
+    }
+    let min = contract.storage_balance_bounds().min.0;
+    env(account, NearToken::from_yoctonear(min), at);
+    contract.storage_deposit(None, None);
+}
+
+/// Storage deposit refunded to a settled bid: the deposit net of the bytes kept for its outcome.
+pub fn bid_refund(contract: &Contract, round_id: u64, bid_id: u32) -> u128 {
+    let outcome = contract.get_round_result(U64(round_id)).unwrap().fills[bid_id as usize].clone();
+    let kept = borsh::to_vec(&outcome).unwrap().len() as u128;
+    BID_STORAGE_DEPOSIT.as_yoctonear() - kept * near_sdk::env::storage_byte_cost().as_yoctonear()
+}
+
 pub fn mint(contract: &mut Contract, class_id: &str, account: &AccountId, units: u128, at: u64) {
+    register(contract, account, at);
     env_at(&engine(), at);
     let f_from = contract
         .class(&class_id.to_string())
@@ -321,7 +344,7 @@ pub fn create_tender(
             budget: U128(budget),
             max_price: U128(max_price),
             reference_price: Some(U128(max_price)),
-            retire_to: "0x000000000000000000000000000000000000dead".to_string(),
+            retire_to: RETIRE_TO.to_string(),
             window: window(closes_at),
         })
         .0
@@ -367,6 +390,9 @@ pub fn place_bid(
     at: u64,
 ) -> (u32, Sealed) {
     let sealed = seal(round_id, bidder, Side::Buy, quantity, price);
+    if contract.round(round_id).kind == crate::types::RoundKind::Exit {
+        register(contract, bidder, at);
+    }
     env(bidder, BID_STORAGE_DEPOSIT, at);
     let bid_id = contract.place_bid(U64(round_id), sealed.ciphertext.clone(), U128(escrow));
     (bid_id, sealed)

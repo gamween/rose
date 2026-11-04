@@ -322,7 +322,90 @@ fn advance_guards() {
     assert_eq!((h.balance, h.claimable), (10_000_000, 3_000_000));
     assert_eq!(
         transferred_to(&holder),
-        ROUND_STORAGE_DEPOSIT.as_yoctonear()
+        0,
+        "the round deposit stays with the record"
     );
     assert!(contract.get_portfolio(holder.clone()).holdings[0].locked_in_rounds == U128(0));
+}
+
+#[test]
+fn lien_at_the_maximum_claim_is_satisfied_on_chain_after_many_touches() {
+    // Units 3,333,333 encumbered from f(ts) = 0.5: the largest claim is 1,666,666.
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let (holder, funder) = (accounts(1), accounts(2));
+    mint(&mut contract, &class, &holder, 3_333_333, ts(1_000));
+    fund(&mut contract, &holder, USDC, ts(1_000));
+    fund(&mut contract, &funder, 3_000_000, ts(1_000));
+    let round = create_advance(
+        &mut contract,
+        &holder,
+        &class,
+        AdvanceSpec {
+            units: 3_333_333,
+            claim: 1_666_666,
+            min_fill: 0,
+            max_price: 2_000_000,
+        },
+        ts(2_500),
+        ts(6_000),
+    );
+    let (ask, ask_sealed) = place_ask(
+        &mut contract,
+        round,
+        &holder,
+        1_666_666,
+        1_000_000,
+        1_666_666,
+        ts(3_000),
+    );
+    let (bid, bid_sealed) = place_bid(
+        &mut contract,
+        round,
+        &funder,
+        1_666_666,
+        1_000_000,
+        2_000_000,
+        ts(3_500),
+    );
+    let received = close_and_release(&mut contract, round, ts(6_000));
+    open(&mut contract, round, ask, &ask_sealed, received + NS);
+    open(&mut contract, round, bid, &bid_sealed, received + NS);
+    clear(&mut contract, round, received + REVEAL_WINDOW);
+    settle(&mut contract, round, ask, ts(7_000));
+    settle(&mut contract, round, bid, ts(7_000));
+    let lien_id = contract.get_round(U64(round)).unwrap().lien_id.unwrap();
+    assert_eq!(
+        contract.get_lien(lien_id).unwrap().claim_total,
+        U128(1_666_666)
+    );
+    for step in 1..=6u64 {
+        env_at(&accounts(5), ts(6_000 + step * 1_000) - 1);
+        contract.touch_lien(lien_id.0);
+        env_at(&accounts(5), ts(6_000 + step * 1_000));
+        contract.touch_lien(lien_id.0);
+    }
+    env_at(&accounts(5), ts(12_000));
+    let lien = contract.get_lien(lien_id).unwrap();
+    assert_eq!(lien.delivered, U128(1_666_666));
+    assert_eq!(lien.pending_excess, U128(0));
+    contract.release_lien(lien_id);
+    assert!(contract.get_lien(lien_id).unwrap().released);
+    assert_eq!(
+        contract.mt_balance_of(holder.clone(), class.clone()).0,
+        3_333_333
+    );
+    // Whole class: 3,333,333 units from 0 to 1 = 3,333,333 tokens, split between the funder's
+    // claim and the holder (accrual to 0.1, lock to 0.5, excess beyond the claim).
+    let share = crate::types::ClaimSource::LienShare {
+        lien_id: lien_id.0,
+        funder: funder.clone(),
+    };
+    let holder_claimable = contract.get_claimable(holder.clone(), class.clone()).0;
+    assert_eq!(contract.claimable_of(&share), 1_666_666);
+    let total = holder_claimable + 1_666_666;
+    assert!(
+        total <= 3_333_333 && 3_333_333 - total <= 2,
+        "at most one unit of dust per cut"
+    );
 }

@@ -150,16 +150,25 @@ impl Lock {
 
 /// Senior claim on the first `claim_total` tokens unlocked by `units` encumbered units (Advance
 /// rounds, spec section 4).
+///
+/// Delivery is computed cumulatively from `f_start`, never step by step: with
+/// `total = accrual(units, f_start, f_now)`, the lien has received `min(claim_total, total)` and
+/// the holder `total - delivered`. Per-step floors would otherwise lose up to one base unit per
+/// touch and a claim at the maximum (`units * (1 - f_start)`) could never be satisfied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Lien {
     /// Encumbered units.
     pub units: u128,
-    /// Class fraction up to which the units have accrued.
+    /// Class fraction the lien starts at (the round's settlement time).
+    pub f_start: u128,
+    /// Class fraction up to which the lien was last accrued.
     pub checkpoint: u128,
     /// Tokens owed to the lien holders in total.
     pub claim_total: u128,
     /// Tokens delivered to the lien so far.
     pub delivered: u128,
+    /// Excess tokens already credited to the holder.
+    pub excess_credited: u128,
 }
 
 impl Lien {
@@ -167,23 +176,28 @@ impl Lien {
     pub fn new(units: u128, f_start: u128, claim_total: u128) -> Self {
         Self {
             units,
+            f_start,
             checkpoint: f_start,
             claim_total,
             delivered: 0,
+            excess_credited: 0,
         }
     }
 
     /// Accrues the encumbered units up to `f_now`. Tokens go to the lien until `claim_total` is
-    /// delivered; the returned excess belongs to the holder.
+    /// delivered; the returned excess belongs to the holder and is credited exactly once.
     pub fn accrue(&mut self, f_now: u128) -> u128 {
         if f_now <= self.checkpoint {
             return 0;
         }
-        let earned = accrual(self.units, self.checkpoint, f_now);
+        let total = accrual(self.units, self.f_start, f_now);
         self.checkpoint = f_now;
-        let to_lien = earned.min(self.outstanding());
-        self.delivered = self.delivered.saturating_add(to_lien);
-        earned - to_lien
+        self.delivered = total.min(self.claim_total);
+        let excess = total
+            .saturating_sub(self.delivered)
+            .saturating_sub(self.excess_credited);
+        self.excess_credited = self.excess_credited.saturating_add(excess);
+        excess
     }
 
     /// Tokens still owed to the lien.
@@ -278,7 +292,24 @@ mod tests {
         assert!(l.is_satisfied());
         assert_eq!(l.entitlement(150), 150);
         assert_eq!(l.accrue(ONE), 500);
+        assert_eq!(l.accrue(ONE), 0);
         assert_eq!(Lien::new(1, 0, 0).entitlement(1), 0);
+    }
+
+    #[test]
+    fn lien_at_the_maximum_claim_is_satisfied_despite_step_floors() {
+        // 3,333,333 units from f = 0.5: the largest claim is floor(3,333,333 / 2) = 1,666,666.
+        let units = 3_333_333;
+        let claim = accrual(units, ONE / 2, ONE);
+        assert_eq!(claim, 1_666_666);
+        let mut lien = Lien::new(units, ONE / 2, claim);
+        let mut excess = 0;
+        for step in 1..=6u128 {
+            excess += lien.accrue(ONE / 2 + step * ONE / 12);
+        }
+        assert!(lien.is_satisfied());
+        assert_eq!(lien.delivered, claim);
+        assert_eq!(excess, accrual(units, ONE / 2, ONE) - claim);
     }
 
     proptest! {
@@ -328,8 +359,8 @@ mod tests {
             }
             prop_assert!(l.delivered <= claim);
             let single = accrual(units, 0, *fs.last().unwrap());
-            prop_assert!(l.delivered + excess <= single);
-            prop_assert!(single - (l.delivered + excess) <= fs.len() as u128);
+            prop_assert_eq!(l.delivered + excess, single);
+            prop_assert_eq!(l.is_satisfied(), single >= claim);
         }
     }
 }

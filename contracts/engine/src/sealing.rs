@@ -66,7 +66,7 @@ impl Contract {
             "Round is still open"
         );
         if round.bid_count == 0 {
-            self.cancel(round_id.0, CancelReason::NoCrossing);
+            self.cancel(round_id.0, CancelReason::Empty);
             return None;
         }
         let engine = env::current_account_id();
@@ -106,20 +106,23 @@ impl Contract {
 
     /// CKD callback: unwraps `(Y, C)` with the public scalar, verifies the key with one pairing
     /// check and starts the reveal window. Called by the contract itself. A failed or invalid
-    /// response leaves the round in `KeyRequested` so `close` can be retried.
+    /// response leaves the round in `KeyRequested` so `close` can be retried. A response that
+    /// arrives once the round no longer waits for a key (cancelled by `cancel_no_key`, or a key
+    /// already stored) is ignored.
     #[private]
     pub fn on_round_key(
         &mut self,
         round_id: U64,
         #[callback_result] result: Result<CkdResponse, PromiseError>,
     ) -> bool {
+        if !self.expects_key(round_id.0) {
+            self.emit(RoseEvent::KeyIgnored { round_id });
+            return false;
+        }
         let Ok(response) = result else {
             self.emit(RoseEvent::KeyRequestFailed { round_id });
             return false;
         };
-        if self.round(round_id.0).key.is_some() {
-            return true;
-        }
         let engine = env::current_account_id();
         let scalar = rose_ibe::app_scalar(engine.as_str(), round_id.0);
         let unwrapped = rose_ibe::parse_near_g1_bytes(&response.big_y)
@@ -139,19 +142,13 @@ impl Contract {
     }
 
     /// Stores the round key submitted by anyone (for example unwrapped off chain from the public
-    /// MPC response after a lost callback), after one pairing check. Anyone, once
-    /// `now >= closes_at` and while no key is stored.
+    /// MPC response after a lost callback), after one pairing check. Anyone, while the round is
+    /// `KeyRequested` (a key can only exist once `close` asked the MPC for it).
     pub fn submit_key(&mut self, round_id: U64, key: String) {
-        let round = self.round(round_id.0).clone();
         require!(
-            matches!(round.phase, Phase::Bidding | Phase::KeyRequested),
-            "Round does not expect a key"
+            self.expects_key(round_id.0),
+            "Round does not expect a key: it must be closed and without a key"
         );
-        require!(
-            env::block_timestamp() >= round.closes_at,
-            "Round is still open"
-        );
-        require!(round.bid_count > 0, "Round has no sealed orders: close it");
         let key = rose_ibe::parse_near_g1_bytes(&key)
             .unwrap_or_else(|_| env::panic_str("Key must be a bls12381g1:<base58> string"));
         require!(
@@ -213,7 +210,7 @@ impl Contract {
         require!(
             rose_ibe::host::verify_opening_host(
                 &app_id,
-                &key,
+                &rose_ibe::host::VerifiedKey::from_stored(key),
                 &bid.ciphertext,
                 &ad,
                 &plaintext,
@@ -274,10 +271,20 @@ impl Contract {
 impl Contract {
     fn key_verifies(&self, round_id: RoundId, key: &[u8; 48]) -> bool {
         let app_id = rose_ibe::round_app_id(env::current_account_id().as_str(), round_id);
-        rose_ibe::host::verify_key_host(&self.ckd_public_key(), &app_id, key)
+        rose_ibe::host::verify_key_host(&self.ckd_public_key(), &app_id, key).is_some()
+    }
+
+    /// True while the round waits for its key: `KeyRequested` and no key stored.
+    fn expects_key(&self, round_id: RoundId) -> bool {
+        let round = self.round(round_id);
+        round.phase == Phase::KeyRequested && round.key.is_none()
     }
 
     fn store_key(&mut self, round_id: RoundId, key: [u8; 48], source: KeySource) {
+        require!(
+            self.expects_key(round_id),
+            "Round does not expect a key: it must be closed and without a key"
+        );
         let round = self.round_mut(round_id);
         round.key = Some(key);
         round.key_source = Some(source);

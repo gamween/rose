@@ -38,6 +38,9 @@ proptest! {
         let mut contract = init();
         let class = stepped_class(&mut contract, 6);
         let holders: Vec<AccountId> = (1..=3).map(accounts).collect();
+        for holder in &holders {
+            register(&mut contract, holder, ts(1_000));
+        }
         mint(&mut contract, &class, &holders[0], supply, ts(1_000));
         // Block time never goes backwards on chain.
         let mut steps = steps;

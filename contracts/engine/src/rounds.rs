@@ -5,14 +5,14 @@
 //! priced above it are never filled (they are not void, their bond comes back).
 
 use near_sdk::json_types::{U128, U64};
-use near_sdk::{env, near, require, AccountId, NearToken, Promise};
+use near_sdk::{env, near, require, AccountId};
 
 use crate::clearing::{self, Pricing};
 use crate::ledger::Lock;
 use crate::math::{self, ONE};
 use crate::types::{
-    AdvanceTerms, Bid, BidId, CancelReason, ClassId, Holder, Phase, Round, RoundId, RoundKind,
-    RoundStatus, RoundWindow, Side, TenderTerms, Venue,
+    AdvanceTerms, Bid, BidId, CancelReason, Chain, ClassId, Holder, Phase, Round, RoundId,
+    RoundKind, RoundStatus, RoundWindow, Side, TenderTerms, Venue,
 };
 use crate::unlock::ClassSchedule;
 use crate::{
@@ -72,7 +72,10 @@ impl Contract {
     #[payable]
     pub fn create_tender(&mut self, params: TenderParams) -> U64 {
         require!(params.budget.0 > 0, "Budget must be positive");
-        require!(!params.retire_to.is_empty(), "retire_to is required");
+        require!(
+            foreign_address_valid(self.class(&params.class_id).chain, &params.retire_to),
+            "retire_to must be a lowercase 0x address (Base) or a 32-byte base58 key (Solana)"
+        );
         let fee =
             clearing::fee(params.budget.0).unwrap_or_else(|_| env::panic_str("Budget too large"));
         let escrow = params
@@ -197,6 +200,12 @@ impl Contract {
             round.kind != RoundKind::Tender,
             "A Tender has one buyer, the issuer"
         );
+        if round.kind == RoundKind::Exit {
+            require!(
+                self.is_registered(&bidder),
+                "Exit buyers receive units: call storage_deposit first"
+            );
+        }
         let bond = (escrow.0 / 100).max(ONE_USDC);
         let total = escrow
             .0
@@ -436,8 +445,8 @@ impl Contract {
     }
 
     /// Moves a live round to `Cancelled`: refunds the issuer escrow, returns the Advance units
-    /// with their accrual, refunds the creator's storage deposit, and stores an empty result so
-    /// every bid can be settled (refunded) individually.
+    /// with their accrual and stores an empty result so every bid can be settled (refunded)
+    /// individually. The round deposit stays with the record.
     pub(crate) fn cancel(&mut self, round_id: RoundId, reason: CancelReason) {
         let round = self.round(round_id).clone();
         if let Some(terms) = &round.tender {
@@ -459,13 +468,6 @@ impl Contract {
             remaining_lock_secs: U64(remaining_lock_secs(round)),
             fills,
         });
-        let deposit = std::mem::take(&mut round.storage_deposit);
-        let creator = round.creator.clone();
-        if deposit > 0 {
-            Promise::new(creator)
-                .transfer(NearToken::from_yoctonear(deposit))
-                .detach();
-        }
         self.emit(RoseEvent::RoundCancelled {
             round_id: U64(round_id),
             reason,
@@ -540,6 +542,17 @@ pub(crate) fn remaining_lock_secs(round: &Round) -> u64 {
     round
         .schedule_end_secs
         .saturating_sub(secs_of(round.closes_at))
+}
+
+/// True when `address` is a valid payout address on `chain`: a lowercase `0x` address on Base,
+/// a base58 32-byte key on Solana.
+fn foreign_address_valid(chain: Chain, address: &str) -> bool {
+    match chain {
+        Chain::Base => crate::is_evm_address(address),
+        Chain::Solana => bs58::decode(address)
+            .into_vec()
+            .is_ok_and(|bytes| bytes.len() == 32),
+    }
 }
 
 /// The 192-byte ciphertext of a sealed order.

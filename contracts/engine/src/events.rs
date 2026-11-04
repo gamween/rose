@@ -97,6 +97,28 @@ pub enum RoseEvent {
     KeyRequestFailed {
         round_id: U64,
     },
+    /// A CKD response arrived for a round that no longer waits for a key.
+    KeyIgnored {
+        round_id: U64,
+    },
+    /// The clearing arithmetic failed: the round is cancelled, everything is refundable.
+    ClearingFailed {
+        round_id: U64,
+        error: String,
+    },
+    StorageDeposited {
+        account: AccountId,
+        amount: U128,
+        total: U128,
+    },
+    StorageWithdrawn {
+        account: AccountId,
+        amount: U128,
+    },
+    StorageUnregistered {
+        account: AccountId,
+        refund: U128,
+    },
     KeyReceived {
         round_id: U64,
         source: KeySource,

@@ -19,7 +19,8 @@ use crate::{Contract, ContractExt};
 pub struct Stats {
     pub rounds_total: u64,
     pub rounds_settled: u64,
-    /// Sum of settled notionals, cash base units (6 decimals).
+    /// Sum of settled notionals across every venue, in 6-decimal USDC-equivalent base units
+    /// (every venue is a USDC: NEAR tUSDC, Base USDC or tUSDC).
     pub volume_settled_usdc: U128,
     pub classes: u64,
     pub positions: u64,
@@ -116,6 +117,26 @@ pub struct RoundView {
     pub result: Option<RoundResult>,
     pub created_at: U64,
     pub ended_at: Option<U64>,
+}
+
+/// Largest number of round ids one `get_rounds` call examines.
+pub const MAX_ROUND_SCAN: u32 = 200;
+
+/// A page of rounds.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct RoundsPage {
+    pub rounds: Vec<RoundView>,
+    /// Id to continue from, `None` when every round was examined.
+    pub next: Option<U64>,
+}
+
+/// A page of a class's clearing price history.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct PriceHistoryPage {
+    pub points: Vec<PricePoint>,
+    pub total: u32,
 }
 
 /// Filter of `get_rounds`; every field is optional.
@@ -337,28 +358,44 @@ impl Contract {
             .map(|round| self.round_view(round))
     }
 
-    /// Rounds by id with optional filters, paginated over ids (`from_index`, `limit`).
+    /// Rounds matching `filter`, scanning ids from `from_index` until `limit` matches (default
+    /// 20) or `MAX_ROUND_SCAN` ids were examined. `next` is the id to continue from, `None` when
+    /// every round was examined.
     pub fn get_rounds(
         &self,
         filter: Option<RoundFilter>,
         from_index: Option<U64>,
         limit: Option<u32>,
-    ) -> Vec<RoundView> {
+    ) -> RoundsPage {
         let filter = filter.unwrap_or_default();
+        let limit = limit.unwrap_or(20).max(1) as usize;
         let from = from_index.map_or(0, |f| f.0);
-        let end = self
+        let scan_end = self
             .next_round_id
-            .min(from.saturating_add(u64::from(limit.unwrap_or(50))));
-        (from..end)
-            .filter_map(|id| self.rounds.get(&id))
-            .map(|round| self.round_view(round))
-            .filter(|view| {
-                filter.kind.is_none_or(|k| k == view.kind)
-                    && filter.class_id.as_ref().is_none_or(|c| *c == view.class_id)
-                    && filter.status.is_none_or(|s| s == view.status)
-                    && filter.creator.as_ref().is_none_or(|c| *c == view.creator)
-            })
-            .collect()
+            .min(from.saturating_add(u64::from(MAX_ROUND_SCAN)));
+        let mut rounds = Vec::new();
+        let mut next = None;
+        for id in from..scan_end {
+            if rounds.len() == limit {
+                next = Some(U64(id));
+                break;
+            }
+            let Some(round) = self.rounds.get(&id) else {
+                continue;
+            };
+            let view = self.round_view(round);
+            let matches = filter.kind.is_none_or(|k| k == view.kind)
+                && filter.class_id.as_ref().is_none_or(|c| *c == view.class_id)
+                && filter.status.is_none_or(|s| s == view.status)
+                && filter.creator.as_ref().is_none_or(|c| *c == view.creator);
+            if matches {
+                rounds.push(view);
+            }
+        }
+        if next.is_none() && scan_end < self.next_round_id {
+            next = Some(U64(scan_end));
+        }
+        RoundsPage { rounds, next }
     }
 
     /// The sealed book of a round: every order with its public collateral, and after clearing
@@ -500,12 +537,28 @@ impl Contract {
         self.lien_view(lien_id.0)
     }
 
-    /// Clearing price history of a class, oldest first.
-    pub fn get_price_history(&self, class_id: ClassId) -> Vec<PricePoint> {
-        self.price_history
-            .get(&class_id)
-            .cloned()
-            .unwrap_or_default()
+    /// Clearing price history of a class, oldest first, from `from_index` (default 0), at most
+    /// `limit` points (default 50).
+    pub fn get_price_history(
+        &self,
+        class_id: ClassId,
+        from_index: Option<u32>,
+        limit: Option<u32>,
+    ) -> PriceHistoryPage {
+        let Some(history) = self.price_history.get(&class_id) else {
+            return PriceHistoryPage {
+                points: Vec::new(),
+                total: 0,
+            };
+        };
+        let from = from_index.unwrap_or(0);
+        let end = history.len().min(from.saturating_add(limit.unwrap_or(50)));
+        PriceHistoryPage {
+            points: (from..end)
+                .filter_map(|i| history.get(i).cloned())
+                .collect(),
+            total: history.len(),
+        }
     }
 
     /// Events with `seq >= from_seq` (default: the oldest available), at most `limit`

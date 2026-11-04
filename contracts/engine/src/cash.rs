@@ -16,7 +16,7 @@ use crate::{Contract, ContractExt, RoseEvent};
 /// Gas for the NEP-141 `ft_transfer` of a withdrawal.
 const GAS_FOR_FT_TRANSFER: Gas = Gas::from_tgas(10);
 /// Gas for the withdrawal callback.
-const GAS_FOR_WITHDRAW_CALLBACK: Gas = Gas::from_tgas(5);
+const GAS_FOR_WITHDRAW_CALLBACK: Gas = Gas::from_tgas(10);
 
 #[ext_contract(ext_ft)]
 pub trait FungibleToken {

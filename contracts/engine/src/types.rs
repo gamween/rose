@@ -160,8 +160,10 @@ pub enum CancelReason {
     Creator,
     /// No key arrived by `closes_at + key_timeout`.
     NoKey,
-    /// No price crosses.
+    /// No price crosses, or the clearing arithmetic failed (everything refundable).
     NoCrossing,
+    /// Closed without any sealed order.
+    Empty,
 }
 
 /// How the round key reached the contract.
@@ -282,7 +284,8 @@ pub struct BidOutcome {
     pub side: Side,
     /// Escrow (buyers).
     pub escrow: U128,
-    /// Locked units (sellers) or the claim (Advance ask).
+    /// Units locked by a Tender or Exit seller; `0` for buyers and for the Advance holder's
+    /// reserve (the encumbered units sit on the round).
     pub locked_units: U128,
     pub bond: U128,
     pub opened: Option<Opened>,

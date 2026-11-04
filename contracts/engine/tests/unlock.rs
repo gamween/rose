@@ -152,6 +152,7 @@ fn streamflow_case() -> impl Strategy<Value = StreamflowCase> {
                     amount_per_period: amount_per_period * m,
                     net_amount_deposited: total * m,
                     end_time,
+                    ..StreamflowParams::default()
                 };
                 StreamflowCase {
                     members: [member(m1), member(m2)],

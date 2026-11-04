@@ -130,6 +130,12 @@ fn order_guards() {
         ts(6_000),
     );
     let ct = seal(round, &buyer, Side::Buy, 1, 1).ciphertext;
+    env(&buyer, BID_STORAGE_DEPOSIT, ts(3_000));
+    panics_with(
+        "Exit buyers receive units: call storage_deposit first",
+        || contract.place_bid(U64(round), ct.clone(), U128(USDC)),
+    );
+    register(&mut contract, &buyer, ts(3_000));
     env_at(&buyer, ts(3_000));
     panics_with("Attach the bid storage deposit", || {
         contract.place_bid(U64(round), ct.clone(), U128(USDC))
@@ -220,9 +226,13 @@ fn cancel_round_only_by_the_creator_before_the_first_bid() {
     );
     assert_eq!(
         transferred_to(&creator),
+        0,
+        "the round deposit stays with the record"
+    );
+    assert_eq!(
+        contract.round(round2).storage_deposit,
         ROUND_STORAGE_DEPOSIT.as_yoctonear()
     );
-    assert_eq!(contract.round(round2).storage_deposit, 0);
     env_at(&creator, ts(5_000));
     panics_with("Round is not open", || contract.cancel_round(U64(round2)));
     assert_eq!(events("rose").last().unwrap()["data"]["reason"], "Creator");
@@ -326,4 +336,55 @@ fn init_validates_its_arguments() {
         U128(NearToken::from_millinear(20).as_yoctonear())
     );
     assert_eq!(limits.fee_bps, 30);
+}
+
+#[test]
+fn retire_to_must_match_the_class_chain() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let issuer = accounts(0);
+    fund(&mut contract, &issuer, 10 * USDC, ts(1_000));
+    let tender = |retire_to: &str| crate::rounds::TenderParams {
+        class_id: class.clone(),
+        venue: Venue::Near,
+        budget: U128(USDC),
+        max_price: U128(1),
+        reference_price: None,
+        retire_to: retire_to.to_string(),
+        window: window(ts(6_000)),
+    };
+    for bad in [
+        "",
+        "0x000000000000000000000000000000000000dead",
+        "111",
+        "0OIl",
+    ] {
+        env(&issuer, ROUND_STORAGE_DEPOSIT, ts(2_000));
+        panics_with(
+            "retire_to must be a lowercase 0x address (Base) or a 32-byte base58 key (Solana)",
+            || contract.create_tender(tender(bad)),
+        );
+    }
+    env(&issuer, ROUND_STORAGE_DEPOSIT, ts(2_000));
+    contract.create_tender(tender(RETIRE_TO));
+    // A Base class takes an EVM address.
+    env_at(&engine(), ts(100));
+    let base = contract.ensure_class(
+        crate::types::Chain::Base,
+        "0xtoken".into(),
+        6,
+        stepped_schedule(),
+    );
+    env(&issuer, ROUND_STORAGE_DEPOSIT, ts(2_000));
+    panics_with("retire_to must be a lowercase 0x address", || {
+        contract.create_tender(crate::rounds::TenderParams {
+            class_id: base.clone(),
+            ..tender(RETIRE_TO)
+        })
+    });
+    env(&issuer, ROUND_STORAGE_DEPOSIT, ts(2_000));
+    contract.create_tender(crate::rounds::TenderParams {
+        class_id: base,
+        ..tender("0x000000000000000000000000000000000000dead")
+    });
 }

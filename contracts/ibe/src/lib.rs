@@ -445,8 +445,10 @@ pub fn opening_scalar(
     h3(app_id, &ad.encode(), sigma, &pt.to_bytes())
 }
 
-/// Deterministic encryption given `sigma`.
-pub fn encrypt_with_sigma(
+/// Deterministic encryption given `sigma`. Crate-private: reusing a `sigma` across two
+/// plaintexts under the same identity reuses the AEAD key and nonce, so callers always go
+/// through [`encrypt`], which draws a fresh `sigma`.
+pub(crate) fn encrypt_with_sigma(
     mpk: &G2Affine,
     app_id: &AppId,
     ad: &AssociatedData<'_>,

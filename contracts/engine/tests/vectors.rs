@@ -618,6 +618,7 @@ fn unlock_vectors() -> Value {
         amount_per_period: 1_000_000_000,
         net_amount_deposited: 365_000_000_000,
         end_time: t0 + 365 * day,
+        ..StreamflowParams::default()
     };
     let mut streamflow = vec![
         streamflow_case("streamflow: daily unlock, no cliff", streamflow_base),
@@ -691,6 +692,7 @@ fn unlock_vectors() -> Value {
                 amount_per_period,
                 net_amount_deposited,
                 end_time: effective + periods * period,
+                ..StreamflowParams::default()
             },
         ));
     }

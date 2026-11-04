@@ -134,42 +134,51 @@ fn rounds_can_be_listed_and_filtered() {
     contract.cancel_round(U64(tender));
     assert_eq!(cash(&contract, &issuer), 10 * USDC);
     env_at(&issuer, ts(3_000));
-    let all = contract.get_rounds(None, None, None);
+    let all = contract.get_rounds(None, None, None).rounds;
     assert_eq!(
         all.iter().map(|r| r.round_id.0).collect::<Vec<_>>(),
         vec![exit, tender, advance]
     );
-    let tenders = contract.get_rounds(
-        Some(RoundFilter {
-            kind: Some(RoundKind::Tender),
-            ..Default::default()
-        }),
-        None,
-        None,
-    );
+    let tenders = contract
+        .get_rounds(
+            Some(RoundFilter {
+                kind: Some(RoundKind::Tender),
+                ..Default::default()
+            }),
+            None,
+            None,
+        )
+        .rounds;
     assert_eq!(tenders.len(), 1);
     assert_eq!(tenders[0].status, RoundStatus::Cancelled);
     assert_eq!(tenders[0].budget, Some(U128(USDC)));
     assert_eq!(tenders[0].reference_price, Some(U128(1)));
-    let open = contract.get_rounds(
-        Some(RoundFilter {
-            status: Some(RoundStatus::Open),
-            ..Default::default()
-        }),
-        None,
-        None,
-    );
+    let open = contract
+        .get_rounds(
+            Some(RoundFilter {
+                status: Some(RoundStatus::Open),
+                ..Default::default()
+            }),
+            None,
+            None,
+        )
+        .rounds;
     assert_eq!(open.len(), 2);
-    let by_holder = contract.get_rounds(
-        Some(RoundFilter {
-            creator: Some(holder.clone()),
-            ..Default::default()
-        }),
-        None,
-        None,
-    );
+    let by_holder = contract
+        .get_rounds(
+            Some(RoundFilter {
+                creator: Some(holder.clone()),
+                ..Default::default()
+            }),
+            None,
+            None,
+        )
+        .rounds;
     assert_eq!(by_holder[0].advance_claim, Some(U128(100)));
-    assert_eq!(contract.get_rounds(None, Some(U64(1)), Some(1)).len(), 1);
+    let page = contract.get_rounds(None, Some(U64(1)), Some(1));
+    assert_eq!(page.rounds.len(), 1);
+    assert_eq!(page.next, Some(U64(2)));
+    assert_eq!(contract.get_rounds(None, Some(U64(2)), Some(1)).next, None);
     assert_eq!(
         contract
             .get_rounds(
@@ -180,6 +189,7 @@ fn rounds_can_be_listed_and_filtered() {
                 None,
                 None
             )
+            .rounds
             .len(),
         0
     );
@@ -294,12 +304,13 @@ fn events_are_logged_and_paged_from_a_ring_buffer() {
     for i in 0..u64::from(EVENT_CAPACITY) + 10 {
         mint(&mut contract, &class, &holder, 1, ts(1_000 + i));
     }
-    let total = u64::from(EVENT_CAPACITY) + 11;
+    // class_created, the holder's registration, then one mint event per unit.
+    let total = u64::from(EVENT_CAPACITY) + 12;
     let page = contract.get_events(None, Some(3));
     assert_eq!(page.total, U64(total));
-    assert_eq!(page.oldest, U64(11));
+    assert_eq!(page.oldest, U64(12));
     assert_eq!(page.events.len(), 3);
-    assert_eq!(page.events[0].seq, U64(11));
+    assert_eq!(page.events[0].seq, U64(12));
     let last = contract.get_events(Some(U64(total - 2)), Some(10));
     assert_eq!(last.events.len(), 2);
     assert_eq!(last.events[1].seq, U64(total - 1));

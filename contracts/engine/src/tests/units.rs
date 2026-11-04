@@ -3,7 +3,7 @@
 use near_sdk::json_types::U128;
 use near_sdk::mock::MockAction;
 use near_sdk::test_utils::{accounts, get_created_receipts};
-use near_sdk::{Gas, PromiseResult};
+use near_sdk::{Gas, NearToken, PromiseResult};
 use serde_json::json;
 
 use super::*;
@@ -22,6 +22,12 @@ fn transfers_accrue_to_whoever_held_the_units() {
     );
     assert_eq!(contract.mt_supply(class.clone()), Some(U128(1_000_000)));
 
+    env(&alice, one_yocto(), ts(3_000));
+    panics_with(
+        "Account charlie is not registered: call storage_deposit first",
+        || contract.mt_transfer(bob.clone(), class.clone(), U128(400_000), None, None),
+    );
+    register(&mut contract, &bob, ts(3_000));
     env(&alice, one_yocto(), ts(3_000));
     contract.mt_transfer(
         bob.clone(),
@@ -77,6 +83,7 @@ fn nep245_events_have_the_standard_shape() {
     let class = stepped_class(&mut contract, 6);
     let (alice, bob) = (accounts(1), accounts(2));
     mint(&mut contract, &class, &alice, 1_000, ts(1_000));
+    register(&mut contract, &bob, ts(1_000));
     let minted = events("nep245");
     assert_eq!(
         minted.last().unwrap(),
@@ -146,8 +153,20 @@ fn distribute_units_moves_one_class_to_many_holders_in_one_event() {
     let receivers: Vec<(AccountId, U128)> = (1..=3)
         .map(|i| (accounts(i), U128(100_000 * i as u128)))
         .collect();
+    let min = contract.storage_balance_bounds().min.0;
     env(&issuer, one_yocto(), ts(3_000));
+    panics_with("Attach the storage deposit for bob", || {
+        contract.distribute_units(class.clone(), receivers.clone())
+    });
+    // Three unregistered receivers: three registrations paid by the issuer, the rest refunded.
+    env(&issuer, NearToken::from_yoctonear(3 * min + 7), ts(3_000));
     contract.distribute_units(class.clone(), receivers.clone());
+    assert_eq!(transferred_to(&issuer), 7);
+    for (receiver, _) in &receivers {
+        let balance = contract.storage_balance_of(receiver.clone()).unwrap();
+        assert_eq!(balance.total, U128(min));
+        assert_eq!(balance.available, U128(0));
+    }
     assert_eq!(
         contract.mt_balance_of(issuer.clone(), class.clone()).0,
         400_000
@@ -175,10 +194,16 @@ fn distribute_units_moves_one_class_to_many_holders_in_one_event() {
     panics_with("Cannot transfer to self", || {
         contract.distribute_units(class.clone(), vec![(issuer.clone(), U128(1))])
     });
+    register(&mut contract, &accounts(4), ts(3_000));
     env(&issuer, one_yocto(), ts(3_000));
     panics_with("not enough units", || {
         contract.distribute_units(class.clone(), vec![(accounts(4), U128(400_001))])
     });
+    env_at(&issuer, ts(3_000));
+    panics_with(
+        "Requires an attached deposit of at least 1 yoctoNEAR",
+        || contract.distribute_units(class.clone(), vec![(accounts(4), U128(1))]),
+    );
 }
 
 #[test]
@@ -187,6 +212,7 @@ fn transfer_guards() {
     let class = stepped_class(&mut contract, 6);
     let (alice, bob) = (accounts(1), accounts(2));
     mint(&mut contract, &class, &alice, 1_000, ts(1_000));
+    register(&mut contract, &bob, ts(1_000));
     env_at(&alice, ts(1_000));
     panics_with("exactly 1 yoctoNEAR", || {
         contract.mt_transfer(bob.clone(), class.clone(), U128(1), None, None)
@@ -225,6 +251,7 @@ fn transfer_call_refunds_the_unused_amount() {
     let class = stepped_class(&mut contract, 6);
     let (alice, receiver) = (accounts(1), accounts(2));
     mint(&mut contract, &class, &alice, 1_000_000, ts(1_000));
+    register(&mut contract, &receiver, ts(1_000));
 
     env(&alice, one_yocto(), ts(3_000));
     let result = contract.mt_transfer_call(

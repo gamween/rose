@@ -65,15 +65,15 @@ All hashes are SHA-256 unless stated. `||` is concatenation, `LE` little-endian.
   - `sigma` is 32 random bytes,
   - `r = LE(SHA-256("rose-ibe/v1/H3-r" || i || app_id || len(ad) u32 LE || ad || sigma || plaintext) for i in 0x00, 0x01) mod r` (64 bytes reduced),
   - `U = r * G2`,
-  - `V = sigma XOR SHA-256("rose-ibe/v1/H2-mask" || U || gt)`, with `gt` the arkworks compressed serialization (576 bytes) of `e(H, mpk)^r = e(H, r * mpk)`,
+  - `V = sigma XOR SHA-256("rose-ibe/v1/H2-mask" || U || gt)`, with `gt` the arkworks compressed serialization (576 bytes) of `e(H, mpk)^r = e(H, r * mpk)`: the Fq12 element `c0 + c1 * w` written as `c0 || c1`, each Fq6 as `c0 || c1 || c2`, each Fq2 as `c0 || c1`, and each Fq as 48 bytes little-endian (arkworks `CanonicalSerialize` of a field extension: coefficients in ascending order, no compression flags since Fq12 is not a curve point),
   - `W = ChaCha20-Poly1305(key = SHA-256("rose-ibe/v1/H4-aead-key" || sigma), nonce = 0^12, aad = "rose-ibe/v1/aad" || U || V || app_id || ad, plaintext)` (48 bytes + 16-byte tag).
 - **Opening**: `(plaintext, sigma)`. It is valid iff `U = r * G2` for `r` recomputed from `(app_id, ad, sigma, plaintext)`, `V XOR SHA-256("rose-ibe/v1/H2-mask" || U || e(sk, U)) = sigma`, and the AEAD opens `W` to `plaintext` under `ad`. This is the FO check of decryption, so a ciphertext that does not decrypt (for example an inconsistent `V`) has no valid opening, and a ciphertext copied to another bidder, side or round has none either (`ad` enters both `r` and the AAD).
 
 ## Contract usage (`near`)
 
-- `verify_key_host(mpk, app_id, key)`: one `bls12381_pairing_check`; use it in the CKD callback and in an open `submit_key`.
+- `verify_key_host(mpk, app_id, key) -> Option<VerifiedKey>`: one `bls12381_pairing_check`; use it in the CKD callback and in an open `submit_key`. `VerifiedKey` is the only key type the opening check takes; `VerifiedKey::from_stored` wraps bytes the contract stored after that check.
 - `ckd_unwrap_host(a, big_y, big_c)`: `C - a * Y` through `bls12381_g1_multiexp`; the result must still pass `verify_key_host`.
-- `verify_opening_host(app_id, key, ct, ad, plaintext, sigma)`: the `U` check through `bls12381_g2_multiexp`, then one pairing in wasm for `V`, then the AEAD. Precondition: `key` passed `verify_key_host`.
+- `verify_opening_host(app_id, &VerifiedKey, ct, ad, plaintext, sigma)`: the `U` check through `bls12381_g2_multiexp`, then one pairing in wasm for `V`, then the AEAD.
 - NEP-488 decompression (`bls12381_p1_decompress`, `bls12381_p2_decompress`) checks the curve but not the subgroup. Every untrusted point is therefore passed through a multiexp or the pairing check, which do reject points outside the subgroup, before it is relied on.
 
 Measured on NEAR testnet on 2026-11-04 with a throwaway contract using this crate (`v1.signer-prod.testnet` 3.18.0):

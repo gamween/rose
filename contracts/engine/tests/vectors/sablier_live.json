@@ -1,0 +1,146 @@
+{
+ "description": "Live Sablier Lockup v4 (Base Sepolia, 0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e) Lockup Linear streams read at a pinned block on 2026-11-04 with cast 1.4.2 against https://sepolia.base.org. For each stream: the schedule from getStartTime/getCliffTime/getEndTime/getGranularity/getUnlockAmounts/getDepositedAmount and the value of streamedAmountOf at that block. The Rust port evaluated at the block timestamp must reproduce streamed exactly.",
+ "lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+ "block": 54178044,
+ "timestamp": 1793757477,
+ "commands": [
+  "cast block 54178044 --rpc-url https://sepolia.base.org --json | jq -r .timestamp",
+  "cast call 0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e \"getLockupModel(uint256)(uint8)\" <id> --block 54178044 --rpc-url https://sepolia.base.org",
+  "cast call 0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e \"getStartTime(uint256)(uint40)\" <id> --block 54178044 --rpc-url https://sepolia.base.org (same for getCliffTime, getEndTime, getGranularity, \"getUnlockAmounts(uint256)((uint128,uint128))\", \"getDepositedAmount(uint256)(uint128)\")",
+  "cast call 0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e \"streamedAmountOf(uint256)(uint128)\" <id> --block 54178044 --rpc-url https://sepolia.base.org"
+ ],
+ "streams": [
+  {
+   "stream_id": 7,
+   "start": 1773740414,
+   "cliff": 1780998014,
+   "end": 1802770814,
+   "granularity": 1,
+   "start_unlock": "0",
+   "cliff_unlock": "0",
+   "deposited": "100000000000000000000000",
+   "streamed": "58602765836272780717225"
+  },
+  {
+   "stream_id": 20,
+   "start": 1778589440,
+   "cliff": 0,
+   "end": 1797064639,
+   "granularity": 1,
+   "start_unlock": "200000000000000000000",
+   "cliff_unlock": "0",
+   "deposited": "2000000000000000000000",
+   "streamed": "1677790122856051509918"
+  },
+  {
+   "stream_id": 24,
+   "start": 1778589440,
+   "cliff": 0,
+   "end": 1797064639,
+   "granularity": 1,
+   "start_unlock": "70000000000000000000",
+   "cliff_unlock": "0",
+   "deposited": "700000000000000000000",
+   "streamed": "587226542999618028471"
+  },
+  {
+   "stream_id": 33,
+   "start": 1778589440,
+   "cliff": 0,
+   "end": 1797064639,
+   "granularity": 1,
+   "start_unlock": "7000000000000000000",
+   "cliff_unlock": "0",
+   "deposited": "70000000000000000000",
+   "streamed": "58722654299961802847"
+  },
+  {
+   "stream_id": 38,
+   "start": 1778589440,
+   "cliff": 0,
+   "end": 1797064639,
+   "granularity": 1,
+   "start_unlock": "198000000000000000000",
+   "cliff_unlock": "0",
+   "deposited": "1980000000000000000000",
+   "streamed": "1661012221627490994819"
+  },
+  {
+   "stream_id": 52,
+   "start": 1782704822,
+   "cliff": 0,
+   "end": 1877377622,
+   "granularity": 1,
+   "start_unlock": "0",
+   "cliff_unlock": "0",
+   "deposited": "1000000000000000000000000",
+   "streamed": "116745834072722048994008"
+  },
+  {
+   "stream_id": 53,
+   "start": 1784100080,
+   "cliff": 1786692080,
+   "end": 1815636080,
+   "granularity": 1,
+   "start_unlock": "0",
+   "cliff_unlock": "0",
+   "deposited": "200000000000000",
+   "streamed": "48821151188501"
+  },
+  {
+   "stream_id": 54,
+   "start": 1784112648,
+   "cliff": 1786704648,
+   "end": 1815648648,
+   "granularity": 1,
+   "start_unlock": "0",
+   "cliff_unlock": "0",
+   "deposited": "250000000000000000000000000",
+   "streamed": "60917884535655058043117744"
+  },
+  {
+   "stream_id": 59,
+   "start": 1784457750,
+   "cliff": 1787049750,
+   "end": 1815993750,
+   "granularity": 1,
+   "start_unlock": "0",
+   "cliff_unlock": "0",
+   "deposited": "250000000000000000000000",
+   "streamed": "57937111318407960199004"
+  },
+  {
+   "stream_id": 76,
+   "start": 1790208000,
+   "cliff": 1805846400,
+   "end": 1821744000,
+   "granularity": 1,
+   "start_unlock": "100000000000000000000",
+   "cliff_unlock": "0",
+   "deposited": "1000000000000000000000",
+   "streamed": "100000000000000000000"
+  },
+  {
+   "stream_id": 83,
+   "start": 1791161663,
+   "cliff": 0,
+   "end": 1822697663,
+   "granularity": 1,
+   "start_unlock": "2000000000000000000000",
+   "cliff_unlock": "0",
+   "deposited": "20000000000000000000000",
+   "streamed": "3481628995433789954337"
+  },
+  {
+   "stream_id": 3,
+   "start": 1773740414,
+   "cliff": 0,
+   "end": 1773826814,
+   "granularity": 1,
+   "start_unlock": "0",
+   "cliff_unlock": "0",
+   "deposited": "100000000000000000000",
+   "streamed": "100000000000000000000"
+  }
+ ]
+}

@@ -4,9 +4,9 @@
 //! unlocked tokens always stay with whoever held the units while they unlocked. Approvals are not
 //! supported: every `approval` argument must be `None`.
 //!
-//! Holding rows (about 120 bytes) are paid by the engine rather than by a NEP-145 registration:
-//! their number is bounded by holders times classes, and issuers distribute units to accounts
-//! that never interacted with the engine, which a registration requirement would block.
+//! Holding rows are paid by their owner through NEP-145 (`storage.rs`): receiving units requires
+//! a registered account whose deposit covers its rows; `distribute_units` registers its
+//! receivers from the NEAR attached to the call.
 
 use near_sdk::json_types::U128;
 use near_sdk::serde::Serialize;
@@ -15,7 +15,10 @@ use near_sdk::{env, ext_contract, near, require, AccountId, Gas, PromiseOrValue}
 use crate::events::log_event;
 use crate::ledger::Holding;
 use crate::types::{ClassId, Holder};
-use crate::{assert_one_yocto, Contract, ContractExt, RoseEvent, MAX_DISTRIBUTION_RECEIVERS};
+use crate::{
+    assert_one_yocto, Contract, ContractExt, RoseEvent, HOLDING_ROW_BYTES,
+    MAX_DISTRIBUTION_RECEIVERS,
+};
 
 /// Gas reserved for `mt_resolve_transfer`.
 const GAS_FOR_RESOLVE_TRANSFER: Gas = Gas::from_tgas(15);
@@ -231,11 +234,17 @@ impl Contract {
     }
 
     /// Transfers one class to up to 50 receivers in one call (issuer distribution, spec
-    /// sections 2 and 8.3). Anyone holding units; requires exactly 1 yoctoNEAR. Emits one
-    /// NEP-245 `mt_transfer` event listing every transfer.
+    /// sections 2 and 8.3). Anyone holding units; requires at least 1 yoctoNEAR. The attached
+    /// NEAR registers the receivers that have no storage account (`storage_balance_bounds().min`
+    /// each) and covers their new holding row when their deposit is short; what is left is
+    /// refunded. Emits one NEP-245 `mt_transfer` event listing every transfer.
     #[payable]
     pub fn distribute_units(&mut self, token_id: ClassId, receivers: Vec<(AccountId, U128)>) {
-        assert_one_yocto();
+        require!(
+            env::attached_deposit() >= near_sdk::NearToken::from_yoctonear(1),
+            "Requires an attached deposit of at least 1 yoctoNEAR"
+        );
+        let mut budget = env::attached_deposit().as_yoctonear();
         require!(!receivers.is_empty(), "No receivers");
         require!(
             receivers.len() <= MAX_DISTRIBUTION_RECEIVERS,
@@ -250,6 +259,9 @@ impl Contract {
             total = total
                 .checked_add(amount.0)
                 .unwrap_or_else(|| env::panic_str("Amount overflow"));
+        }
+        for (receiver, _) in &receivers {
+            self.cover_row_from_budget(receiver, &token_id, &mut budget);
         }
         self.debit_holding(&Holder::Account(sender.clone()), &token_id, total, f_now);
         for (receiver, amount) in &receivers {
@@ -278,6 +290,11 @@ impl Contract {
             })
             .collect();
         log_mt("mt_transfer", &logs);
+        if budget > 0 {
+            near_sdk::Promise::new(sender)
+                .transfer(near_sdk::NearToken::from_yoctonear(budget))
+                .detach();
+        }
     }
 
     /// NEP-245: free units of `account_id` in `token_id` (locked and encumbered units excluded).
@@ -336,17 +353,46 @@ impl Contract {
             .unwrap_or_default()
     }
 
-    /// Stores a holding, dropping the row when it is empty.
+    /// Stores a holding, dropping the row when it is empty. Rows of accounts are charged to (or
+    /// released from) the account's storage usage; retired lots are paid by their round.
     pub(crate) fn put_holding(&mut self, holder: &Holder, class_id: &ClassId, holding: Holding) {
         let key = (holder.clone(), class_id.clone());
+        let existed = self.holdings.contains_key(&key);
         if holding.is_empty() {
             self.holdings.remove(&key);
         } else {
             self.holdings.insert(key, holding);
         }
+        if let Holder::Account(account) = holder {
+            match (existed, holding.is_empty()) {
+                (false, false) => self.charge_storage(account, HOLDING_ROW_BYTES),
+                (true, true) => self.release_storage(account, HOLDING_ROW_BYTES),
+                _ => {}
+            }
+        }
     }
 
-    /// Adds `units` to a holding, accruing from `f_from` (`<= f_now`).
+    /// Bytes a new row of `class_id` would add to `account`: `HOLDING_ROW_BYTES` when it holds
+    /// nothing of the class yet, `0` otherwise.
+    fn row_bytes_needed(&self, account: &AccountId, class_id: &ClassId) -> u64 {
+        if self
+            .holdings
+            .contains_key(&(Holder::Account(account.clone()), class_id.clone()))
+        {
+            0
+        } else {
+            HOLDING_ROW_BYTES
+        }
+    }
+
+    /// Panics unless `account` is registered and its deposit covers a row of `class_id`.
+    /// Called before any state change of a transfer, mint or settlement.
+    pub(crate) fn check_row_capacity(&self, account: &AccountId, class_id: &ClassId) {
+        self.require_storage_capacity(account, self.row_bytes_needed(account, class_id));
+    }
+
+    /// Adds `units` to a holding, accruing from `f_from` (`<= f_now`). An account must be
+    /// registered with a deposit covering its rows (checked before the change).
     pub(crate) fn credit_holding(
         &mut self,
         holder: &Holder,
@@ -355,11 +401,34 @@ impl Contract {
         f_now: u128,
         f_from: u128,
     ) {
+        if let Holder::Account(account) = holder {
+            self.check_row_capacity(account, class_id);
+        }
         let mut holding = self.holding(holder, class_id);
         holding
             .credit_since(f_now, units, f_from)
             .unwrap_or_else(|e| env::panic_str(&e.to_string()));
         self.put_holding(holder, class_id, holding);
+    }
+
+    /// Takes from `budget` (a third party's attached NEAR) what `account` lacks to hold one more
+    /// row of `class_id`, registering it first when needed.
+    fn cover_row_from_budget(
+        &mut self,
+        account: &AccountId,
+        class_id: &ClassId,
+        budget: &mut u128,
+    ) {
+        *budget = self.ensure_registered(account, *budget);
+        let shortfall = self.storage_shortfall(account, self.row_bytes_needed(account, class_id));
+        if shortfall > 0 {
+            require!(
+                *budget >= shortfall,
+                format!("Attach the storage deposit for {account}: {shortfall} yoctoNEAR more")
+            );
+            *budget -= shortfall;
+            self.top_up_storage(account, shortfall);
+        }
     }
 
     /// Removes `units` from a holding after accruing it up to `f_now`.
@@ -382,6 +451,9 @@ impl Contract {
         if tokens == 0 {
             return;
         }
+        if let Holder::Account(account) = holder {
+            self.check_row_capacity(account, class_id);
+        }
         let mut holding = self.holding(holder, class_id);
         holding
             .add_claimable(tokens)
@@ -391,8 +463,9 @@ impl Contract {
 
     /// Mints `units` of `class_id` to `account`, accruing from the class fraction `f_from` (the
     /// fraction at the foreign deposit time, so tokens unlocked between the deposit and its
-    /// registration belong to the depositor). Internal API for the deposit wiring. Logs the
-    /// NEP-245 `mt_mint` event.
+    /// registration belong to the depositor). Internal API for the deposit wiring: the account
+    /// must be registered (`ensure_registered`) with a deposit covering one more holding row.
+    /// Logs the NEP-245 `mt_mint` event.
     pub fn mint_units(
         &mut self,
         class_id: &ClassId,
@@ -403,6 +476,7 @@ impl Contract {
         require!(units > 0, "Cannot mint zero units");
         let f_now = self.fraction_now(class_id);
         require!(f_from <= f_now, "Mint checkpoint is in the future");
+        self.check_row_capacity(account, class_id);
         let class = self.classes.get_mut(class_id).expect("class exists");
         class.total_units = class
             .total_units
@@ -464,6 +538,7 @@ impl Contract {
         units: u128,
         f_now: u128,
     ) {
+        self.check_row_capacity(to, class_id);
         self.debit_holding(&Holder::Account(from.clone()), class_id, units, f_now);
         self.credit_holding(&Holder::Account(to.clone()), class_id, units, f_now, f_now);
     }

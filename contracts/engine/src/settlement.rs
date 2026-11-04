@@ -6,9 +6,10 @@
 //! claimable balances through `take_claimable`.
 
 use near_sdk::json_types::{U128, U64};
+use near_sdk::store::Vector;
 use near_sdk::{env, near, require, AccountId, NearToken, Promise};
 
-use crate::clearing::{self, AdvanceAsk, Fill, Order, Outcome};
+use crate::clearing::{self, AdvanceAsk, ClearingError, Fill, Order, Outcome};
 use crate::ledger::Lien;
 use crate::rounds::{remaining_lock_secs, reveal_deadline, round_pricing};
 use crate::types::{
@@ -16,6 +17,9 @@ use crate::types::{
     LienShare, Phase, PricePoint, Round, RoundId, RoundKind, RoundResult, Side, VoidReason,
 };
 use crate::{Contract, ContractExt, RoseEvent};
+
+/// Bytes of a lien share row: hashed key, `LienShare` and the trie record overhead.
+const LIEN_SHARE_ROW_BYTES: u64 = 32 + 32 + 40;
 
 #[near]
 impl Contract {
@@ -42,55 +46,14 @@ impl Contract {
         let mut fills = outcomes(&bids, true);
         let (buys, sells) = valid_orders(&round, &bids);
 
-        let cleared = match round.kind {
-            RoundKind::Tender => {
-                let terms = round.tender.as_ref().expect("tender terms");
-                match clearing::tender(&sells, terms.budget, round.max_price, round_pricing(&round))
-                    .unwrap_or_else(|e| env::panic_str(&format!("Internal clearing error: {e}")))
-                {
-                    Outcome::NoCrossing => None,
-                    Outcome::Cleared(result) => {
-                        apply_fills(&mut fills, &result.asks, false);
-                        let fee = fee_of(result.charged);
-                        Some((result.price, result.volume, result.charged, fee))
-                    }
-                }
-            }
-            RoundKind::Exit => match clearing::exit(&buys, &sells, round_pricing(&round))
-                .unwrap_or_else(|e| env::panic_str(&format!("Internal clearing error: {e}")))
-            {
-                Outcome::NoCrossing => None,
-                Outcome::Cleared(result) => {
-                    apply_fills(&mut fills, &result.bids, true);
-                    apply_fills(&mut fills, &result.asks, false);
-                    let fee = total_fee(&fills);
-                    Some((result.price, result.volume, result.notional, fee))
-                }
-            },
-            RoundKind::Advance => {
-                let terms = round.advance.as_ref().expect("advance terms");
-                let ask = terms
-                    .ask_bid
-                    .and_then(|id| sells.iter().find(|order| order.id == u64::from(id)))
-                    .map(|order| AdvanceAsk {
-                        id: order.id,
-                        claim: terms.claim,
-                        reserve: order.price,
-                        min_fill: terms.min_fill,
-                    });
-                ask.and_then(|ask| {
-                    match clearing::advance(ask, &buys, round.token_decimals).unwrap_or_else(|e| {
-                        env::panic_str(&format!("Internal clearing error: {e}"))
-                    }) {
-                        Outcome::NoCrossing => None,
-                        Outcome::Cleared(result) => {
-                            apply_fills(&mut fills, &result.bids, true);
-                            apply_fills(&mut fills, &result.asks, false);
-                            let fee = total_fee(&fills);
-                            Some((result.price, result.volume, result.notional, fee))
-                        }
-                    }
-                })
+        let cleared = match compute_clearing(&round, &mut fills, &buys, &sells) {
+            Ok(cleared) => cleared,
+            Err(error) => {
+                self.emit(RoseEvent::ClearingFailed {
+                    round_id,
+                    error: error.to_string(),
+                });
+                None
             }
         };
 
@@ -138,7 +101,11 @@ impl Contract {
         let history = self
             .price_history
             .entry(round.class_id.clone())
-            .or_default();
+            .or_insert_with(|| {
+                Vector::new(crate::StorageKey::PriceHistoryClass {
+                    class_id: round.class_id.clone(),
+                })
+            });
         history.push(PricePoint {
             round_id: round_id.0,
             kind: round.kind,
@@ -170,15 +137,27 @@ impl Contract {
         );
         let bid = self
             .bids
-            .remove(&(round_id.0, bid_id))
+            .get(&(round_id.0, bid_id))
+            .cloned()
             .unwrap_or_else(|| env::panic_str("Bid already settled or unknown"));
         let result = round.result.as_ref().expect("ended rounds have a result");
         let outcome = result.fills[bid_id as usize].clone();
+        if bid.side == Side::Buy && round.kind == RoundKind::Exit && outcome.fill_quantity.0 > 0 {
+            require!(
+                self.is_registered(&bid.bidder),
+                format!(
+                    "Account {} is not registered: call storage_deposit first",
+                    bid.bidder
+                )
+            );
+        }
+        self.bids.remove(&(round_id.0, bid_id));
         let venue = &round.venue;
         let treasury = self.config.fee_recipient.clone();
         let f_now = self.fraction_now(&round.class_id);
         let settled = round.phase == Phase::Settled;
 
+        let mut share_bytes = 0u64;
         let bond_refunded = outcome.void.is_none();
         if bond_refunded {
             self.credit_cash(&bid.bidder, venue, bid.bond);
@@ -186,10 +165,9 @@ impl Contract {
             self.credit_cash(&treasury, venue, bid.bond);
         }
 
-        let mut refund = 0;
-        match bid.side {
+        let refund = match bid.side {
             Side::Buy => {
-                refund = bid
+                let refund = bid
                     .escrow
                     .checked_sub(outcome.cash.0)
                     .and_then(|rest| rest.checked_sub(outcome.fee.0))
@@ -208,13 +186,15 @@ impl Contract {
                             round.f_ts,
                         ),
                         RoundKind::Advance => {
-                            self.add_lien_share(&round, &bid.bidder, outcome.fill_quantity.0)
+                            share_bytes =
+                                self.add_lien_share(&round, &bid.bidder, outcome.fill_quantity.0);
                         }
                         RoundKind::Tender => {
                             env::panic_str("Internal settlement error: a Tender has no bids")
                         }
                     }
                 }
+                refund
             }
             Side::Sell => {
                 self.credit_cash(&bid.bidder, venue, outcome.cash.0);
@@ -250,8 +230,9 @@ impl Contract {
                         );
                     }
                 }
+                0
             }
-        }
+        };
 
         self.orders
             .remove(&(round_id.0, bid.bidder.clone(), bid.side.ad_byte()));
@@ -263,9 +244,14 @@ impl Contract {
             stored.settled_count += 1;
             stored.result.as_mut().expect("result").fills[bid_id as usize].settled = true;
         }
-        if bid.storage_deposit > 0 {
+        let kept_bytes =
+            borsh::to_vec(&outcome).expect("outcome serializes").len() as u64 + share_bytes;
+        let deposit_refund = bid
+            .storage_deposit
+            .saturating_sub(crate::storage::bytes_cost(kept_bytes));
+        if deposit_refund > 0 {
             Promise::new(bid.bidder.clone())
-                .transfer(NearToken::from_yoctonear(bid.storage_deposit))
+                .transfer(NearToken::from_yoctonear(deposit_refund))
                 .detach();
         }
         self.emit(RoseEvent::BidSettled {
@@ -551,14 +537,17 @@ impl Contract {
         });
     }
 
-    fn add_lien_share(&mut self, round: &Round, funder: &AccountId, claim: u128) {
+    /// Adds `claim` to the funder's share of the round's lien; returns the bytes of the row when
+    /// it was created (charged to the funder's bid deposit).
+    fn add_lien_share(&mut self, round: &Round, funder: &AccountId, claim: u128) -> u64 {
         let lien_id = round
             .advance
             .as_ref()
             .and_then(|terms| terms.lien_id)
             .expect("settled Advances have a lien");
         let key = (lien_id, funder.clone());
-        let share = self.lien_shares.get(&key).copied().unwrap_or_default();
+        let existing = self.lien_shares.get(&key).copied();
+        let share = existing.unwrap_or_default();
         self.lien_shares.insert(
             key,
             LienShare {
@@ -570,7 +559,78 @@ impl Contract {
         if !index.lien_shares.contains(&lien_id) {
             index.lien_shares.push(lien_id);
         }
+        if existing.is_none() {
+            LIEN_SHARE_ROW_BYTES
+        } else {
+            0
+        }
     }
+}
+
+/// `(price, volume, notional, fee)` of a cleared book, `None` when nothing crosses. Fills are
+/// written into `fills`. A `ClearingError` can only come from inconsistent inputs, which the
+/// opening checks exclude; the caller cancels the round so everything stays refundable.
+fn compute_clearing(
+    round: &Round,
+    fills: &mut [BidOutcome],
+    buys: &[Order],
+    sells: &[Order],
+) -> Result<Option<(u128, u128, u128, u128)>, ClearingError> {
+    let cleared = match round.kind {
+        RoundKind::Tender => {
+            let terms = round.tender.as_ref().expect("tender terms");
+            match clearing::tender(sells, terms.budget, round.max_price, round_pricing(round))? {
+                Outcome::NoCrossing => None,
+                Outcome::Cleared(result) => {
+                    apply_fills(fills, &result.asks, false)?;
+                    let fee = clearing::fee(result.charged)?;
+                    Some((result.price, result.volume, result.charged, fee))
+                }
+            }
+        }
+        RoundKind::Exit => match clearing::exit(buys, sells, round_pricing(round))? {
+            Outcome::NoCrossing => None,
+            Outcome::Cleared(result) => {
+                apply_fills(fills, &result.bids, true)?;
+                apply_fills(fills, &result.asks, false)?;
+                Some((
+                    result.price,
+                    result.volume,
+                    result.notional,
+                    total_fee(fills),
+                ))
+            }
+        },
+        RoundKind::Advance => {
+            let terms = round.advance.as_ref().expect("advance terms");
+            let Some(ask) = terms
+                .ask_bid
+                .and_then(|id| sells.iter().find(|order| order.id == u64::from(id)))
+                .map(|order| AdvanceAsk {
+                    id: order.id,
+                    claim: terms.claim,
+                    reserve: order.price,
+                    min_fill: terms.min_fill,
+                })
+            else {
+                return Ok(None);
+            };
+            match clearing::advance(ask, buys, round.token_decimals)? {
+                Outcome::NoCrossing => None,
+                Outcome::Cleared(result) => {
+                    apply_fills(fills, &result.bids, true)?;
+                    apply_fills(fills, &result.asks, false)?;
+                    Some((
+                        result.price,
+                        result.volume,
+                        result.notional,
+                        total_fee(fills),
+                    ))
+                }
+            }
+        }
+    };
+    Ok(cleared)
 }
 
 /// Base outcomes of every bid before (or without) clearing.
@@ -619,20 +679,20 @@ fn valid_orders(round: &Round, bids: &[Bid]) -> (Vec<Order>, Vec<Order>) {
     (buys, sells)
 }
 
-fn apply_fills(outcomes: &mut [BidOutcome], fills: &[Fill], buyers: bool) {
+fn apply_fills(
+    outcomes: &mut [BidOutcome],
+    fills: &[Fill],
+    buyers: bool,
+) -> Result<(), ClearingError> {
     for fill in fills {
         let outcome = &mut outcomes[fill.id as usize];
         outcome.fill_quantity = U128(fill.qty);
         outcome.cash = U128(fill.cash);
         if buyers {
-            outcome.fee = U128(fee_of(fill.cash));
+            outcome.fee = U128(clearing::fee(fill.cash)?);
         }
     }
-}
-
-fn fee_of(notional: u128) -> u128 {
-    clearing::fee(notional)
-        .unwrap_or_else(|e| env::panic_str(&format!("Internal clearing error: {e}")))
+    Ok(())
 }
 
 fn total_fee(outcomes: &[BidOutcome]) -> u128 {

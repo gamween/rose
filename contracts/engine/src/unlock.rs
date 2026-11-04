@@ -59,7 +59,9 @@ pub enum ScheduleError {
     StartNotBeforeEnd,
     /// A cliff unlock amount was given without a cliff time.
     CliffUnlockWithoutCliff,
-    /// The unlock granularity is zero (Sablier stores at least one second).
+    /// The unlock granularity is zero. Sablier stores a zero granularity as one second at
+    /// creation (`LockupHelpers`), so an attested stream never carries zero; the port refuses it
+    /// rather than mapping it silently.
     ZeroGranularity,
     /// The unlock granularity exceeds the streamable range.
     GranularityTooHigh,
@@ -75,6 +77,15 @@ pub enum ScheduleError {
     DepositBelowMinimum,
     /// `10^decimals` does not fit in 128 bits.
     TokenDecimalsTooLarge,
+    /// The Streamflow stream may be paused.
+    Pausable,
+    /// The Streamflow stream's rate may be updated.
+    RateUpdatable,
+    /// The Streamflow stream may be topped up (the deposit and end would change).
+    Topup,
+    /// The Streamflow stream carries pause or rate-change history, so the plain formula no
+    /// longer describes it.
+    PauseOrRateHistory,
 }
 
 impl fmt::Display for ScheduleError {
@@ -94,6 +105,10 @@ impl fmt::Display for ScheduleError {
             Self::EndBeforeStart => "end time is before the start time",
             Self::DepositBelowMinimum => "position is smaller than one whole token",
             Self::TokenDecimalsTooLarge => "token decimals are too large",
+            Self::Pausable => "stream may be paused",
+            Self::RateUpdatable => "stream rate may be updated",
+            Self::Topup => "stream may be topped up",
+            Self::PauseOrRateHistory => "stream was paused or re-rated",
         };
         f.write_str(message)
     }
@@ -219,8 +234,10 @@ impl SablierLinearStream {
     }
 }
 
-/// Raw parameters of a Streamflow stream, as read from its metadata account.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// Raw parameters of a Streamflow stream, as read from its metadata account. The flags and
+/// history fields default to zero, the only values [`StreamflowStream::new`] accepts: the
+/// formula below assumes a stream that cannot be paused, re-rated or topped up and never was.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct StreamflowParams {
     /// `ix.start_time`.
     pub start_time: Timestamp,
@@ -236,6 +253,20 @@ pub struct StreamflowParams {
     pub net_amount_deposited: u64,
     /// `end_time`, computed by the program at creation and stored in the account.
     pub end_time: Timestamp,
+    /// `ix.pausable`.
+    pub pausable: bool,
+    /// `ix.can_update_rate`.
+    pub can_update_rate: bool,
+    /// `ix.can_topup`.
+    pub can_topup: bool,
+    /// `current_pause_start`.
+    pub current_pause_start: u64,
+    /// `pause_cumulative`.
+    pub pause_cumulative: u64,
+    /// `last_rate_change_time`.
+    pub last_rate_change_time: u64,
+    /// `funds_unlocked_at_last_rate_change`.
+    pub funds_unlocked_at_last_rate_change: u64,
 }
 
 /// A validated Streamflow stream (stepped unlock).
@@ -268,8 +299,25 @@ pub struct StreamflowStream {
 }
 
 impl StreamflowStream {
-    /// Validates raw stream parameters.
+    /// Validates raw stream parameters: a plain stream (no pause, rate update or top-up
+    /// permission, no such history) with a non-empty, well-ordered schedule.
     pub fn new(params: StreamflowParams) -> Result<Self, ScheduleError> {
+        if params.pausable {
+            return Err(ScheduleError::Pausable);
+        }
+        if params.can_update_rate {
+            return Err(ScheduleError::RateUpdatable);
+        }
+        if params.can_topup {
+            return Err(ScheduleError::Topup);
+        }
+        if params.current_pause_start != 0
+            || params.pause_cumulative != 0
+            || params.last_rate_change_time != 0
+            || params.funds_unlocked_at_last_rate_change != 0
+        {
+            return Err(ScheduleError::PauseOrRateHistory);
+        }
         if params.net_amount_deposited == 0 {
             return Err(ScheduleError::ZeroDeposit);
         }
@@ -717,6 +765,7 @@ mod tests {
             amount_per_period: 7,
             net_amount_deposited: 1_000,
             end_time: 1_560,
+            ..StreamflowParams::default()
         })
         .expect("valid stream");
         assert_eq!(stream.unlocked_amount(150), 0);
@@ -738,6 +787,7 @@ mod tests {
             amount_per_period: 1,
             net_amount_deposited: 10,
             end_time: 110,
+            ..StreamflowParams::default()
         })
         .expect("valid stream");
         assert_eq!(stream.unlocked_amount(99), 0);
@@ -792,6 +842,7 @@ mod tests {
             amount_per_period: 10,
             net_amount_deposited: 1_000,
             end_time: 1_160,
+            ..StreamflowParams::default()
         };
         let a = StreamflowStream::new(params).expect("valid");
         let b = StreamflowStream::new(StreamflowParams {

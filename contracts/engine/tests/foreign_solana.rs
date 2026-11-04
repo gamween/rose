@@ -381,9 +381,20 @@ fn live_streamflow_account_decodes_with_its_distinctive_values() {
         amount_per_period: 10_000_000,
         net_amount_deposited: 1_234_567_890,
         end_time: 1793762929,
+        can_topup: true,
+        ..StreamflowParams::default()
     };
     assert_eq!(metadata.params(), expected);
-    let stream = StreamflowStream::new(metadata.params()).unwrap();
+    assert_eq!(
+        StreamflowStream::new(metadata.params()),
+        Err(rose_engine::unlock::ScheduleError::Topup),
+        "the live stream allows top-ups, which the unlock math refuses"
+    );
+    let stream = StreamflowStream::new(StreamflowParams {
+        can_topup: false,
+        ..expected
+    })
+    .unwrap();
     assert_eq!(stream.unlocked_amount(metadata.cliff), 234_567_890);
     assert_eq!(stream.unlocked_amount(metadata.end_time), 1_234_567_890);
 }

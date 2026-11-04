@@ -74,8 +74,9 @@ fn spec_example_clears_at_nine_and_refunds_the_unused_budget_and_fee() {
     assert_eq!(result.fills[1].fill_quantity, U128(0));
     assert_eq!(contract.stats().volume_settled_usdc, U128(900));
     assert_eq!(contract.stats().rounds_settled, 1);
-    let history = contract.get_price_history(class.clone());
-    assert_eq!(history.len(), 1);
+    let history = contract.get_price_history(class.clone(), None, None);
+    assert_eq!(history.total, 1);
+    let history = history.points;
     assert_eq!(history[0].price, U128(9));
     assert_eq!(history[0].remaining_lock_secs, U64(11_000 - 900));
 
@@ -90,10 +91,7 @@ fn spec_example_clears_at_nine_and_refunds_the_unused_budget_and_fee() {
     let retired = contract.get_retired_lot(U64(round)).unwrap();
     assert_eq!(retired.units, U128(100));
     assert_eq!(retired.claimable, U128(20));
-    assert_eq!(
-        retired.retire_to,
-        "0x000000000000000000000000000000000000dead"
-    );
+    assert_eq!(retired.retire_to, RETIRE_TO);
     assert_eq!(contract.mt_supply(class.clone()), Some(U128(110)));
     assert_eq!(contract.get_round(U64(round)).unwrap().settled_count, 2);
     assert_eq!(
@@ -103,8 +101,9 @@ fn spec_example_clears_at_nine_and_refunds_the_unused_budget_and_fee() {
     assert_eq!(contract.get_bids(U64(round)).len(), 2);
 
     // Storage deposits: both bidders got theirs back, the issuer's stays with the settled round.
-    assert_eq!(transferred_to(&a), BID_STORAGE_DEPOSIT.as_yoctonear());
-    assert_eq!(transferred_to(&b), BID_STORAGE_DEPOSIT.as_yoctonear());
+    assert_eq!(transferred_to(&a), bid_refund(&contract, round, ask_a));
+    assert_eq!(transferred_to(&b), bid_refund(&contract, round, ask_b));
+    assert!(bid_refund(&contract, round, ask_a) < BID_STORAGE_DEPOSIT.as_yoctonear());
     assert_eq!(transferred_to(&issuer), 0);
     assert_eq!(
         contract.round(round).storage_deposit,
@@ -142,10 +141,7 @@ fn retired_units_are_claimable_only_toward_retire_to() {
     let source = ClaimSource::Retired { round_id: round };
     assert_eq!(contract.claimable_of(&source), 50);
     let receipt = contract.take_claimable(&source, 30);
-    assert_eq!(
-        receipt.restricted_to.as_deref(),
-        Some("0x000000000000000000000000000000000000dead")
-    );
+    assert_eq!(receipt.restricted_to.as_deref(), Some(RETIRE_TO));
     assert_eq!(receipt.class_id, class);
     assert_eq!(contract.claimable_of(&source), 20);
     contract.refund_claimable(&source, 30);
@@ -217,7 +213,8 @@ fn tender_with_no_crossing_is_cancelled_and_refunds_everything() {
     assert_eq!(cash(&contract, &issuer), 953);
     assert_eq!(
         transferred_to(&issuer),
-        ROUND_STORAGE_DEPOSIT.as_yoctonear()
+        0,
+        "the round deposit stays with the record"
     );
     settle(&mut contract, round, ask_a, ts(3_000));
     assert_eq!(cash(&contract, &a), 0, "void bid: bond slashed");

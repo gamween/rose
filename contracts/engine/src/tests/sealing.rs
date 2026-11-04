@@ -61,6 +61,7 @@ fn malformed_bid_is_unopenable_and_slashed() {
     // A third bidder submits a ciphertext whose V does not encrypt its sigma.
     let mallory = accounts(3);
     fund(&mut contract, &mallory, 2 * USDC, ts(1_000));
+    register(&mut contract, &mallory, ts(1_000));
     let mut sealed = seal(round, &mallory, Side::Buy, 100, 100);
     let mut bytes = hex::decode(&sealed.ciphertext).unwrap();
     bytes[rose_ibe::G2_LEN] ^= 0x80;
@@ -255,7 +256,8 @@ fn close_retries_while_the_key_is_missing_and_bad_responses_store_nothing() {
     assert_eq!(view.key_received_at, Some(U64(ts(6_105))));
     // A late duplicate callback is ignored.
     env_at(&engine(), ts(6_110));
-    assert!(contract.on_round_key(U64(round), Ok(ckd_response(round))));
+    assert!(!contract.on_round_key(U64(round), Ok(ckd_response(round))));
+    assert_eq!(events("rose").last().unwrap()["event"], "key_ignored");
     assert_eq!(
         contract.get_round(U64(round)).unwrap().key_received_at,
         Some(U64(ts(6_105)))
@@ -268,10 +270,12 @@ fn close_retries_while_the_key_is_missing_and_bad_responses_store_nothing() {
 fn submit_key_accepts_the_right_key_and_rejects_others() {
     let (mut contract, _, _, _, round, (ask, ask_sealed), _) = exit_with_orders();
     let key = rose_ibe::format_near_g1(&round_key(round));
-    env_at(&accounts(5), ts(5_999));
-    panics_with("Round is still open", || {
+    env_at(&accounts(5), ts(6_000));
+    panics_with("Round does not expect a key", || {
         contract.submit_key(U64(round), key.clone())
     });
+    env(&accounts(5), one_yocto(), ts(6_000));
+    assert!(contract.close(U64(round)).is_some());
     env_at(&accounts(5), ts(6_000));
     panics_with("Key does not verify for this round", || {
         contract.submit_key(U64(round), rose_ibe::format_near_g1(&round_key(round + 1)));
@@ -285,7 +289,7 @@ fn submit_key_accepts_the_right_key_and_rejects_others() {
         contract.submit_key(U64(round), rose_ibe::format_near_g1_bytes(&[0u8; 48]));
     });
     assert!(contract.round(round).key.is_none());
-    // Lost callback: anyone submits the unwrapped key without a close.
+    // Lost callback: anyone submits the key unwrapped off chain from the public MPC response.
     env_at(&accounts(5), ts(6_010));
     contract.submit_key(U64(round), key.clone());
     let view = contract.get_round(U64(round)).unwrap();
@@ -314,10 +318,7 @@ fn cancel_no_key_refunds_everything_after_the_timeout() {
         contract.round(round).cancel_reason,
         Some(CancelReason::NoKey)
     );
-    assert_eq!(
-        transferred_to(&accounts(0)),
-        ROUND_STORAGE_DEPOSIT.as_yoctonear()
-    );
+    assert_eq!(transferred_to(&accounts(0)), 0);
     let result = contract.get_round_result(U64(round)).unwrap();
     assert!(
         result.fills.iter().all(|f| f.void.is_none()),
@@ -340,8 +341,9 @@ fn cancel_no_key_refunds_everything_after_the_timeout() {
         contract.get_claimable(seller.clone(), class.clone()).0,
         2_000_000 * 9 / 10
     );
-    assert_eq!(transferred_to(&seller), BID_STORAGE_DEPOSIT.as_yoctonear());
-    assert_eq!(transferred_to(&buyer), BID_STORAGE_DEPOSIT.as_yoctonear());
+    assert_eq!(transferred_to(&seller), bid_refund(&contract, round, ask));
+    assert_eq!(transferred_to(&buyer), bid_refund(&contract, round, bid));
+    assert!(bid_refund(&contract, round, bid) < BID_STORAGE_DEPOSIT.as_yoctonear());
     // A round that was never closed can also time out.
     let round2 = create_exit(
         &mut contract,
@@ -373,17 +375,117 @@ fn closing_an_empty_round_cancels_it_without_a_key_request() {
         ts(6_000),
     );
     env_at(&accounts(5), ts(6_000));
-    panics_with("Round has no sealed orders", || {
+    panics_with("Round does not expect a key", || {
         contract.submit_key(U64(round), rose_ibe::format_near_g1(&round_key(round)));
     });
     env(&accounts(5), one_yocto(), ts(6_000));
     assert!(contract.close(U64(round)).is_none());
     assert_eq!(
         contract.round(round).cancel_reason,
-        Some(CancelReason::NoCrossing)
+        Some(CancelReason::Empty)
     );
+    assert_eq!(transferred_to(&accounts(0)), 0);
+}
+
+/// A late CKD response must never revive a cancelled round: close at the timeout, cancel the
+/// next block, then the callback arrives.
+fn late_callback_is_ignored(contract: &mut Contract, round: u64) {
+    env(&accounts(5), one_yocto(), ts(6_000) + KEY_TIMEOUT);
+    assert!(contract.close(U64(round)).is_some());
+    env_at(&accounts(5), ts(6_001) + KEY_TIMEOUT);
+    contract.cancel_no_key(U64(round));
+    env_at(&engine(), ts(6_002) + KEY_TIMEOUT);
+    assert!(!contract.on_round_key(U64(round), Ok(ckd_response(round))));
+    assert_eq!(events("rose").last().unwrap()["event"], "key_ignored");
+    let view = contract.get_round(U64(round)).unwrap();
+    assert_eq!(view.status, RoundStatus::Cancelled);
+    assert!(view.key.is_none());
     assert_eq!(
-        transferred_to(&accounts(0)),
-        ROUND_STORAGE_DEPOSIT.as_yoctonear()
+        contract.round(round).cancel_reason,
+        Some(CancelReason::NoKey)
     );
+    env_at(&accounts(5), ts(6_002) + KEY_TIMEOUT);
+    panics_with("Round does not expect a key", || {
+        contract.submit_key(U64(round), rose_ibe::format_near_g1(&round_key(round)));
+    });
+}
+
+#[test]
+fn late_callback_cannot_revive_a_cancelled_tender() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 0);
+    let (issuer, a) = (accounts(0), accounts(1));
+    mint(&mut contract, &class, &a, 100, ts(500));
+    fund(&mut contract, &issuer, 953, ts(500));
+    fund(&mut contract, &a, USDC, ts(500));
+    let round = create_tender(&mut contract, &issuer, &class, 950, 10, ts(500), ts(6_000));
+    let (ask, _) = place_ask(&mut contract, round, &a, 100, 9, 100, ts(600));
+    late_callback_is_ignored(&mut contract, round);
+    assert_eq!(cash(&contract, &issuer), 953, "the escrow came back once");
+    settle(&mut contract, round, ask, ts(7_000) + KEY_TIMEOUT);
+    assert_eq!(cash(&contract, &issuer), 953);
+    assert_eq!(cash(&contract, &a), USDC);
+    assert_eq!(contract.mt_balance_of(a, class).0, 100);
+}
+
+#[test]
+fn late_callback_cannot_revive_a_cancelled_exit() {
+    let (mut contract, class, seller, buyer, round, (ask, _), (bid, _)) = exit_with_orders();
+    late_callback_is_ignored(&mut contract, round);
+    settle(&mut contract, round, ask, ts(7_000) + KEY_TIMEOUT);
+    settle(&mut contract, round, bid, ts(7_000) + KEY_TIMEOUT);
+    assert_eq!(cash(&contract, &seller), USDC);
+    assert_eq!(cash(&contract, &buyer), 2_500_000);
+    assert_eq!(contract.mt_balance_of(seller, class).0, 2_000_000);
+}
+
+#[test]
+fn late_callback_cannot_revive_a_cancelled_advance() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let (holder, funder) = (accounts(1), accounts(2));
+    mint(&mut contract, &class, &holder, 4_000_000, ts(1_000));
+    fund(&mut contract, &holder, USDC, ts(1_000));
+    fund(&mut contract, &funder, 3_000_000, ts(1_000));
+    let round = create_advance(
+        &mut contract,
+        &holder,
+        &class,
+        AdvanceSpec {
+            units: 4_000_000,
+            claim: 1_000_000,
+            min_fill: 0,
+            max_price: 2_000_000,
+        },
+        ts(2_500),
+        ts(6_000),
+    );
+    let (ask, _) = place_ask(
+        &mut contract,
+        round,
+        &holder,
+        1_000_000,
+        1_000_000,
+        1_000_000,
+        ts(3_000),
+    );
+    let (bid, _) = place_bid(
+        &mut contract,
+        round,
+        &funder,
+        1_000_000,
+        1_000_000,
+        1_500_000,
+        ts(3_500),
+    );
+    late_callback_is_ignored(&mut contract, round);
+    assert_eq!(
+        contract.mt_balance_of(holder.clone(), class.clone()).0,
+        4_000_000
+    );
+    settle(&mut contract, round, ask, ts(7_000) + KEY_TIMEOUT);
+    settle(&mut contract, round, bid, ts(7_000) + KEY_TIMEOUT);
+    assert_eq!(cash(&contract, &holder), USDC);
+    assert_eq!(cash(&contract, &funder), 3_000_000);
+    assert_eq!(contract.get_round(U64(round)).unwrap().lien_id, None);
 }

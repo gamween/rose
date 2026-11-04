@@ -8,6 +8,7 @@
 //! - `rounds`: round creation, cancellation and sealed orders;
 //! - `sealing`: key release (CKD, `submit_key`, `cancel_no_key`) and verified openings;
 //! - `settlement`: clearing, per-bid settlement and liens;
+//! - `custody`: MPC-derived addresses, attested foreign deposits, signed payouts and redeems;
 //! - `events`: NEP-297 logs and the bounded on-chain history;
 //! - `views`: read-only methods.
 //!
@@ -21,10 +22,12 @@ pub mod math;
 pub mod unlock;
 
 mod cash;
+mod custody;
 mod events;
 mod rounds;
 mod sealing;
 mod settlement;
+mod storage;
 mod types;
 mod units;
 mod views;
@@ -37,16 +40,20 @@ use near_sdk::store::{IterableMap, LookupMap, Vector};
 use near_sdk::{env, near, require, AccountId, BorshStorageKey, NearToken, PanicOnDefault};
 
 pub use cash::FungibleToken;
+pub use custody::{CustodyEvent, CustodyState, PAYOUT_STORAGE_DEPOSIT, PENDING_EXPIRY_BLOCKS};
 pub use events::{RoseEvent, StoredEvent, EVENT_CAPACITY, EVENT_STANDARD, EVENT_VERSION};
+pub use storage::{StorageBalance, StorageBalanceBounds, HOLDING_ROW_BYTES, STORAGE_ACCOUNT_BYTES};
 pub use types::*;
 pub use units::{MtReceiver, Token};
 
 use events::StoredEvent as HistoryEvent;
 
-/// Storage deposit required to place a bid or an ask, refunded when the bid settles.
+/// Storage deposit required to place a bid or an ask. Refunded when the bid settles, net of the
+/// bytes the engine keeps for it (its outcome in the round result and, for an Advance funder, its
+/// lien share row).
 pub const BID_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(20);
-/// Storage deposit required to create a round, refunded when the round is cancelled. A settled
-/// round stays on chain as public history, paid by this deposit.
+/// Storage deposit required to create a round. It stays with the round record, which remains on
+/// chain as public history whether the round settles or is cancelled.
 pub const ROUND_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(50);
 /// Largest number of bids a round accepts, so `clear` fits one transaction.
 pub const MAX_BIDS_PER_ROUND: u32 = 64;
@@ -76,6 +83,8 @@ enum StorageKey {
     AccountIndex,
     Events,
     PriceHistory,
+    PriceHistoryClass { class_id: ClassId },
+    StorageAccounts,
 }
 
 /// The engine.
@@ -100,9 +109,11 @@ pub struct Contract {
     account_index: LookupMap<AccountId, AccountIndex>,
     events: Vector<HistoryEvent>,
     events_total: u64,
-    price_history: LookupMap<ClassId, Vec<PricePoint>>,
+    price_history: LookupMap<ClassId, Vector<PricePoint>>,
+    storage_accounts: LookupMap<AccountId, storage::StorageAccount>,
     rounds_settled: u64,
     volume_settled: u128,
+    custody: CustodyState,
 }
 
 #[near]
@@ -170,8 +181,10 @@ impl Contract {
             events: Vector::new(StorageKey::Events),
             events_total: 0,
             price_history: LookupMap::new(StorageKey::PriceHistory),
+            storage_accounts: LookupMap::new(StorageKey::StorageAccounts),
             rounds_settled: 0,
             volume_settled: 0,
+            custody: CustodyState::new(),
         }
     }
 }
