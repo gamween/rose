@@ -15,7 +15,7 @@ import { fetchPricesData, type PricesData } from "./data";
 import { LockScatterChart } from "./LockScatterChart";
 import { seriesColor, seriesShape } from "./palette";
 import { PriceHistoryChart } from "./PriceHistoryChart";
-import { buildSeries, groupByToken, type TokenGroup } from "./transforms";
+import { buildSeries, groupByToken, priceUnitOf, type TokenGroup } from "./transforms";
 
 const REFRESH_MS = 30_000;
 
@@ -37,15 +37,18 @@ function Methodology() {
           <Link href="/docs/clearing-rules" className="text-ember-300 hover:text-ember-200">
             clearing rules
           </Link>
-          ). A Tender price is what the issuer paid per locked token, an Exit price is where sealed supply met sealed demand, and an Advance price is per claimed
-          token, which is why Advance points sit on their own class line and are labeled.
+          ). A Tender price is what the issuer paid per locked token and an Exit price is where sealed supply met sealed demand. An Advance price is per claimed
+          token, a different unit: Advance rounds get their own line per class, labeled per claimed token, and stay out of the price-versus-lock scatter.
         </p>
         <p>
           There is no spot oracle on testnet, so no implied discount is computed on chain. When an issuer declared a public reference price at Tender creation,
           the discount shown is <code className="font-mono text-ink-100">1 - price / declared reference</code> and is labeled as a discount to the issuer&apos;s
           declaration, not to a market price. Rounds without a declaration show no discount.
         </p>
-        <p>Price history charts are one line per class. The scatter plot compares the classes of one token: the same token with more lock left should clear lower.</p>
+        <p>
+          Price history charts are one line per class and unit. The scatter plot compares the per-locked-token prices of the classes of one token: the same token
+          with more lock left should clear lower.
+        </p>
       </CardBody>
     </Card>
   );
@@ -112,13 +115,16 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
   const settledRounds = plotted.reduce((sum, series) => sum + series.points.length, 0);
   const latest = plotted.flatMap((series) => series.points).sort((a, b) => b.settledAtMs - a.settledAtMs)[0]!;
   const declared = plotted.flatMap((series) => series.points).filter((point) => point.discount !== null);
+  const pricedClasses = new Set(plotted.map((series) => series.classId)).size;
+  const perLocked = plotted.filter((series) => series.unit === "locked");
+  const advanceRounds = plotted.filter((series) => series.unit === "claimed").reduce((sum, series) => sum + series.points.length, 0);
 
   return (
     <div className="flex flex-col gap-6">
       <TokenFilter groups={withPrices} value={group.tokenKey} onChange={setSelected} />
       <dl className="grid grid-cols-2 gap-4 rounded-lg border border-ink-750 bg-ink-900 p-4 md:grid-cols-4">
-        <Stat label="Settled rounds" value={formatCount(settledRounds)} hint={`${plotted.length} class${plotted.length === 1 ? "" : "es"} priced`} />
-        <Stat label="Last clearing price" value={latest.priceText} unit="USDC" hint={`per locked token, round #${latest.roundId}`} />
+        <Stat label="Settled rounds" value={formatCount(settledRounds)} hint={`${pricedClasses} class${pricedClasses === 1 ? "" : "es"} priced`} />
+        <Stat label="Last clearing price" value={latest.priceText} unit="USDC" hint={`per ${priceUnitOf(latest.kind)} token, ${latest.kind} round #${latest.roundId}`} />
         <Stat label="Lock left at last clearing" value={latest.remainingLockDays.toFixed(1)} unit="days" />
         <Stat
           label="Declared references"
@@ -134,7 +140,7 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
           {plotted.map((series) => {
             const index = group.series.indexOf(series);
             return (
-              <div key={series.classId} className="rounded-lg border border-ink-750 bg-ink-850 p-4">
+              <div key={series.key} className="rounded-lg border border-ink-750 bg-ink-850 p-4" data-price-series={series.unit}>
                 <PriceHistoryChart series={series} color={seriesColor(index)} shape={seriesShape(index)} symbol={group.symbol} />
               </div>
             );
@@ -145,8 +151,17 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
         <h2 id="lock-scatter" className="font-display text-[16px] text-ink-50">
           Price versus remaining lock
         </h2>
-        <div className="rounded-lg border border-ink-750 bg-ink-850 p-4">
-          <LockScatterChart group={{ ...group, series: plotted }} />
+        <div className="rounded-lg border border-ink-750 bg-ink-850 p-4" data-lock-scatter>
+          {perLocked.length > 0 ? (
+            <LockScatterChart group={{ ...group, series: perLocked }} />
+          ) : (
+            <p className="text-[13px] text-ink-400">No Tender or Exit round of {group.symbol} has settled yet: this chart compares prices per locked token only.</p>
+          )}
+          {advanceRounds > 0 ? (
+            <p className="mt-3 text-[12px] text-ink-400" data-advance-note>
+              {formatCount(advanceRounds)} Advance round{advanceRounds === 1 ? " is" : "s are"} left out: an Advance clears per claimed token, which is not comparable with a price per locked token.
+            </p>
+          ) : null}
         </div>
       </section>
       <p className="text-[12px] text-ink-400">Read from the engine at block {formatCount(blockHeight)}.</p>
