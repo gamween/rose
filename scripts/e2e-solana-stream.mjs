@@ -9,11 +9,16 @@
 //
 //   node scripts/e2e-solana-stream.mjs <engine account> <step> [--holder <near account>]
 // Steps, in order: setup, transfer, attribute, move, register, claim, confirm, redeem,
-// confirm-redeem (or `all`). Every signature
-// and NEAR transaction is recorded in deployments/e2e/<engine>.solana.json. Keys: the ops key
-// ~/.config/rose/solana-ops.json funds everything (never printed); the Solana holder key is
-// generated into ~/.config/rose/solana-holder.json; NEAR calls use the legacy keychain.
-// Dependencies: `pnpm install --ignore-workspace` in scripts/.
+// confirm-redeem (or `all`). Every signature and NEAR transaction is recorded in
+// deployments/e2e/<engine>.solana.json; `setup` and `claim` resume what an earlier attempt sent
+// instead of sending it again. --holder (the NEAR account credited, its key in the legacy
+// keychain) is required on the first run and then read from that file. Keys, under
+// $ROSE_CONFIG_DIR (default ~/.config/rose): the ops key solana-ops.json funds everything (never
+// printed); the Solana holder key is generated into solana-holder.json (mode 600); NEAR calls use
+// the legacy keychain. Endpoints: SOLANA_RPC_URL (default https://api.devnet.solana.com) and
+// NEAR_RPC_URL (default https://test.rpc.fastnear.com).
+// Dependencies: scripts is a workspace package (`pnpm install` at the root, then
+// `pnpm --filter @rose/sdk build` once so @rose/sdk resolves).
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -21,7 +26,6 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import BN from "bn.js";
-import bs58 from "bs58";
 import {
   Connection, Keypair, LAMPORTS_PER_SOL, NonceAccount, PublicKey,
   SystemProgram, Transaction, VersionedTransaction, sendAndConfirmTransaction,
@@ -30,8 +34,9 @@ import { createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAc
 import { ICluster, SolanaStreamClient } from "@streamflow/stream";
 import { createNonceAccountTransaction, nonceRent, payoutNonceAddress, payoutNonceSeed } from "@rose/sdk";
 
-const RPC = "https://api.devnet.solana.com";
+const RPC = process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
 const NEAR_RPC = process.env.NEAR_RPC_URL ?? "https://test.rpc.fastnear.com";
+const CONFIG_DIR = process.env.ROSE_CONFIG_DIR ?? join(homedir(), ".config", "rose");
 const MPC = "v1.signer-prod.testnet";
 const STREAMFLOW_PROGRAM = "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -44,20 +49,26 @@ if (!engine || !step) {
   console.error("usage: e2e-solana-stream.mjs <engine account> <step|all> [--holder <near account>]");
   process.exit(2);
 }
-let nearHolder = "b1.rose-ckd-1793753433.testnet";
+let holderFlag = null;
 for (let i = 0; i < rest.length; i += 2) {
-  if (rest[i] === "--holder") nearHolder = rest[i + 1];
+  if (rest[i] === "--holder") holderFlag = rest[i + 1];
   else throw new Error(`unknown argument ${rest[i]}`);
 }
 
 const conn = new Connection(RPC, "confirmed");
-const ops = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(`${homedir()}/.config/rose/solana-ops.json`, "utf8"))));
-const holderFile = `${homedir()}/.config/rose/solana-holder.json`;
+const ops = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(CONFIG_DIR, "solana-ops.json"), "utf8"))));
+const holderFile = join(CONFIG_DIR, "solana-holder.json");
 if (!existsSync(holderFile)) writeFileSync(holderFile, JSON.stringify(Array.from(Keypair.generate().secretKey)), { mode: 0o600 });
 const holder = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(holderFile, "utf8"))));
 const stateFile = join(root, "deployments", "e2e", `${engine}.solana.json`);
 mkdirSync(dirname(stateFile), { recursive: true });
-const state = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : { engine, near_holder: nearHolder, steps: {} };
+const recorded = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : null;
+const nearHolder = holderFlag ?? recorded?.near_holder;
+if (!nearHolder) {
+  console.error("--holder <near account> is required on the first run (its key must be in the legacy keychain)");
+  process.exit(2);
+}
+const state = recorded ?? { engine, near_holder: nearHolder, steps: {} };
 const save = () => writeFileSync(stateFile, JSON.stringify(state, null, 2) + "\n");
 const log = (...args) => console.error(...args);
 
@@ -147,7 +158,33 @@ const classArgs = () => {
   return { mint: state.steps.setup.mint, decimals: 6, schedule: { ...s, net_amount_deposited: String(s.net_amount_deposited), amount_per_period: String(s.amount_per_period), cliff_amount: String(s.cliff_amount) } };
 };
 
+/** The id in the transaction's own `payout_requested` event (the engine is shared: the global counter can already count someone else's request). */
+function payoutIdOf(status) {
+  for (const receipt of status.receipts_outcome) {
+    for (const line of receipt.outcome.logs) {
+      if (!line.startsWith("EVENT_JSON:")) continue;
+      const event = JSON.parse(line.slice("EVENT_JSON:".length));
+      if (event.standard === "rose" && event.event === "payout_requested") return event.data.payout_id;
+    }
+  }
+  throw new Error(`no payout_requested event in ${status.transaction.hash}`);
+}
+
+/** The oldest signature of an account: its creation transaction. */
+async function creationSignature(address) {
+  const signatures = await conn.getSignaturesForAddress(new PublicKey(address), {}, "finalized");
+  const oldest = signatures.at(-1)?.signature;
+  if (!oldest) throw new Error(`${address} has no finalized transaction yet: run the step again`);
+  return oldest;
+}
+
+const STREAM_AMOUNT = 3_600_000_000n;
+
 async function stepSetup() {
+  if (state.steps.setup?.schedule) {
+    log("setup already done: stream", state.steps.setup.metadata);
+    return;
+  }
   log("ops balance", (await conn.getBalance(ops.publicKey)) / LAMPORTS_PER_SOL, "SOL");
   const gasBalance = await conn.getBalance(gasPayer);
   if (gasBalance < 0.05 * LAMPORTS_PER_SOL) {
@@ -162,30 +199,50 @@ async function stepSetup() {
     state.steps.fund = { solana_tx: sig, solana_link: explorer(sig), gas_sol: gasPayer.toBase58(), holder: holder.publicKey.toBase58() };
     log("funded gas/sol with 0.05 SOL (and the holder when short):", explorer(sig));
   }
-  const mint = state.steps.setup?.mint ? new PublicKey(state.steps.setup.mint) : await createMint(conn, ops, ops.publicKey, null, 6);
-  const ata = await getOrCreateAssociatedTokenAccount(conn, ops, mint, ops.publicKey);
-  await mintTo(conn, ops, mint, ata.address, ops, 10_000_000_000n);
-  const now = Math.floor(Date.now() / 1000);
-  // 3,600 tokens unlocking 60 per minute over an hour, starting in a minute: no cliff, no
-  // sender permissions, transferable by the recipient, no automatic withdrawal.
-  const params = {
-    recipient: holder.publicKey.toBase58(), tokenId: mint.toBase58(), start: now + 60, cliff: 0,
-    amount: new BN(3_600_000_000), cliffAmount: new BN(0), amountPerPeriod: new BN(60_000_000), period: 60,
-    name: "rose staging", cancelableBySender: false, cancelableByRecipient: false, transferableBySender: false,
-    transferableByRecipient: true, canTopup: false, automaticWithdrawal: false, canPause: false, canUpdateRate: false,
-  };
-  const res = await client.create(params, { sender: ops, isNative: false });
-  await waitFinalized(res.txId);
-  const stream = await client.getOne({ id: res.metadataId });
+  // The mint is recorded as soon as it exists, so a resumed setup reuses it.
+  if (!state.steps.setup?.mint) {
+    const created = await createMint(conn, ops, ops.publicKey, null, 6);
+    state.steps.setup = { mint: created.toBase58(), holder: holder.publicKey.toBase58() };
+    save();
+  }
+  const mint = new PublicKey(state.steps.setup.mint);
+  // The mint is this run's own, so a stream of it from ops to the holder can only be one an
+  // earlier attempt created before it stopped: reuse it instead of creating a second one.
+  const existing = (await client.searchStreams({ mint: mint.toBase58(), sender: ops.publicKey.toBase58(), recipient: holder.publicKey.toBase58() }))[0];
+  let metadataId;
+  let txId;
+  if (existing) {
+    metadataId = existing.publicKey.toBase58();
+    txId = await creationSignature(metadataId);
+    log("reusing stream", metadataId, "created by an earlier attempt");
+  } else {
+    const ata = await getOrCreateAssociatedTokenAccount(conn, ops, mint, ops.publicKey);
+    if (ata.amount < STREAM_AMOUNT) await mintTo(conn, ops, mint, ata.address, ops, STREAM_AMOUNT - ata.amount);
+    const now = Math.floor(Date.now() / 1000);
+    // 3,600 tokens unlocking 60 per minute over an hour, starting in a minute: no cliff, no
+    // sender permissions, transferable by the recipient, no automatic withdrawal.
+    const params = {
+      recipient: holder.publicKey.toBase58(), tokenId: mint.toBase58(), start: now + 60, cliff: 0,
+      amount: new BN(STREAM_AMOUNT.toString()), cliffAmount: new BN(0), amountPerPeriod: new BN(60_000_000), period: 60,
+      name: "rose staging", cancelableBySender: false, cancelableByRecipient: false, transferableBySender: false,
+      transferableByRecipient: true, canTopup: false, automaticWithdrawal: false, canPause: false, canUpdateRate: false,
+    };
+    const res = await client.create(params, { sender: ops, isNative: false });
+    metadataId = res.metadataId;
+    txId = res.txId;
+    state.steps.setup = { ...state.steps.setup, metadata: metadataId, create_tx: txId, create_link: explorer(txId) };
+    save();
+  }
+  await waitFinalized(txId);
+  const stream = await client.getOne({ id: metadataId });
   state.steps.setup = {
-    mint: mint.toBase58(), metadata: res.metadataId, create_tx: res.txId, create_link: explorer(res.txId),
-    holder: holder.publicKey.toBase58(),
+    ...state.steps.setup, metadata: metadataId, create_tx: txId, create_link: explorer(txId),
     schedule: { start_time: Number(stream.start), cliff: Number(stream.cliff), cliff_amount: Number(stream.cliffAmount),
       period: Number(stream.period), amount_per_period: Number(stream.amountPerPeriod),
       net_amount_deposited: Number(stream.depositedAmount), end_time: Number(stream.end) },
   };
   save();
-  log("stream", res.metadataId, "created:", explorer(res.txId), JSON.stringify(state.steps.setup.schedule));
+  log("stream", metadataId, "created:", explorer(txId), JSON.stringify(state.steps.setup.schedule));
 }
 
 async function stepTransfer() {
@@ -256,40 +313,59 @@ async function payoutProof(owner, anchor) {
   };
 }
 
+// Resumable: the nonce account, the NEAR claim and the broadcast are each recorded as soon as they
+// exist, and a rerun continues from the first one missing instead of claiming again.
 async function stepClaim() {
-  const claimable = await nearView(engine, "get_claimable", { account: nearHolder, class_id: state.steps.transfer.class_id });
-  if (claimable === "0") throw new Error("nothing claimable yet: the stream unlocks 60 tokens per minute after its start");
-  const streams = await nearView(engine, "get_sol_streams", { class_id: state.steps.transfer.class_id });
-  const stream = streams.find((s) => s.position_id === state.steps.register.position_id);
-  const amount = BigInt(stream.withdrawable) < BigInt(claimable) ? stream.withdrawable : claimable;
-  // The engine accepts only a nonce account created with a seed naming the claimant (spec 7.3):
-  // createWithSeed(ops, prefix(nearHolder) + suffix, System), so nobody else can spend its values.
-  const seed = await payoutNonceSeed(nearHolder, Date.now().toString(36).slice(-8));
-  const nonceAccount = await payoutNonceAddress(ops.publicKey, seed);
-  const rent = await nonceRent(conn);
-  const latest = await conn.getLatestBlockhash("confirmed");
-  const create = createNonceAccountTransaction({ payer: ops.publicKey, nonceAccount, seed, authority: vault, lamports: rent, ...latest });
-  const createSig = await sendAndConfirmTransaction(conn, create, [ops]);
-  await waitFinalized(createSig);
-  state.steps.claim = { nonce_account: nonceAccount.toBase58(), nonce_base: ops.publicKey.toBase58(), nonce_seed: seed, nonce_create_tx: createSig, nonce_create_link: explorer(createSig), amount, to_owner: ops.publicKey.toBase58() };
-  const { proof, value } = await payoutProof(ops.publicKey, createSig);
-  state.steps.claim.nonce_value = value;
-  save();
-  const draws = [{ position_id: state.steps.register.position_id, amount }];
-  const hash = nearCall(nearHolder, "claim_sol_tokens", { source: { Holding: { class_id: state.steps.transfer.class_id } }, draws, to_owner: ops.publicKey.toBase58(), nonce: proof }, "200 Tgas", "0.025 NEAR");
-  await record("claim", hash, nearHolder);
-  const total = Number(await nearView(engine, "payouts_total"));
-  const payout = await waitPayout(total - 1);
+  if (state.steps.claim?.recipient_balance) {
+    log("claim already done: payout", state.steps.claim.payout_id);
+    return;
+  }
+  if (!state.steps.claim?.nonce_account) {
+    // The engine accepts only a nonce account created with a seed naming the claimant (spec 7.3):
+    // createWithSeed(ops, prefix(nearHolder) + suffix, System), so nobody else can spend its values.
+    const seed = await payoutNonceSeed(nearHolder, Date.now().toString(36).slice(-8));
+    const nonceAccount = await payoutNonceAddress(ops.publicKey, seed);
+    const rent = await nonceRent(conn);
+    const latest = await conn.getLatestBlockhash("confirmed");
+    const create = createNonceAccountTransaction({ payer: ops.publicKey, nonceAccount, seed, authority: vault, lamports: rent, ...latest });
+    const createSig = await sendAndConfirmTransaction(conn, create, [ops]);
+    state.steps.claim = { nonce_account: nonceAccount.toBase58(), nonce_base: ops.publicKey.toBase58(), nonce_seed: seed, nonce_create_tx: createSig, nonce_create_link: explorer(createSig), to_owner: ops.publicKey.toBase58() };
+    save();
+  }
+  await waitFinalized(state.steps.claim.nonce_create_tx);
+  if (!state.steps.claim.near_tx) {
+    const claimable = await nearView(engine, "get_claimable", { account: nearHolder, class_id: state.steps.transfer.class_id });
+    if (claimable === "0") throw new Error("nothing claimable yet: the stream unlocks 60 tokens per minute after its start");
+    const streams = await nearView(engine, "get_sol_streams", { class_id: state.steps.transfer.class_id });
+    const stream = streams.find((s) => s.position_id === state.steps.register.position_id);
+    const amount = BigInt(stream.withdrawable) < BigInt(claimable) ? stream.withdrawable : claimable;
+    const { proof, value } = await payoutProof(ops.publicKey, state.steps.claim.nonce_create_tx);
+    state.steps.claim.amount = amount;
+    state.steps.claim.nonce_value = value;
+    save();
+    const draws = [{ position_id: state.steps.register.position_id, amount }];
+    const hash = nearCall(nearHolder, "claim_sol_tokens", { source: { Holding: { class_id: state.steps.transfer.class_id } }, draws, to_owner: ops.publicKey.toBase58(), nonce: proof }, "200 Tgas", "0.025 NEAR");
+    await record("claim", hash, nearHolder);
+  }
+  if (!state.steps.claim.payout_id) {
+    state.steps.claim.payout_id = payoutIdOf(await nearTxStatus(state.steps.claim.near_tx, nearHolder));
+    save();
+  }
+  const payout = await waitPayout(state.steps.claim.payout_id);
   if (payout.status !== "Signed") throw new Error(`claim not signed: ${JSON.stringify(payout.status)}`);
-  state.steps.claim.payout_id = payout.id;
   state.steps.claim.draws = payout.solana.draws;
   const ata = getAssociatedTokenAddressSync(new PublicKey(state.steps.setup.mint), ops.publicKey);
-  const before = await conn.getTokenAccountBalance(ata, "confirmed").then((b) => b.value.amount);
-  await broadcast(payout, "claim");
-  const after = await conn.getTokenAccountBalance(ata, "confirmed").then((b) => b.value.amount);
+  const balance = () => conn.getTokenAccountBalance(ata, "confirmed").then((b) => b.value.amount);
+  if (!state.steps.claim.solana_tx) {
+    state.steps.claim.balance_before = await balance();
+    save();
+    await broadcast(payout, "claim");
+  }
+  const before = state.steps.claim.balance_before;
+  const after = await balance();
   state.steps.claim.recipient_balance = { before, after };
   save();
-  log(`claimed ${amount}: recipient balance ${before} -> ${after}`);
+  log(`claimed ${state.steps.claim.amount}: recipient balance ${before} -> ${after}`);
 }
 
 async function stepConfirm() {

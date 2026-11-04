@@ -2,15 +2,24 @@ import js from "@eslint/js";
 import { defineConfig, globalIgnores } from "eslint/config";
 import tseslint from "typescript-eslint";
 
+/** Node globals the plain JavaScript scripts (`*.mjs`) use. */
+const nodeGlobals = {
+  Buffer: "readonly",
+  console: "readonly",
+  fetch: "readonly",
+  process: "readonly",
+  setTimeout: "readonly",
+};
+
 export default defineConfig([
-  globalIgnores(["node_modules/**", "*.mjs"]),
+  globalIgnores(["node_modules/**"]),
   js.configs.recommended,
-  ...tseslint.configs.strictTypeChecked,
-  ...tseslint.configs.stylisticTypeChecked,
   {
+    files: ["**/*.ts"],
+    extends: [...tseslint.configs.strictTypeChecked, ...tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {
-        projectService: { allowDefaultProject: ["eslint.config.js"] },
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -23,6 +32,13 @@ export default defineConfig([
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/switch-exhaustiveness-check": "error",
       "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true, allowBoolean: true }],
+    },
+  },
+  {
+    files: ["**/*.mjs"],
+    languageOptions: { sourceType: "module", globals: nodeGlobals },
+    rules: {
+      "no-unused-vars": ["error", { args: "all", caughtErrors: "all", varsIgnorePattern: "^_$", argsIgnorePattern: "^_$" }],
     },
   },
 ]);
