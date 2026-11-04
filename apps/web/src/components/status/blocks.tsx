@@ -7,12 +7,14 @@ import { FIXED_ADDRESSES, type Deployment } from "@/components/docs/deployment";
 import { viewCall } from "@/lib/engine";
 import { formatCount, formatUnits } from "@/lib/format";
 import { fetchEngineConfig } from "./engineConfig";
-import { fetchRecentEvents, nanosToMillis, type StoredEvent } from "./events";
+import { fetchRecentEvents, nanosToMillis } from "./events";
 import { EXPLORERS, shorten } from "./explorers";
-import { formatLatency, KEY_RELEASE, pairLatencies, type LatencyReport } from "./latency";
-import { decodeAddress, decodeString, decodeUint, EMPTY_CODE_HASH, ethCall, ethGetCode, SELECTORS, solanaBalance, viewAccessKeyList, viewAccount } from "./rpc";
+import { keylessCheck } from "./keys";
+import { FOREIGN_TX, formatLatency, KEY_RELEASE, pairLatencies, type LatencyReport } from "./latency";
+import { balanceOfData, decodeAddress, decodeString, decodeUint, EMPTY_CODE_HASH, ethBalance, ethCall, ethGetCode, SELECTORS, solanaBalance, viewAccessKeyList, viewAccount } from "./rpc";
 import { ExternalLink, RawResult, Row, Rows, StatusBlock } from "./StatusBlock";
 import { NotDeployedError, useLiveQuery } from "./useLiveQuery";
+import { countOutcomes, foreignTxOutcome, type ForeignTxOutcome } from "./verifications";
 
 type BlockProps = { deployment: Deployment; refreshKey: number; className?: string };
 
@@ -24,8 +26,9 @@ function requireEngine(deployment: Deployment): string {
   return deployment.ENGINE_ACCOUNT;
 }
 
-function formatTime(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+/** UTC, as the round pages and the guided demo show time. */
+export function formatTime(ms: number): string {
+  return `${new Date(ms).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "medium", timeZone: "UTC" })} UTC`;
 }
 
 /** Engine account: keyless check with the raw `view_access_key_list` result. */
@@ -35,7 +38,7 @@ export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
       const account = requireEngine(deployment);
       const [keys, info] = await Promise.all([viewAccessKeyList(account, { signal }), viewAccount(account, { signal })]);
       if (info.code_hash === EMPTY_CODE_HASH) throw new NotDeployedError(`${account} exists but holds no contract yet.`);
-      return { account, keys, info };
+      return { account, keys, info, check: keylessCheck(account, keys.keys) };
     },
     [deployment],
   );
@@ -44,20 +47,30 @@ export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
     <StatusBlock
       title="Engine account"
       loadingHeight={207}
-      description="Keyless after init: no key can upgrade, drain or stop it."
+      description="The release engine is keyless after init: no key can upgrade, drain or stop it. The check below reads the configured engine's keys live."
       notDeployedHint="Once the engine is deployed, this block shows its access key list (expected: empty) read live from the RPC."
-      badge={({ keys }) => (keys.keys.length === 0 ? { tone: "success", label: "Keyless" } : { tone: "danger", label: `${keys.keys.length} ${keys.keys.length === 1 ? "key" : "keys"}` })}
+      badge={({ check }) => (check.keyless ? { tone: "success", label: check.badge } : { tone: "danger", label: check.badge })}
       {...query}
     >
-      {({ account, keys, info }) => (
+      {({ account, keys, info, check }) => (
         <>
           <Rows>
             <Row label="Account" mono>
               <ExternalLink href={EXPLORERS.nearAccount(account)}>{account}</ExternalLink>
+              {!check.keyless && check.staging ? (
+                <span className="ml-2 align-middle">
+                  <Badge tone="warning">Staging</Badge>
+                </span>
+              ) : null}
             </Row>
-            <Row label="Access keys">
-              {keys.keys.length === 0 ? "None: the contract has no full-access or function-call key." : `${keys.keys.length} key(s) still attached.`}
+            <Row label="Keyless check">
+              <span data-keyless={check.keyless ? "yes" : "no"}>{check.summary}</span>
             </Row>
+            {check.keys.map((key) => (
+              <Row key={key.publicKey} label={key.permission === "FullAccess" ? "Full-access key" : "Function-call key"} mono>
+                {key.publicKey}
+              </Row>
+            ))}
             <Row label="Balance">
               <span className="tabular">{formatUnits(BigInt(info.amount), NEAR_DECIMALS, 3)} NEAR</span>
             </Row>
@@ -232,7 +245,12 @@ export function MpcLatencyBlock({ deployment, refreshKey, className }: BlockProp
   );
 }
 
-type VaultReading = { address: string; signer: string; lockup: string; derivedSigner: string | null };
+type VaultReading = { address: string; signer: string; lockup: string; derivedSigner: string | null; ethWei: bigint; cash: { label: string; address: string; amount: bigint }[] };
+
+/** The vault's cash: rose Base tUSDC (when deployed) and Circle USDC, both 6 decimals. */
+function vaultCashTokens(deployment: Deployment): { label: string; address: string }[] {
+  return [...(deployment.BASE_TUSDC ? [{ label: "tUSDC", address: deployment.BASE_TUSDC }] : []), { label: "Circle USDC", address: FIXED_ADDRESSES.circleUsdcBase }];
+}
 
 /** RoseVault on Base Sepolia: address, immutable signer and the lockup it accepts. */
 export function RoseVaultBlock({ deployment, refreshKey }: BlockProps) {
@@ -252,8 +270,22 @@ export function RoseVaultBlock({ deployment, refreshKey }: BlockProps) {
       if (!address) throw new NotDeployedError("RoseVault has no address yet (NEXT_PUBLIC_ROSE_VAULT or the engine config).");
       const code = await ethGetCode(address, { signal });
       if (code === "0x") throw new NotDeployedError(`No contract is deployed at ${address} on Base Sepolia yet.`);
-      const [signer, lockup] = await Promise.all([ethCall(address, SELECTORS["SIGNER()"], { signal }), ethCall(address, SELECTORS["LOCKUP()"], { signal })]);
-      return { address, signer: decodeAddress(signer), lockup: decodeAddress(lockup), derivedSigner };
+      const tokens = vaultCashTokens(deployment);
+      const vault = address;
+      const [signer, lockup, ethWei, ...balances] = await Promise.all([
+        ethCall(vault, SELECTORS["SIGNER()"], { signal }),
+        ethCall(vault, SELECTORS["LOCKUP()"], { signal }),
+        ethBalance(vault, { signal }),
+        ...tokens.map((token) => ethCall(token.address, balanceOfData(vault), { signal })),
+      ]);
+      return {
+        address,
+        signer: decodeAddress(signer as string),
+        lockup: decodeAddress(lockup as string),
+        derivedSigner,
+        ethWei: ethWei as bigint,
+        cash: tokens.map((token, index) => ({ ...token, amount: decodeUint(balances[index] as string) })),
+      };
     },
     [deployment],
   );
@@ -261,7 +293,7 @@ export function RoseVaultBlock({ deployment, refreshKey }: BlockProps) {
   return (
     <StatusBlock
       title="RoseVault (Base Sepolia)"
-      loadingHeight={136}
+      loadingHeight={168}
       description="Immutable, no owner: the only signer is the engine's MPC-derived address."
       notDeployedHint="The vault's address, immutable signer and accepted lockup are read from Base Sepolia once it is deployed."
       badge={({ signer, derivedSigner }) =>
@@ -269,7 +301,7 @@ export function RoseVaultBlock({ deployment, refreshKey }: BlockProps) {
       }
       {...query}
     >
-      {({ address, signer, lockup, derivedSigner }) => (
+      {({ address, signer, lockup, derivedSigner, ethWei, cash }) => (
         <Rows>
           <Row label="Address" mono>
             <ExternalLink href={EXPLORERS.baseAddress(address)}>{address}</ExternalLink>
@@ -285,6 +317,9 @@ export function RoseVaultBlock({ deployment, refreshKey }: BlockProps) {
             <span className="ml-2 font-sans text-[12px] text-ink-400">
               {lockup.toLowerCase() === FIXED_ADDRESSES.sablierLockup.toLowerCase() ? "canonical Sablier Lockup v4" : "not the canonical Sablier Lockup"}
             </span>
+          </Row>
+          <Row label="Balances">
+            <span className="tabular">{[`${formatUnits(ethWei, 18, 4)} ETH`, ...cash.map((token) => `${formatUnits(token.amount, 6, 2)} ${token.label}`)].join(" · ")}</span>
           </Row>
         </Rows>
       )}
@@ -425,33 +460,26 @@ export function CashTokensBlock({ deployment, refreshKey }: BlockProps) {
   );
 }
 
-type Verification = { event: StoredEvent; depositor: string; classId: string; allocation: string; positionId: string; decimals: number | null };
-
-function toVerification(event: StoredEvent): Verification | null {
-  if (event.event !== "position_registered") return null;
-  const { depositor, class_id, allocation, position_id } = event.data;
-  if (typeof depositor !== "string" || typeof class_id !== "string" || typeof allocation !== "string" || typeof position_id !== "string") return null;
-  return { event, depositor, classId: class_id, allocation, positionId: position_id, decimals: null };
-}
-
 type ClassDecimals = { decimals: number } | null;
 
-/** Recent ForeignTx verifications: every position registered after an MPC proof of the foreign deposit. */
+const OUTCOME_TONE = { success: "text-success-400", warning: "text-warning-400", danger: "text-danger-400" } as const;
+
+/**
+ * Recent ForeignTx verifications: every outcome of an MPC proof of foreign state in the event
+ * window (positions and Base cash registered, Solana streams attributed, payouts confirmed, and
+ * the proofs that failed, mismatched or were refused), with the request-to-outcome latency.
+ */
 export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
   const fetcher = useCallback(
     async (signal: AbortSignal) => {
       const account = requireEngine(deployment);
       const history = await fetchRecentEvents(account, 600, { signal });
-      const verifications = history.events.map(toVerification).filter((item): item is Verification => item !== null);
-      const recent = verifications.slice(-10).reverse();
-      const classIds = [...new Set(recent.map((item) => item.classId))];
+      const outcomes = history.events.map(foreignTxOutcome).filter((item): item is ForeignTxOutcome => item !== null);
+      const recent = outcomes.slice(-10).reverse();
+      const classIds = [...new Set(recent.map((item) => item.classId).filter((classId): classId is string => classId !== null))];
       const classes = await Promise.all(classIds.map((classId) => viewCall<ClassDecimals>(account, "get_class", { class_id: classId }, { signal })));
       const decimals = new Map(classIds.map((classId, index) => [classId, classes[index]!.value?.decimals ?? null]));
-      return {
-        verifications: recent.map((item) => ({ ...item, decimals: decimals.get(item.classId) ?? null })),
-        total: verifications.length,
-        window: history.events.length,
-      };
+      return { recent, decimals, counts: countOutcomes(outcomes), latency: pairLatencies(history.events, FOREIGN_TX), window: history.events.length };
     },
     [deployment],
   );
@@ -460,53 +488,65 @@ export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
     <StatusBlock
       title="Recent ForeignTx verifications"
       loadingHeight={504}
-      description="A position is registered only after the MPC network verified the deposit on Base or Solana."
-      notDeployedHint="Each verified deposit (position_registered event) is listed here once the engine is deployed."
-      badge={({ total }) => ({ tone: total > 0 ? "success" : "neutral", label: `${total} in window` })}
+      description="Deposits, Base cash and payout confirmations are credited only after the MPC network proved the foreign state on Base or Solana."
+      notDeployedHint="Each ForeignTx outcome (registered, attributed, confirmed, failed or refused) is listed here once the engine is deployed."
+      badge={({ counts }) => (counts.failed > 0 ? { tone: "warning", label: `${counts.verified} verified · ${counts.failed} failed` } : { tone: counts.verified > 0 ? "success" : "neutral", label: `${counts.verified} verified in window` })}
       {...query}
     >
-      {({ verifications, window }) =>
-        verifications.length === 0 ? (
-          <p className="text-ink-300">No deposit has been verified in the last {formatCount(window)} events. The first registered position appears here.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-md border border-ink-750">
-            <table className="w-full border-collapse text-[12px]">
-              <thead className="bg-ink-900">
-                <tr>
-                  {["When", "Position", "Depositor", "Class", "Tokens"].map((label, index) => (
-                    <th
-                      key={label}
-                      scope="col"
-                      className={`px-3 py-1.5 font-display text-[11px] font-normal uppercase tracking-wide text-ink-400 ${index === 4 ? "text-right" : "text-left"}`}
-                    >
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {verifications.map((item) => (
-                  <tr key={item.event.seq} className="border-t border-ink-800">
-                    <td className="whitespace-nowrap px-3 py-1.5 text-ink-300">
-                      <ExternalLink href={EXPLORERS.nearBlock(item.event.block_height)}>{formatTime(nanosToMillis(item.event.timestamp))}</ExternalLink>
-                    </td>
-                    <td className="tabular px-3 py-1.5 text-ink-100">#{item.positionId}</td>
-                    <td className="px-3 py-1.5 font-mono text-ink-100">
-                      <ExternalLink href={EXPLORERS.nearAccount(item.depositor)}>{item.depositor}</ExternalLink>
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-ink-300" title={item.classId}>
-                      {shorten(item.classId, 8, 6)}
-                    </td>
-                    <td className="tabular whitespace-nowrap px-3 py-1.5 text-right text-ink-100" title={`${item.allocation} base units`}>
-                      {item.decimals === null ? `${item.allocation} base units` : formatUnits(BigInt(item.allocation), item.decimals, 2)}
-                    </td>
+      {({ recent, decimals, counts, latency, window }) => (
+        <>
+          <Rows>
+            <Row label="In window">
+              <span className="tabular">
+                {counts.verified} verified · {counts.refused} refused after the proof · {counts.failed} failed or mismatched, in the last {formatCount(window)} events
+              </span>
+            </Row>
+            <Row label="Latency">
+              {latency.stats ? (
+                <span className="tabular">
+                  request to outcome: median {formatLatency(latency.stats.medianMs)} · p90 {formatLatency(latency.stats.p90Ms)} · {latency.stats.count} measured
+                  {latency.pending.length > 0 ? ` · ${latency.pending.length} pending` : ""}
+                </span>
+              ) : (
+                "No verification request and outcome pair in this window yet."
+              )}
+            </Row>
+          </Rows>
+          {recent.length === 0 ? (
+            <p className="mt-3 text-ink-300">No ForeignTx proof has completed in the last {formatCount(window)} events. The first one appears here.</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto rounded-md border border-ink-750">
+              <table className="w-full border-collapse text-[12px]">
+                <thead className="bg-ink-900">
+                  <tr>
+                    {["When", "Outcome", "Account", "Detail"].map((label) => (
+                      <th key={label} scope="col" className="px-3 py-1.5 text-left font-display text-[11px] font-normal uppercase tracking-wide text-ink-400">
+                        {label}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      }
+                </thead>
+                <tbody>
+                  {recent.map((item) => {
+                    const classDecimals = item.classId ? (decimals.get(item.classId) ?? null) : null;
+                    const units = item.units === null ? null : classDecimals === null ? `${item.units} base units` : `${formatUnits(BigInt(item.units), classDecimals, 2)} units`;
+                    return (
+                      <tr key={item.event.seq} className="border-t border-ink-800" data-foreign-tx={item.event.event}>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-ink-300">
+                          <ExternalLink href={EXPLORERS.nearBlock(item.event.block_height)}>{formatTime(nanosToMillis(item.event.timestamp))}</ExternalLink>
+                        </td>
+                        <td className={`whitespace-nowrap px-3 py-1.5 ${OUTCOME_TONE[item.tone]}`}>{item.label}</td>
+                        <td className="px-3 py-1.5 font-mono text-ink-100">{item.account ? <ExternalLink href={EXPLORERS.nearAccount(item.account)}>{item.account}</ExternalLink> : "—"}</td>
+                        <td className="px-3 py-1.5 text-ink-300">{[units, item.detail].filter(Boolean).join(" · ")}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
     </StatusBlock>
   );
 }

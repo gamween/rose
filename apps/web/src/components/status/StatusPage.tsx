@@ -37,7 +37,7 @@ export function StatusPage({ deployment }: { deployment: Deployment }) {
           <p aria-live="polite">
             {cycle.at ? (
               <>
-                Refreshed at <time dateTime={new Date(cycle.at).toISOString()} className="tabular text-ink-100">{new Date(cycle.at).toLocaleTimeString()}</time>, next
+                Refreshed at <time dateTime={new Date(cycle.at).toISOString()} className="tabular text-ink-100">{new Date(cycle.at).toLocaleTimeString("en-GB", { timeZone: "UTC" })} UTC</time>, next
                 in {REFRESH_MS / 1000} s
               </>
             ) : (

@@ -11,7 +11,7 @@ All addresses are testnet. Nothing is deployed on any mainnet. Live checks (keyl
 
 | Contract | Account | Notes |
 |---|---|---|
-| rose-engine | `{{ENGINE_ACCOUNT}}` | Rust, near-sdk 5.x. Classes, positions, NEP-245 units, liens, rounds, sealed bids, opening, clearing, settlement, cash ledger, foreign custody. Keyless after init (`view_access_key_list` returns `[]`), no upgrade method, no delete-account path, no generic call method. New versions deploy to new accounts. |
+| rose-engine | `{{ENGINE_ACCOUNT}}` | Rust, near-sdk 5.x. Classes, positions, NEP-245 units, liens, rounds, sealed bids, opening, clearing, settlement, cash ledger, foreign custody. No upgrade method, no delete-account path, no generic call method. New versions deploy to new accounts. The release engine is keyless after init (`view_access_key_list` returns `[]`); a staging engine keeps the team's key (see below), and the [status page](/status) shows which case the account above is in. |
 | rose tUSDC | `tusdc.rose-app.testnet` | NEP-141 "Test USDC", 6 decimals, public mint capped at 10,000 tUSDC per account per 24 h. The NEAR cash venue. Keyless. |
 | NEAR MPC | `v1.signer-prod.testnet` | Version 3.18.0. Domains: 0 Sign, CaitSith (secp256k1); 1 Sign, Frost (Ed25519); 2 Confidential Key Derivation (BLS12-381); 3 ForeignTx, CaitSith (secp256k1). Threshold 11. Foreign chains served include Base and Solana. |
 
