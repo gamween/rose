@@ -1,6 +1,7 @@
 import { ONE, perClaimedToken, type Round } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { bondFor, cancelledOutcome, canCancelAsCreator, canCancelNoKey, formatQty, formatUsdc, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, timeline } from "./model";
+import { fractionAt } from "@/lib/unlock-schedule";
+import { bondFor, cancelledOutcome, cancelNoKeyAt, canCancelAsCreator, canCancelNoKey, canClose, clearingOf, formatQty, formatUsdc, KEY_REQUEST_FLIGHT_NS, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, timeline } from "./model";
 
 const NOW_MS = 1_762_200_000_000;
 const SEC = 1_000_000_000n;
@@ -77,6 +78,17 @@ describe("formatting", () => {
     expect(lockedPercent(250_000_000_000_000_000n)).toBe("75.00%");
     expect(lockedPercent(0n)).toBe("100.00%");
   });
+
+  it("computes Create Exit's locked-at-close share with the engine's unlock math (live CINDR class, cliff 0)", () => {
+    // engine-s4 class c5b14256…: get_class at block 276204160 (timestamp 1793800797.96 s) returned fraction_now 175108133561643834.
+    const cindr = {
+      decimals: 18,
+      schedule: { kind: "Linear" as const, start: 1_791_169_008n, cliff: 0n, end: 1_822_705_008n, granularity: 1n, startUnlock: 1n, cliffUnlock: 0n, total: 10n, minDeposit: 10n ** 18n },
+    };
+    const fraction = fractionAt(cindr, 1_793_800_797n);
+    expect(fraction).toBe(175_108_133_561_643_834n);
+    expect(lockedPercent(fraction)).toBe("82.48%");
+  });
 });
 
 describe("fee and collateral previews (spec 5.3, 5.5)", () => {
@@ -124,7 +136,7 @@ describe("next action (spec 5.6)", () => {
     expect(nextAction(round({ closesAt: msToNs(NOW_MS) - SEC }), NOW_MS).kind).toBe("close");
     const requested = round({ status: "KeyRequested", closesAt: msToNs(NOW_MS) - 10n * SEC, closeRequestedAt: msToNs(NOW_MS) - 5n * SEC });
     expect(nextAction(requested, NOW_MS)).toMatchObject({ kind: "waiting_key" });
-    expect(nextAction({ ...requested, closesAt: msToNs(NOW_MS) - 7200n * SEC }, NOW_MS).kind).toBe("cancel_no_key");
+    expect(nextAction({ ...requested, closesAt: msToNs(NOW_MS) - 7200n * SEC, closeRequestedAt: msToNs(NOW_MS) - 7000n * SEC }, NOW_MS).kind).toBe("cancel_no_key");
     const revealing = round({ status: "Revealing", key: "bls12381g1:x", revealEndsAt: msToNs(NOW_MS) + 300n * SEC, openedCount: 1 });
     expect(nextAction(revealing, NOW_MS)).toEqual({ kind: "finalize", remaining: 2, until: NOW_MS + 300_000 });
     expect(nextAction({ ...revealing, openedCount: 3 }, NOW_MS).kind).toBe("wait_reveal");
@@ -132,6 +144,26 @@ describe("next action (spec 5.6)", () => {
     expect(nextAction(round({ status: "Settled", settledCount: 1 }), NOW_MS)).toEqual({ kind: "settle", pending: 2 });
     expect(nextAction(round({ status: "Settled", settledCount: 3 }), NOW_MS).kind).toBe("done");
     expect(nextAction(round({ status: "Cancelled", cancelReason: "NoCrossing", settledCount: 0 }), NOW_MS)).toEqual({ kind: "settle", pending: 3 });
+  });
+
+  it("offers cancel_no_key, not a close the engine refuses, once an Open round with orders passes its key timeout", () => {
+    const pastTimeout = round({ closesAt: msToNs(NOW_MS) - 3601n * SEC });
+    expect(nextAction(pastTimeout, NOW_MS).kind).toBe("cancel_no_key");
+    expect(canClose(pastTimeout, NOW_MS)).toBe(false);
+    expect(canCancelNoKey(pastTimeout, NOW_MS)).toBe(true);
+    // Without orders `close` still works after the timeout: it cancels the round (CancelReason::Empty).
+    expect(nextAction({ ...pastTimeout, bidCount: 0 }, NOW_MS).kind).toBe("close");
+    expect(nextAction(round({ closesAt: msToNs(NOW_MS) - 3599n * SEC }), NOW_MS).kind).toBe("close");
+  });
+
+  it("waits for an in-flight key request (250 blocks) before offering cancel_no_key", () => {
+    const lateRetry = round({ status: "KeyRequested", closesAt: msToNs(NOW_MS) - 3700n * SEC, closeRequestedAt: msToNs(NOW_MS) - 150n * SEC });
+    expect(cancelNoKeyAt(lateRetry)).toBe(lateRetry.closeRequestedAt! + KEY_REQUEST_FLIGHT_NS);
+    expect(nextAction(lateRetry, NOW_MS)).toMatchObject({ kind: "waiting_key", cancelAt: NOW_MS + 50_000 });
+    expect(canCancelNoKey(lateRetry, NOW_MS)).toBe(false);
+    expect(nextAction(lateRetry, NOW_MS + 50_000).kind).toBe("cancel_no_key");
+    const early = round({ status: "KeyRequested", closesAt: msToNs(NOW_MS) - 10n * SEC, closeRequestedAt: msToNs(NOW_MS) - 5n * SEC });
+    expect(cancelNoKeyAt(early)).toBe(early.closesAt + early.keyTimeout);
   });
 
   it("lets the creator withdraw only before the first order and the close", () => {
@@ -163,6 +195,20 @@ describe("timeline", () => {
     expect(steps[1]?.label).toBe("Cancelled");
     const noCrossing = timeline(round({ status: "Cancelled", cancelReason: "NoCrossing" }), NOW_MS);
     expect(noCrossing.map((s) => s.state)).toEqual(["done", "done", "done", "failed", "upcoming"]);
+  });
+
+  it("never shows the zero-price record of a cancelled round as a clearing", () => {
+    // engine-s4 round 5 (Exit, NoCrossing) and round 4 (NoKey) store price 0, volume 0.
+    const zero = { price: 0n, volume: 0n, notional: 0n, fee: 0n, issuerCharged: 0n, issuerRefund: 0n, remainingLockSecs: 0n, fills: [] };
+    const noCrossing = round({ status: "Cancelled", cancelReason: "NoCrossing", result: zero });
+    expect(clearingOf(noCrossing)).toBeNull();
+    expect(timeline(noCrossing, NOW_MS)[3]?.detail).toBe("no price crossed the book");
+    const noKey = round({ status: "Cancelled", cancelReason: "NoKey", result: zero });
+    expect(clearingOf(noKey)).toBeNull();
+    expect(timeline(noKey, NOW_MS)[3]?.detail).toBe("not reached · every order is refunded");
+    const settled = round({ status: "Settled", result: { ...zero, price: 25_000n, volume: 15n * 10n ** 21n } });
+    expect(clearingOf(settled)?.price).toBe(25_000n);
+    expect(timeline(settled, NOW_MS)[3]?.detail).toBe("cleared at 0.025 · volume 15,000");
   });
 
   it("settled rounds are done end to end", () => {

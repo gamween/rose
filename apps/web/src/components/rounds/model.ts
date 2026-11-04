@@ -5,7 +5,7 @@
  * unit-tested; nothing touches the network.
  */
 
-import { charge, fee, ONE, perClaimedToken, type ClassInfo, type Pricing, type Round, type RoundKind, type RoundStatus, type Venue } from "@rose/sdk";
+import { charge, fee, ONE, perClaimedToken, type ClassInfo, type Pricing, type Round, type RoundKind, type RoundResult, type RoundStatus, type Venue } from "@rose/sdk";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { formatCash, formatUnits } from "@/lib/format";
 import { deployedCashSymbol } from "@/lib/token-symbols";
@@ -232,6 +232,27 @@ export const NEXT_ACTION_LABEL: Record<NextAction["kind"], string> = {
   done: "Done",
 };
 
+/**
+ * `cancel_no_key` refuses while a key request is in flight: 250 blocks after the last `close`
+ * (`KEY_REQUEST_FLIGHT_BLOCKS`, past the MPC's 200-block yield). The view exposes the close time,
+ * not its block, so the app waits 250 blocks at 0.8 s, an upper bound of the testnet block time
+ * (measured 0.58 s per block over 10,000 blocks on 2026-11-04).
+ */
+export const KEY_REQUEST_FLIGHT_NS = 250n * 800_000_000n;
+
+/** When `cancel_no_key` opens: `closes_at + key_timeout`, and never before the last key request resolved. */
+export function cancelNoKeyAt(round: Pick<Round, "closesAt" | "keyTimeout" | "closeRequestedAt">): bigint {
+  const timeout = round.closesAt + round.keyTimeout;
+  const flight = round.closeRequestedAt === null ? 0n : round.closeRequestedAt + KEY_REQUEST_FLIGHT_NS;
+  return flight > timeout ? flight : timeout;
+}
+
+/** Whether `close` accepts the round now: an order-less round always closes (it is cancelled), a round with orders only before its key timeout. */
+export function canClose(round: Pick<Round, "closesAt" | "keyTimeout" | "bidCount">, nowMs: number): boolean {
+  const now = msToNs(nowMs);
+  return now >= round.closesAt && (round.bidCount === 0 || now < round.closesAt + round.keyTimeout);
+}
+
 /** The one thing whoever is looking at the round can do now (spec 5.6: no keeper). */
 export function nextAction(round: Round, nowMs: number): NextAction {
   const now = msToNs(nowMs);
@@ -239,9 +260,10 @@ export function nextAction(round: Round, nowMs: number): NextAction {
     case "Scheduled":
       return { kind: "wait_open", at: nsToMs(round.opensAt) };
     case "Open":
-      return now < round.closesAt ? { kind: "bid", closesAt: nsToMs(round.closesAt) } : { kind: "close" };
+      if (now < round.closesAt) return { kind: "bid", closesAt: nsToMs(round.closesAt) };
+      return canClose(round, nowMs) ? { kind: "close" } : { kind: "cancel_no_key" };
     case "KeyRequested": {
-      const cancelAt = round.closesAt + round.keyTimeout;
+      const cancelAt = cancelNoKeyAt(round);
       if (now >= cancelAt) return { kind: "cancel_no_key" };
       return { kind: "waiting_key", since: nsToMs(round.closeRequestedAt ?? round.closesAt), cancelAt: nsToMs(cancelAt) };
     }
@@ -265,9 +287,17 @@ export function canCancelAsCreator(round: Round, viewer: string | null, nowMs: n
   return viewer !== null && round.creator === viewer && round.status === "Open" && round.bidCount === 0 && msToNs(nowMs) < round.closesAt;
 }
 
-/** Whether the no-key cancellation is open (`closes_at + key_timeout` passed without a key). */
+/** Whether the no-key cancellation is open (`closes_at + key_timeout` passed without a key, no key request in flight). */
 export function canCancelNoKey(round: Round, nowMs: number): boolean {
-  return (round.status === "Open" || round.status === "KeyRequested") && round.key === null && msToNs(nowMs) >= round.closesAt + round.keyTimeout;
+  return (round.status === "Open" || round.status === "KeyRequested") && round.key === null && msToNs(nowMs) >= cancelNoKeyAt(round);
+}
+
+/**
+ * The clearing of a round, only once it is `Settled`. A cancelled round also stores a result
+ * (price 0, volume 0) so that its orders can settle their refunds: it never cleared.
+ */
+export function clearingOf(round: Pick<Round, "status" | "result">): RoundResult | null {
+  return round.status === "Settled" ? round.result : null;
 }
 
 const STEP_LABEL: Record<TimelineStepId, string> = { open: "Open", key: "Key release", reveal: "Revealing", clear: "Clearing", settle: "Settled" };
@@ -345,11 +375,13 @@ function stepDetail(round: Round, id: TimelineStepId, nowMs: number, decimals: n
     case "reveal":
       if (round.keyReceivedAt === null) return `${formatDuration(Number(round.revealWindow) / 1e9)} window`;
       return `${String(round.openedCount)} / ${String(round.bidCount)} opened · window ${formatDuration(Number(round.revealWindow) / 1e9)}`;
-    case "clear":
-      if (round.result) return `cleared at ${formatUsdc(round.result.price)} · volume ${formatQty(round.result.volume, decimals)}`;
-      if (round.status === "Cancelled" && round.cancelReason === "NoCrossing") return "no price crossed the book";
+    case "clear": {
+      if (round.status === "Cancelled") return round.cancelReason === "NoCrossing" ? "no price crossed the book" : "not reached · every order is refunded";
+      const clearing = clearingOf(round);
+      if (clearing) return `cleared at ${formatUsdc(clearing.price)} · volume ${formatQty(clearing.volume, decimals)}`;
       if (round.status === "Clearing") return "window closed · anyone can clear";
       return "computed on chain in one transaction";
+    }
     case "settle": {
       const pending = round.bidCount - round.settledCount;
       if (round.status === "Settled" || round.status === "Cancelled") return pending > 0 ? `${String(pending)} ${pending === 1 ? "order" : "orders"} left to settle` : "every order settled";

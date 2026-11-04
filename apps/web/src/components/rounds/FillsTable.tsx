@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { nearAccountUrl } from "@/lib/explorer";
 import { useNearAction } from "./actions";
-import { formatQty, formatUsdc, shortAccount } from "./model";
+import { cancelledOutcome, clearingOf, formatQty, formatUsdc, shortAccount } from "./model";
 import { Notice } from "./shared";
 import type { RoundDetail } from "./useRoundDetail";
 
@@ -29,6 +29,7 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
   const { run, status } = useNearAction();
   if (!round.result) return null;
   const result = round.result;
+  const cleared = clearingOf(round);
   const fills = orderBy(round, result.fills);
   const pending = fills.filter((f) => !f.settled);
 
@@ -49,11 +50,17 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
     <section aria-label="Fills" className="rounded-lg border border-ink-750 bg-ink-850" data-fills>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div>
-          <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Fills</h3>
-          <p className="mt-0.5 text-[12px] text-ink-400">
-            Cleared at <span className="tabular text-ink-100">{formatUsdc(result.price)} USDC</span> per {round.kind === "Advance" ? "claimed token" : "locked token"} · volume <span className="tabular text-ink-100">{formatQty(result.volume, cls.decimals)}</span> · notional{" "}
-            <span className="tabular text-ink-100">{formatUsdc(result.notional)}</span> · fee <span className="tabular text-ink-100">{formatUsdc(result.fee)}</span> (30 bps, buying side)
-          </p>
+          <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">{cleared ? "Fills" : "Refunds"}</h3>
+          {cleared ? (
+            <p className="mt-0.5 text-[12px] text-ink-400" data-fills-summary="cleared">
+              Cleared at <span className="tabular text-ink-100">{formatUsdc(cleared.price)} USDC</span> per {round.kind === "Advance" ? "claimed token" : "locked token"} · volume <span className="tabular text-ink-100">{formatQty(cleared.volume, cls.decimals)}</span> · notional{" "}
+              <span className="tabular text-ink-100">{formatUsdc(cleared.notional)}</span> · fee <span className="tabular text-ink-100">{formatUsdc(cleared.fee)}</span> (30 bps, buying side)
+            </p>
+          ) : (
+            <p className="mt-0.5 text-[12px] text-ink-400" data-fills-summary="cancelled">
+              Cancelled ({cancelledOutcome(round).toLowerCase()}) · nothing traded: every escrow, valid bond and locked unit is refunded when its order settles.
+            </p>
+          )}
         </div>
         {pending.length > 0 ? (
           <Button size="sm" variant="secondary" onClick={() => void settleAll()} loading={status.status === "busy"} loadingLabel="Signing…" disabled={!viewer} data-settle-all>
@@ -63,10 +70,10 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
           <span className="font-display text-[10px] uppercase tracking-wide text-success-400">all settled</span>
         )}
       </div>
-      {round.kind === "Tender" ? (
+      {round.kind === "Tender" && cleared ? (
         <p className="border-b border-ink-750 px-4 py-2 text-[12px] text-ink-300">
-          Issuer <span className="tabular">{shortAccount(round.creator)}</span>: charged <span className="tabular text-ink-100">{formatUsdc(result.issuerCharged)}</span> + fee {formatUsdc(result.fee)}, refunded{" "}
-          <span className="tabular text-ink-100">{formatUsdc(result.issuerRefund)}</span> of the {formatUsdc(round.budget ?? 0n)} budget. Bought units are retired to {round.retireTo ?? "the issuer"}.
+          Issuer <span className="tabular">{shortAccount(round.creator)}</span>: charged <span className="tabular text-ink-100">{formatUsdc(cleared.issuerCharged)}</span> + fee {formatUsdc(cleared.fee)}, refunded{" "}
+          <span className="tabular text-ink-100">{formatUsdc(cleared.issuerRefund)}</span> of the {formatUsdc(round.budget ?? 0n)} budget. Bought units are retired to {round.retireTo ?? "the issuer"}.
         </p>
       ) : null}
       <Table>

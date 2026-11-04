@@ -22,7 +22,8 @@ import { useNearAction } from "./actions";
 import type { RoundsEngine } from "./engine";
 import { symbolOf } from "./engine";
 import { deployedCashSymbol } from "@/lib/token-symbols";
-import { classLabel, msToNs, parseDecimal, secondsToNs, shortHex, USDC_DECIMALS } from "./model";
+import { fractionAt } from "@/lib/unlock-schedule";
+import { classLabel, lockedPercent, msToNs, parseDecimal, secondsToNs, shortHex, USDC_DECIMALS } from "./model";
 import { RoundTimingFields, type RoundTimingValue } from "./RoundTimingFields";
 import { Notice } from "./shared";
 
@@ -32,33 +33,6 @@ const WINDOWS: { label: string; seconds: number }[] = [
   { label: "24 h", seconds: 86_400 },
   { label: "7 d", seconds: 7 * 86_400 },
 ];
-
-/**
- * `f(ts)` of a class at `ts` from its schedule: the engine's rule without the Sablier margin, so
- * the form can refuse a fully unlocked class (`f(ts) = 1`, spec 5.4) before anything is signed.
- */
-export function fractionAt(cls: ClassInfo, tsSeconds: number): bigint {
-  const s = cls.schedule;
-  const t = BigInt(tsSeconds);
-  if (s.kind === "Linear") {
-    if (t < s.start) return 0n;
-    if (t >= s.end) return ONE;
-    if (t < s.cliff) return (s.startUnlock * ONE) / s.total;
-    const elapsed = t - s.cliff;
-    const span = s.end - s.cliff;
-    const unlockedAtCliff = s.startUnlock + s.cliffUnlock;
-    const remaining = s.total - unlockedAtCliff;
-    const linear = span > 0n ? (remaining * elapsed) / span : remaining;
-    const fraction = ((unlockedAtCliff + linear) * ONE) / s.total;
-    return fraction >= ONE ? ONE : fraction;
-  }
-  if (t < s.start) return 0n;
-  if (t >= s.end) return ONE;
-  const periods = (t - s.start) / s.period;
-  const unlocked = s.cliffAmount + periods * s.amountPerPeriod;
-  const capped = unlocked > s.total ? s.total : unlocked;
-  return (capped * ONE) / s.total;
-}
 
 function venueOptions(config: ConfigView): { id: string; label: string; venue: Venue }[] {
   return [
@@ -116,7 +90,8 @@ export function CreateExitModal({
   const price = parseDecimal(maxPrice, USDC_DECIMALS);
   const closesAtMs = useCustom ? (customCloses ? new Date(customCloses).getTime() : Number.NaN) : now + windowSeconds * 1000;
   const closesValid = Number.isFinite(closesAtMs) && closesAtMs > now + 30_000;
-  const fTs = cls && closesValid ? fractionAt(cls, Math.floor(closesAtMs / 1000)) : null;
+  // f(ts) with the SDK port of the engine's unlock math (granularity, cliffs, Stepped periods), as the Portfolio and the Advance form compute it.
+  const fTs = cls && closesValid ? fractionAt(cls, BigInt(Math.floor(closesAtMs / 1000))) : null;
   const fullyUnlocked = fTs !== null && fTs >= ONE;
 
   const keyTimeout = minutesToNs(timing.keyTimeout);
@@ -247,7 +222,9 @@ export function CreateExitModal({
           </div>
           <div>
             <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Locked at close</dt>
-            <dd className="tabular text-ink-100">{fTs === null ? "—" : `${(Number(((ONE - fTs) * 10_000n) / ONE) / 100).toFixed(2)}%`}</dd>
+            <dd className="tabular text-ink-100" data-locked-at-close>
+              {fTs === null ? "—" : lockedPercent(fTs)}
+            </dd>
             <dd className="text-ink-400">Prices are per locked token at the close time.</dd>
           </div>
         </dl>

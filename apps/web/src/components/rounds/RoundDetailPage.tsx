@@ -18,7 +18,7 @@ import { ClearingChart } from "./ClearingChart";
 import { buildBook, roundCurves } from "./curves";
 import { FillsTable } from "./FillsTable";
 import { FinalizePanel } from "./FinalizePanel";
-import { classLabel, formatDateTime, formatDuration, formatQty, formatUsdc, KIND_BLURB, lockedPercent, nsToMs, shortAccount, venueLabel, venueTokenAccount } from "./model";
+import { classLabel, clearingOf, formatDateTime, formatDuration, formatQty, formatUsdc, KIND_BLURB, lockedPercent, nsToMs, shortAccount, venueLabel, venueTokenAccount } from "./model";
 import { MyOrders } from "./MyOrders";
 import { OrderForm } from "./OrderForm";
 import { SealedBook } from "./SealedBook";
@@ -92,7 +92,8 @@ function Curves({ detail }: { detail: RoundDetail }) {
   const curves = useMemo(() => roundCurves(round, cls.decimals, book), [book, cls.decimals, round]);
   const opened = bids.filter((bid) => bid.opened !== null).length;
   if (opened === 0) return null;
-  const clearing = round.result ? { price: round.result.price, volume: round.result.volume } : null;
+  const result = clearingOf(round);
+  const clearing = result ? { price: result.price, volume: result.volume } : null;
   const noCrossing = round.status === "Cancelled" && round.cancelReason === "NoCrossing";
   return (
     <section aria-label="Supply and demand" className="rounded-lg border border-ink-750 bg-ink-850" data-curves>

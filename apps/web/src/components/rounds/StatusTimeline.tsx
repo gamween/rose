@@ -7,6 +7,7 @@
  * the first order. The key release block shows the MPC latency once the key is in.
  */
 
+import { GAS, TGAS, type Round } from "@rose/sdk";
 import { useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
@@ -15,8 +16,9 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { cn } from "@/lib/cn";
 import { nearAccountUrl } from "@/lib/explorer";
 import { useNearAction } from "./actions";
-import { canCancelAsCreator, canCancelNoKey, formatDateTime, formatDuration, NEXT_ACTION_LABEL, nextAction, nsToMs, OPENING_COST_NEAR, timeline, type NextAction } from "./model";
+import { canCancelAsCreator, canCancelNoKey, canClose, formatDateTime, formatDuration, msToNs, NEXT_ACTION_LABEL, nextAction, nsToMs, OPENING_COST_NEAR, timeline, type NextAction } from "./model";
 import { Notice } from "./shared";
+import { SubmitKeyPanel } from "./SubmitKeyPanel";
 import type { RoundDetail } from "./useRoundDetail";
 
 function StepDot({ state }: { state: "done" | "active" | "upcoming" | "failed" }) {
@@ -36,18 +38,24 @@ function StepDot({ state }: { state: "done" | "active" | "upcoming" | "failed" }
   );
 }
 
-function describe(action: NextAction, viewer: string | null): { title: string; body: string } {
+const CLOSE_TGAS = (GAS.close / TGAS).toString();
+
+function describe(action: NextAction, round: Round, viewer: string | null): { title: string; body: string } {
   switch (action.kind) {
     case "wait_open":
       return { title: "Not open yet", body: `Orders are accepted from ${formatDateTime(action.at)}.` };
     case "bid":
-      return { title: viewer ? "Bidding is open" : "Bidding is open", body: viewer ? "Place a sealed order below. Prices and exact quantities stay hidden until the key is released after the close." : "Connect a NEAR wallet to place a sealed order. The book stays sealed until the close." };
+      return { title: "Bidding is open", body: viewer ? "Place a sealed order below. Prices and exact quantities stay hidden until the key is released after the close." : "Connect a NEAR wallet to place a sealed order. The book stays sealed until the close." };
     case "close":
-      return { title: "The round has closed", body: "Anyone can close it now: this asks the NEAR MPC network for the round's decryption key (about 5 s, 60 Tgas). Retries are free, the key is deterministic." };
+      return round.bidCount === 0
+        ? { title: "The round has closed without orders", body: `Anyone can close it now: with nothing to reveal, closing cancels the round and returns its storage (${CLOSE_TGAS} Tgas prepaid).` }
+        : { title: "The round has closed", body: `Anyone can close it now: this asks the NEAR MPC network for the round's decryption key (about 5 s, ${CLOSE_TGAS} Tgas prepaid). Retries are free until the key timeout, the key is deterministic.` };
     case "waiting_key":
       return { title: "Key requested from the MPC", body: `The contract is waiting for the CKD callback (measured 4 to 6 s). If nothing arrives by ${formatDateTime(action.cancelAt)}, anyone can cancel the round and every escrow becomes refundable.` };
     case "cancel_no_key":
-      return { title: "No key within the timeout", body: "The MPC never delivered the key. Anyone can cancel the round: nothing was opened, every escrow, bond and locked unit becomes refundable." };
+      return round.status === "Open"
+        ? { title: "Key timeout passed without a close", body: "Nobody closed the round before its key timeout, so it can no longer ask the MPC for its key. Anyone can cancel it: nothing was opened, every escrow, bond and locked unit becomes refundable." }
+        : { title: "No key within the timeout", body: "The MPC never delivered the key. Anyone can cancel the round: nothing was opened, every escrow, bond and locked unit becomes refundable." };
     case "finalize":
       return { title: `${String(action.remaining)} sealed ${action.remaining === 1 ? "order" : "orders"} to open`, body: `The key is public: this browser decrypts every remaining order and submits one \`open_bid\` per order (200 Tgas prepaid, about ${OPENING_COST_NEAR} NEAR of gas each). Resumable at any time.` };
     case "wait_reveal":
@@ -66,7 +74,7 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
   const { restoring } = useWallets();
   const action = nextAction(round, nowMs);
   const steps = timeline(round, nowMs, detail.cls.decimals);
-  const text = describe(action, viewer?.account ?? null);
+  const text = describe(action, round, viewer?.account ?? null);
   const { run, status } = useNearAction();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const busy = status.status === "busy";
@@ -78,7 +86,12 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
     let result;
     switch (action.kind) {
       case "close":
-        result = await run({ label: `Closing round #${id.toString()}`, call: engine.calls.close(id), success: "Round closed, key requested from the MPC", receipt: receipt("close", "close") });
+        result = await run({
+          label: `Closing round #${id.toString()}`,
+          call: engine.calls.close(id),
+          success: round.bidCount === 0 ? "Round closed without orders: it is cancelled" : "Round closed, key requested from the MPC",
+          receipt: receipt("close", "close"),
+        });
         break;
       case "cancel_no_key":
         result = await run({ label: `Cancelling round #${id.toString()} (no key)`, call: engine.calls.cancelNoKey(id), success: "Round cancelled: everything is refundable", receipt: receipt("cancel", "cancel_no_key") });
@@ -101,7 +114,8 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
   };
 
   const keyLatency = round.keyReceivedAt !== null && round.closeRequestedAt !== null ? Number(round.keyReceivedAt - round.closeRequestedAt) / 1e9 : null;
-  const retryVisible = action.kind === "waiting_key" && nowMs - action.since > 30_000;
+  // `close` refuses a round with orders once its key timeout has passed: no retry is offered then.
+  const retryVisible = action.kind === "waiting_key" && nowMs - action.since > 30_000 && canClose(round, nowMs);
 
   return (
     <section aria-label="Status" className="rounded-lg border border-ink-750 bg-ink-850" data-timeline>
@@ -140,8 +154,10 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
           {round.status === "KeyRequested" && action.kind === "waiting_key" ? (
             <p className="tabular mt-2 text-[12px] text-ink-300">
               waiting since {formatDateTime(action.since)} · cancel possible in <Countdown target={action.cancelAt} endedLabel="now" />
+              {msToNs(nowMs) >= round.closesAt + round.keyTimeout ? <span className="text-ink-400"> (the last key request is still in flight)</span> : null}
             </p>
           ) : null}
+          {round.status === "KeyRequested" && round.key === null ? <SubmitKeyPanel detail={detail} onChanged={onChanged} /> : null}
         </div>
         <div className="flex shrink-0 flex-col items-stretch gap-2 md:items-end">
           {action.kind === "close" || action.kind === "cancel_no_key" || action.kind === "clear" ? (
