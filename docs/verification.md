@@ -1044,3 +1044,36 @@ No cheap refusal exists on Base: RoseVault's `depositStream` already reverts on 
 - Best practices and SEO are 100 on every page and preset. Accessibility fixes: muted text contrast (ink-400 `#7d7168` at 4.0:1 on cards → `#918379`, at least 4.6:1 up to ink-750 surfaces; ink-500 text at 2.2:1 → ink-400), the palette button's accessible name, the demo's inline link underline.
 - Performance fixes: the first-visit tour (the largest paint of every `/app` page, painted after hydration) is in the server HTML; the guided demo renders its first step on the server and without its slide-in; status blocks reserve their loaded height (CLS 0.10 → 0.014); the landing builds its scene in short tasks with `compileAsync` (mobile TBT 1,420 → 360 ms).
 - Remaining gap: the four `/app` pages stay at 83 to 85 on mobile. Their observed LCP is the first paint (about 150 ms, `observedLargestContentfulPaint` = `observedFirstContentfulPaint`), but the simulated LCP counts the about 690 KB of JavaScript every `/app` page loads before it (NEAR Connect, wagmi and viem, Solana web3.js and the wallet adapters: the wallet provider wraps the whole app). Loading the chain SDKs on demand is the change that would close it.
+
+## Wallet SDKs on demand and Lighthouse gate 2 (2026-11-04, engine-s4 staging)
+
+- Chunk proof, Next 16.4.5 bundle analyzer (`pnpm exec next analyze --output --experimental-app-only`, then `pnpm exec next analyze export --route <route>`): JavaScript of the route's `bootstrap` and `render_dependent` chunk groups (what the page loads before it is interactive) versus the `async` groups. "SDK" counts the modules under viem, wagmi/@wagmi, @solana/*, @solflare-wallet, @hot-labs/near-connect, near-api-js, @streamflow, @coral-xyz, bn.js and @rose/ibe-wasm.
+
+| Route | Initial JS before (6bf57c7) | SDK in it before | Initial JS after (ef7163d) | SDK in it after |
+|---|---|---|---|---|
+| `/app` (portfolio) | 1,892 KB raw / 697 KB compressed | 651 KB | 556 KB / 212 KB | 0 |
+| `/app/rounds` | 1,819 / 668 KB | 649 KB | 600 / 230 KB | 0 |
+| `/app/rounds/[id]` | 1,901 / 698 KB | 656 KB | 672 / 257 KB | 0 |
+| `/app/demo` | 1,862 / 682 KB | 656 KB | 635 / 242 KB | 0 |
+| `/app/advance` | 1,846 / 679 KB | 656 KB | 612 / 235 KB | 0 |
+
+- The SDKs now sit in async groups loaded on demand: `WalletRuntime.tsx` (1,776 KB raw / 648 KB compressed: wagmi, viem, the Solana adapters and web3.js, the demo wallets; NEAR Connect stays its own async chunk, 42 KB), `GetTestFunds.tsx` (funds panel), `PortfolioAccount.tsx` (connected portfolio view), `rounds/base-cash.ts` (Base cash deposit) and `@rose/ibe-wasm` (9 KB glue, the wasm is fetched by the glue). `/app/deposit` and `/app/issuer` keep their chain SDKs in their own route chunks (every step of those consoles signs); no other page loads them.
+- In the browser (Playwright Chromium, script requests before the `load` event, production `dpl_EK5fNjG7…`): `/app` 184 KB transferred, `/app/rounds` 192 KB, `/app/rounds/6` 214 KB, `/app/demo` 203 KB, `/app/prices` 183 KB (before, on `dpl_EVqyn…`: `/app/rounds` 552 KB, with a 639 KB raw chunk holding NEAR Connect, wagmi, the wallet adapters and react-query, and a 366 KB web3.js chunk). After `load`, Next's link prefetch of `/app/issuer` and `/app/deposit` downloads their route chunks without evaluating them. Live click-through: no chunk with a wallet SDK marker (`WalletNotReadyError`, `NearConnector`, `@wagmi/core@`) is requested on `/app/rounds` until Connect is used.
+- Render loop found and fixed before release: without `memo` on `WalletRuntime`, the provider's re-render on each reported value re-rendered the Solana adapter provider, whose `useWallet()` context is a new object per parent render, so the runtime reported a new value forever (CDP `Performance.getMetrics`: 4,996 ms of tasks in a 5 s idle window, client navigations never committed). With `memo`: 32 ms.
+- Landing: the voxel dragon is built one body part per task (`buildDragonInSteps`, same model as `buildDragon`, unit-tested). Lighthouse long tasks on `/` went from 360 + 150 ms to about 200 + 200 ms; the remaining two are the WebGL renderer and the first frames.
+- Production `vercel deploy --prod --yes` from the repository root: `dpl_EK5fNjG7JYbF7G6LSsGiyH6Ysrqx` (commit `9d9f27a`), then `dpl_9BQHf2KYMr5s9vuY5775ESHLo2CD` (commit `ef7163d`), both Ready and aliased to https://rose-rounds.vercel.app; all seven pages answer 200.
+- Lighthouse 13.5.0, same command as the previous section, on `dpl_9BQHf2KY…`; mobile performance is the median of three runs (single runs in the session scratchpad `lighthouse/lazy-final`, `lazy-final-rep2`, `lazy-final-rep3`); LCP / TBT / CLS of the median run.
+
+| Page | Mobile perf (runs) | Mobile perf before | Mobile a11y | Desktop perf | Desktop a11y | Mobile LCP / TBT / CLS |
+|---|---|---|---|---|---|---|
+| `/` (WebGL landing) | 94 (92, 94, 94) | 90 | 100 | 100 | 100 | 2.5 s / 230 ms / 0 |
+| `/app` | 96 (96, 96, 97) | 83 | 100 | 100 | 100 | 2.7 s / 10 ms / 0 |
+| `/app/rounds` | 96 (98, 96, 96) | 85 | 100 | 100 | 100 | 2.8 s / 0 ms / 0 |
+| `/app/rounds/6` | 95 (95, 95, 96) | 83 | 100 | 100 | 100 | 2.9 s / 20 ms / 0 |
+| `/app/demo` | 95 (95, 95, 95) | 83 | 100 | 100 | 100 | 3.0 s / 10 ms / 0 |
+| `/docs` | 96 (96, 96, 96) | 96 | 100 | 100 | 100 | 2.7 s / 0 ms / 0 |
+| `/status` | 97 (97, 97, 97) | 97 | 100 | 100 | 100 | 2.6 s / 0 ms / 0.014 |
+
+- Best practices and SEO are 100 on every page and preset.
+- Playwright from `apps/web`: `ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1` on `dpl_9BQHf2KY…`: 104 passed, 16 skipped (by design, as in the previous section), exit 0. Locally against a production build (`next start`), the full suite: 90 passed, 30 skipped (live smoke not enabled), exit 0.
+- Live click-through on production with a fresh browser profile and the NEAR demo wallet: Connect → demo wallet `rose-demo-9sp8sy.testnet`; Get test funds → account created with 10 NEAR, 1,000 tUSDC minted; Create Exit round → round #7 (CINDR on Solana, tUSDC on NEAR, max 0.05, 1 h window); round #7 → `storage_deposit`, `ft_transfer_call` (tUSDC cash) and `place_bid`: sealed bid #0 (100 units at 0.04, kept in the browser); reload of `/app` and `/app/rounds/7`: the session restores (top bar pill with the balance, portfolio "Open orders 1", "My orders" shows bid #0 with its sealed values). Same restore check at 375 px with a second demo wallet.
