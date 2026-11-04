@@ -10,6 +10,8 @@ test.describe("pages with a deployed engine (mocked chain reads)", () => {
   test.skip(!process.env.NEXT_PUBLIC_ENGINE_ACCOUNT, "NEXT_PUBLIC_ENGINE_ACCOUNT is not set for this build");
 
   test.beforeEach(async ({ page }) => {
+    // These pages are under test, not the first-visit tour (app-chrome covers it): it would take the focus.
+    await page.addInitScript(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await mockChains(page);
   });
 
