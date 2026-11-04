@@ -63,6 +63,9 @@ const BIDS_7 = RESULT_7.fills.map((fill) => ({ round_id: "7", bid_id: fill.bid_i
 
 const TX_HASH = "7yB4Z4yHnm8hsg8sXxQ4vCxk3iCTn2MmiLpSj8YsUvQd";
 const DAO = "test.sputnikv2.testnet";
+/** A treasury that holds no tUSDC and is not registered on the token yet. */
+const EMPTY_DAO = "empty.sputnikv2.testnet";
+const isDao = (account: unknown) => account === DAO || account === EMPTY_DAO;
 
 function successOutcome(account: string, receiver: string, value: string) {
   const outcome = { id: "r", outcome: { logs: [], receipt_ids: [], gas_burnt: 1, tokens_burnt: "0", executor_id: receiver, status: { SuccessValue: value } } };
@@ -78,13 +81,13 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
         case "get_holding":
           return { class_id: args.class_id, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" };
         case "get_cash":
-          return args.account_id === DAO ? [] : [{ venue: "Near", amount: "1000000000" }];
+          return isDao(args.account) ? [] : [{ venue: "Near", amount: "1000000000" }];
         case "storage_balance_of":
-          return args.account_id === DAO ? null : { total: "0", available: "0" };
+          return isDao(args.account_id) ? null : { total: "0", available: "0" };
         case "storage_balance_bounds":
           return { min: "6190000000000000000000", max: null };
         case "get_portfolio":
-          if (args.account_id === DAO) return { holdings: [], bids: [], liens_held: [], lien_shares: [], cash: [] };
+          if (isDao(args.account)) return { holdings: [], bids: [], liens_held: [], lien_shares: [], cash: [] };
           return { holdings: [{ class_id: SEED, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" }], bids: [], liens_held: [], lien_shares: [], cash: [{ venue: "Near", amount: "1000000000" }] };
         case "registration_deposit_for":
           return String(args.account).startsWith("halden") ? "0" : "3360000000000000000000";
@@ -110,8 +113,9 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
         return { nonce: 7, permission: "FullAccess", block_height: 276_200_000, block_hash: "6zKgP7tApq19qYQnbWw4FtzA6hnrnoWWLti88pM6jGYS" };
       }
       if (method === "query" && params.request_type === "call_function") {
-        if (params.method_name === "ft_balance_of") return "5000000000";
-        if (params.method_name === "storage_balance_of") return { total: "1250000000000000000000", available: "0" };
+        const viewArgs = JSON.parse(Buffer.from(String(params.args_base64 ?? ""), "base64").toString("utf8") || "{}") as { account_id?: string };
+        if (params.method_name === "ft_balance_of") return viewArgs.account_id === EMPTY_DAO ? "0" : "5000000000";
+        if (params.method_name === "storage_balance_of") return viewArgs.account_id === EMPTY_DAO ? null : { total: "1250000000000000000000", available: "0" };
         if (params.method_name === "get_policy") return { roles: [], default_vote_policy: { weight_kind: "RoleWeight", quorum: "0", threshold: [1, 2] }, proposal_bond: "1000000000000000000000000", proposal_period: "604800000000000", bounty_bond: "1000000000000000000000000", bounty_forgiveness_period: "86400000000000" };
         if (params.method_name === "version") return "2.0.0";
       }
@@ -274,6 +278,28 @@ test.describe("issuer console", () => {
     await expect(row).toContainText(DAO);
     await expect(page.locator("[data-tender-row='7']")).toContainText("You");
     expect(errors).toEqual([]);
+  });
+
+  test("sends the missing tUSDC to a treasury that holds none, registering it on the token first", async ({ page }) => {
+    const state = { account: "", sent: [] as string[] };
+    await mockChains(page, overrides(state));
+    await openConsole(page, "#dao");
+    state.account = await connectNearDemo(page);
+    const panel = page.locator("[data-dao-panel]");
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await page.locator("#tender-budget").fill("950");
+    await page.locator("#tender-max").fill("9");
+    await page.locator("#tender-retire").fill("0x000000000000000000000000000000000000dEaD");
+    await page.locator("#dao-account").fill(EMPTY_DAO);
+    await page.locator("[data-read-policy]").click();
+    const funding = panel.locator("[data-dao-funding]");
+    await expect(funding).toContainText("0.00 tUSDC, 952.85 short of the funding.", { timeout: 30_000 });
+    await expect(funding).toContainText("Registers the DAO on the token first (0.00125 NEAR).");
+    await dismissToasts(page);
+    await panel.locator("[data-dao-send]").click();
+    await expect(funding.locator("[data-action-success]").first()).toContainText(`952.85 tUSDC sent to ${EMPTY_DAO}`, { timeout: 30_000 });
+    await expect(funding.locator("[data-action-success]").first().getByRole("link", { name: "Token registration on near.rocks" })).toBeVisible();
+    expect(state.sent).toHaveLength(2);
   });
 
   test("funds the NEAR venue and lists the issuer's Tenders with their report", async ({ page }) => {
