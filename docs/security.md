@@ -21,7 +21,7 @@ addresses, byte layouts) is recorded with its command in [`verification.md`](./v
 |---|---|---|---|
 | **NEAR MPC network** (`v1.signer-prod.testnet`, contract 3.18.0, reconstruction threshold 11) | Signing for the engine's derived keys (domain 0 `vault/base`; domain 1 `vault/sol`, `gas/sol`, the per-holder deposit keys), releasing a round key through Confidential Key Derivation (domain 2) only when the engine asks, attesting Base logs and Solana accounts through ForeignTx (domain 3), each provider of a node's quorum having to return the same verdict | With a threshold of colluding nodes: sign any RoseVault authorization or Solana transaction (drain custody), derive a round key before the deadline (read sealed bids early), attest a deposit that never happened (mint units against nothing). Without a threshold but by withholding: delay deposits (a failed proof surfaces after about 2 minutes), stall a round until `cancel_no_key` refunds it, delay payouts (every `Requested` state has a retry) | Change the engine's code, change a clearing result computed on chain from opened bids, or move funds below the threshold. A key it returns is checked by a pairing check before the engine stores it; every signature it returns is checked (`ecrecover` against `vault/base`, `ed25519_verify` against the derived key) before it is stored |
 | **TEE nodes** | The MPC nodes run threshold signing and CKD in TEEs (spec 7.4) | A TEE compromise on enough nodes is the threshold case above | rose treats TEEs as defense in depth that raises the cost of collusion; the threshold assumption is the one that matters |
-| **rose-engine code** | Implementing the specification correctly. The engine has no upgrade, migrate, delete-account or generic call method, and the CKD request is reachable only after the deadline; the final deployment deletes every access key after init (`scripts/deploy-engine.sh --role final --keyless`, after which `view_access_key_list` returns `[]`), so a new version deploys to a new account | A bug is not mitigated by anyone: the code is unaudited | Be changed after a keyless deployment. **Staging engines are not keyless:** `engine-s1`, `engine-s2`, `engine-s3` and `engine-s4` keep a full-access key held by the team, `engine-s3` was updated in place once (verification log, "Staging deployment 3") and `engine-s1` now runs an empty contract (its code storage was reclaimed, "Staging deployment 4"). Treat every staging engine as a test deployment |
+| **rose-engine code** | Implementing the specification correctly. The engine has no upgrade, migrate, delete-account or generic call method, and the CKD request is reachable only after the deadline; the final deployment deploys the reproducible build of a public commit and deletes every access key after init (`scripts/deploy-engine.sh --role final --reproducible --keyless`: the on-chain code hash must equal the artifact's sha256 before any key is deleted, `contract_source_metadata` names the commit and the pinned build image, and `view_access_key_list` then returns `[]`), so a new version deploys to a new account | A bug is not mitigated by anyone: the code is unaudited | Be changed after a keyless deployment. **Staging engines are not keyless:** `engine-s1` to `engine-s5` keep a full-access key held by the team, `engine-s3` was updated in place once (verification log, "Staging deployment 3"), and `engine-s1`, `engine-s2` and `engine-s3` now run an empty contract (their code storage was reclaimed, "Staging deployment 4" and "Staging deployment 5"). `engine-s5`, the app's engine today, runs the reproducible build of `b32248e`. Treat every staging engine as a test deployment |
 | **The team that deploys rose** | Running the web app, the demo faucet route and its testnet hot wallets; the fee recipient is fixed at init | Serve a frontend that shows wrong numbers or builds wrong transactions; stop funding the faucet | After a keyless deployment: read a bid early, sign a payout, cancel a round after its first bid, or upgrade the engine. Wallets show every call's arguments, every result links to an explorer, the round page's Verify panel recomputes clearing in the browser from on-chain data, and `@rose/sdk` reaches the engine without the app |
 | **RoseVault** (Base Sepolia) | Correct code. Immutable: no owner, no pause, no upgrade, no `receive`; Sablier Lockup and the signer are fixed in the constructor | A bug in it is not mitigated by anyone (unaudited) | Release a stream or a token without an EIP-712 authorization recovering to the engine's `vault/base` address (`v` exactly 27 or 28, low `s`, one shared replay bitmap; the id is consumed before any external call) |
 | **The issuer** (whoever runs a Tender or creates a cohort's streams) | Naming the NEAR account that receives each stream in `createStreams`, and `distribute_units` to its holders: holders trust the issuer for their allocation exactly as they do for their vesting today. Choosing the Tender's `retire_to` address | Credit the wrong accounts when it creates the cohort; retire bought units to an address of its choice | Pay less than it promised: the budget plus the 30 bps fee are escrowed at creation. Read asks before close, change the budget or the max price after creation, or cancel once the first ask is placed |
@@ -205,14 +205,20 @@ No other party can move funds, see bids early or stop a round.
     about to be emptied.
 - A nonce account's seed starts with a prefix of the claimant's NEAR account hash, so nobody can
   spend or front-run another claimant's nonce values (spec 7.3).
-- Shown live: payout signed and broadcast
-  ([BXfMqQpC…](https://testnet.near.rocks/tx/BXfMqQpCMiwPJjBgwR7avPni5XQzS2KTa3qhWHRyQnfH),
-  [5jAM8UFK…](https://explorer.solana.com/tx/5jAM8UFKZdGerAxMfKWsjsGCDudJFrCXTXYhXJi8BbPQzY3AGPEjEyKyLutvtXGchQhpTxkUdUk5mdV7kv4vA4w2?cluster=devnet)),
+- Shown live on `engine-s5`, settled on the receipt: a payout drawing on a stream, signed and
+  broadcast ([4ZyG3Wfu…](https://testnet.near.rocks/tx/4ZyG3WfusGEYnSXERzaLUuvrix22nsTfqFh1oQ5gs2Vt),
+  [4vwuRBBJ…](https://explorer.solana.com/tx/4vwuRBBJZVVux348EB1g316t12wZBtJYkmNRHa887VGqupoSQoiHv3KX62q5dcC1jVowu1ZD26Qmep2EEsYu9eTD?cluster=devnet)),
   then confirmed `Landed`
-  ([4N7426Wa…](https://testnet.near.rocks/tx/4N7426Wa6yc1PdJyB4v3xHEZdoLVb3rqWFCt4Q1yy4wJ)), on a
-  staging engine before the receipt; the receipt verdict, the auto-claim, its sync and a payout
-  from the swept balance on devnet transactions in [`verification.md`](./verification.md)
-  ("Streamflow auto-claim").
+  ([BRV8Voje…](https://testnet.near.rocks/tx/BRV8VojeGDC2hXjYMiiMjGoTaRyhG7gUk1HWH4mjNE85)); an ended
+  stream's auto-claim
+  ([3KHqQvJW…](https://explorer.solana.com/tx/3KHqQvJWv7CCiGExdgKNQaS7jEQKtuQfPYmm2DyheRFv77yNAJ6YHbwhm4njxL3mjE3SAv2519hfysivwiKaoeqz?cluster=devnet))
+  synced from the app ([3TAmMgNc…](https://testnet.near.rocks/tx/3TAmMgNcvBbyiU6ZXQwuCUGi17DRWXbe1C3tSedCpbfw))
+  and paid from the swept balance alone
+  ([2ShT3TqZ…](https://explorer.solana.com/tx/2ShT3TqZKJvYF9xhVvkg8bBrTVrcUxP3wgmtb1QpQxBfHykftBHD5zAAz6iM36o3iz7psHUdPRFhRD4pSy5Xzzrd?cluster=devnet),
+  [EhLjMXGH…](https://testnet.near.rocks/tx/EhLjMXGH8ogMmnpQuBzpHEhHnnxgCHZursmrpxCwQNJs)). The
+  orderings a live run cannot force (a payout broadcast after the sweep, a cancellation racing it)
+  ran on devnet transactions against a sandbox engine ([`verification.md`](./verification.md),
+  "Streamflow auto-claim"); this run is its "Staging deployment 5" section.
 
 ### Redeem in kind
 
@@ -283,7 +289,7 @@ No other party can move funds, see bids early or stop a round.
 - **Liveness is the participants' job.** There is no keeper: a round advances when someone calls the
   next step, and a signed Solana payout blocks the streams it draws on until someone broadcasts and
   confirms it (anyone can).
-- **Staging data:** on `engine-s3`, updated in place with a build that changed stored layouts, Solana
+- **Staging data:** on `engine-s3` (since retired), updated in place with a build that changed stored layouts, Solana
   payout records 0 to 2 and one event history entry no longer decode; the app skips the unreadable
   entry. The final engine is never updated in place.
 - **Demo conveniences are not part of the protocol:** `/api/faucet` sends testnet gas from
