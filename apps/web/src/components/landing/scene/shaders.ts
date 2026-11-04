@@ -49,6 +49,7 @@ varying vec4 vData;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vReveal;
+varying vec2 vNdc;
 
 void main() {
   vec3 local = position + aOffset;
@@ -66,6 +67,7 @@ void main() {
   float distanceFromEyes = length(aOffset - uEyeCenter) / 150.0;
   vReveal = smoothstep(distanceFromEyes - 0.05, distanceFromEyes + 0.05, uBody * 1.2 - aData.z * 0.08);
   gl_Position = projectionMatrix * viewMatrix * world;
+  vNdc = gl_Position.xy / gl_Position.w;
 }
 `;
 
@@ -77,12 +79,22 @@ uniform float uFire;
 uniform float uTail;
 uniform float uSmoke;
 uniform float uBackGlow;
+uniform vec4 uVeilBox;
+uniform vec2 uVeilSoft;
+uniform float uVeil;
 varying vec3 vColor;
 varying vec4 vData;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vReveal;
+varying vec2 vNdc;
 ${LIGHTING}
+
+// 1 inside the phrase screen box (NDC), fading to 0 over uVeilSoft around it.
+float veilMask() {
+  vec2 outside = max(abs(vNdc - uVeilBox.xy) - uVeilBox.zw, 0.0) / uVeilSoft;
+  return 1.0 - smoothstep(0.0, 1.0, length(outside));
+}
 
 void main() {
   float kind = vData.x;
@@ -109,7 +121,9 @@ void main() {
   } else {
     emissive = vec3(0.9, 0.3, 0.08) * (uFire * 0.6 + uSmoke * 0.12 * flicker) * vReveal;
   }
-  gl_FragColor = vec4(lit + emissive, 0.45);
+  float shadowed = 1.0 - uVeil * veilMask();
+  if (kind < 0.5 || kind > 4.5) emissive *= shadowed;
+  gl_FragColor = vec4(lit * shadowed + emissive, 0.45);
 }
 `;
 

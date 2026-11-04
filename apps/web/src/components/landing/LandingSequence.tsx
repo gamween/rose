@@ -78,7 +78,7 @@ export function LandingSequence() {
       if (disposed) return;
       const forcedTier = forcedTierFrom(search);
       try {
-        scene = createLandingScene({
+        scene = await createLandingScene({
           canvas,
           fontFamily: family,
           staticFrame: reducedMotion,
@@ -101,8 +101,15 @@ export function LandingSequence() {
         setMode("fallback");
         return;
       }
+      if (disposed) {
+        scene.dispose();
+        return;
+      }
       const rect = stage.getBoundingClientRect();
       scene.resize(rect.width, rect.height);
+      // A failed precompile only means the first frame compiles the programs itself.
+      if (!reducedMotion) await scene.prepare().catch(() => undefined);
+      if (disposed) return;
       updateProgress();
       setShowFps(wantsFps);
       setMode(reducedMotion ? "static" : "live");

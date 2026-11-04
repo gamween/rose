@@ -126,6 +126,28 @@ export class DitherPipeline {
     this.pass(this.dither, null);
   }
 
+  /**
+   * Compiles the scene's programs and the post passes ahead of the first frame, each against the
+   * target it renders to (the program key depends on it), with parallel compilation where the
+   * driver offers it, so the first frame does not stall the main thread.
+   */
+  async compile(scene: Scene, camera: Camera): Promise<void> {
+    const renderer = this.renderer;
+    const passes: [ShaderMaterial, WebGLRenderTarget | null][] = [
+      [this.bright, this.bloomA],
+      [this.blur, this.bloomB],
+      [this.dither, null],
+    ];
+    renderer.setRenderTarget(this.sceneTarget);
+    await renderer.compileAsync(scene, camera);
+    for (const [material, output] of passes) {
+      this.quad.material = material;
+      renderer.setRenderTarget(output);
+      await renderer.compileAsync(this.quadScene, this.quadCamera);
+    }
+    renderer.setRenderTarget(null);
+  }
+
   private pass(material: ShaderMaterial, output: WebGLRenderTarget | null): void {
     this.quad.material = material;
     this.renderer.setRenderTarget(output);

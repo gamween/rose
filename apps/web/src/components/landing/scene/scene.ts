@@ -14,7 +14,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { FAR_WING_BONE, HEAD_BONE, JOINTS, buildDragon, type DragonModel } from "@/lib/voxel/dragon";
-import { sequenceAt, lerp, clamp01, type SequenceState } from "@/lib/landing/timeline";
+import { sequenceAt, lerp, clamp01, smoothstep, type SequenceState } from "@/lib/landing/timeline";
 import { QUALITY_TIERS, createQualityState, sampleFrame, type QualityState, type QualityTier } from "@/lib/landing/quality";
 import { ParticlePool, instancedBox } from "./particles";
 import { DitherPipeline } from "./post";
@@ -55,6 +55,8 @@ export type SceneOptions = {
 };
 
 export type LandingScene = {
+  /** Compiles every program ahead of the first animated frame (call after the first `resize`). */
+  prepare: () => Promise<void>;
   setProgress: (progress: number) => void;
   setPointer: (x: number, y: number) => void;
   hitTest: (x: number, y: number) => HitTarget;
@@ -72,6 +74,10 @@ const FIRE_Z = 50;
 const SLEEP_PITCH = 1.05;
 const SLEEP_YAW = -0.22;
 const IDLE_PITCH = 0.08;
+/** How much the dragon darkens behind the phrase, so the letters always read on a dark band. */
+const VEIL_STRENGTH = 0.82;
+/** Render pixels per voxel of the phrase below which letters lose rows to aliasing. */
+const MIN_TEXT_PIXELS_PER_VOXEL = 1.7;
 
 /** Composition per orientation: camera framing, phrase placement and where the dragon stands. */
 type Layout = {
@@ -85,6 +91,8 @@ type Layout = {
   dragonScale: number;
   dragonPosition: Vector3;
   dragonYaw: number;
+  /** Fire emission and particle size relative to the landscape jet. */
+  fireScale: number;
 };
 
 const LANDSCAPE: Layout = {
@@ -98,6 +106,7 @@ const LANDSCAPE: Layout = {
   dragonScale: 1,
   dragonPosition: new Vector3(6, 0, 0),
   dragonYaw: 0,
+  fireScale: 1,
 };
 
 const PORTRAIT: Layout = {
@@ -109,8 +118,9 @@ const PORTRAIT: Layout = {
   textY: 46,
   textShare: 0.84,
   dragonScale: 0.62,
-  dragonPosition: new Vector3(12, -2, 0),
+  dragonPosition: new Vector3(12, -8, 0),
   dragonYaw: 0.1,
+  fireScale: 0.5,
 };
 
 function damp(current: number, target: number, rate: number, dt: number): number {
@@ -142,8 +152,19 @@ function createTextMesh(text: VoxelText, uniforms: Record<string, { value: unkno
   return mesh;
 }
 
-export function createLandingScene(options: SceneOptions): LandingScene {
+/** Ends the current task so the browser can paint and handle input between the setup steps. */
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Builds the scene in short tasks: the voxel dragon first (pure CPU), then the GPU objects, so the
+ * page stays responsive while the landing loads.
+ */
+export async function createLandingScene(options: SceneOptions): Promise<LandingScene> {
   const { canvas } = options;
+  const model = buildDragon();
+  await nextTask();
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
   renderer.setClearColor(new Color(0x000000), 1);
   renderer.autoClear = true;
@@ -151,7 +172,6 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   const scene = new Scene();
   const camera = new PerspectiveCamera(FOV, 1, 1, 700);
   const pipeline = new DitherPipeline(renderer);
-  const model = buildDragon();
   const { anchors } = model;
   const rig = new DragonRig();
 
@@ -180,6 +200,9 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     uBackGlow: { value: 0 },
     uChest: { value: new Vector3(...anchors.chest) },
     uEyeCenter: { value: new Vector3(...anchors.eye) },
+    uVeilBox: { value: new Vector4(0, 0, 0, 0) },
+    uVeilSoft: { value: new Vector2(0.08, 0.12) },
+    uVeil: { value: 0 },
   };
   const dragonGroup = new Group();
   const dragon = createDragonMesh(model, dragonUniforms);
@@ -246,12 +269,22 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   const jetDirection = new Vector3(1, 0, 0);
   const jetTarget = new Vector3();
   const flameMid = new Vector3();
+  const headLight = new Vector3();
+  const headLightColor = new Vector3(0.75, 0.42, 0.3);
   const toLocal = new Matrix4();
+
+  /** CSS pixels per voxel of the phrase at rest (before it grows on exit). */
+  function cssPixelsPerTextVoxel(): number {
+    return (textBase.scale * height) / Math.max(textBase.visibleHeight, 1e-3);
+  }
 
   function applyTier(index: number): void {
     tierIndex = index;
     const tier = QUALITY_TIERS[index]!;
-    renderer.setPixelRatio(tier.pixelRatio);
+    // Narrow screens draw the phrase small: keep enough render pixels per voxel for the letters to
+    // stay legible whatever the tier (a 375 px screen stays far below the desktop pixel count).
+    const textFloor = MIN_TEXT_PIXELS_PER_VOXEL / Math.max(cssPixelsPerTextVoxel(), 1e-3);
+    renderer.setPixelRatio(Math.min(1, Math.max(tier.pixelRatio, textFloor)));
     renderer.setSize(width, height, false);
     const buffer = renderer.getDrawingBufferSize(new Vector2());
     pipeline.setSize(buffer.x, buffer.y);
@@ -317,6 +350,26 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     textUniforms.uFront.value = state.front;
     textUniforms.uFire.value = state.fire;
     textUniforms.uRose.value = state.rose;
+    updateVeil();
+  }
+
+  /** Screen box of the phrase (NDC), padded by half a line, for the dragon's veil. */
+  function updateVeil(): void {
+    if (!text || !textGroup.visible) {
+      dragonUniforms.uVeil.value = 0;
+      return;
+    }
+    const halfWidth = text.width / 2;
+    const halfHeight = text.height / 2;
+    const low = textGroup.localToWorld(scratch.set(-halfWidth, -halfHeight, 0)).project(camera);
+    const lowX = low.x;
+    const lowY = low.y;
+    const high = textGroup.localToWorld(scratch.set(halfWidth, halfHeight, 0)).project(camera);
+    const padY = (high.y - lowY) * (lines === 1 ? 0.45 : 0.22);
+    const padX = padY * (height / width) * 1.5;
+    dragonUniforms.uVeilBox.value.set((lowX + high.x) / 2, (lowY + high.y) / 2, Math.abs(high.x - lowX) / 2 + padX, Math.abs(high.y - lowY) / 2 + padY);
+    dragonUniforms.uVeilSoft.value.set(padX * 2.5 + 0.02, padY * 2.5 + 0.02);
+    dragonUniforms.uVeil.value = VEIL_STRENGTH * (1 - smoothstep(0, 0.45, state.phraseExit));
   }
 
   function updatePose(dt: number): void {
@@ -349,7 +402,7 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   function simulate(dt: number): void {
     const tier = QUALITY_TIERS[tierIndex]!;
     const jetLength = jetTarget.distanceTo(mouth);
-    fireAccumulator += state.fire * 420 * dt * (tier.particles / maxParticles + 0.3);
+    fireAccumulator += state.fire * 420 * layout.fireScale * dt * (tier.particles / maxParticles + 0.3);
     while (fireAccumulator >= 1) {
       fireAccumulator -= 1;
       const speed = random(50, 72);
@@ -363,7 +416,7 @@ export function createLandingScene(options: SceneOptions): LandingScene {
         vy: (jetDirection.y + random(-spread, spread)) * speed,
         vz: (jetDirection.z + random(-spread * 0.5, spread * 0.5)) * speed,
         life: random(1.1, 1.5),
-        size: random(0.6, 1.1) * layout.dragonScale,
+        size: random(0.6, 1.1) * layout.dragonScale * (0.5 + 0.5 * layout.fireScale),
         growth: random(0.8, 1.6),
         kind: 0,
         age: along,
@@ -422,10 +475,15 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     fireColor!.set(1.3, 0.5, 0.14).multiplyScalar(state.fire);
     dragonGroup.localToWorld(tailPos!.set(anchors.tailTip[0], anchors.tailTip[1] + 4, anchors.tailTip[2] + 3));
     tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * (0.7 + 0.5 * state.sleep));
+    // Light 2 glows from "rose" while the phrase is on screen, then becomes a low warm light just
+    // above the sleeping head so its silhouette (snout, horns, closed eye) stays readable.
+    const awake = 1 - state.phraseExit;
     letterTarget(0.9, rosePos!).setZ(TEXT_Z - 16);
-    roseColor!.set(0.9, 0.22, 0.06).multiplyScalar(state.rose * (1 - state.phraseExit) * 0.9);
+    dragonGroup.localToWorld(rig.transform(anchors.head, HEAD_BONE, headLight)).add(scratch.set(4, 14, 16).multiplyScalar(layout.dragonScale));
+    rosePos!.lerp(headLight, state.phraseExit);
+    roseColor!.set(0.9, 0.22, 0.06).multiplyScalar(state.rose * awake * 0.9).addScaledVector(headLightColor, state.sleep * 1.25);
     fillColor!.set(0.35, 0.22, 0.18).multiplyScalar(state.body * (1 - 0.55 * state.sleep));
-    lightUniforms.uKeyColor.value.set(0.95, 0.62, 0.5).multiplyScalar(state.body * (1 - 0.6 * state.sleep) * (0.85 + 0.15 * Math.sin(time.value * 0.8)));
+    lightUniforms.uKeyColor.value.set(0.95, 0.62, 0.5).multiplyScalar(state.body * (1 - 0.35 * state.sleep) * (0.85 + 0.15 * Math.sin(time.value * 0.8)));
     lightUniforms.uRimColor.value.set(1.6, 0.7, 0.9).lerp(scratch.set(1.3, 0.95, 1.2), state.sleep).multiplyScalar(state.body * (1 + 0.25 * state.sleep));
 
     dragonUniforms.uBody.value = state.body;
@@ -475,7 +533,7 @@ export function createLandingScene(options: SceneOptions): LandingScene {
     const mid = project(scratch.copy(mouth).lerp(jetTarget, 0.6));
     const extent = project(jetTarget);
     const radius = Math.max(0.12, Math.hypot(mid.x - extent.x, mid.y - extent.y) / height + 0.1);
-    pipeline.setHeat(mid.x / width, 1 - mid.y / height, radius, state.fire * 0.9, time.value);
+    pipeline.setHeat(mid.x / width, 1 - mid.y / height, radius * (0.4 + 0.6 * layout.fireScale), state.fire * 0.9 * layout.fireScale, time.value);
   }
 
   function tailAnchor(): Vector3 {
@@ -552,6 +610,9 @@ export function createLandingScene(options: SceneOptions): LandingScene {
   canvas.addEventListener("webglcontextlost", onContextLost);
 
   const api: LandingScene = {
+    prepare() {
+      return pipeline.compile(scene, camera);
+    },
     setProgress(value) {
       progress = clamp01(value);
     },
@@ -580,8 +641,8 @@ export function createLandingScene(options: SceneOptions): LandingScene {
       width = Math.max(1, Math.round(nextWidth));
       height = Math.max(1, Math.round(nextHeight));
       rebuildText();
-      applyTier(tierIndex);
       frameCamera();
+      applyTier(tierIndex);
       if (options.staticFrame) renderStatic();
     },
     start() {
