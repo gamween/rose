@@ -83,12 +83,13 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
     await views.getSolDeposit("m");
     await views.getSolStream(1n);
     await views.getSolStreams("c");
+    await views.getSolSwept("c");
     await views.registrationDepositFor("a.testnet", "c");
     await views.computeBaseClassId("0x1", 18, { start: 1, cliff: 2, end: 3, granularity: 1, deposited: "1", start_unlock: "0", cliff_unlock: "0" });
     await views.computeSolClassId("m", 6, { start_time: 1, end_time: 2, net_amount_deposited: "1", period: 1, amount_per_period: "1", cliff: 1, cliff_amount: "0" });
     await views.nonceSeedPrefixOf("a.testnet");
     await views.depositPathOf("a.testnet", "c");
-    expect(calls.length).toBe(45);
+    expect(calls.length).toBe(46);
     for (const call of calls) {
       const fn = functions.get(call.method);
       expect(fn, call.method).toBeDefined();
@@ -131,8 +132,9 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
       calls.registerSolDeposit("m", "t", "00", 1n),
       calls.claimBaseTokens({ Holding: { class_id: "c" } }, 1n, "0x1"),
       calls.withdrawBaseCash("0x1", 1n, "0x2"),
-      calls.claimSolTokens({ Retired: { round_id: "1" } }, [{ position_id: "0", amount: "1" }], "o", { account: "n", base: "b", seed: "s", anchor_tx: "t", data: "00", recipient_tokens_data: "00" }),
-      calls.confirmSolPayout(1n, "t", "00", ["00"]),
+      calls.claimSolTokens({ Retired: { round_id: "1" } }, [{ position_id: "0", amount: "1" }], "o", { account: "n", base: "b", seed: "s", receipt_seed: "r", anchor_tx: "t", data: "00", receipt_data: "00", recipient_tokens_data: "00" }, 1n),
+      calls.confirmSolPayout(1n, "t", "00", "00"),
+      calls.syncSolStream(1n, "t", "00"),
       calls.confirmSolRedeem(1n, "t", "00", "00"),
       calls.retrySolPayout(1n),
       calls.submitBaseSignature(1n, "00", "00", 27),
@@ -152,7 +154,7 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
     }
   });
 
-  it("types Solana token amounts as JSON strings and nonce proofs with their seed", () => {
+  it("types Solana token amounts as JSON strings and nonce proofs with their seeds and receipt", () => {
     const type = (name: string, field: string) => (definitions[name]?.properties?.[field] as { type?: string } | undefined)?.type;
     for (const field of ["cliff_amount", "amount_per_period", "net_amount_deposited", "engine_withdrawn", "registered_withdrawn", "pending_withdraw"]) {
       expect(type("SolStreamInfo", field), field).toBe("string");
@@ -160,7 +162,7 @@ describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
     for (const field of ["cliff_amount", "amount_per_period", "net_amount_deposited"]) {
       expect(type("StreamflowScheduleArgs", field), field).toBe("string");
     }
-    expect(Object.keys(definitions["SolNonceProof"]?.properties ?? {}).sort()).toEqual(["account", "anchor_tx", "base", "data", "recipient_tokens_data", "seed"]);
+    expect(Object.keys(definitions["SolNonceProof"]?.properties ?? {}).sort()).toEqual(["account", "anchor_tx", "base", "data", "receipt_data", "receipt_seed", "recipient_tokens_data", "seed"]);
   });
 
   it("fixtures carry exactly the keys of the ABI type definitions", () => {

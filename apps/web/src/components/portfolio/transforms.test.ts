@@ -94,7 +94,7 @@ describe("payoutState", () => {
 
   it("explains when a pending payout's next action opens", () => {
     expect(pendingHint(payout({ status: "Requested", requested_block: "1000" }), "requested", 1100n)).toContain('"Retry signature" opens at block 1600 (in about 5 min)');
-    const solTransfer = payout({ chain: "Solana", kind: { SolTransfer: { mint: "m", to_owner: "o", amount: "1" } }, solana: { message: "", draws: [], authority_path: "vault/sol", authority: "v", cancel: false, not_executed_seen_at: "5000" } });
+    const solTransfer = payout({ chain: "Solana", kind: { SolTransfer: { mint: "m", to_owner: "o", amount: "1" } }, solana: { message: "", draws: [], swept: "0", authority_path: "vault/sol", authority: "v", cancel: false, not_executed_seen_at: "5000" } });
     expect(pendingHint(solTransfer, "unconfirmed", 5010n)).toContain("A second proof requested from block 5150 settles it");
     expect(pendingHint({ ...solTransfer, solana: { ...solTransfer.solana!, not_executed_seen_at: null } }, "unconfirmed", 5010n)).toContain("Confirm asks the MPC");
     expect(pendingHint(payout({}), "signed", 1n)).toBeNull();

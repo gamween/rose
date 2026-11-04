@@ -382,7 +382,7 @@ async function stepPayouts(): Promise<void> {
     const k = payout.kind.BaseRelease;
     if (!(await isAuthorizationUsed(ctx.base, ctx.deployment.roseVault, BigInt(payout.id)))) {
       await sendBase(ctx, scope, `executeRelease of stream ${k.stream_id} to Nadia Solvik`, () =>
-        executeRelease(ctx.deployer, { vault: ctx.deployment.roseVault, authorization: { lockup: k.lockup as Address, streamId: BigInt(k.stream_id), to: k.to as Address, vestedToRecipient: k.vested_to_recipient, id: BigInt(payout.id) }, ...signature(payout) }),
+        executeRelease(ctx.deployer, ctx.base, { vault: ctx.deployment.roseVault, authorization: { lockup: k.lockup as Address, streamId: BigInt(k.stream_id), to: k.to as Address, vestedToRecipient: k.vested_to_recipient, id: BigInt(payout.id) }, ...signature(payout) }),
       );
     }
     const owner = await ctx.base.readContract({ address: k.lockup as Address, abi: sablierLockupAbi, functionName: "ownerOf", args: [BigInt(k.stream_id)] });

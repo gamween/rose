@@ -44,6 +44,12 @@ const metadata: StreamflowMetadata = {
   streamflowTreasuryTokens: key(8),
   partner: key(9),
   partnerTokens: key(10),
+  streamflowFeeTotal: 0n,
+  streamflowFeeWithdrawn: 0n,
+  streamflowFeePercentBits: 0,
+  partnerFeeTotal: 0n,
+  partnerFeeWithdrawn: 0n,
+  partnerFeePercentBits: 0,
   startTime: 1_700_000_000n,
   netAmountDeposited: 1_000_000_000n,
   period: 3600n,
@@ -109,6 +115,9 @@ describe("solanaVerdict", () => {
     new DataView(withFee.buffer).setFloat32(321, 0.25, true);
     expect(streamflowChargesFees(FEE_FREE)).toBe(false);
     expect(streamflowChargesFees(withFee)).toBe(true);
+    const negativeZero = new Uint8Array(1104);
+    new DataView(negativeZero.buffer).setFloat32(405, -0, true);
+    expect(streamflowChargesFees(negativeZero), "-0.0 is a fee for the engine, which compares raw bits").toBe(true);
     expect(solanaVerdict(metadata, CLASSIC_MINT, withFee, NOW).reasons).toEqual(["Withdrawals from the stream pay Streamflow or partner fees; the engine only holds fee-free streams."]);
   });
 
@@ -134,6 +143,7 @@ describe("solanaVerdict", () => {
     expect(solanaVerdict({ ...metadata, amountWithdrawn: 999_500_000n }, CLASSIC_MINT, FEE_FREE, NOW).reasons).toEqual(["The stream holds less than one whole token."]);
     expect(solanaVerdict({ ...metadata, amountWithdrawn: 1_000_000_000n }, CLASSIC_MINT, FEE_FREE, NOW).reasons).toEqual(["The stream is fully withdrawn."]);
     expect(solanaVerdict(metadata, CLASSIC_MINT, FEE_FREE, 1_800_000_000n).reasons).toEqual(["The stream is fully unlocked: withdraw it instead."]);
+    expect(solanaVerdict(metadata, CLASSIC_MINT, FEE_FREE, 1_800_000_000n - 3_600n).reasons).toEqual(["The stream ends within an hour: Streamflow's auto-claim would empty it before the deposit completes."]);
   });
   it("builds the class-id arguments: times as numbers, token amounts as U64 strings", () => {
     expect(streamflowScheduleArgs(metadata)).toEqual({

@@ -82,6 +82,14 @@ describe("checkStreamflowEligibility", () => {
       "can_topup",
     ]);
   });
+
+  it("applies the engine's attribution rules: no automatic withdrawal, history, fee or imminent end", () => {
+    const metadata = { ...decodeStreamflowMetadata(bytes), canTopup: false };
+    const bad = { ...metadata, automaticWithdrawal: true, pauseCumulative: 1n, partnerFeePercentBits: 0x8000_0000 };
+    expect(checkStreamflowEligibility(bad).reasons).toEqual(["automatic_withdrawal", "modified", "fees"]);
+    expect(checkStreamflowEligibility(metadata, metadata.endTime - 3_600n).reasons).toEqual(["ends_too_soon"]);
+    expect(checkStreamflowEligibility(metadata, metadata.endTime - 3_601n).reasons).toEqual([]);
+  });
 });
 
 describe("transfer_recipient", () => {

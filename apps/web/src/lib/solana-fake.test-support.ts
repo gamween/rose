@@ -10,6 +10,7 @@ import { baseEncode } from "near-api-js";
 
 export const VAULT = Keypair.generate().publicKey;
 export const NONCE_ACCOUNT = Keypair.generate().publicKey;
+export const RECEIPT_ACCOUNT = Keypair.generate().publicKey;
 
 /** 80 bytes of an initialized nonce account (`NonceAccountLayout`) with `authority` and `nonce`. */
 export function nonceAccountData(nonce: string, authority: PublicKey = VAULT): Buffer {
@@ -47,7 +48,7 @@ export function solTransferPayout(overrides: Partial<PayoutView> = {}, solana: P
     updated_at: "0",
     requested_block: "100",
     sign_requests: 1,
-    solana: { message: stored.message, draws: [{ position_id: "4", amount: "1", expected_withdrawn: "1" }], authority_path: "vault/sol", authority: VAULT.toBase58(), cancel: false, nonce_account: NONCE_ACCOUNT.toBase58(), nonce_value: SIGNED_NONCE, transaction: stored.wire, ...solana },
+    solana: { message: stored.message, draws: [{ position_id: "4", amount: "1", expected_withdrawn: "1" }], swept: "0", authority_path: "vault/sol", authority: VAULT.toBase58(), cancel: false, nonce_account: NONCE_ACCOUNT.toBase58(), nonce_value: SIGNED_NONCE, receipt_account: RECEIPT_ACCOUNT.toBase58(), transaction: stored.wire, ...solana },
     ...overrides,
   };
 }
@@ -67,7 +68,7 @@ export function moveSignature(blockhash: string): { payout: PayoutView; signatur
       updated_at: "0",
       requested_block: "100",
       sign_requests: 1,
-      solana: { message: stored.message, draws: [], authority_path: "dep/a", authority: "x", cancel: false, transaction: stored.wire },
+      solana: { message: stored.message, draws: [], swept: "0", authority_path: "dep/a", authority: "x", cancel: false, transaction: stored.wire },
     },
   };
 }
@@ -83,6 +84,11 @@ export class FakeSolana {
   sent: { skipPreflight: boolean | undefined }[] = [];
   /** What `sendRawTransaction` does: lands the transaction, throws, or nothing (dropped). */
   onSend: (() => void) | null = null;
+
+  constructor() {
+    // The receipt nonce account exists from the claim on; the engine, not the app, reads its value.
+    this.setAccount(RECEIPT_ACCOUNT, nonceAccountData(ADVANCED_NONCE));
+  }
 
   setAccount(address: PublicKey, data: Buffer | null, commitment: Commitment | "all" = "all"): void {
     const entry = this.accounts.get(address.toBase58()) ?? {};

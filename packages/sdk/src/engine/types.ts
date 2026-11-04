@@ -359,6 +359,7 @@ export interface RoseEventData {
   payout_failed: { payout_id: U64; reason: string };
   payout_landed: { payout_id: U64 };
   payout_cancelling: { payout_id: U64 };
+  sol_stream_swept: { position_id: U64; class_id: ClassId; amount: U64 };
   position_release_requested: { position_id: U64; payout_id: U64; account: AccountId };
 }
 
@@ -564,20 +565,24 @@ export type ClaimSourceArgs = { Holding: { class_id: ClassId } } | { Retired: { 
 /**
  * The accounts a Solana payout or redeem is built on (`claim_sol_tokens`, `redeem`), proven in
  * one ForeignTx request before signing: the durable nonce account (`data`, its 80 raw bytes as
- * hex, authority = vault) and the recipient's existing associated token account for the mint
- * (`recipient_tokens_data`, its 165 bytes as hex), both read at `finalized` right before the
- * call. The nonce account must be `createWithSeed(base, seed, SystemProgram)` with `seed`
- * starting with the caller's `nonce_seed_prefix_of` (`payoutNonceSeed`): it serves only that
- * NEAR account.
+ * hex, authority = vault), the receipt nonce account the transaction advances last
+ * (`receipt_data`, same rules, another account) and the recipient's existing associated token
+ * account for the mint (`recipient_tokens_data`, its 165 bytes as hex), all read at `finalized`
+ * right before the call. Both nonce accounts must be `createWithSeed(base, seed, SystemProgram)`
+ * with a seed starting with the caller's `nonce_seed_prefix_of` (`payoutNonceSeed`): they serve
+ * only that NEAR account, and stay reserved to the action until it is confirmed.
  */
 export interface SolNonceProof {
   account: string;
-  /** Base58 key the nonce account was created from with `seed` (it signed the creation). */
+  /** Base58 key both nonce accounts were created from with their seeds (it signed the creations). */
   base: string;
   /** The caller's 24-character prefix, then at most 8 characters. */
   seed: string;
+  /** Seed of the receipt nonce account (same base, same rule, another account than `seed`). */
+  receipt_seed: string;
   anchor_tx: string;
   data: string;
+  receipt_data: string;
   recipient_tokens_data: string;
 }
 
@@ -615,6 +620,10 @@ export interface SolDrawView { position_id: U64; amount: U128; expected_withdraw
 export interface SolTransactionView {
   message: string;
   draws: SolDrawView[];
+  /** What the payout takes from its class's swept balance (`U64`, 0 for other actions). */
+  swept: U64;
+  /** Receipt nonce account the message advances last (durable-nonce actions). */
+  receipt_account?: string | null;
   authority_path: string;
   /** Address (base58) the authority signature verifies against. */
   authority: string;
@@ -691,7 +700,7 @@ export interface SolStreamInfoView {
   amount_per_period: U64;
   cliff: number;
   cliff_amount: U64;
-  /** Withdrawals proven on chain. */
+  /** Withdrawals proven on chain: landed payouts and what `sync_sol_stream` booked. */
   engine_withdrawn: U64;
   /** `amount_withdrawn` attested at registration. */
   registered_withdrawn: U64;
@@ -702,12 +711,22 @@ export interface SolStreamInfoView {
   pending_withdraw: U64;
 }
 
-/** A Solana stream of a class with what a payout can draw from it now and the claimable a redeem of it takes now (`get_sol_streams`). */
+/** A Solana stream of a class with what a payout can draw from it now and the claimable a redeem of it takes now (`get_sol_streams`; 0 from five minutes before the stream's end). */
 export interface SolStreamStateView {
   position_id: U64;
   withdrawable: U128;
   redeem_claimable: U128;
   stream: SolStreamInfoView;
+}
+
+/**
+ * Tokens of a Solana class Streamflow's auto-claim moved into the vault's token account and
+ * `sync_sol_stream` booked (`get_sol_swept`): a payout may take `balance - pending` with
+ * `claimSolTokens(..., swept)`.
+ */
+export interface SolSweptView {
+  balance: U64;
+  pending: U64;
 }
 
 export interface SablierScheduleArgs {

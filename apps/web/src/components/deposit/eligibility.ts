@@ -42,7 +42,8 @@ export function baseVerdict(stream: SablierStream | null, decimalsError: string 
 export function streamflowChargesFees(raw: Uint8Array): boolean {
   if (raw.length < 409) return true;
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  return [305, 313, 389, 397].some((offset) => view.getBigUint64(offset, true) !== 0n) || [321, 405].some((offset) => view.getFloat32(offset, true) !== 0);
+  // The fee percents are compared as raw bits, as the engine does: `-0.0` is not fee-free.
+  return [305, 313, 389, 397].some((offset) => view.getBigUint64(offset, true) !== 0n) || [321, 405].some((offset) => view.getUint32(offset, true) !== 0);
 }
 
 /** `freeze_authority` of a classic SPL mint: a `COption<Pubkey>` whose `u32` tag sits at byte 46 (spec 7.2, verified on devnet). */
@@ -54,11 +55,6 @@ export function mintHasFreezeAuthority(data: Uint8Array): boolean {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(SPL_MINT_FREEZE_TAG_OFFSET, true) !== 0;
 }
 
-/** Pause or rate-change history (`current_pause_start` 672, `pause_cumulative` 680, `last_rate_change_time` 688, `funds_unlocked_at_last_rate_change` 696). */
-function streamflowModified(metadata: StreamflowMetadata): boolean {
-  return metadata.currentPauseStart !== 0n || metadata.pauseCumulative !== 0n || metadata.lastRateChangeTime !== 0n || metadata.fundsUnlockedAtLastRateChange !== 0n;
-}
-
 /**
  * Solana eligibility: the SDK rules plus the checks the engine applies at attribution (spec 7.2):
  * no automatic withdrawal (the engine sizes its own withdraws inside payouts), no withdrawal fees
@@ -68,11 +64,9 @@ function streamflowModified(metadata: StreamflowMetadata): boolean {
  * transfer, an attribution and a return.
  */
 export function solanaVerdict(metadata: StreamflowMetadata, mint: { owner: PublicKey; data: Uint8Array; decimals: number } | null, raw: Uint8Array, nowSec: bigint): Verdict {
-  const result = checkStreamflowEligibility(metadata);
+  const result = checkStreamflowEligibility(metadata, metadata.endTime > 0n && nowSec >= metadata.endTime ? undefined : nowSec);
   const reasons = result.reasons.map((reason) => STREAMFLOW_ELIGIBILITY_MESSAGES[reason]);
-  if (metadata.automaticWithdrawal) reasons.push("The stream withdraws automatically; the engine must control every withdrawal.");
-  if (streamflowChargesFees(raw)) reasons.push("Withdrawals from the stream pay Streamflow or partner fees; the engine only holds fee-free streams.");
-  if (streamflowModified(metadata)) reasons.push("The stream was paused or re-rated; its unlocks no longer follow the plain schedule.");
+  if (streamflowChargesFees(raw) && !result.reasons.includes("fees")) reasons.push(STREAMFLOW_ELIGIBILITY_MESSAGES.fees);
   if (mint === null) reasons.push("The mint account could not be read.");
   else if (!mint.owner.equals(TOKEN_PROGRAM_ID)) reasons.push("The mint is not a classic SPL Token mint (Token-2022 is not supported).");
   else {

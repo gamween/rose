@@ -55,6 +55,8 @@ export const GAS = {
   solAction: 120n * TGAS,
   solPayout: 200n * TGAS,
   solConfirm: 100n * TGAS,
+  /** `sync_sol_stream`: the call keeps a proof and its callback after its own work. */
+  solSync: 80n * TGAS,
   submitSignature: 30n * TGAS,
 } as const;
 
@@ -318,23 +320,37 @@ export class EngineCalls {
   }
 
   /**
-   * Spec 7.3: durable-nonce Solana payout drawing on the named streams of the class (the claim
-   * is their sum); the nonce account (created with the caller's seed, `payoutNonceSeed`) and the
-   * recipient's token account are proven before signing. The payout stays `Signed` until
-   * `confirmSolPayout`.
+   * Spec 7.3: durable-nonce Solana payout drawing on the named streams of the class and on
+   * `swept` of its swept balance (`getSolSwept`; the claim is their sum); the nonce and receipt
+   * accounts (created with the caller's seeds, `payoutNonceSeed`) and the recipient's token
+   * account are proven before signing. The payout stays `Signed` until `confirmSolPayout`.
    */
-  claimSolTokens(source: ClaimSourceArgs, draws: SolDrawArgs[], toOwner: string, nonce: SolNonceProof): FunctionCall {
-    return this.call("claim_sol_tokens", { source, draws, to_owner: toOwner, nonce }, GAS.solPayout, PAYOUT_STORAGE_DEPOSIT);
+  claimSolTokens(source: ClaimSourceArgs, draws: SolDrawArgs[], toOwner: string, nonce: SolNonceProof, swept?: bigint): FunctionCall {
+    return this.call("claim_sol_tokens", { source, draws, swept: swept === undefined ? null : swept.toString(), to_owner: toOwner, nonce }, GAS.solPayout, PAYOUT_STORAGE_DEPOSIT);
   }
 
-  /** Settles a signed Solana payout once its nonce advanced: `streamData` is the metadata (hex) of every drawn stream, in draw order. */
-  confirmSolPayout(payoutId: bigint, anchorTx: string, nonceData: string, streamData: string[]): FunctionCall {
-    return this.call("confirm_sol_payout", { payout_id: payoutId.toString(), anchor_tx: anchorTx, nonce_data: nonceData, stream_data: streamData }, GAS.solConfirm);
+  /**
+   * Settles a signed Solana payout once its nonce advanced: `nonceData` and `receiptData` are the
+   * 80 bytes (hex) of its nonce and receipt accounts (`solana.nonce_account`,
+   * `solana.receipt_account`) read at `finalized`. The receipt on the nonce's new value lands it;
+   * behind it on two proofs 150 blocks apart refunds it.
+   */
+  confirmSolPayout(payoutId: bigint, anchorTx: string, nonceData: string, receiptData: string): FunctionCall {
+    return this.call("confirm_sol_payout", { payout_id: payoutId.toString(), anchor_tx: anchorTx, nonce_data: nonceData, receipt_data: receiptData }, GAS.solConfirm);
   }
 
-  /** Settles the signed release of a Solana position once its nonce advanced. */
-  confirmSolRedeem(positionId: bigint, anchorTx: string, nonceData: string, streamData: string): FunctionCall {
-    return this.call("confirm_sol_redeem", { position_id: positionId.toString(), anchor_tx: anchorTx, nonce_data: nonceData, stream_data: streamData }, GAS.solConfirm);
+  /** Settles the signed release of a Solana position once its nonce advanced, on its receipt like `confirmSolPayout`. */
+  confirmSolRedeem(positionId: bigint, anchorTx: string, nonceData: string, receiptData: string): FunctionCall {
+    return this.call("confirm_sol_redeem", { position_id: positionId.toString(), anchor_tx: anchorTx, nonce_data: nonceData, receipt_data: receiptData }, GAS.solConfirm);
+  }
+
+  /**
+   * Books what Streamflow withdrew from a held vault stream outside any payout (its auto-claim of
+   * an ended stream) in the class's swept balance: `metadataData` is the 1,104 metadata bytes
+   * (hex) read at `finalized`. Anyone.
+   */
+  syncSolStream(positionId: bigint, anchorTx: string, metadataData: string): FunctionCall {
+    return this.call("sync_sol_stream", { position_id: positionId.toString(), anchor_tx: anchorTx, metadata_data: metadataData }, GAS.solSync);
   }
 
   /** Resolves a Solana action still `Requested` 600 blocks after its last request (refund, failure or re-signature). */

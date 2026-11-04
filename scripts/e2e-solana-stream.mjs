@@ -178,7 +178,7 @@ async function creationSignature(address) {
   return oldest;
 }
 
-const STREAM_AMOUNT = 3_600_000_000n;
+const STREAM_AMOUNT = 7_200_000_000n;
 
 async function stepSetup() {
   if (state.steps.setup?.schedule) {
@@ -219,7 +219,8 @@ async function stepSetup() {
     const ata = await getOrCreateAssociatedTokenAccount(conn, ops, mint, ops.publicKey);
     if (ata.amount < STREAM_AMOUNT) await mintTo(conn, ops, mint, ata.address, ops, STREAM_AMOUNT - ata.amount);
     const now = Math.floor(Date.now() / 1000);
-    // 3,600 tokens unlocking 60 per minute over an hour, starting in a minute: no cliff, no
+    // 7,200 tokens unlocking 60 per minute over two hours, starting in a minute (the engine refuses
+    // a stream ending within an hour of its attribution): no cliff, no
     // sender permissions, transferable by the recipient, no automatic withdrawal.
     const params = {
       recipient: holder.publicKey.toBase58(), tokenId: mint.toBase58(), start: now + 60, cliff: 0,
@@ -302,13 +303,26 @@ async function stepRegister() {
   log(`registered position ${positionId}: ${units} units to ${nearHolder}, engine_withdrawn ${info.engine_withdrawn}`);
 }
 
-/** The nonce proof of a payout or redeem to `owner`: the nonce account and `owner`'s token account read at finalized. */
+/**
+ * The nonce proof of a payout or redeem to `owner`: the nonce account, the receipt nonce account
+ * (which the transaction advances last) and `owner`'s token account, read at finalized.
+ */
 async function payoutProof(owner, anchor) {
   const nonceInfo = await conn.getAccountInfo(new PublicKey(state.steps.claim.nonce_account), "finalized");
+  const receipt = await accountHex(state.steps.claim.receipt_account);
   const recipientTokens = getAssociatedTokenAddressSync(new PublicKey(state.steps.setup.mint), owner);
   const tokens = await accountHex(recipientTokens.toBase58());
   return {
-    proof: { account: state.steps.claim.nonce_account, base: state.steps.claim.nonce_base, seed: state.steps.claim.nonce_seed, anchor_tx: anchor, data: Buffer.from(nonceInfo.data).toString("hex"), recipient_tokens_data: tokens.data },
+    proof: {
+      account: state.steps.claim.nonce_account,
+      base: state.steps.claim.nonce_base,
+      seed: state.steps.claim.nonce_seed,
+      receipt_seed: state.steps.claim.receipt_seed,
+      anchor_tx: anchor,
+      data: Buffer.from(nonceInfo.data).toString("hex"),
+      receipt_data: receipt.data,
+      recipient_tokens_data: tokens.data,
+    },
     value: NonceAccount.fromAccountData(nonceInfo.data).nonce,
   };
 }
@@ -321,15 +335,24 @@ async function stepClaim() {
     return;
   }
   if (!state.steps.claim?.nonce_account) {
-    // The engine accepts only a nonce account created with a seed naming the claimant (spec 7.3):
-    // createWithSeed(ops, prefix(nearHolder) + suffix, System), so nobody else can spend its values.
-    const seed = await payoutNonceSeed(nearHolder, Date.now().toString(36).slice(-8));
+    // The engine accepts only nonce accounts created with seeds naming the claimant (spec 7.3):
+    // createWithSeed(ops, prefix(nearHolder) + suffix, System), so nobody else can spend their
+    // values. The receipt account is the second one: the payout advances it last.
+    const suffix = Date.now().toString(36).slice(-7);
+    const seed = await payoutNonceSeed(nearHolder, `${suffix}a`);
+    const receiptSeed = await payoutNonceSeed(nearHolder, `${suffix}r`);
     const nonceAccount = await payoutNonceAddress(ops.publicKey, seed);
+    const receiptAccount = await payoutNonceAddress(ops.publicKey, receiptSeed);
     const rent = await nonceRent(conn);
     const latest = await conn.getLatestBlockhash("confirmed");
     const create = createNonceAccountTransaction({ payer: ops.publicKey, nonceAccount, seed, authority: vault, lamports: rent, ...latest });
+    create.add(...createNonceAccountTransaction({ payer: ops.publicKey, nonceAccount: receiptAccount, seed: receiptSeed, authority: vault, lamports: rent, ...latest }).instructions);
     const createSig = await sendAndConfirmTransaction(conn, create, [ops]);
-    state.steps.claim = { nonce_account: nonceAccount.toBase58(), nonce_base: ops.publicKey.toBase58(), nonce_seed: seed, nonce_create_tx: createSig, nonce_create_link: explorer(createSig), to_owner: ops.publicKey.toBase58() };
+    state.steps.claim = {
+      nonce_account: nonceAccount.toBase58(), nonce_base: ops.publicKey.toBase58(), nonce_seed: seed,
+      receipt_account: receiptAccount.toBase58(), receipt_seed: receiptSeed,
+      nonce_create_tx: createSig, nonce_create_link: explorer(createSig), to_owner: ops.publicKey.toBase58(),
+    };
     save();
   }
   await waitFinalized(state.steps.claim.nonce_create_tx);
@@ -370,8 +393,8 @@ async function stepClaim() {
 
 async function stepConfirm() {
   const nonce = await accountHex(state.steps.claim.nonce_account);
-  const metadata = await accountHex(state.steps.setup.metadata);
-  const hash = nearCall(nearHolder, "confirm_sol_payout", { payout_id: state.steps.claim.payout_id, anchor_tx: state.steps.claim.solana_tx, nonce_data: nonce.data, stream_data: [metadata.data] }, "100 Tgas", "0 NEAR");
+  const receipt = await accountHex(state.steps.claim.receipt_account);
+  const hash = nearCall(nearHolder, "confirm_sol_payout", { payout_id: state.steps.claim.payout_id, anchor_tx: state.steps.claim.solana_tx, nonce_data: nonce.data, receipt_data: receipt.data }, "100 Tgas", "0 NEAR");
   await record("confirm", hash, nearHolder);
   const payout = await nearView(engine, "get_payout", { payout_id: state.steps.claim.payout_id });
   if (payout.status !== "Landed") throw new Error(`payout not landed: ${JSON.stringify(payout.status)}`);
@@ -409,8 +432,8 @@ async function stepRedeem() {
 
 async function stepConfirmRedeem() {
   const nonce = await accountHex(state.steps.claim.nonce_account);
-  const metadata = await accountHex(state.steps.setup.metadata);
-  const hash = nearCall(nearHolder, "confirm_sol_redeem", { position_id: state.steps.register.position_id, anchor_tx: state.steps.redeem.solana_tx, nonce_data: nonce.data, stream_data: metadata.data }, "100 Tgas", "0 NEAR");
+  const receipt = await accountHex(state.steps.claim.receipt_account);
+  const hash = nearCall(nearHolder, "confirm_sol_redeem", { position_id: state.steps.register.position_id, anchor_tx: state.steps.redeem.solana_tx, nonce_data: nonce.data, receipt_data: receipt.data }, "100 Tgas", "0 NEAR");
   await record("confirm_redeem", hash, nearHolder);
   const position = await nearView(engine, "get_position", { position_id: state.steps.register.position_id });
   const payout = await nearView(engine, "get_payout", { payout_id: state.steps.redeem.payout_id });

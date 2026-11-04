@@ -3,17 +3,25 @@ import { hashTypedData, type Address } from "viem";
 import { roseVaultAbi } from "../../src/chains/base/abis.js";
 import { executeRelease, type ReleaseAuthorization } from "../../src/chains/base/vault.js";
 import type { SignerClient } from "../../src/chains/base/sablier.js";
+import type { PublicClient } from "viem";
 
-/** A wallet that records the arguments of its single `writeContract` call. */
-function recordingWallet(): { wallet: SignerClient; calls: unknown[][] } {
+/** A wallet that records the arguments and the value of its `writeContract` calls. */
+function recordingWallet(): { wallet: SignerClient; calls: unknown[][]; values: unknown[] } {
   const calls: unknown[][] = [];
+  const values: unknown[] = [];
   const wallet = {
-    writeContract: (request: { args: unknown[] }) => {
+    writeContract: (request: { args: unknown[]; value?: bigint }) => {
       calls.push(request.args);
+      values.push(request.value);
       return Promise.resolve("0x01");
     },
   } as unknown as SignerClient;
-  return { wallet, calls };
+  return { wallet, calls, values };
+}
+
+/** A client whose Sablier `calculateMinFeeWei` returns `fee`. */
+function feeClient(fee: bigint): PublicClient {
+  return { readContract: (request: { functionName: string }) => Promise.resolve(request.functionName === "calculateMinFeeWei" ? fee : 0n) } as unknown as PublicClient;
 }
 
 const VAULT: Address = "0x00000000000000000000000000000000000A11cE";
@@ -38,9 +46,16 @@ describe("RoseVault Release", () => {
 
   it("submits the flag of the payout kind, false for a redeem when omitted", async () => {
     const { wallet, calls } = recordingWallet();
-    await executeRelease(wallet, { vault: VAULT, authorization: { ...release, vestedToRecipient: true }, ...signature });
-    await executeRelease(wallet, { vault: VAULT, authorization: release, ...signature });
+    await executeRelease(wallet, feeClient(0n), { vault: VAULT, authorization: { ...release, vestedToRecipient: true }, ...signature });
+    await executeRelease(wallet, feeClient(0n), { vault: VAULT, authorization: release, ...signature });
     expect(calls.map((args) => (args[0] as { vestedToRecipient: boolean }).vestedToRecipient)).toEqual([true, false]);
     expect(calls[0]?.[0]).toEqual({ ...release, vestedToRecipient: true });
+  });
+
+  it("sends Sablier's withdrawal fee, read for the stream, plus the margin", async () => {
+    const { wallet, values } = recordingWallet();
+    await executeRelease(wallet, feeClient(0n), { vault: VAULT, authorization: release, ...signature });
+    await executeRelease(wallet, feeClient(7n), { vault: VAULT, authorization: release, feeMarginWei: 3n, ...signature });
+    expect(values).toEqual([0n, 10n]);
   });
 });

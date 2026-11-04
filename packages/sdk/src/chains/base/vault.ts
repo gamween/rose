@@ -108,14 +108,22 @@ export function executeTransfer(wallet: SignerClient, params: { vault: Address; 
   });
 }
 
-/** Submits an engine-signed `Release` authorization (in-kind redeem, or the return of a refused stream). */
-export function executeRelease(wallet: SignerClient, params: { vault: Address; authorization: ReleaseAuthorization } & Eip712Signature): Promise<Hex> {
+/**
+ * Submits an engine-signed `Release` authorization (in-kind redeem, or the return of a refused
+ * stream). The vault withdraws the stream's vested balance first, which costs Sablier's
+ * withdrawal fee when it is switched on (admin-controlled, 0 today): the fee is read in the same
+ * flow (`calculateMinFeeWei`) and sent with `feeMarginWei` on top; the vault refunds what it does
+ * not use.
+ */
+export async function executeRelease(wallet: SignerClient, client: PublicClient, params: { vault: Address; authorization: ReleaseAuthorization; feeMarginWei?: bigint } & Eip712Signature): Promise<Hex> {
   const { lockup, streamId, to, vestedToRecipient, id } = params.authorization;
+  const value = (await calculateMinFeeWei(client, streamId, lockup)) + (params.feeMarginWei ?? 0n);
   return wallet.writeContract({
     address: params.vault,
     abi: roseVaultAbi,
     functionName: "executeRelease",
     args: [{ lockup, streamId, to, vestedToRecipient: vestedToRecipient ?? false, id }, params.v, params.r, params.s],
+    value,
   });
 }
 

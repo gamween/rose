@@ -77,6 +77,7 @@ const ROSE_EVENT_NAMES: ReadonlySet<string> = new Set<RoseEventName>([
   "payout_failed",
   "payout_landed",
   "payout_cancelling",
+  "sol_stream_swept",
   "position_release_requested",
 ]);
 
@@ -293,6 +294,10 @@ export function describeRoseEvent(event: RoseEventView, format: EventAmountForma
       return `Payout #${event.data.payout_id} landed on Solana`;
     case "payout_cancelling":
       return `Payout #${event.data.payout_id} is being cancelled on Solana (its signature failed)`;
+    case "sol_stream_swept": {
+      const d = event.data;
+      return `Streamflow's auto-claim of position #${d.position_id} booked: ${d.amount} base units added to the class's swept balance`;
+    }
     case "position_release_requested": {
       const d = event.data;
       return `Position #${d.position_id} release requested by ${d.account} (payout #${d.payout_id})`;

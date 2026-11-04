@@ -240,23 +240,19 @@ function confirmSolStep(deps: FlowDeps, holder: PayoutHolder): StepDefinition {
         await waitForFinalizedNonce(deps.solana, nonceAccount, nonceValue, { signal: context.signal, onProgress: context.setDetail });
         const second = secondProofBlock(payout);
         if (second !== null) await waitForBlock(deps, second, context, BigInt(payout.solana!.not_executed_seen_at!));
-        context.setDetail("Reading the nonce account and the streams at finality…");
+        const receiptAccount = payout.solana?.receipt_account;
+        if (!receiptAccount) throw new RoseActionError("contract", "Unknown payout", `Payout #${payout.id} has no receipt account to confirm.`);
+        context.setDetail("Reading the nonce and receipt accounts at finality…");
         const anchor = await confirmationAnchor(deps.solana, payout);
+        const read = await readSolConfirmation(deps.solana, nonceAccount, receiptAccount);
         let call: FunctionCall;
         if ("SolRelease" in payout.kind) {
           if (!payout.position_id) throw new RoseActionError("contract", "No position", "The release names no position.");
-          const read = await readSolConfirmation(deps.solana, nonceAccount, [payout.kind.SolRelease.metadata]);
-          call = deps.calls.confirmSolRedeem(BigInt(payout.position_id), anchor, read.nonceData, read.streamData[0]!);
+          call = deps.calls.confirmSolRedeem(BigInt(payout.position_id), anchor, read.nonceData, read.receiptData);
         } else {
-          const positions = await Promise.all((payout.solana?.draws ?? []).map((draw) => deps.views.getPosition(BigInt(draw.position_id))));
-          const streams = positions.map((position) => {
-            if (position?.source.kind !== "SolanaStream") throw new RoseActionError("contract", "Unknown stream", "A drawn position is not a Solana stream.");
-            return position.source.metadata;
-          });
-          const read = await readSolConfirmation(deps.solana, nonceAccount, streams);
-          call = deps.calls.confirmSolPayout(BigInt(payout.id), anchor, read.nonceData, read.streamData);
+          call = deps.calls.confirmSolPayout(BigInt(payout.id), anchor, read.nonceData, read.receiptData);
         }
-        context.setDetail(second === null ? "Sending the confirmation (MPC proof of the nonce and the streams)…" : "Sending the second proof…");
+        context.setDetail(second === null ? "Sending the confirmation (MPC proof of the nonce and the receipt)…" : "Sending the second proof…");
         const outcome = await deps.sendNearCall(call);
         context.addLinks(txLinks("near", outcome.transaction.hash));
         const verdict = await awaitVerdict(deps, payoutId, second === null, context);

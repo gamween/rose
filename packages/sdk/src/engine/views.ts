@@ -75,6 +75,7 @@ import type {
   SolDepositView,
   SolStreamInfoView,
   SolStreamStateView,
+  SolSweptView,
   Stats,
   StorageBalance,
   StorageBalanceBoundsView,
@@ -224,6 +225,10 @@ export class EngineRawViews {
   getSolStreams(classId: ClassId, o?: ViewCallOptions): Promise<SolStreamStateView[]> {
     return this.call("get_sol_streams", { class_id: classId }, o);
   }
+  /** The class's swept balance: Streamflow auto-claims booked by `sync_sol_stream`, payable with `claimSolTokens(..., swept)`. */
+  getSolSwept(classId: ClassId, o?: ViewCallOptions): Promise<SolSweptView> {
+    return this.call("get_sol_swept", { class_id: classId }, o);
+  }
   /** NEP-145 deposit (yoctoNEAR) a deposit registration must attach for `account` to hold `classId`. */
   registrationDepositFor(account: AccountId, classId: ClassId, o?: ViewCallOptions): Promise<string> {
     return this.call("registration_deposit_for", { account, class_id: classId }, o);
@@ -366,6 +371,13 @@ export class EngineViews {
   }
   getSolStreams(classId: ClassId, o?: ViewCallOptions): Promise<SolStreamStateView[]> {
     return this.raw.getSolStreams(classId, o);
+  }
+  /** The class's swept balance and what payouts may still take from it. */
+  async getSolSwept(classId: ClassId, o?: ViewCallOptions): Promise<{ balance: bigint; pending: bigint; available: bigint }> {
+    const view = await this.raw.getSolSwept(classId, o);
+    const balance = parseU(view.balance, "swept.balance");
+    const pending = parseU(view.pending, "swept.pending");
+    return { balance, pending, available: balance - pending };
   }
   async registrationDepositFor(account: AccountId, classId: ClassId, o?: ViewCallOptions): Promise<bigint> {
     return parseU(await this.raw.registrationDepositFor(account, classId, o), "registration_deposit_for");

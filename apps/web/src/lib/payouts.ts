@@ -31,6 +31,7 @@ import { PublicKey, Transaction, VersionedMessage, type Connection, type Signatu
 import type { Address, Hex } from "viem";
 import { RoseActionError } from "./errors";
 import { baseAddressUrl, solanaTxUrl } from "./explorer";
+import { basePublicClient } from "./wallet/evm-demo";
 import type { SolanaSigner } from "@/components/wallet/WalletProvider";
 
 /** Resolves after `ms`, or rejects as soon as `signal` aborts; the abort listener never outlives the wait. */
@@ -80,7 +81,7 @@ export async function submitBasePayout(wallet: SignerClient, vault: Address, pay
   }
   if ("BaseRelease" in payout.kind) {
     const kind = payout.kind.BaseRelease;
-    return executeRelease(wallet, { vault, authorization: { lockup: kind.lockup as Address, streamId: BigInt(kind.stream_id), to: kind.to as Address, vestedToRecipient: kind.vested_to_recipient, id }, ...signature });
+    return executeRelease(wallet, basePublicClient(), { vault, authorization: { lockup: kind.lockup as Address, streamId: BigInt(kind.stream_id), to: kind.to as Address, vestedToRecipient: kind.vested_to_recipient, id }, ...signature });
   }
   throw new RoseActionError("contract", "Not a Base payout", "This payout is not a RoseVault authorization.");
 }
@@ -153,14 +154,17 @@ export async function latestSuccessfulSignature(connection: Connection, address:
 
 export type CreatedNonce = { proof: SolNonceProof; nonceAccount: PublicKey; signature: string; nonceValue: string; slot: number };
 
+/** Seed suffix of the receipt nonce account, next to the nonce account's empty suffix. */
+const RECEIPT_SEED_SUFFIX = "r";
+
 /**
- * The payout's durable nonce account of `nearAccount` (spec 7.3): created from the claimant's
- * Solana wallet with a seed bound to the NEAR account (`createWithSeed(wallet, payoutNonceSeed)`,
- * authority = the engine's vault; the wallet is the base and the only signer), or reused when it
- * already exists, together with the recipient's associated token account for the mint
- * (idempotent). After finality it reads back the exact bytes the engine proves: the nonce account
- * and the recipient's token account, anchored on a successful finalized transaction not newer
- * than the reads.
+ * The payout's durable nonce account and receipt nonce account of `nearAccount` (spec 7.3):
+ * created from the claimant's Solana wallet with seeds bound to the NEAR account
+ * (`createWithSeed(wallet, payoutNonceSeed)`, authority = the engine's vault; the wallet is the
+ * base and the only signer), or reused when they exist, together with the recipient's associated
+ * token account for the mint (idempotent). After finality it reads back the exact bytes the
+ * engine proves: both nonce accounts and the recipient's token account, anchored on a successful
+ * finalized transaction not newer than the reads.
  */
 export async function createPayoutNonce(
   signer: SolanaSigner,
@@ -172,23 +176,31 @@ export async function createPayoutNonce(
 ): Promise<CreatedNonce> {
   const authority = new PublicKey(vaultSol);
   const seed = await payoutNonceSeed(nearAccount);
+  const receiptSeed = await payoutNonceSeed(nearAccount, RECEIPT_SEED_SUFFIX);
   const nonceAccount = await payoutNonceAddress(signer.publicKey, seed);
+  const receiptAccount = await payoutNonceAddress(signer.publicKey, receiptSeed);
   const recipientTokens = getAssociatedTokenAddressSync(recipient.mint, recipient.owner, true);
-  const [existingNonce, existingTokens] = await Promise.all([connection.getAccountInfo(nonceAccount, "finalized"), connection.getAccountInfo(recipientTokens, "finalized")]);
-  if (existingNonce) {
-    const state = await readNonceAccount(connection, nonceAccount, "finalized");
-    if (!state.authority.equals(authority)) throw new RoseActionError("contract", "Nonce account in use", `The nonce account ${nonceAccount.toBase58()} of this wallet has another authority than the engine's vault.`);
+  const [existingNonce, existingReceipt, existingTokens] = await Promise.all([
+    connection.getAccountInfo(nonceAccount, "finalized"),
+    connection.getAccountInfo(receiptAccount, "finalized"),
+    connection.getAccountInfo(recipientTokens, "finalized"),
+  ]);
+  for (const [account, exists] of [[nonceAccount, existingNonce], [receiptAccount, existingReceipt]] as const) {
+    if (!exists) continue;
+    const state = await readNonceAccount(connection, account, "finalized");
+    if (!state.authority.equals(authority)) throw new RoseActionError("contract", "Nonce account in use", `The nonce account ${account.toBase58()} of this wallet has another authority than the engine's vault.`);
   }
   let signature: string | null = null;
-  if (!existingNonce || !existingTokens) {
+  if (!existingNonce || !existingReceipt || !existingTokens) {
     const lamports = await nonceRent(connection);
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-    const transaction = existingNonce
-      ? new Transaction({ blockhash, lastValidBlockHeight, feePayer: signer.publicKey })
-      : createNonceAccountTransaction({ payer: signer.publicKey, nonceAccount, seed, authority, lamports, blockhash, lastValidBlockHeight });
+    const transaction = new Transaction({ blockhash, lastValidBlockHeight, feePayer: signer.publicKey });
+    for (const [account, accountSeed, exists] of [[nonceAccount, seed, existingNonce], [receiptAccount, receiptSeed, existingReceipt]] as const) {
+      if (!exists) transaction.add(...createNonceAccountTransaction({ payer: signer.publicKey, nonceAccount: account, seed: accountSeed, authority, lamports, blockhash, lastValidBlockHeight }).instructions);
+    }
     transaction.add(createAssociatedTokenAccountIdempotentInstruction(signer.publicKey, recipientTokens, recipient.owner, recipient.mint));
     const signed = await signer.signTransaction(transaction);
-    onProgress?.(existingNonce ? "Creating the recipient's token account…" : "Sending the nonce account creation…");
+    onProgress?.(existingNonce && existingReceipt ? "Creating the recipient's token account…" : "Sending the nonce and receipt account creation…");
     signature = await connection.sendRawTransaction(signed.serialize());
     onProgress?.("Waiting for finality (about 15 s)…");
     await confirmSignature(connection, signature, { strategy: "blockhash", blockhash, lastValidBlockHeight, commitment: "finalized" });
@@ -197,10 +209,23 @@ export async function createPayoutNonce(
     signature = await latestSuccessfulSignature(connection, nonceAccount);
     if (!signature) throw new RoseActionError("contract", "No anchor", `No successful finalized transaction touches the nonce account ${nonceAccount.toBase58()} yet; retry in a few seconds.`, true);
   }
-  const [state, tokens] = await Promise.all([readNonceAccount(connection, nonceAccount, "finalized"), connection.getAccountInfo(recipientTokens, "finalized")]);
+  const [state, receipt, tokens] = await Promise.all([
+    readNonceAccount(connection, nonceAccount, "finalized"),
+    readNonceAccount(connection, receiptAccount, "finalized"),
+    connection.getAccountInfo(recipientTokens, "finalized"),
+  ]);
   if (!tokens) throw new RoseActionError("contract", "No token account", `The recipient's token account ${recipientTokens.toBase58()} is not readable at finality yet; retry.`, true);
   return {
-    proof: { account: nonceAccount.toBase58(), base: signer.publicKey.toBase58(), seed, anchor_tx: signature, data: bytesToHex(state.raw), recipient_tokens_data: bytesToHex(Uint8Array.from(tokens.data)) },
+    proof: {
+      account: nonceAccount.toBase58(),
+      base: signer.publicKey.toBase58(),
+      seed,
+      receipt_seed: receiptSeed,
+      anchor_tx: signature,
+      data: bytesToHex(state.raw),
+      receipt_data: bytesToHex(receipt.raw),
+      recipient_tokens_data: bytesToHex(Uint8Array.from(tokens.data)),
+    },
     nonceAccount,
     signature,
     nonceValue: state.nonce,
@@ -383,14 +408,13 @@ export async function broadcastBlockhashAction(connection: Connection, payout: P
 
 /**
  * The finalized account bytes that settle a broadcast payout or redeem (`confirm_sol_payout`,
- * `confirm_sol_redeem`): the nonce account (advanced) and the metadata of each drawn stream.
+ * `confirm_sol_redeem`): the nonce account (advanced) and the receipt nonce account, which holds
+ * the nonce's new value exactly when the transaction executed.
  */
-export async function readSolConfirmation(connection: Connection, nonceAccount: string, streams: readonly string[]): Promise<{ nonceData: string; streamData: string[] }> {
-  const accounts = await connection.getMultipleAccountsInfo([new PublicKey(nonceAccount), ...streams.map((stream) => new PublicKey(stream))], "finalized");
-  const missing = accounts.findIndex((account) => account === null);
-  if (missing !== -1) throw new RoseActionError("contract", "Account not final yet", `${missing === 0 ? "The nonce account" : "A drawn stream"} is not readable at finality yet; retry in a few seconds.`, true);
-  const data = accounts.map((account) => bytesToHex(Uint8Array.from(account!.data)));
-  return { nonceData: data[0]!, streamData: data.slice(1) };
+export async function readSolConfirmation(connection: Connection, nonceAccount: string, receiptAccount: string): Promise<{ nonceData: string; receiptData: string }> {
+  const [nonce, receipt] = await connection.getMultipleAccountsInfo([new PublicKey(nonceAccount), new PublicKey(receiptAccount)], "finalized");
+  if (!nonce || !receipt) throw new RoseActionError("contract", "Account not final yet", `${nonce ? "The receipt account" : "The nonce account"} is not readable at finality yet; retry in a few seconds.`, true);
+  return { nonceData: bytesToHex(Uint8Array.from(nonce.data)), receiptData: bytesToHex(Uint8Array.from(receipt.data)) };
 }
 
 /** The NEAR block from which a second "did not execute" proof settles a payout (spec 7.3), or null before the first one. */

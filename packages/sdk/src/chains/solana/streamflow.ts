@@ -58,6 +58,14 @@ export interface StreamflowMetadata {
   streamflowTreasuryTokens: PublicKey;
   partner: PublicKey;
   partnerTokens: PublicKey;
+  streamflowFeeTotal: bigint;
+  streamflowFeeWithdrawn: bigint;
+  /** `streamflow_fee_percent`: the raw bits of the `f32`, compared as bits as the engine does (`-0.0` is a fee). */
+  streamflowFeePercentBits: number;
+  partnerFeeTotal: bigint;
+  partnerFeeWithdrawn: bigint;
+  /** `partner_fee_percent`: the raw bits of the `f32`. */
+  partnerFeePercentBits: number;
   startTime: bigint;
   netAmountDeposited: bigint;
   period: bigint;
@@ -118,6 +126,12 @@ export function decodeStreamflowMetadata(bytes: Uint8Array): StreamflowMetadata 
     streamflowTreasuryTokens: key(273),
     partner: key(325),
     partnerTokens: key(357),
+    streamflowFeeTotal: u64(305),
+    streamflowFeeWithdrawn: u64(313),
+    streamflowFeePercentBits: view.getUint32(321, true),
+    partnerFeeTotal: u64(389),
+    partnerFeeWithdrawn: u64(397),
+    partnerFeePercentBits: view.getUint32(405, true),
     startTime: u64(409),
     netAmountDeposited: u64(417),
     period: u64(425),
@@ -184,12 +198,25 @@ export type StreamflowEligibilityReason =
   | "not_transferable_by_recipient"
   | "pausable"
   | "can_update_rate"
-  | "can_topup";
+  | "can_topup"
+  | "automatic_withdrawal"
+  | "modified"
+  | "fees"
+  | "ends_too_soon";
 
 export interface StreamflowEligibility { eligible: boolean; reasons: StreamflowEligibilityReason[] }
 
-/** Spec 7.2 rules: the engine refuses any stream the sender could still change. */
-export function checkStreamflowEligibility(metadata: StreamflowMetadata): StreamflowEligibility {
+/** Seconds before its `end_time` a stream must still be when it is attributed (the engine's `DEPOSIT_END_MARGIN_SECS`, spec 7.2). */
+export const DEPOSIT_END_MARGIN_SECS = 3_600n;
+
+/**
+ * Spec 7.2 rules on the metadata alone, as the engine's `check_deposit` and attribution apply
+ * them: nothing the sender could still change, no automatic withdrawal, no pause or rate-change
+ * history, no Streamflow or partner fee (raw bits, so `-0.0` counts), and, given `nowSecs`, an
+ * `end_time` more than an hour away (Streamflow's auto-claim empties a stream at its end). The
+ * mint and the amount left to lock are checked separately.
+ */
+export function checkStreamflowEligibility(metadata: StreamflowMetadata, nowSecs?: bigint): StreamflowEligibility {
   const reasons: StreamflowEligibilityReason[] = [];
   if (metadata.closed) reasons.push("closed");
   if (metadata.canceledAt !== 0n) reasons.push("canceled");
@@ -199,6 +226,11 @@ export function checkStreamflowEligibility(metadata: StreamflowMetadata): Stream
   if (metadata.pausable) reasons.push("pausable");
   if (metadata.canUpdateRate) reasons.push("can_update_rate");
   if (metadata.canTopup) reasons.push("can_topup");
+  if (metadata.automaticWithdrawal) reasons.push("automatic_withdrawal");
+  if (metadata.currentPauseStart !== 0n || metadata.pauseCumulative !== 0n || metadata.lastRateChangeTime !== 0n || metadata.fundsUnlockedAtLastRateChange !== 0n) reasons.push("modified");
+  const fees = [metadata.streamflowFeeTotal, metadata.streamflowFeeWithdrawn, metadata.partnerFeeTotal, metadata.partnerFeeWithdrawn].some((value) => value !== 0n);
+  if (fees || metadata.streamflowFeePercentBits !== 0 || metadata.partnerFeePercentBits !== 0) reasons.push("fees");
+  if (nowSecs !== undefined && metadata.endTime <= nowSecs + DEPOSIT_END_MARGIN_SECS) reasons.push("ends_too_soon");
   return { eligible: reasons.length === 0, reasons };
 }
 
@@ -211,6 +243,10 @@ export const STREAMFLOW_ELIGIBILITY_MESSAGES: Record<StreamflowEligibilityReason
   pausable: "The stream can be paused.",
   can_update_rate: "The sender can change the unlock rate.",
   can_topup: "The sender can top the stream up, which would change the schedule.",
+  automatic_withdrawal: "The stream withdraws automatically; the engine must control every withdrawal.",
+  modified: "The stream was paused or re-rated; its unlocks no longer follow the plain schedule.",
+  fees: "Withdrawals from the stream pay Streamflow or partner fees; the engine only holds fee-free streams.",
+  ends_too_soon: "The stream ends within an hour: Streamflow's auto-claim would empty it before the deposit completes.",
 };
 
 /** Associated token account of `owner` for `mint` (classic SPL Token). */

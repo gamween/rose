@@ -31,7 +31,7 @@ function payoutWith(transaction: string | null): PayoutView {
     updated_at: "0",
     requested_block: "1",
     sign_requests: 1,
-    solana: transaction === null ? null : { message: "", draws: [], authority_path: "vault/sol", authority: "v", cancel: false, transaction },
+    solana: transaction === null ? null : { message: "", draws: [], swept: "0", authority_path: "vault/sol", authority: "v", cancel: false, transaction },
   };
 }
 
