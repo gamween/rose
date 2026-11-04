@@ -1,9 +1,9 @@
-import { EngineCalls, ONE, type Bid, type ClassInfo, type Round, type RoundResult } from "@rose/sdk";
+import { EngineCalls, ONE, type Bid, type ClassInfo, type Round, type RoundResult, type StoredEvent } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
 import { checkRows, parseAllocationLines, rowsTotal, splitBatches } from "./allocations";
 import { dateTimeToSeconds, normalizeLinear, normalizeStepped, sablierScheduleArgs, secondsToDateTime, streamflowScheduleArgs } from "./class-schedule";
 import { sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, yoctoToNearText } from "./dao";
-import { askOrders, candidateTable, eventsOfRound, recompute, tenderReportCsv } from "./report";
+import { askOrders, candidateTable, eventsOfRound, exactDecimal, recompute, tenderReportCsv } from "./report";
 import { maxPriceFromDiscount, percentToBps, tenderArgsFromForm, tenderEscrow, validateRetireTo, windowFromInput } from "./tender-form";
 
 const DAY = 86_400n;
@@ -162,9 +162,27 @@ describe("tender report", () => {
     const csv = tenderReportCsv({ engine: "engine.rose-app.testnet", round, cls, symbol: "CINDR", bids, result: null, events: [], generatedAt: Date.UTC(2026, 10, 4) });
     const lines = csv.split("\n");
     expect(lines[0]).toBe("section,field,value,,,,");
-    expect(csv).toContain("parameters,budget,950.00");
-    expect(csv).toContain("asks,0,halden.testnet,100.0000,100.0000,9.000000,Opened");
-    expect(csv).toContain("candidates,9.000000,100.0000,105.5555,100.0000,true,");
+    expect(csv).toContain("parameters,budget,950\n");
+    expect(csv).toContain("asks,0,halden.testnet,100,100,9,Opened");
+    /* Exact to the base unit, no thousands separator: 950 / 9 = 105.555… tokens at 18 decimals. */
+    expect(csv).toContain("candidates,9,100,105.555555555555555555,100,true,");
+    expect(csv).toContain(`parameters,opens_at_utc,${new Date(Number(T0) * 1000).toISOString()}`);
     expect(eventsOfRound([{ seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "7" } } }], 7n)).toHaveLength(1);
+  });
+
+  it("keeps Base cash deposits labeled with the round id out of the round's events", () => {
+    const events = [
+      { seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "base_cash_registered", data: { round_id: "0", account: "x.testnet" } } },
+      { seq: 2n, blockHeight: 2n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "0" } } },
+    ] as unknown as StoredEvent[];
+    expect(eventsOfRound(events, 0n).map((entry) => entry.seq)).toEqual([2n]);
+  });
+
+  it("writes exact decimals", () => {
+    expect(exactDecimal(1_666_666_666_666_666_666_666n, 18)).toBe("1666.666666666666666666");
+    expect(exactDecimal(59_990_000n, 6)).toBe("59.99");
+    expect(exactDecimal(0n, 6)).toBe("0");
+    expect(exactDecimal(5n, 6)).toBe("0.000005");
+    expect(exactDecimal(-1_500_000n, 6)).toBe("-1.5");
   });
 });

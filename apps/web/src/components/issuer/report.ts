@@ -5,7 +5,7 @@
  */
 
 import { affordable, ONE, tender, type Bid, type ClassInfo, type Order, type Pricing, type Round, type RoundResult, type StoredEvent } from "@rose/sdk";
-import { formatAmount, formatDate, formatUsdc, nsToMs, venueLabel } from "@/lib/amounts";
+import { nsToMs, venueLabel } from "@/lib/amounts";
 import { nearAccountUrl } from "@/lib/explorer";
 
 export type CandidateRow = { price: bigint; supply: bigint; affordable: bigint; volume: bigint; best: boolean };
@@ -63,63 +63,96 @@ function csvRows(rows: (string | number | bigint | boolean | null)[][]): string 
   return rows.map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
-/** The whole report as one CSV with a `section` first column, so a spreadsheet keeps every table. */
+/**
+ * An exact decimal for a machine reader: every significant digit of `value / 10^decimals`, no
+ * thousands separator, trailing zeros trimmed (`1666.666666666666666666`, `59.99`, `0`).
+ */
+export function exactDecimal(value: bigint, decimals: number): string {
+  const negative = value < 0n;
+  const digits = (negative ? -value : value).toString().padStart(decimals + 1, "0");
+  const whole = digits.slice(0, digits.length - decimals);
+  const fraction = digits.slice(digits.length - decimals).replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
+/** ISO 8601 UTC, sortable and parseable by spreadsheets. */
+function isoTime(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+const CASH = 6;
+
+/**
+ * The whole report as one CSV with a `section` first column, so a spreadsheet keeps every table.
+ * Amounts are exact decimals (cash with 6 decimals, units with the class decimals) and times ISO
+ * 8601 UTC, so the file recomputes to the base unit.
+ */
 export function tenderReportCsv(data: TenderReportData): string {
   const { round, cls, result, bids, symbol } = data;
   const pricing = pricingOf(round, cls);
   const asks = askOrders(bids);
   const budget = round.budget ?? 0n;
   const candidates = candidateTable(asks, budget, round.maxPrice, pricing);
+  const units = (value: bigint) => exactDecimal(value, cls.decimals);
+  const cash = (value: bigint) => exactDecimal(value, CASH);
   const sections: (string | number | bigint | boolean | null)[][] = [
     ["section", "field", "value", "", "", "", ""],
     ["parameters", "engine", data.engine],
     ["parameters", "round_id", round.roundId.toString()],
     ["parameters", "class_id", round.classId],
     ["parameters", "class", `${symbol} ${cls.chain}`],
+    ["parameters", "class_decimals", cls.decimals],
     ["parameters", "venue", venueLabel(round.venue)],
     ["parameters", "creator", round.creator],
     ["parameters", "status", round.status],
     ["parameters", "budget_cash_base_units", budget.toString()],
-    ["parameters", "budget", formatUsdc(budget)],
-    ["parameters", "max_price_per_locked_token", formatUsdc(round.maxPrice, 6)],
-    ["parameters", "reference_price", round.referencePrice === null ? "" : formatUsdc(round.referencePrice, 6)],
+    ["parameters", "budget", cash(budget)],
+    ["parameters", "max_price_per_locked_token", cash(round.maxPrice)],
+    ["parameters", "reference_price", round.referencePrice === null ? "" : cash(round.referencePrice)],
     ["parameters", "retire_to", round.retireTo ?? ""],
-    ["parameters", "opens_at_utc", formatDate(nsToMs(round.opensAt))],
-    ["parameters", "closes_at_utc", formatDate(nsToMs(round.closesAt))],
+    ["parameters", "opens_at_utc", isoTime(nsToMs(round.opensAt))],
+    ["parameters", "closes_at_utc", isoTime(nsToMs(round.closesAt))],
     ["parameters", "f_ts", round.fTs.toString()],
     ["parameters", "remaining_lock_secs", round.remainingLockSecs.toString()],
     ["parameters", "key_source", round.keySource ?? ""],
-    ["parameters", "key_received_at_utc", round.keyReceivedAt === null ? "" : formatDate(nsToMs(round.keyReceivedAt))],
+    ["parameters", "key_received_at_utc", round.keyReceivedAt === null ? "" : isoTime(nsToMs(round.keyReceivedAt))],
     ["sealed_book", "sealed_asks", bids.length],
-    ["sealed_book", "locked_units_total", bids.reduce((sum, bid) => sum + bid.lockedUnits, 0n).toString()],
-    ["sealed_book", "bonds_total", formatUsdc(bids.reduce((sum, bid) => sum + bid.bond, 0n))],
+    ["sealed_book", "locked_units_total", units(bids.reduce((sum, bid) => sum + bid.lockedUnits, 0n))],
+    ["sealed_book", "bonds_total", cash(bids.reduce((sum, bid) => sum + bid.bond, 0n))],
     ["asks", "bid_id", "bidder", "locked_units", "quantity", "min_price", "status"],
-    ...bids.map((bid) => ["asks", bid.bidId, bid.bidder, formatAmount(bid.lockedUnits, cls.decimals), bid.opened ? formatAmount(bid.opened.quantity, cls.decimals) : "", bid.opened ? formatUsdc(bid.opened.price, 6) : "", bid.void ?? bid.status]),
+    ...bids.map((bid) => ["asks", bid.bidId, bid.bidder, units(bid.lockedUnits), bid.opened ? units(bid.opened.quantity) : "", bid.opened ? cash(bid.opened.price) : "", bid.void ?? bid.status]),
     ["candidates", "price", "supply_S", "affordable", "volume_Q", "best", ""],
-    ...candidates.map((row) => ["candidates", formatUsdc(row.price, 6), formatAmount(row.supply, cls.decimals), formatAmount(row.affordable, cls.decimals), formatAmount(row.volume, cls.decimals), row.best, ""]),
+    ...candidates.map((row) => ["candidates", cash(row.price), units(row.supply), units(row.affordable), units(row.volume), row.best, ""]),
   ];
   if (result) {
     sections.push(
-      ["result", "clearing_price", formatUsdc(result.price, 6)],
-      ["result", "volume_units", formatAmount(result.volume, cls.decimals)],
-      ["result", "notional", formatUsdc(result.notional)],
-      ["result", "fee", formatUsdc(result.fee)],
-      ["result", "issuer_charged", formatUsdc(result.issuerCharged)],
-      ["result", "issuer_refund", formatUsdc(result.issuerRefund)],
+      ["result", "clearing_price", cash(result.price)],
+      ["result", "volume_units", units(result.volume)],
+      ["result", "notional", cash(result.notional)],
+      ["result", "fee", cash(result.fee)],
+      ["result", "issuer_charged", cash(result.issuerCharged)],
+      ["result", "issuer_refund", cash(result.issuerRefund)],
       ["fills", "bid_id", "bidder", "fill_quantity", "cash", "settled", "void"],
-      ...result.fills.map((fill) => ["fills", fill.bidId, fill.bidder, formatAmount(fill.fillQuantity, cls.decimals), formatUsdc(fill.cash), fill.settled, fill.void ?? ""]),
+      ...result.fills.map((fill) => ["fills", fill.bidId, fill.bidder, units(fill.fillQuantity), cash(fill.cash), fill.settled, fill.void ?? ""]),
     );
   }
   sections.push(
     ["events", "seq", "event", "timestamp_utc", "predecessor", "explorer", ""],
-    ...data.events.map((entry) => ["events", entry.seq.toString(), entry.event.event, formatDate(nsToMs(entry.timestamp)), entry.predecessor, nearAccountUrl(entry.predecessor), ""]),
-    ["generated", "at_utc", formatDate(data.generatedAt)],
+    ...data.events.map((entry) => ["events", entry.seq.toString(), entry.event.event, isoTime(nsToMs(entry.timestamp)), entry.predecessor, nearAccountUrl(entry.predecessor), ""]),
+    ["generated", "at_utc", isoTime(data.generatedAt)],
   );
   return csvRows(sections);
 }
 
-/** The engine events that concern one round (`round_id` in their data). */
+/**
+ * Events that only label a round: a Base cash deposit names a round id in its log as a note
+ * (`depositCash(…, roundId)`, 0 by default, itself a real round id), so it is funding, not part
+ * of the round's lifecycle.
+ */
+const LABEL_ONLY_EVENTS = new Set(["base_cash_registered"]);
+
+/** The engine events of one round's lifecycle (`round_id` in their data). */
 export function eventsOfRound(events: readonly StoredEvent[], roundId: bigint): StoredEvent[] {
   const id = roundId.toString();
-  return events.filter((entry) => (entry.event.data as { round_id?: string }).round_id === id);
+  return events.filter((entry) => !LABEL_ONLY_EVENTS.has(entry.event.event) && (entry.event.data as { round_id?: string }).round_id === id);
 }
