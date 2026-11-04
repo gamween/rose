@@ -15,7 +15,8 @@ export const DEFAULT_BASE_ETH_WEI = parseEther("0.002");
 export const DEFAULT_SOLANA_LAMPORTS = BigInt(LAMPORTS_PER_SOL) / 20n;
 /** What the NEAR testnet helper funds a new account with (measured 2026-11-04). */
 export const NEAR_HELPER_FUNDING = "10 NEAR";
-export const DEFAULT_NEAR_RPC_URL = "https://rpc.testnet.near.org";
+/** FastNEAR, the RPC the app reads from; `rpc.testnet.near.org` answers -429 "deprecated" under load (2026-11-04). */
+export const DEFAULT_NEAR_RPC_URL = "https://test.rpc.fastnear.com";
 /**
  * 1 NEAR when the funder account creates the account: storage deposits of every demo flow plus
  * the up-front pessimistic cost of prepaid gas (about 0.2 NEAR for a 200 Tgas opening).

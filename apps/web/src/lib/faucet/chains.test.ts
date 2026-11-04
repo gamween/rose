@@ -7,7 +7,7 @@ function env(values: Record<string, string>): NodeJS.ProcessEnv {
 }
 
 const NEAR_KEY = "ed25519:8bWAWmjS8VxkwUiGJKyjEFZesSxchRZQ1YF5K6Xq8vu9";
-const NEAR_RPC = "https://rpc.testnet.near.org";
+const NEAR_RPC = "https://test.rpc.fastnear.com";
 
 /** Routes the NEAR RPC (the account does not exist yet) and the helper to `helper`. */
 function nearFetch(helper: () => Response) {
