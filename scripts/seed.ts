@@ -4,6 +4,7 @@
  * and one Advance opened with real sealed orders.
  *
  *   node scripts/seed.ts [step|all] [--env deployments/<engine>.env] [--window-minutes 12] [--reveal-minutes 5]
+ *                        [--kol-wallet nadia]
  *
  * Steps, in order (`all` runs them all; each is recorded and never repeated):
  *   fund      NEAR sub-accounts of rose-app.testnet for the cast (created once, topped up per run),
@@ -17,6 +18,12 @@
  *   cash      tUSDC minted on NEAR and deposited as engine cash for bonds and escrows
  *   rounds    the three rounds and their sealed orders (encrypted to the live CKD key)
  *   summary   classes, positions and rounds, and the demo mint in the deployment files
+ *
+ * `--kol-wallet` names the EVM key of `~/.config/rose/seed-accounts.json` that mints Nadia Solvik's
+ * own KOL stream from the DemoStreamFaucet and self-deposits it (default `nadia`, generated on first
+ * use). The faucet allows one mint per address and class every 24 hours, so a seed of another
+ * engine within a day of the last one names a fresh key; the redeem still returns the stream to
+ * Nadia Solvik's own address.
  *
  * Records: `deployments/e2e/cindral.json` (the engine-independent cast and mint),
  * `deployments/e2e/<engine>.seed.json` (every transaction with its explorer link). Keys:
@@ -43,6 +50,7 @@ import {
   CASH_ROW_STORAGE_DEPOSIT,
   depositNearCashCall,
   depositStream,
+  lastMintAt,
   mintDemoPosition,
   mintTestUsdc,
   mintableAmount,
@@ -66,11 +74,14 @@ import { accountBalance, formatNear, near, nearRef, rpc, withRetry } from "./lib
 import { createRound, escrowFor, placeOrder, pricingOf, getRound, type OrderRecord, type RoundRecord } from "./lib/rounds.ts";
 import { cindrMint, createStrategicStream, depositStrategicStream, fundSol, type SolPosition } from "./lib/solana.ts";
 
-const USAGE = "usage: node scripts/seed.ts [fund|base|solana|register|cash|rounds|summary|all] [--env deployments/<engine>.env] [--window-minutes 12] [--reveal-minutes 5]";
+const USAGE =
+  "usage: node scripts/seed.ts [fund|base|solana|register|cash|rounds|summary|all] [--env deployments/<engine>.env] [--window-minutes 12] [--reveal-minutes 5] [--kol-wallet nadia]";
 const args = parseArgs(process.argv.slice(2), USAGE);
 const ctx: Context = await createContext(args.flags.get("env") ?? DEFAULT_ENV_FILE);
 const windowMinutes = numberFlag(args, "window-minutes", 12);
 const revealMinutes = numberFlag(args, "reveal-minutes", 5);
+const kolWallet = args.flags.get("kol-wallet") ?? "nadia";
+if (!/^[a-z0-9-]{1,32}$/.test(kolWallet)) throw new Error(`--kol-wallet must be a key name of lowercase letters, digits and dashes\n${USAGE}`);
 log(`engine ${ctx.engine}, RoseVault ${ctx.deployment.roseVault}`);
 
 interface CohortStream {
@@ -131,9 +142,9 @@ async function stepFund(): Promise<void> {
     return balances;
   });
   await ctx.seed.step("gas-top-ups", async (scope) => {
-    const nadia = ctx.keys.evm("nadia").address;
-    if ((await ctx.base.getBalance({ address: nadia })) < parseEther("0.0015")) {
-      await sendBase(ctx, scope, `${NADIA_ETH} ETH to Nadia Solvik's wallet`, () => ctx.deployer.sendTransaction({ to: nadia, value: parseEther(NADIA_ETH) }));
+    const wallet = ctx.keys.evm(kolWallet).address;
+    if ((await ctx.base.getBalance({ address: wallet })) < parseEther("0.0015")) {
+      await sendBase(ctx, scope, `${NADIA_ETH} ETH to Nadia Solvik's wallet`, () => ctx.deployer.sendTransaction({ to: wallet, value: parseEther(NADIA_ETH) }));
     }
     const transfers = [];
     for (const [who] of COHORTS["strategic-sol"].allocations) {
@@ -142,7 +153,7 @@ async function stepFund(): Promise<void> {
     }
     if ((await ctx.solana.getBalance(ctx.derived.gasSol)) < 0.05 * LAMPORTS_PER_SOL) transfers.push({ to: ctx.derived.gasSol, sol: 0.05 });
     await fundSol(ctx, scope, "SOL to the Strategic Round holders and gas/sol", transfers);
-    return { nadia_evm: nadia, solana_transfers: transfers.map((t) => ({ to: t.to.toBase58(), sol: t.sol })) };
+    return { kol_wallet: kolWallet, kol_wallet_address: wallet, solana_transfers: transfers.map((t) => ({ to: t.to.toBase58(), sol: t.sol })) };
   });
 }
 
@@ -175,7 +186,15 @@ async function stepBase(): Promise<void> {
     });
   }
   await ctx.seed.step<CohortStream>("base-self-deposit:nadia", async (scope) => {
-    const wallet = ctx.evmWallet(ctx.keys.evm("nadia").privateKey);
+    const key = ctx.keys.evm(kolWallet);
+    const last = await lastMintAt(ctx.base, faucet, key.address, DemoClass.KOL);
+    const cooldown = await ctx.base.readContract({ address: faucet, abi: demoStreamFaucetAbi, functionName: "COOLDOWN" });
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    if (last !== 0n && now < last + cooldown) {
+      const until = new Date(Number(last + cooldown) * 1000).toISOString();
+      throw new Error(`the KOL wallet "${kolWallet}" (${key.address}) minted less than 24 h ago (next mint ${until}): pass --kol-wallet <another key name>`);
+    }
+    const wallet = ctx.evmWallet(key.privateKey);
     const minted = await sendBase(ctx, scope, "Nadia Solvik: DemoStreamFaucet.mintPosition(KOL)", () => mintDemoPosition(wallet, faucet, DemoClass.KOL));
     const position = decodePositionMinted(minted);
     if (position === null) throw new Error("no PositionMinted log");
