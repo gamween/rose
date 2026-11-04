@@ -16,6 +16,7 @@ export function StatusBlock<T>({
   refreshing,
   notDeployedHint,
   badge,
+  loadingHeight,
   children,
   className,
 }: {
@@ -26,6 +27,8 @@ export function StatusBlock<T>({
   refreshing: boolean;
   /** What appears here once the deployment exists. */
   notDeployedHint: string;
+  /** Body height (px) of the loaded block at its narrowest, reserved while loading so nothing shifts. */
+  loadingHeight?: number;
   /** Headline badge derived from a live value. */
   badge?: (value: T) => { tone: BadgeTone; label: string };
   children: (value: T) => ReactNode;
@@ -53,7 +56,7 @@ export function StatusBlock<T>({
           {refreshing && state.status === "ok" ? <span className="size-1.5 animate-pulse bg-ember-400" aria-label="Refreshing" role="status" /> : null}
         </div>
       </header>
-      <div className={cn("flex-1 p-4 text-[13px] text-ink-200 transition-opacity", refreshing && state.status === "ok" && "opacity-70")}>
+      <div className={cn("flex-1 p-4 text-[13px] text-ink-200 transition-opacity", refreshing && state.status === "ok" && "opacity-70")} style={state.status === "loading" && loadingHeight ? { minHeight: loadingHeight } : undefined}>
         {state.status === "loading" ? (
           <div className="flex flex-col gap-2" aria-label="Loading">
             <Skeleton className="h-4 w-3/4" />
@@ -83,6 +86,8 @@ export function StatusBlock<T>({
         <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-400">
           Read at <time dateTime={new Date(state.fetchedAt).toISOString()}>{new Date(state.fetchedAt).toLocaleTimeString()}</time>
         </footer>
+      ) : state.status === "loading" ? (
+        <footer className="border-t border-ink-800 px-4 py-2 text-[11px] text-ink-400">Reading…</footer>
       ) : null}
     </section>
   );

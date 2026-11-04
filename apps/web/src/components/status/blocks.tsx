@@ -43,6 +43,7 @@ export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
   return (
     <StatusBlock
       title="Engine account"
+      loadingHeight={207}
       description="Keyless after init: no key can upgrade, drain or stop it."
       notDeployedHint="Once the engine is deployed, this block shows its access key list (expected: empty) read live from the RPC."
       badge={({ keys }) => (keys.keys.length === 0 ? { tone: "success", label: "Keyless" } : { tone: "danger", label: `${keys.keys.length} ${keys.keys.length === 1 ? "key" : "keys"}` })}
@@ -92,6 +93,7 @@ export function VersionsBlock({ deployment, refreshKey }: BlockProps) {
   return (
     <StatusBlock
       title="Contract versions"
+      loadingHeight={207}
       description="The engine is identified by the hash of its wasm; the MPC contract reports its own version."
       notDeployedHint="The MPC version is read live; the engine hash appears once the engine is deployed."
       {...query}
@@ -185,6 +187,7 @@ export function MpcLatencyBlock({ deployment, refreshKey, className }: BlockProp
   return (
     <StatusBlock
       title="MPC latency"
+      loadingHeight={334}
       description="Time from the engine's key request (after a round closes) to the key stored on chain, from event timestamps."
       notDeployedHint="Latencies are computed from the engine's event history (key_requested to key_received) once it is deployed."
       badge={({ keys }) => (keys.stats ? { tone: "success", label: `median ${formatLatency(keys.stats.medianMs)}` } : { tone: "neutral", label: "No request yet" })}
@@ -258,6 +261,7 @@ export function RoseVaultBlock({ deployment, refreshKey }: BlockProps) {
   return (
     <StatusBlock
       title="RoseVault (Base Sepolia)"
+      loadingHeight={136}
       description="Immutable, no owner: the only signer is the engine's MPC-derived address."
       notDeployedHint="The vault's address, immutable signer and accepted lockup are read from Base Sepolia once it is deployed."
       badge={({ signer, derivedSigner }) =>
@@ -319,6 +323,7 @@ export function SolanaBlock({ deployment, refreshKey }: BlockProps) {
   return (
     <StatusBlock
       title="Solana devnet"
+      loadingHeight={136}
       description="The vault holds deposited streams; gas/sol pays the fees of every engine-built transaction."
       notDeployedHint="Vault and gas payer balances are read from the devnet RPC once the engine has derived its Solana addresses."
       badge={({ gas }) => (gas.lamports >= 100_000_000n ? { tone: "success", label: "Gas funded" } : { tone: "warning", label: "Gas low" })}
@@ -385,6 +390,7 @@ export function CashTokensBlock({ deployment, refreshKey }: BlockProps) {
   return (
     <StatusBlock
       title="Test USDC"
+      loadingHeight={224}
       description="The cash venues: rose tUSDC on NEAR (NEP-141) and on Base Sepolia (ERC-20), public mint capped per day."
       notDeployedHint="Symbols, decimals and total supply are read live from both chains."
       {...query}
@@ -453,6 +459,7 @@ export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
   return (
     <StatusBlock
       title="Recent ForeignTx verifications"
+      loadingHeight={504}
       description="A position is registered only after the MPC network verified the deposit on Base or Solana."
       notDeployedHint="Each verified deposit (position_registered event) is listed here once the engine is deployed."
       badge={({ total }) => ({ tone: total > 0 ? "success" : "neutral", label: `${total} in window` })}
