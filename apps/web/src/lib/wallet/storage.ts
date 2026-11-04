@@ -58,7 +58,9 @@ export function removeStored(key: DemoStorageKey): void {
  * Whether this browser holds a wallet session to restore: a rose wallet preference (demo or
  * external), a wagmi connection that was not disconnected (`wagmi.recentConnectorId` without the
  * `<id>.disconnected` shim), or the Solana wallet adapter's remembered wallet (`walletName`). The
- * wallet SDKs load right after hydration only in that case.
+ * wallet SDKs load right after hydration only in that case. Two rarer reconnections now wait for
+ * the first wallet surface instead: an injected EVM wallet that authorized the site after its
+ * wagmi keys were cleared, and a wallet that a parent frame injects into NEAR Connect.
  */
 export function hasStoredWalletSession(): boolean {
   const store = storage();

@@ -38,7 +38,7 @@ const BASE_STEPS: { id: BaseStep; label: string }[] = [
 ];
 
 export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, onDeposited }: { engine: RoundsEngine; venue: Venue; roundId: bigint; shortfall: bigint; nearCashToken: string; onDeposited: () => void }) {
-  const { near, evm, balances, getEvmWalletClient, refreshBalances, sendNearCall } = useWallets();
+  const { near, evm, balances, getEvmWalletClient, refreshBalances, sendNearCall, restoring } = useWallets();
   const toast = useToast();
   const { run } = useNearAction();
   const nearDeposit = useAction();
@@ -152,7 +152,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
       <p className="text-[12px] text-ink-300">
         Your cash in this venue is short by <span className="tabular text-ink-50">{formatUsdc(shortfall)}</span>. Deposit the Base token into RoseVault with your EVM wallet; the engine verifies the `CashDeposited` log through the MPC once Base&apos;s safe head passes it (3 to 4 minutes).
       </p>
-      {evm.status !== "connected" ? <Notice tone="warning">Connect an EVM wallet on Base Sepolia (or the demo wallet) to deposit.</Notice> : null}
+      {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : evm.status !== "connected" ? <Notice tone="warning">Connect an EVM wallet on Base Sepolia (or the demo wallet) to deposit.</Notice> : null}
       <Field label="Amount to deposit" hint={baseBalance !== null ? `Wallet balance ${formatUsdc(baseBalance)} (rose tUSDC)` : "The venue token balance is read for rose tUSDC only."} error={!valid ? "Enter a positive amount." : null}>
         {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={amount} onValueChange={setAmount} unit="USDC" decimals={USDC_DECIMALS} />}
       </Field>

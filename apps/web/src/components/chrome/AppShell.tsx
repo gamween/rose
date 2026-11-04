@@ -27,13 +27,15 @@ function FundsLoading({ open, failed, onClose, onRetry }: { open: boolean; faile
       {failed ? (
         <div className="flex items-center justify-between gap-3 rounded-md border border-danger-500/60 bg-danger-500/10 px-3 py-2 text-[12px] text-ink-200" role="alert">
           <span>The funds panel did not load. Check your connection.</span>
-          <Button variant="ghost" size="sm" onClick={onRetry}>
+          <Button variant="ghost" size="sm" onClick={onRetry} aria-label="Retry loading the funds panel">
             Retry
           </Button>
         </div>
       ) : (
-        <p className="flex items-center gap-2 text-[12px] text-ink-400">
-          <Spinner label="Loading the funds panel" />
+        <p role="status" className="flex items-center gap-2 text-[12px] text-ink-400">
+          <span aria-hidden className="inline-flex">
+            <Spinner />
+          </span>
           Loading the funds panel…
         </p>
       )}

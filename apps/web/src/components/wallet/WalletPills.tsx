@@ -79,7 +79,7 @@ export function WalletPills({ className }: { className?: string }) {
           <span className="ml-1 text-[12px] text-ink-200">{pills.length}</span>
         </button>
       ) : null}
-      <Button size="sm" variant={pills.length > 0 ? "secondary" : "primary"} onClick={() => openConnect("near")} data-connect>
+      <Button size="sm" variant={pills.length > 0 ? "secondary" : "primary"} onClick={() => openConnect("near")} loading={wallets.restoring} loadingLabel="Restoring" data-connect>
         {pills.length > 0 ? (
           <>
             <span className="sm:hidden">More</span>

@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { Spinner } from "@/components/ui/Spinner";
 import { Tabs } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
 import { toActionError } from "@/lib/errors";
 import { shortAddress, type ChainId } from "@/lib/explorer";
 import { useWallets } from "./WalletProvider";
+import { WalletsStatusRow } from "./WalletsStatus";
 
 const CHAIN_TABS = [
   { id: "near", label: "NEAR" },
@@ -91,6 +91,7 @@ export function ConnectModal({ open, onClose, initialChain = "near" }: { open: b
       <Tabs items={CHAIN_TABS} value={chain} onChange={setChain} label="Chain" className="-mt-1 mb-4" />
       {chain === "near" ? (
         <div className="flex flex-col gap-2">
+          <WalletsStatusRow what="Loading NEAR Connect…" />
           {wallets.near.accountId ? <Connected label={shortAddress("near", wallets.near.accountId)} wallet={wallets.near.walletName} onDisconnect={() => run(wallets.disconnectNear, "NEAR wallet disconnected")} busy={busy} /> : null}
           <WalletRow
             name="NEAR wallet"
@@ -113,7 +114,7 @@ export function ConnectModal({ open, onClose, initialChain = "near" }: { open: b
       {chain === "base" ? (
         <div className="flex flex-col gap-2">
           {wallets.evm.address ? <Connected label={shortAddress("base", wallets.evm.address)} wallet={wallets.evm.walletName} onDisconnect={() => run(wallets.disconnectEvm, "EVM wallet disconnected")} busy={busy} /> : null}
-          {walletsStatus !== "ready" ? <WalletsLoading status={walletsStatus} onRetry={() => void loadWallets().catch(() => undefined)} what="injected wallets" /> : null}
+          <WalletsStatusRow what="Looking for injected wallets in this browser…" />
           {wallets.evmConnectors.map((connector) => (
             <WalletRow
               key={connector.uid}
@@ -140,7 +141,7 @@ export function ConnectModal({ open, onClose, initialChain = "near" }: { open: b
       {chain === "solana" ? (
         <div className="flex flex-col gap-2">
           {wallets.solana.publicKey ? <Connected label={shortAddress("solana", wallets.solana.publicKey)} wallet={wallets.solana.walletName} onDisconnect={() => run(wallets.disconnectSolana, "Solana wallet disconnected")} busy={busy} /> : null}
-          {walletsStatus !== "ready" ? <WalletsLoading status={walletsStatus} onRetry={() => void loadWallets().catch(() => undefined)} what="Phantom and Solflare" /> : null}
+          <WalletsStatusRow what="Looking for Phantom and Solflare in this browser…" />
           {wallets.solanaWallets.map((wallet) => (
             <WalletRow
               key={wallet.name}
@@ -164,26 +165,6 @@ export function ConnectModal({ open, onClose, initialChain = "near" }: { open: b
         </div>
       ) : null}
     </Modal>
-  );
-}
-
-/** Stands in for the detected wallets while the wallet SDKs download, or offers a retry when they did not. */
-function WalletsLoading({ status, onRetry, what }: { status: "idle" | "loading" | "failed"; onRetry: () => void; what: string }) {
-  if (status === "failed") {
-    return (
-      <div className="flex items-center justify-between gap-3 rounded-md border border-danger-500/60 bg-danger-500/10 px-3 py-2 text-[12px] text-ink-200" role="alert">
-        <span>The wallet libraries did not load. Check your connection.</span>
-        <Button variant="ghost" size="sm" onClick={onRetry}>
-          Retry
-        </Button>
-      </div>
-    );
-  }
-  return (
-    <p className="flex items-center gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px] text-ink-400">
-      <Spinner label={`Looking for ${what}`} />
-      Looking for {what} in this browser…
-    </p>
   );
 }
 

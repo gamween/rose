@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
 import { ConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
+import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { formatAmount, formatUsdc, formatDate, nsToMs, venueLabel } from "@/lib/amounts";
 import { deployed } from "@/lib/deployment";
 import { requireEngine } from "@/lib/engine-client";
@@ -276,6 +277,8 @@ export function AdvancePage() {
                     ) : null}
                     <CreateAdvanceForm data={data} account={account} busy={flow !== null} onSubmit={submit} onCashDeposited={() => void refresh()} />
                   </>
+                ) : wallets.restoring || wallets.walletsStatus === "failed" ? (
+                  <WalletsStatusRow what="Restoring your wallet…" />
                 ) : (
                   <EmptyState
                     illustration="vault"
@@ -294,6 +297,8 @@ export function AdvancePage() {
           {tab === "liens" ? (
             account ? (
               <LiensTab data={data} />
+            ) : wallets.restoring || wallets.walletsStatus === "failed" ? (
+              <WalletsStatusRow what="Restoring your wallet…" />
             ) : (
               <EmptyState illustration="vault" title="Connect a NEAR wallet" description="Liens are attached to your NEAR account." action={<Button onClick={() => setConnect(true)}>Connect NEAR</Button>} />
             )

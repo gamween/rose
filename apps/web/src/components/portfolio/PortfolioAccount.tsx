@@ -7,7 +7,7 @@
  */
 
 import { type PayoutView } from "@rose/sdk";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Stat } from "@/components/ui/Stat";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -17,10 +17,10 @@ import { requireEngine } from "@/lib/engine-client";
 import { txLinks } from "@/lib/explorer";
 import { classLabel } from "@/lib/token-symbols";
 import { useAction } from "@/lib/use-action";
-import { ClaimDialog, type ClaimPrompt } from "./ClaimDialog";
+import type { ClaimPrompt } from "./ClaimDialog";
 import { ClaimsSection } from "./ClaimsSection";
 import type { PortfolioData } from "./data";
-import { FlowDialog, type FlowRequest } from "./FlowDialog";
+import type { FlowRequest } from "./FlowDialog";
 import { claimBaseTokensSteps, claimSolTokensSteps, confirmPayoutSteps, finishPayoutSteps, redeemSteps, resignGasSteps, retryBaseSignatureSteps, retrySolPayoutSteps, withdrawBaseCashSteps, withdrawNearCashSteps, type FlowDeps } from "./flows";
 import { HistorySection, StorageSection } from "./HistoryAndStorage";
 import { HoldingsSection } from "./HoldingsSection";
@@ -29,12 +29,11 @@ import { cashRows, holdingRows, lienProgress, orderRows, tokenClaims, type CashR
 
 export { fetchPortfolioData } from "./data";
 
-export type PortfolioAccountProps = { account: string; data: PortfolioData; refreshAll: () => void };
+/** `setPrompt` and `setFlow` drive the page's claim and flow dialogs, which outlive this view (a running flow keeps its result on screen). */
+export type PortfolioAccountProps = { account: string; data: PortfolioData; refreshAll: () => void; setPrompt: (prompt: ClaimPrompt | null) => void; setFlow: (flow: FlowRequest) => void };
 
-export function PortfolioAccount({ account, data, refreshAll }: PortfolioAccountProps) {
+export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow }: PortfolioAccountProps) {
   const wallets = useWallets();
-  const [prompt, setPrompt] = useState<ClaimPrompt | null>(null);
-  const [flow, setFlow] = useState<FlowRequest | null>(null);
   const simple = useAction({ onSuccess: refreshAll });
 
   const rows = useMemo(() => holdingRows(data.portfolio.holdings, data.classes, data.blockTimeSec), [data]);
@@ -181,8 +180,6 @@ export function PortfolioAccount({ account, data, refreshAll }: PortfolioAccount
         <HistorySection data={data} />
         <StorageSection data={data} onDeposit={storageDeposit} onWithdraw={storageWithdraw} busy={simple.state.status === "loading"} />
       </div>
-      <ClaimDialog prompt={prompt} onClose={() => setPrompt(null)} />
-      <FlowDialog request={flow} onClose={() => setFlow(null)} onDone={refreshAll} />
     </>
   );
 }

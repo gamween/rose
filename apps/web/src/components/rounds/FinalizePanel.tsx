@@ -32,7 +32,7 @@ type Step =
 
 export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: { detail: RoundDetail; onChanged: () => void; autoStart: boolean; onAutoStarted: () => void }) {
   const { round, bids, engine, config, cls } = detail;
-  const { sendNearCall, near } = useWallets();
+  const { sendNearCall, near, restoring } = useWallets();
   const toast = useToast();
   const [steps, setSteps] = useState<Map<number, Step>>(() => new Map());
   const [running, setRunning] = useState(false);
@@ -177,7 +177,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
         {keyState === "invalid" ? <Notice tone="danger">The stored key does not verify against the CKD public key in this browser. Do not open anything; this should be impossible since the contract verified it with a pairing check.</Notice> : null}
         {keyState === "error" ? <Notice tone="warning">The IBE module could not load in this browser, so orders cannot be decrypted here. Reload the page or use another browser.</Notice> : null}
         {keyState === "valid" ? <p className="mb-2 text-[11px] text-success-400">Round key verified in the browser against the CKD public key.</p> : null}
-        {near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or the demo wallet) to pay the opening transactions.</Notice> : null}
+        {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or the demo wallet) to pay the opening transactions.</Notice> : null}
         {remaining === 0 && steps.size === 0 ? (
           <p className="text-[12px] text-ink-400">{windowOpen ? "Every order is open. Clearing runs after the reveal window." : "Every order was opened; clear the round."}</p>
         ) : (

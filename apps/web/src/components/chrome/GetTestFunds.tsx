@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Modal";
 import { useToast, type ExplorerLink } from "@/components/ui/Toast";
 import { useWallets } from "@/components/wallet/WalletProvider";
+import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { deployedAddress, NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
 import { CHAIN_LABEL, txLinks, type ChainId } from "@/lib/explorer";
@@ -192,6 +193,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
       }
     >
       <div className="flex flex-col gap-5">
+        <WalletsStatusRow what={wallets.restoring ? "Restoring your wallets…" : "Loading the wallet libraries…"} />
         <section className="flex flex-col gap-2">
           <ChainHeading chain="near" address={wallets.near.accountId} kind={wallets.near.kind} />
           <ul className="flex flex-col gap-2">
@@ -207,7 +209,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                     : connectHint("near")
               }
               state={nearAccount}
-              disabledReason={!nearDemo ? "Needs the NEAR demo wallet." : wallets.near.demoAccountExists ? "Already created." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !nearDemo ? "Needs the NEAR demo wallet." : wallets.near.demoAccountExists ? "Already created." : null}
               onRun={() =>
                 void runNearAccount("Creating the NEAR demo account", async () => {
                   if (!nearDemo) throw new Error("No NEAR demo wallet.");
@@ -226,7 +228,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                 </>
               }
               state={nearMint}
-              disabledReason={!wallets.near.accountId ? "Connect a NEAR wallet first." : nearDemo && !wallets.near.demoAccountExists ? "Create the demo account first." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.near.accountId ? "Connect a NEAR wallet first." : nearDemo && !wallets.near.demoAccountExists ? "Create the demo account first." : null}
               onRun={() =>
                 void runNearMint("Minting tUSDC on NEAR", async () => {
                   const outcome = await wallets.sendNearCall(mintTestUsdcCall(NEAR_TUSDC_ACCOUNT, NEAR_TUSDC_MINT, NEAR_TUSDC_STORAGE_DEPOSIT));
@@ -244,7 +246,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title={`Send ${info ? formatUnits(BigInt(info.chains.base.amount), 18, 4) : "0.002"} ETH for gas`}
               description={wallets.evm.address ? "From the project's Base Sepolia hot wallet through /api/faucet." : connectHint("base")}
               state={baseGas}
-              disabledReason={!wallets.evm.address ? "Connect a Base Sepolia wallet first." : info && !info.chains.base.configured ? "The Base faucet is not configured on this deployment." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.evm.address ? "Connect a Base Sepolia wallet first." : info && !info.chains.base.configured ? "The Base faucet is not configured on this deployment." : null}
               onRun={() =>
                 void runBaseGas("Sending Base Sepolia ETH", async () => {
                   const result = (await callFaucet({ chain: "base", address: wallets.evm.address ?? "" })) as { txHash: string; amount: string };
@@ -261,7 +263,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                 </>
               }
               state={baseMint}
-              disabledReason={!wallets.evm.address ? "Connect a Base Sepolia wallet first." : !baseTusdc ? "Test USDC is not deployed yet." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.evm.address ? "Connect a Base Sepolia wallet first." : !baseTusdc ? "Test USDC is not deployed yet." : null}
               onRun={() =>
                 void runBaseMint("Minting tUSDC on Base", async () => {
                   if (!baseTusdc) throw new Error("Test USDC is not deployed.");
@@ -276,7 +278,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title="Mint me a demo vesting position"
               description="DemoStreamFaucet creates a non-cancelable, transferable Sablier LL stream of the demo token to your address (one per class per 24 h), ready to deposit."
               state={basePosition}
-              disabledReason={!wallets.evm.address ? "Connect a Base Sepolia wallet first." : !demoFaucet ? "DemoStreamFaucet is not deployed yet." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.evm.address ? "Connect a Base Sepolia wallet first." : !demoFaucet ? "DemoStreamFaucet is not deployed yet." : null}
               onRun={() =>
                 void runBasePosition("Minting a demo vesting position", async () => {
                   if (!demoFaucet) throw new Error("DemoStreamFaucet is not deployed.");
@@ -318,7 +320,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title={`Send ${info ? formatUnits(BigInt(info.chains.solana.amount), 9, 3) : "0.05"} SOL`}
               description={wallets.solana.publicKey ? "From the project's devnet hot wallet through /api/faucet (the devnet RPC airdrop is closed)." : connectHint("solana")}
               state={solGas}
-              disabledReason={!wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : info && !info.chains.solana.configured ? "The Solana faucet is not configured on this deployment." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : info && !info.chains.solana.configured ? "The Solana faucet is not configured on this deployment." : null}
               onRun={() =>
                 void runSolGas("Sending devnet SOL", async () => {
                   const result = (await callFaucet({ chain: "solana", address: wallets.solana.publicKey ?? "" })) as { signature: string; amount: string };
@@ -330,7 +332,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title="Create a demo Streamflow position"
               description="Creates a non-cancelable, transferable Streamflow stream of the demo token to your own address (needs demo tokens in your wallet and about 0.02 SOL)."
               state={solPosition}
-              disabledReason={!wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : null}
               onRun={() =>
                 void runSolPosition("Creating a Streamflow position", async () => {
                   const signer = wallets.getSolanaSigner();

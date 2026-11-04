@@ -107,6 +107,8 @@ export type WalletsStatus = "idle" | "loading" | "ready" | "failed";
 
 export type WalletContextValue = WalletRuntimeValue & {
   walletsStatus: WalletsStatus;
+  /** A stored session is being restored: wallet surfaces say so instead of asking to connect. */
+  restoring: boolean;
   /** Loads the wallet SDKs (idempotent); resolves once the runtime has restored the sessions. */
   loadWallets: () => Promise<void>;
 };
@@ -130,21 +132,12 @@ function loadFailure(): RoseActionError {
   return new RoseActionError("rpc", "Wallets did not load", "The wallet libraries could not be downloaded. Check your connection and retry.", true);
 }
 
-/** Schedules `run` once the main thread is idle (bounded), so restoring a session never competes with the first paint. */
-function whenIdle(run: () => void): () => void {
-  if (typeof window.requestIdleCallback === "function") {
-    const handle = window.requestIdleCallback(run, { timeout: 1500 });
-    return () => window.cancelIdleCallback(handle);
-  }
-  const handle = window.setTimeout(run, 200);
-  return () => window.clearTimeout(handle);
-}
-
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [Runtime, setRuntime] = useState<RuntimeComponent | null>(null);
   const [runtimeValue, setRuntimeValue] = useState<WalletRuntimeValue | null>(null);
   const [status, setStatus] = useState<WalletsStatus>("idle");
-  const [restoring, setRestoring] = useState(true);
+  /** `unknown` until the first effect has read the browser storage. */
+  const [session, setSession] = useState<"unknown" | "none" | "stored">("unknown");
 
   const runtimeRef = useRef<WalletRuntimeValue | null>(null);
   const importRef = useRef<Promise<void> | null>(null);
@@ -174,7 +167,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         importRef.current = null;
         readyRef.current = null;
         setStatus("failed");
-        setRestoring(false);
         pending.reject(loadFailure());
       });
     setStatus((current) => (current === "ready" ? current : "loading"));
@@ -193,13 +185,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [ready],
   );
 
-  /* After hydration: restore a stored session in the background, or report "no wallet" at once. */
+  /* After hydration (the effect runs after the first paint): restore a stored session at once, or report "no wallet". */
   useEffect(() => {
-    if (!hasStoredWalletSession()) {
-      const timer = window.setTimeout(() => setRestoring(false), 0);
-      return () => window.clearTimeout(timer);
-    }
-    return whenIdle(() => void loadWallets().catch(() => undefined));
+    const stored = hasStoredWalletSession();
+    const timer = window.setTimeout(() => {
+      setSession(stored ? "stored" : "none");
+      if (stored) void loadWallets().catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadWallets]);
 
   const viaRuntime = useCallback(
@@ -237,6 +230,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       useSolanaDemo: () => viaRuntime((runtime) => runtime.useSolanaDemo()),
       disconnectSolana: () => viaRuntime((runtime) => runtime.disconnectSolana()),
       forgetSolanaDemo: () => void viaRuntime((runtime) => runtime.forgetSolanaDemo()).catch(() => undefined),
+      /* Signing needs a connected Solana wallet, and a connected wallet means the runtime is ready. */
       getSolanaSigner: () => {
         throw new RoseActionError("no_wallet", "No Solana wallet", "Connect a Solana wallet on devnet first.");
       },
@@ -247,9 +241,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<WalletContextValue>(() => {
-    if (runtimeValue?.hydrated) return { ...runtimeValue, walletsStatus: status, loadWallets };
-    return { ...fallback, hydrated: !restoring, walletsStatus: status, loadWallets };
-  }, [fallback, loadWallets, restoring, runtimeValue, status]);
+    if (runtimeValue?.hydrated) return { ...runtimeValue, walletsStatus: status, restoring: false, loadWallets };
+    const restoring = session === "stored" && status !== "failed";
+    return { ...fallback, hydrated: session === "none" || status === "failed", walletsStatus: status, restoring, loadWallets };
+  }, [fallback, loadWallets, runtimeValue, session, status]);
 
   return (
     <WalletContext.Provider value={value}>

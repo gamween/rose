@@ -9,12 +9,15 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
+import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { deployed } from "@/lib/deployment";
 import { addressUrl, CHAIN_LABEL, shortAddress, type ChainId } from "@/lib/explorer";
 import { formatUnits } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 import { useEngineQuery } from "@/lib/use-engine-query";
+import { ClaimDialog, type ClaimPrompt } from "./ClaimDialog";
 import type { PortfolioData } from "./data";
+import { FlowDialog, type FlowRequest } from "./FlowDialog";
 import type { PortfolioAccountProps } from "./PortfolioAccount";
 
 const SECTIONS = [
@@ -99,6 +102,8 @@ export function PortfolioPage() {
   const account = wallets.near.accountId;
   const engine = deployed("engineAccount");
   const [connect, setConnect] = useState<ChainId | null>(null);
+  const [prompt, setPrompt] = useState<ClaimPrompt | null>(null);
+  const [flow, setFlow] = useState<FlowRequest | null>(null);
 
   const fetcher = useCallback(async (signal: AbortSignal): Promise<LoadedPortfolio> => {
     const view = await import("./PortfolioAccount");
@@ -145,6 +150,8 @@ export function PortfolioPage() {
         <EmptyState illustration="ledger" title="Engine not deployed yet" description="The portfolio reads the engine's views (holdings, orders, liens, cash, payouts, events). It fills in as soon as NEXT_PUBLIC_ENGINE_ACCOUNT points to a deployed engine." />
       ) : !wallets.hydrated ? (
         <LoadingPortfolio />
+      ) : !account && wallets.walletsStatus === "failed" ? (
+        <WalletsStatusRow what="Restoring your wallet…" />
       ) : !account ? (
         <EmptyState
           illustration="vault"
@@ -172,10 +179,12 @@ export function PortfolioPage() {
           }
         />
       ) : account && state.status === "ok" ? (
-        <state.value.Account account={account} data={state.value.data} refreshAll={refreshAll} />
+        <state.value.Account account={account} data={state.value.data} refreshAll={refreshAll} setPrompt={setPrompt} setFlow={setFlow} />
       ) : null}
       <Sections />
       <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
+      <ClaimDialog prompt={prompt} onClose={() => setPrompt(null)} />
+      <FlowDialog request={flow} onClose={() => setFlow(null)} onDone={refreshAll} />
     </div>
   );
 }

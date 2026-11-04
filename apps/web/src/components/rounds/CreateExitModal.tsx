@@ -90,7 +90,7 @@ export function CreateExitModal({
 }) {
   const config = settings?.config ?? null;
   const router = useRouter();
-  const { near } = useWallets();
+  const { near, restoring } = useWallets();
   const { run, status } = useNearAction();
   const [chosenClassId, setClassId] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -173,7 +173,7 @@ export function CreateExitModal({
           void submit();
         }}
       >
-        {near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or use the demo wallet) to create a round.</Notice> : null}
+        {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or use the demo wallet) to create a round.</Notice> : null}
         {settingsError ? (
           <Notice tone="danger">
             The engine settings (cash venues and round bounds) could not be read: {settingsError}{" "}

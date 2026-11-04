@@ -11,6 +11,7 @@ import { useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
 import { Countdown } from "@/components/ui/Countdown";
+import { useWallets } from "@/components/wallet/WalletProvider";
 import { cn } from "@/lib/cn";
 import { nearAccountUrl } from "@/lib/explorer";
 import { useNearAction } from "./actions";
@@ -62,6 +63,7 @@ function describe(action: NextAction, viewer: string | null): { title: string; b
 
 export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle }: { detail: RoundDetail; nowMs: number; onChanged: () => void; onFinalize: () => void; onSettle: () => void }) {
   const { round, engine, viewer } = detail;
+  const { restoring } = useWallets();
   const action = nextAction(round, nowMs);
   const steps = timeline(round, nowMs, detail.cls.decimals);
   const text = describe(action, viewer?.account ?? null);
@@ -193,7 +195,7 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
               </Button>
             )
           ) : null}
-          {!connected && action.kind !== "done" && action.kind !== "wait_open" ? <p className="text-right text-[11px] text-ink-400">Connect a NEAR wallet to act.</p> : null}
+          {!connected && action.kind !== "done" && action.kind !== "wait_open" ? <p className="text-right text-[11px] text-ink-400">{restoring ? "Restoring your wallet…" : "Connect a NEAR wallet to act."}</p> : null}
           {status.status === "error" ? <Notice tone="danger" className="max-w-xs">{status.error.message}</Notice> : null}
         </div>
       </div>

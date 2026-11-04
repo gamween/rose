@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { useWallets } from "@/components/wallet/WalletProvider";
+import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { cn } from "@/lib/cn";
 import { shortHex } from "@/lib/amounts";
 import { CHAIN_LABEL, type ChainId } from "@/lib/explorer";
@@ -48,6 +50,8 @@ export function ChainPicker({ value, onChange, deployed }: { value: DepositChain
 }
 
 export function WalletPrompt({ chain, onConnect, children }: { chain: ChainId; onConnect: (chain: ChainId) => void; children?: ReactNode }) {
+  const { restoring } = useWallets();
+  if (restoring) return <WalletsStatusRow what="Restoring your wallet…" />;
   return (
     <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-ink-600 bg-ink-900 px-4 py-3">
       <p className="text-[13px] text-ink-100">{children ?? `A ${CHAIN_LABEL[chain]} wallet is needed for this step.`}</p>
