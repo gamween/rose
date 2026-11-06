@@ -3561,11 +3561,13 @@ dependencies = [
 name = "rose-mock-mpc"
 version = "0.1.0"
 dependencies = [
+ "ark-ec",
  "bs58 0.5.1",
  "ed25519-dalek",
  "hex",
  "k256",
  "near-sdk",
+ "rose-ibe",
  "sha2 0.10.9",
 ]
 

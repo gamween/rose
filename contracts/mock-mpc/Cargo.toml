@@ -19,4 +19,6 @@ near-sdk = "5.30"
 sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
+ark-ec = { version = "0.4", default-features = false }
 near-sdk = { version = "5.30", features = ["unit-testing"] }
+rose-ibe = { path = "../ibe" }

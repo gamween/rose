@@ -13,7 +13,11 @@
 //! replaces the computed one, a recorded `sign` response is returned only for the very payload it
 //! was recorded over, and a recorded ForeignTx response only for the transaction id it was
 //! recorded for. It enforces the live contract's call floors (15 Tgas and 1 yoctoNEAR) so an
-//! engine that under-attaches fails here too. `set_fail_next` makes the next call panic (a
+//! engine that under-attaches fails here too, and the request checks of `near/mpc` 3.18.0 that a
+//! malformed engine request would meet live: a CKD request must name the CKD domain and carry an
+//! `AppPublicKeyPV` whose `e(pk1, G2) == e(G1, pk2)` (`app_public_key_check`, the variant the
+//! engine sends), a ForeignTx request payload version 1, and an `Eddsa` payload at most 1,232
+//! bytes. `set_fail_next` makes the next call panic (a
 //! `PromiseError` for the engine) and `set_ckd_delay` stretches the next CKD answer over several
 //! blocks. The same contract also acts as a NEP-245 receiver whose `mt_on_transfer` refunds the
 //! amount named in `msg`.
@@ -41,10 +45,37 @@ const MIN_CALL_GAS: Gas = Gas::from_tgas(15);
 const MIN_DEPOSIT: NearToken = NearToken::from_yoctonear(1);
 /// Static gas of one hop of a delayed CKD answer.
 const GAS_PER_HOP: Gas = Gas::from_tgas(3);
-/// Domains of `v1.signer-prod.testnet`: secp256k1 signatures, Ed25519 signatures, ForeignTx.
+/// Domains of `v1.signer-prod.testnet`: secp256k1 signatures, Ed25519 signatures, CKD,
+/// ForeignTx.
 pub const DOMAIN_SECP256K1: u64 = 0;
 pub const DOMAIN_ED25519: u64 = 1;
+pub const DOMAIN_CKD: u64 = 2;
 pub const DOMAIN_FOREIGN_TX: u64 = 3;
+/// The only ForeignTx payload version (`ForeignTxPayloadVersion::V1`).
+pub const FOREIGN_TX_PAYLOAD_VERSION: u8 = 1;
+/// Largest `Eddsa` payload (`EDDSA_PAYLOAD_SIZE_UPPER_BOUND_BYTES`, one Solana packet).
+pub const EDDSA_PAYLOAD_MAX_BYTES: usize = 1232;
+/// Uncompressed G1 generator and negated G2 generator, as `crates/contract/src/primitives/ckd.rs`
+/// of `near/mpc` 3.18.0 pairs them in `app_public_key_check`.
+const G1_GENERATOR_UNCOMPRESSED: [u8; 96] = [
+    23, 241, 211, 167, 49, 151, 215, 148, 38, 149, 99, 140, 79, 169, 172, 15, 195, 104, 140, 79,
+    151, 116, 185, 5, 161, 78, 58, 63, 23, 27, 172, 88, 108, 85, 232, 63, 249, 122, 26, 239, 251,
+    58, 240, 10, 219, 34, 198, 187, 8, 179, 244, 129, 227, 170, 160, 241, 160, 158, 48, 237, 116,
+    29, 138, 228, 252, 245, 224, 149, 213, 208, 10, 246, 0, 219, 24, 203, 44, 4, 179, 237, 208, 60,
+    199, 68, 162, 136, 138, 228, 12, 170, 35, 41, 70, 197, 231, 225,
+];
+const MINUS_G2_GENERATOR_UNCOMPRESSED: [u8; 192] = [
+    19, 224, 43, 96, 82, 113, 159, 96, 125, 172, 211, 160, 136, 39, 79, 101, 89, 107, 208, 208,
+    153, 32, 182, 26, 181, 218, 97, 187, 220, 127, 80, 73, 51, 76, 241, 18, 19, 148, 93, 87, 229,
+    172, 125, 5, 93, 4, 43, 126, 2, 74, 162, 178, 240, 143, 10, 145, 38, 8, 5, 39, 45, 197, 16, 81,
+    198, 228, 122, 212, 250, 64, 59, 2, 180, 81, 11, 100, 122, 227, 209, 119, 11, 172, 3, 38, 168,
+    5, 187, 239, 212, 128, 86, 200, 193, 33, 189, 184, 19, 250, 77, 74, 10, 216, 177, 206, 24, 110,
+    213, 6, 23, 137, 33, 61, 153, 57, 35, 6, 109, 221, 175, 16, 64, 188, 63, 245, 159, 130, 92,
+    120, 223, 116, 242, 215, 84, 103, 226, 94, 15, 85, 248, 160, 15, 160, 48, 237, 13, 27, 60, 194,
+    199, 2, 120, 136, 190, 81, 217, 239, 105, 29, 119, 188, 182, 121, 175, 218, 102, 199, 63, 23,
+    249, 238, 56, 55, 165, 80, 36, 247, 140, 113, 54, 50, 117, 167, 93, 117, 216, 107, 171, 121,
+    247, 71, 130, 170,
+];
 /// The secp256k1 group order `n`, big-endian: the live contract refuses ECDSA payloads >= n.
 const SECP256K1_ORDER: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
@@ -74,21 +105,32 @@ pub struct CkdResponse {
     pub big_c: String,
 }
 
-/// The part of a `request_app_private_key` request the mock reads (the other fields are
-/// ignored).
+/// A `request_app_private_key` request: the path, the key the response is encrypted to and the
+/// domain.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct CkdRequest {
     pub derivation_path: String,
+    pub app_public_key: CkdAppPublicKey,
+    pub domain_id: u64,
 }
 
-/// A `verify_foreign_transaction` request: the foreign request as the engine sent it, and the
-/// domain.
+/// The `AppPublicKeyPV` variant of `CKDAppPublicKey`: `pk1 = a * G1` and `pk2 = a * G2`, as
+/// `bls12381g1:<base58>` and `bls12381g2:<base58>`.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub enum CkdAppPublicKey {
+    AppPublicKeyPV { pk1: String, pk2: String },
+}
+
+/// A `verify_foreign_transaction` request: the foreign request as the engine sent it, the
+/// domain and the payload version.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct VerifyRequest {
     pub request: Value,
     pub domain_id: u64,
+    pub payload_version: u8,
 }
 
 /// A `sign` request: the path, the payload (`{"Ecdsa": hex}` or `{"Eddsa": hex}`) and the domain.
@@ -201,6 +243,12 @@ impl MockMpc {
     #[payable]
     pub fn request_app_private_key(&mut self, request: CkdRequest) -> PromiseOrValue<CkdResponse> {
         self.check_floors();
+        require!(request.domain_id == DOMAIN_CKD, "not the CKD domain");
+        let CkdAppPublicKey::AppPublicKeyPV { pk1, pk2 } = &request.app_public_key;
+        require!(
+            app_public_key_check(pk1, pk2),
+            "app public key check failed"
+        );
         let response = self
             .ckd
             .get(&request.derivation_path)
@@ -255,6 +303,10 @@ impl MockMpc {
         require!(
             request.domain_id == DOMAIN_FOREIGN_TX,
             "not the ForeignTx domain"
+        );
+        require!(
+            request.payload_version == FOREIGN_TX_PAYLOAD_VERSION,
+            "unknown ForeignTx payload version"
         );
         let response = match self.foreign_hashes.get(&request_key(&request.request)) {
             Some(hash) => {
@@ -313,6 +365,10 @@ impl MockMpc {
             .and_then(|(scheme, payload)| Some((scheme.clone(), payload.as_str()?.to_string())))
             .unwrap_or_else(|| env::panic_str("payload_v2 must be {\"Ecdsa\"|\"Eddsa\": hex}"));
         let payload = normalize_hex(&payload);
+        require!(
+            scheme != "Eddsa" || payload.len() <= 2 * EDDSA_PAYLOAD_MAX_BYTES,
+            "Eddsa payload exceeds 1232 bytes"
+        );
         if let Some(recorded) = self
             .sign
             .get(&sign_key(request.domain_id, &request.path, &payload))
@@ -394,6 +450,34 @@ impl MockMpc {
             env::panic_str("Request has timed out.");
         }
     }
+}
+
+/// `app_public_key_check` of `near/mpc` 3.18.0: `e(pk1, G2) == e(G1, pk2)` through the host, the
+/// decompressions checking the curve and the pairing check the subgroups. A malformed point
+/// panics as it does live.
+fn app_public_key_check(pk1: &str, pk2: &str) -> bool {
+    let pk1: [u8; 48] = bls_bytes(pk1, "bls12381g1:");
+    let pk2: [u8; 96] = bls_bytes(pk2, "bls12381g2:");
+    let pk1 = env::bls12381_p1_decompress(pk1)
+        .unwrap_or_else(|| env::panic_str("malformed BLS12-381 G1 point"));
+    let pk2 = env::bls12381_p2_decompress(pk2)
+        .unwrap_or_else(|| env::panic_str("malformed BLS12-381 G2 point"));
+    let input = [
+        pk1.as_slice(),
+        MINUS_G2_GENERATOR_UNCOMPRESSED.as_slice(),
+        G1_GENERATOR_UNCOMPRESSED.as_slice(),
+        pk2.as_slice(),
+    ]
+    .concat();
+    env::bls12381_pairing_check(&input).unwrap_or(false)
+}
+
+/// The bytes of a `<prefix><base58>` BLS key of exactly `N` bytes.
+fn bls_bytes<const N: usize>(key: &str, prefix: &str) -> [u8; N] {
+    key.strip_prefix(prefix)
+        .and_then(|encoded| bs58::decode(encoded).into_vec().ok())
+        .and_then(|bytes| bytes.try_into().ok())
+        .unwrap_or_else(|| env::panic_str(&format!("app public key is not a {prefix} key")))
 }
 
 /// The test secret of `(domain, predecessor, path)`.
@@ -553,6 +637,118 @@ mod tests {
                 "secp256k1:{}",
                 bs58::encode(&point.as_bytes()[1..]).into_string()
             )
+        );
+    }
+
+    /// A mocked call with the live floors met (15 Tgas, 1 yoctoNEAR).
+    fn call_env() {
+        testing_env!(VMContextBuilder::new()
+            .predecessor_account_id("engine.test.near".parse().unwrap())
+            .attached_deposit(MIN_DEPOSIT)
+            .prepaid_gas(Gas::from_tgas(25))
+            .build());
+    }
+
+    /// A CKD request of the engine's shape for `round/1`, its `AppPublicKeyPV` from the scalars
+    /// of rounds `a` (`pk1`) and `b` (`pk2`).
+    fn ckd_request(domain_id: u64, a: u64, b: u64) -> CkdRequest {
+        let (pk1, _) = rose_ibe::app_public_key_pv(&rose_ibe::app_scalar("engine.test.near", a));
+        let (_, pk2) = rose_ibe::app_public_key_pv(&rose_ibe::app_scalar("engine.test.near", b));
+        CkdRequest {
+            derivation_path: "round/1".into(),
+            app_public_key: CkdAppPublicKey::AppPublicKeyPV {
+                pk1: rose_ibe::format_near_g1(&pk1),
+                pk2: rose_ibe::format_near_g2(&pk2),
+            },
+            domain_id,
+        }
+    }
+
+    fn mock_with_ckd_response() -> MockMpc {
+        call_env();
+        let mut mock = MockMpc::new();
+        mock.set_ckd_response("round/1".into(), "y".into(), "c".into());
+        mock
+    }
+
+    #[test]
+    fn the_pairing_constants_are_the_generators() {
+        use ark_ec::AffineRepr;
+        testing_env!(VMContextBuilder::new().build());
+        let g1 = rose_ibe::g1_to_bytes(&rose_ibe::G1Affine::generator());
+        let minus_g2 = rose_ibe::g2_to_bytes(&-rose_ibe::G2Affine::generator());
+        assert_eq!(
+            env::bls12381_p1_decompress(g1).unwrap(),
+            G1_GENERATOR_UNCOMPRESSED
+        );
+        assert_eq!(
+            env::bls12381_p2_decompress(minus_g2).unwrap(),
+            MINUS_G2_GENERATOR_UNCOMPRESSED
+        );
+    }
+
+    #[test]
+    fn a_ckd_request_with_a_consistent_app_key_on_the_ckd_domain_is_answered() {
+        let mut mock = mock_with_ckd_response();
+        match mock.request_app_private_key(ckd_request(DOMAIN_CKD, 1, 1)) {
+            PromiseOrValue::Value(response) => assert_eq!(response.big_y, "y"),
+            PromiseOrValue::Promise(_) => panic!("no delay was set"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "not the CKD domain")]
+    fn a_ckd_request_on_another_domain_is_refused() {
+        mock_with_ckd_response()
+            .request_app_private_key(ckd_request(DOMAIN_SECP256K1, 1, 1))
+            .detach();
+    }
+
+    #[test]
+    #[should_panic(expected = "app public key check failed")]
+    fn a_ckd_request_whose_pk1_and_pk2_disagree_is_refused() {
+        mock_with_ckd_response()
+            .request_app_private_key(ckd_request(DOMAIN_CKD, 1, 2))
+            .detach();
+    }
+
+    #[test]
+    #[should_panic(expected = "malformed BLS12-381 G1 point")]
+    fn a_ckd_request_with_a_point_off_the_curve_is_refused() {
+        let mut request = ckd_request(DOMAIN_CKD, 1, 1);
+        let CkdAppPublicKey::AppPublicKeyPV { pk2, .. } = request.app_public_key;
+        request.app_public_key = CkdAppPublicKey::AppPublicKeyPV {
+            pk1: format!("bls12381g1:{}", bs58::encode([0xffu8; 48]).into_string()),
+            pk2,
+        };
+        mock_with_ckd_response()
+            .request_app_private_key(request)
+            .detach();
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown ForeignTx payload version")]
+    fn a_foreign_request_with_another_payload_version_is_refused() {
+        call_env();
+        let foreign = r#"{"request":{"Base":{"tx_id":"ab","extractors":[{"Log":{"log_index":2}}],"finality":"Safe"}},"domain_id":3,"payload_version":2}"#;
+        MockMpc::new().verify_foreign_transaction(serde_json::from_str(foreign).unwrap());
+    }
+
+    #[test]
+    fn eddsa_payloads_are_capped_at_one_solana_packet() {
+        let sign = |bytes: usize| {
+            call_env();
+            MockMpc::new().sign(SignRequest {
+                path: "vault/sol".into(),
+                payload_v2: json!({ "Eddsa": hex::encode(vec![7u8; bytes]) }),
+                domain_id: DOMAIN_ED25519,
+            })
+        };
+        sign(EDDSA_PAYLOAD_MAX_BYTES);
+        let refused = std::panic::catch_unwind(|| sign(EDDSA_PAYLOAD_MAX_BYTES + 1)).unwrap_err();
+        assert_eq!(
+            refused.downcast_ref::<String>().map(String::as_str),
+            Some("Eddsa payload exceeds 1232 bytes")
         );
     }
 
