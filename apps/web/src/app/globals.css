@@ -240,6 +240,50 @@ body {
   transform: translate(-50%, 0);
 }
 
+/*
+ * Once the sequence has ended, a mouse user who is not hovering the dragon sees a faint, pulsing
+ * hint: the in-stage button only appears on hover (keyboard focus and touch show it directly).
+ */
+.launch-hint {
+  position: absolute;
+  z-index: 10;
+  left: 50%;
+  bottom: 32px;
+  display: none;
+  transform: translateX(-50%);
+  color: var(--color-ember-300);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-mode="live"][data-ready="true"]:not([data-reveal="true"]) .launch-hint {
+    display: block;
+    animation: launch-hint-pulse 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes launch-hint-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-hint {
+    animation: none !important;
+    opacity: 0.8;
+  }
+}
+
 @media (hover: none) {
   .launch-app {
     opacity: 1;
