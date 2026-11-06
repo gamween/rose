@@ -159,9 +159,11 @@ impl Contract {
     /// bootstrap of the derived foreign addresses.
     #[init]
     pub fn new(args: InitArgs) -> Self {
+        let ckd_public_key = rose_ibe::parse_near_g2_bytes(&args.ckd_public_key)
+            .unwrap_or_else(|_| env::panic_str("Invalid CKD public key: not a bls12381g2 key"));
         require!(
-            rose_ibe::parse_near_g2_bytes(&args.ckd_public_key).is_ok(),
-            "Invalid CKD public key"
+            rose_ibe::host::is_valid_master_key_host(&ckd_public_key),
+            "Invalid CKD public key: not a non-zero point of the G2 subgroup"
         );
         let base_cash_tokens: Vec<String> = args
             .base_cash_tokens

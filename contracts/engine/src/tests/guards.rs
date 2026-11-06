@@ -292,6 +292,17 @@ fn cash_guards() {
     assert_eq!(contract.get_cash(alice.clone())[0].amount, U128(5 * USDC));
 }
 
+/// A G2 curve point outside the prime-order subgroup (the cofactor of G2 is not 1).
+fn g2_outside_subgroup() -> G2Affine {
+    use ark_bls12_381::{Fq, Fq2};
+    (1u64..)
+        .find_map(|x| {
+            G2Affine::get_point_from_x_unchecked(Fq2::new(Fq::from(x), Fq::from(0u64)), false)
+                .filter(|p| !p.is_in_correct_subgroup_assuming_on_curve())
+        })
+        .expect("a small x gives a curve point outside the subgroup")
+}
+
 #[test]
 fn init_validates_its_arguments() {
     env_at(&engine(), ts(100));
@@ -312,9 +323,24 @@ fn init_validates_its_arguments() {
         default_key_timeout: Some(U64(120 * NS)),
         default_reveal_window: Some(U64(900 * NS)),
     };
-    panics_with("Invalid CKD public key", || {
+    panics_with("Invalid CKD public key: not a bls12381g2 key", || {
         Contract::new(args("ed25519:abc"));
     });
+    // 96 bytes that decode are not enough: the key must be a non-zero G2 subgroup point.
+    for key in [g2_outside_subgroup(), G2Affine::zero()] {
+        panics_with(
+            "Invalid CKD public key: not a non-zero point of the G2 subgroup",
+            || {
+                Contract::new(args(&rose_ibe::format_near_g2(&key)));
+            },
+        );
+    }
+    panics_with(
+        "Invalid CKD public key: not a non-zero point of the G2 subgroup",
+        || {
+            Contract::new(args(&rose_ibe::format_near_g2_bytes(&[0xffu8; 96])));
+        },
+    );
     panics_with("Base chain id is required", || {
         Contract::new(InitArgs {
             base_chain_id: 0,

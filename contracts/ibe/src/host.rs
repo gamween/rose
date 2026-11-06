@@ -144,6 +144,17 @@ pub fn identity_point(mpk: &[u8; G2_LEN], app_id: &AppId) -> G1Affine {
     hash_to_g1(&input)
 }
 
+/// Checks a compressed CKD master public key: a valid encoding of a non-zero G2 point in the
+/// prime-order subgroup. The host decompression checks the curve, a one-term `g2_multiexp` the
+/// subgroup. The live MPC key always passes; a key that fails could never verify a round key
+/// ([`verify_key_host`] pairs it), so the engine refuses it once, at init.
+pub fn is_valid_master_key_host(mpk: &[u8; G2_LEN]) -> bool {
+    let Some(point) = g2_decompress(mpk) else {
+        return false;
+    };
+    !point.is_zero() && g2_msm(&[(point, Fr::from(1u64))]).is_some()
+}
+
 /// `(pk1, pk2) = (a * G1, a * G2)` for an `AppPublicKeyPV` request, computed on the host.
 pub fn app_public_key_pv_host(a: &Fr) -> (G1Affine, G2Affine) {
     (
@@ -272,6 +283,44 @@ mod tests {
         assert_eq!(g2_decompress(&g2_to_bytes(&mpk)), Some(mpk));
         assert_eq!(g1_decompress(&g1_to_bytes(&key)), Some(key));
         assert_eq!(g1_decompress(&[0xffu8; G1_LEN]), None);
+    }
+
+    /// A G2 curve point outside the prime-order subgroup (the cofactor of G2 is not 1).
+    fn g2_outside_subgroup() -> G2Affine {
+        use ark_bls12_381::Fq2;
+        (1u64..)
+            .find_map(|x| {
+                G2Affine::get_point_from_x_unchecked(Fq2::new(Fq::from(x), Fq::from(0u64)), false)
+                    .filter(|p| !p.is_in_correct_subgroup_assuming_on_curve())
+            })
+            .expect("a small x gives a curve point outside the subgroup")
+    }
+
+    #[test]
+    fn master_key_check_refuses_points_outside_the_g2_subgroup() {
+        let (_, mpk, _, _) = setup();
+        assert!(is_valid_master_key_host(&g2_to_bytes(&mpk)));
+        let outside = g2_outside_subgroup();
+        assert!(outside.is_on_curve());
+        assert!(
+            g2_decompress(&g2_to_bytes(&outside)).is_some(),
+            "on the curve: decompression alone accepts it"
+        );
+        assert!(!is_valid_master_key_host(&g2_to_bytes(&outside)));
+        assert!(!is_valid_master_key_host(&g2_to_bytes(&G2Affine::zero())));
+        assert!(!is_valid_master_key_host(&[0xffu8; G2_LEN]));
+    }
+
+    #[test]
+    fn master_key_check_costs_the_engine_init_about_two_tgas() {
+        let (_, mpk, _, _) = setup();
+        let before = env::used_gas();
+        assert!(is_valid_master_key_host(&g2_to_bytes(&mpk)));
+        let host_gas = env::used_gas().as_gas() - before.as_gas();
+        assert!(
+            (2_000_000_000_000..2_500_000_000_000).contains(&host_gas),
+            "{host_gas} gas of host calls (decompression and one-term multiexp)"
+        );
     }
 
     #[test]
