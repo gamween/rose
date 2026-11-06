@@ -1534,3 +1534,15 @@ same scripts as on the staging engines. Full transaction tables: `deployments/e2
   https://rose-rounds.vercel.app.
 - `cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1`
   against it: 145 passed, 25 skipped by their own conditions, exit 0.
+
+## Reclaim of engine-s5 for the second final deployment (2026-11-06)
+
+The final Fable review found that an Advance funder's lien share never left its account index, so
+every funder's NEP-145 deposit stays locked on `engine.rose-app.testnet` (fixed in `46358b2`; the
+keyless engine cannot be patched, and new versions deploy to new accounts). `engine-s5`, which no
+build uses any more, funds the next final engine.
+
+| Step | Command | Result |
+|---|---|---|
+| Deploy the 34-byte no-op wasm (sha256 `0fede26e…7e7e`) | `near contract deploy engine-s5.rose-app.testnet use-file noop.wasm without-init-call network-config testnet sign-with-legacy-keychain send` | [FDkMSvqC…](https://testnet.near.rocks/tx/FDkMSvqCUVrWh1t6ne1AiAKzavGaV8mYjtFQaNrJ6jDz); storage 1,082,347 B -> 66,014 B, code hash `25BW6p7Dhpfyb4vcDq4QMVXa7U21baMgf5rQmwfQqjwj` |
+| Sweep the free balance | `near tokens engine-s5.rose-app.testnet send-near rose-app.testnet '17.1 NEAR' network-config testnet sign-with-legacy-keychain send` | [GUG8uKVH…](https://testnet.near.rocks/tx/GUG8uKVHhSEkfge3RjGZk8JZqwzumoTMboWDPadXt4Yx); `rose-app.testnet` 2.48 -> 19.58 NEAR (`view_account` at `final`) |
