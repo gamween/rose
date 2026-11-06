@@ -87,7 +87,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
   }, []);
 
   const decimals = tokenInfo?.decimals ?? 18;
-  const checked = useMemo(() => checkRows(rows, decimals, parseAmount(unitAmount, decimals), 10n ** BigInt(decimals)), [rows, decimals, unitAmount]);
+  const checked = useMemo(() => checkRows(rows, decimals, { unitAmount: parseAmount(unitAmount, decimals), minimum: 10n ** BigInt(decimals) }), [rows, decimals, unitAmount]);
   const total = rowsTotal(checked);
   const sizeError = cohortSizeError(checked.length);
   const valid = checked.length > 0 && sizeError === null && checked.every((row) => row.error === null);

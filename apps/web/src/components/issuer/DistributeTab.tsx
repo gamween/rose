@@ -28,7 +28,8 @@ export function DistributeTab({ base, initialClassId }: { base: IssuerBase; init
   const [deposits, setDeposits] = useState<Deposits | null>(null);
   const flow = useFlow();
   const decimals = cls?.decimals ?? 18;
-  const checked = useMemo(() => checkRows(rows, decimals, null), [rows, decimals]);
+  const sender = wallets.near.accountId;
+  const checked = useMemo(() => checkRows(rows, decimals, { sender }), [rows, decimals, sender]);
   const total = rowsTotal(checked);
   const valid = checked.length > 0 && checked.every((row) => row.error === null);
   const batches = useMemo(() => splitBatches(checked.filter((row) => row.error === null), base.limits.maxDistributionReceivers), [checked, base.limits.maxDistributionReceivers]);

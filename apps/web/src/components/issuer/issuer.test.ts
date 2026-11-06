@@ -60,17 +60,22 @@ describe("allocations", () => {
         { account: "nadia.testnet", amount: "0" },
       ],
       18,
-      5n * 10n ** 18n,
+      { unitAmount: 5n * 10n ** 18n },
     );
     expect(rows.map((row) => row.error)).toEqual([null, "Not a valid NEAR account id.", "Duplicate account.", "Not a multiple of the unit amount.", "The amount must be positive."]);
     expect(rowsTotal(rows)).toBe(1000n * 10n ** 18n);
+  });
+  it("refuses the sender as a receiver of distribute_units before signing", () => {
+    const rows = checkRows([{ account: "cindral.testnet", amount: "5" }, { account: "ines.testnet", amount: "7" }], 18, { sender: "cindral.testnet" });
+    expect(rows.map((row) => row.error)).toEqual([expect.stringContaining("transfer to self"), null]);
+    expect(checkRows([{ account: "cindral.testnet", amount: "5" }], 18).map((row) => row.error)).toEqual([null]);
   });
   it("splits receivers into batches under the engine limit", () => {
     expect(splitBatches([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
     expect(splitBatches([], 50)).toEqual([]);
   });
   it("refuses what RoseVault refuses: an allocation under one whole token, more than 50 holders", () => {
-    const rows = checkRows([{ account: "halden.testnet", amount: "0.5" }, { account: "ines.testnet", amount: "1" }], 18, null, 10n ** 18n);
+    const rows = checkRows([{ account: "halden.testnet", amount: "0.5" }, { account: "ines.testnet", amount: "1" }], 18, { minimum: 10n ** 18n });
     expect(rows.map((row) => row.error)).toEqual(["At least one whole token per holder (RoseVault minimum).", null]);
     expect(cohortSizeError(50)).toBeNull();
     expect(cohortSizeError(51)).toContain("at most 50 holders");
