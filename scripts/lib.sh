@@ -27,6 +27,7 @@ MPC_ACCOUNT="v1.signer-prod.testnet"
 MPC_DOMAIN_SECP256K1=0
 MPC_DOMAIN_ED25519=1
 MPC_DOMAIN_CKD=2
+MPC_DOMAIN_FOREIGN_TX=3
 
 SABLIER_LOCKUP="0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e"
 CIRCLE_USDC_BASE_SEPOLIA="0x036cbd53842c5426634e7929541ec2318f3dcf7e"
@@ -235,6 +236,77 @@ evm_address_of_near_secp256k1() {
 mpc_derived_key() {
   near_view "$MPC_ACCOUNT" derived_public_key "$(jq -cn --arg p "$1" --arg a "$2" --argjson d "$3" \
     '{path:$p,predecessor:$a,domain_id:$d}')" | jq -r .
+}
+
+# lowercase <text>: the text in lowercase (EVM addresses are compared this way).
+lowercase() {
+  tr '[:upper:]' '[:lower:]' <<<"$1"
+}
+
+# base_view <contract> <signature, e.g. 'SIGNER()(address)'>: the decoded answer of a Base Sepolia
+# view call (cast), lowercased. Dies when the call fails or answers nothing, so a check built on it
+# can never pass on a missing answer.
+base_view() {
+  local out
+  out="$(cast call --rpc-url "$BASE_RPC_URL" "$1" "$2" 2>/dev/null)" || die "cast call $1 '$2' failed on $BASE_RPC_URL"
+  [[ -n "$out" ]] || die "cast call $1 '$2' answered nothing on $BASE_RPC_URL"
+  lowercase "$out"
+}
+
+# require_base_chain: dies unless $BASE_RPC_URL serves Base Sepolia.
+require_base_chain() {
+  local chain_id
+  chain_id="$(cast chain-id --rpc-url "$BASE_RPC_URL" 2>/dev/null)" || die "cast chain-id failed on $BASE_RPC_URL"
+  [[ "$chain_id" == "$BASE_CHAIN_ID" ]] || die "RPC $BASE_RPC_URL is chain ${chain_id:-unknown}, not Base Sepolia ($BASE_CHAIN_ID)"
+}
+
+# require_sablier_lockup: dies unless $SABLIER_LOCKUP answers as the Sablier Lockup on Base Sepolia
+# (`name()` is "Sablier Lockup NFT", docs/verification.md).
+require_sablier_lockup() {
+  local name
+  name="$(base_view "$SABLIER_LOCKUP" 'name()(string)')"
+  [[ "$name" == '"sablier lockup nft"' ]] || die "$SABLIER_LOCKUP answers name() = $name, not \"Sablier Lockup NFT\": refusing to use it as the Sablier Lockup"
+}
+
+# require_rose_vault <vault> <signer>: dies unless the RoseVault at <vault>, read live on Base
+# Sepolia, answers SIGNER() == <signer> and LOCKUP() == $SABLIER_LOCKUP. Both are immutable, so a
+# mismatch means the vault must be redeployed.
+require_rose_vault() {
+  local vault signer on_chain
+  vault="$(lowercase "$1")"
+  signer="$(lowercase "$2")"
+  [[ "$vault" =~ ^0x[0-9a-f]{40}$ ]] || die "RoseVault address '$1' is not a 20-byte hex address"
+  [[ "$signer" =~ ^0x[0-9a-f]{40}$ ]] || die "RoseVault signer '$2' is not a 20-byte hex address"
+  on_chain="$(base_view "$vault" 'SIGNER()(address)')"
+  [[ "$on_chain" == "$signer" ]] || die "RoseVault $vault has SIGNER() $on_chain, not $signer: the vault must be redeployed"
+  on_chain="$(base_view "$vault" 'LOCKUP()(address)')"
+  [[ "$on_chain" == "$SABLIER_LOCKUP" ]] || die "RoseVault $vault has LOCKUP() $on_chain, not the Sablier Lockup $SABLIER_LOCKUP: the vault must be redeployed"
+  log "RoseVault $vault on chain: SIGNER() $signer, LOCKUP() $SABLIER_LOCKUP"
+}
+
+# require_engine_config <engine> <expected init args, JSON>: dies unless get_config of <engine>,
+# read at `final`, equals every expected init argument (the default round windows excepted: `new`
+# bounds them and nothing depends on them), naming each field that differs.
+require_engine_config() {
+  local config diff
+  config="$(near_view "$1" get_config)" || die "get_config $1 failed"
+  diff="$(jq -rn --argjson config "$config" --argjson expected "$2" '
+    $expected | del(.default_key_timeout, .default_reveal_window) | to_entries[]
+    | select(.value != $config[.key])
+    | "\(.key): expected \(.value | tojson), on chain \($config[.key] | tojson)"')" || die "cannot compare the configuration of $1"
+  [[ -z "$diff" ]] || die "the configuration of $1 differs from the expected one: $(paste -sd ';' - <<<"$diff")"
+  log "configuration of $1 equals the expected init arguments"
+}
+
+# artifact_revision_note <source_code_snapshot> <HEAD commit>: one line naming the commit a
+# reproducible artifact was built from, and HEAD when it is another commit.
+artifact_revision_note() {
+  local rev="${1##*rev=}"
+  if [[ "$rev" == "$2" ]]; then
+    printf 'deploying the artifact of %s (HEAD)\n' "$rev"
+  else
+    printf 'deploying the artifact of %s, HEAD is %s: the artifact is not built from HEAD\n' "$rev" "$2"
+  fi
 }
 
 # deployments_init: creates deployments/testnet.json when missing.

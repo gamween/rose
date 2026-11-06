@@ -34,18 +34,26 @@
 #                                 [--keyless] [--skip-create] [--verify-only]
 #   --skip-create  the account already exists; the deployment and the bootstrap are skipped when
 #                  they are already done on chain, so a run that stopped half way resumes with it.
-#   --verify-only  sends no transaction: checks the code, the derived addresses and the RoseVault
-#                  signer, waits for view_access_key_list to return [] when --keyless is given,
-#                  then records the result. It recovers a run that stopped after the key deletion.
+#   --verify-only  sends no transaction: runs every check below, waits for view_access_key_list
+#                  to return [] when --keyless is given, then records the result. It recovers a run
+#                  that stopped after the key deletion.
 # The RoseVault address defaults to the one recorded for <engine account> in deployments/testnet.json
 # by scripts/deploy-base.sh (the vault must be deployed first: its signer is derived from the
 # engine account name). The CKD master public key is read live from the MPC contract (domain 2).
+#
+# Checks, run on every path (--skip-create and --verify-only included) and before any key is
+# deleted, each read live and never skipped: the code on chain is the artifact; get_config equals
+# the init arguments (the MPC account and domains, the CKD master public key read again from the
+# MPC, the fee recipient, the cash tokens, the RoseVault, the Base chain id, the Sablier Lockup,
+# the Streamflow program); the bootstrapped addresses equal the MPC's derivation; the RPC serves
+# Base Sepolia; the RoseVault the engine is bound to answers SIGNER() == the engine's vault/base
+# address and LOCKUP() == the Sablier Lockup.
 # Keys: ~/.near-credentials/testnet/<parent>.json and <engine>.json (legacy keychain, set to mode
 # 600); nothing is printed. Output: deployments/testnet.json (`.near.engine.keyless` is read from
 # the live access key list) and the web app's NEXT_PUBLIC_* snippet in deployments/<engine>.env.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require_tools near curl jq shasum python3 comm paste
+require_tools near curl jq shasum python3 comm paste cast
 
 engine="" role="staging" balance="17 NEAR" rose_vault="" keyless=0 skip_create=0 verify_only=0 wasm="" reproducible=0
 while [[ $# -gt 0 ]]; do
@@ -54,7 +62,7 @@ while [[ $# -gt 0 ]]; do
     --wasm) wasm="$2"; shift 2 ;;
     --reproducible) reproducible=1; shift ;;
     --balance) balance="$2"; shift 2 ;;
-    --rose-vault) rose_vault="$2"; shift 2 ;;
+    --rose-vault) rose_vault="$(lowercase "$2")"; shift 2 ;;
     --keyless) keyless=1; shift ;;
     --skip-create) skip_create=1; shift ;;
     --verify-only) verify_only=1; shift ;;
@@ -124,6 +132,7 @@ build_environment="$(wasm_build_environment "$wasm")"
 source_snapshot="$({ LC_ALL=C grep -aoE '"source_code_snapshot":"[^"]*"' "$wasm" || true; } | head -n 1 | sed 's/^"source_code_snapshot":"//; s/"$//')"
 if [[ "$build_environment" == "$build_image@$build_digest" ]]; then
   log "reproducible artifact $wasm: $wasm_bytes bytes, sha256 $wasm_sha256, built in $build_environment from $source_snapshot"
+  log "$(artifact_revision_note "$source_snapshot" "$(git -C "$ROSE_ROOT" rev-parse HEAD)")"
   if [[ "$role" == "final" ]]; then
     # Anyone must be able to rebuild it: the commit it names has to be on the remote.
     source_rev="${source_snapshot##*rev=}"
@@ -135,29 +144,40 @@ else
   log "local build $wasm: $wasm_bytes bytes, sha256 $wasm_sha256 (not reproducible)"
 fi
 
+if [[ -z "$rose_vault" ]]; then
+  rose_vault="$(deployments_value "$engine" ".base.rose_vault.address")"
+fi
+[[ "$rose_vault" =~ ^0x[0-9a-f]{40}$ ]] || die "RoseVault address missing: run scripts/deploy-base.sh --engine $engine first or pass --rose-vault"
+
+# expected_init_args: the init arguments of `new`, as JSON, with the CKD master public key read
+# live from the MPC contract (domain 2). The deployment sends them and the checks compare
+# get_config with a fresh read of them.
+expected_init_args() {
+  local test_usdc base_cash_tokens ckd_public_key
+  test_usdc="$(deployments_value "$engine" ".base.test_usdc.address")"
+  base_cash_tokens="$(jq -cn --arg t "$test_usdc" --arg c "$CIRCLE_USDC_BASE_SEPOLIA" '[$t, $c] | map(select(. != ""))')"
+  ckd_public_key="$(near_view "$MPC_ACCOUNT" public_key "{\"domain_id\":$MPC_DOMAIN_CKD}" | jq -r .)" \
+    || die "cannot read the CKD public key of $MPC_ACCOUNT"
+  [[ "$ckd_public_key" == bls12381g2:* ]] || die "unexpected CKD public key $ckd_public_key"
+  jq -cn \
+    --arg mpc "$MPC_ACCOUNT" --arg ckd "$ckd_public_key" --arg fee "$parent" --arg cash "$NEAR_CASH_TOKEN" \
+    --argjson tokens "$base_cash_tokens" --arg vault "$rose_vault" --arg lockup "$SABLIER_LOCKUP" \
+    --arg streamflow "$STREAMFLOW_PROGRAM" --argjson chain "$BASE_CHAIN_ID" \
+    --argjson secp "$MPC_DOMAIN_SECP256K1" --argjson ed "$MPC_DOMAIN_ED25519" --argjson ckd_domain "$MPC_DOMAIN_CKD" \
+    --argjson foreign "$MPC_DOMAIN_FOREIGN_TX" \
+    '{mpc_account:$mpc,sign_secp256k1_domain:$secp,sign_ed25519_domain:$ed,ckd_domain:$ckd_domain,foreign_tx_domain:$foreign,
+      ckd_public_key:$ckd,fee_recipient:$fee,near_cash_token:$cash,base_cash_tokens:$tokens,rose_vault:$vault,
+      base_chain_id:$chain,sablier_lockup:$lockup,streamflow_program:$streamflow,
+      default_key_timeout:null,default_reveal_window:null}'
+}
+
 # deploy: creates the account (unless --skip-create), deploys with `new` and bootstraps, skipping
 # each step already done on chain.
 deploy() {
   [[ -f "$HOME/.near-credentials/$NEAR_NETWORK/$parent.json" ]] || die "no legacy keychain key for $parent"
-  if [[ -z "$rose_vault" ]]; then
-    rose_vault="$(deployments_value "$engine" ".base.rose_vault.address")"
-  fi
-  [[ "$rose_vault" =~ ^0x[0-9a-f]{40}$ ]] || die "RoseVault address missing: run scripts/deploy-base.sh --engine $engine first or pass --rose-vault"
-  local test_usdc base_cash_tokens ckd_public_key init_args out
-  test_usdc="$(deployments_value "$engine" ".base.test_usdc.address")"
-  base_cash_tokens="$(jq -cn --arg t "$test_usdc" --arg c "$CIRCLE_USDC_BASE_SEPOLIA" '[$t, $c] | map(select(. != ""))')"
-
-  ckd_public_key="$(near_view "$MPC_ACCOUNT" public_key "{\"domain_id\":$MPC_DOMAIN_CKD}" | jq -r .)"
-  [[ "$ckd_public_key" == bls12381g2:* ]] || die "unexpected CKD public key $ckd_public_key"
-
-  init_args="$(jq -cn \
-    --arg mpc "$MPC_ACCOUNT" --arg ckd "$ckd_public_key" --arg fee "$parent" --arg cash "$NEAR_CASH_TOKEN" \
-    --argjson tokens "$base_cash_tokens" --arg vault "$rose_vault" --arg lockup "$SABLIER_LOCKUP" \
-    --arg streamflow "$STREAMFLOW_PROGRAM" --argjson chain "$BASE_CHAIN_ID" \
-    '{args:{mpc_account:$mpc,sign_secp256k1_domain:0,sign_ed25519_domain:1,ckd_domain:2,foreign_tx_domain:3,
-      ckd_public_key:$ckd,fee_recipient:$fee,near_cash_token:$cash,base_cash_tokens:$tokens,rose_vault:$vault,
-      base_chain_id:$chain,sablier_lockup:$lockup,streamflow_program:$streamflow,
-      default_key_timeout:null,default_reveal_window:null}}')"
+  local init_args out
+  init_args="$(expected_init_args)"
+  init_args="$(jq -cn --argjson args "$init_args" '{args:$args}')"
 
   if [[ "$skip_create" -eq 0 ]]; then
     if near_account_exists "$engine"; then
@@ -217,10 +237,13 @@ else
   deploy
 fi
 
-# Checks, in order, before any key is deleted: the exact code, the bootstrapped addresses, the
-# RoseVault signer.
+# Checks, in order, before any key is deleted (see the header): the exact code, the configuration,
+# the bootstrapped addresses, the RoseVault.
 near_require_code "$engine" "$wasm"
 deployments_set "$engine" ".near.engine.code_sha256" "\"$wasm_sha256\""
+
+expected_config="$(expected_init_args)"
+require_engine_config "$engine" "$expected_config"
 
 derived="null"
 for _ in $(seq 1 30); do
@@ -236,10 +259,9 @@ expected="$("$ROSE_ROOT/scripts/derive-vault-signer.sh" "$engine" --all)"
 deployments_set "$engine" ".near.derived" "$derived"
 log "derived addresses: $derived"
 
-vault_signer="$(deployments_value "$engine" ".base.rose_vault.signer")"
-if [[ -n "$vault_signer" && "$vault_signer" != "$(jq -r .vault_base <<<"$derived")" ]]; then
-  die "RoseVault signer $vault_signer is not the engine's vault/base address: the vault must be redeployed"
-fi
+require_base_chain
+bound_vault="$(near_view "$engine" get_config | jq -r .rose_vault)" || die "get_config $engine failed"
+require_rose_vault "$bound_vault" "$(jq -r .vault_base <<<"$derived")"
 
 if [[ "$keyless" -eq 1 ]]; then
   if [[ "$verify_only" -eq 0 ]]; then
