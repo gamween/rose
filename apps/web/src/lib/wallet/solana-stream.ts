@@ -132,8 +132,9 @@ export async function createSolanaDemoPosition(signer: SolanaSigner, onProgress?
       canUpdateRate: false,
     },
     /*
-     * The js-sdk treats any sender without `secretKey` as a wallet adapter and only calls its
-     * `publicKey` and `signTransaction`, which is exactly what `SolanaSigner` provides.
+     * `create` signs through @streamflow/common 13.4.0 `signTransaction`, which treats a sender
+     * whose `signTransaction` is defined as a wallet adapter (`isSignerWallet`) and only asks it
+     * for its `publicKey` and `signTransaction`: exactly what `SolanaSigner` provides.
      */
     { sender: signer as unknown as CreateSender, isNative: false },
   );
