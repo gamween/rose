@@ -683,6 +683,8 @@ export interface SolDepositView {
   return_to: string;
   stage: SolDepositStageView;
   attributed_at: U64;
+  /** `amount_withdrawn` attested at attribution: what the holder withdrew before the deposit. */
+  attributed_withdrawn: U64;
 }
 
 export interface SolStreamInfoView {
