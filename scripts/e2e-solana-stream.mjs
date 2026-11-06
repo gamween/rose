@@ -305,7 +305,7 @@ async function stepMove() {
 async function stepRegister() {
   const metadata = await accountHex(state.steps.setup.metadata);
   const deposit = await nearView(engine, "registration_deposit_for", { account: nearHolder, class_id: state.steps.transfer.class_id });
-  const attached = `${Number(BigInt(deposit)) / 1e24} NEAR`;
+  const attached = `${BigInt(deposit).toString()} yoctoNEAR`;
   const hash = nearCall(nearHolder, "register_sol_deposit", { metadata: state.steps.setup.metadata, anchor_tx: state.steps.move.solana_tx, metadata_data: metadata.data }, "80 Tgas", attached);
   await record("register", hash, nearHolder);
   const record_ = await nearView(engine, "get_sol_deposit", { metadata: state.steps.setup.metadata });
