@@ -1477,6 +1477,16 @@ same scripts as on the staging engines. Full transaction tables: `deployments/e2
   over HTTP since the Fable pass 1 fixes) with the default balance shape, so the transfer step
   errored instead of waiting. A test fixture bug, not an app bug: fixed in `4861f6a`; the spec
   alone then exit 0 locally (12 passed).
+- Run 2 (`dpl_772AGKiJF2C4N2kYjB1wd5tqB9Pg`, `3d7f397`, the docs on the final engine): exit 1,
+  142 passed, 3 failed, 25 skipped. The docs spec on desktop and mobile still expected the
+  contracts page's former sentence (fixed in `8d3ba7c` to expect the engine's name); one issuer
+  test on mobile failed with `ENOSPC` while closing its browser context (the disk was full; 9.6 GB
+  of stale `target/debug` removed, the gate then rebuilt it and exited 0).
+- Run 3 (`dpl_9hK3wWsyv34WSCyn7h1VjDSrzu14`, `8d3ba7c`): **exit 0**, 145 passed, 25 skipped (each
+  by its own condition).
+- Pages reviewed on that deployment at 1470 and 375 px (`/`, `/app`, `/app/rounds`,
+  `/app/rounds/4`, `/app/demo`, `/status`, `/docs/contracts-and-addresses`,
+  `/docs/trust-and-security`, `/app/prices`, `/app/issuer`): 0 px horizontal overflow on each.
 
 ### Live click-through (real UI, demo wallets)
 
