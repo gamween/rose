@@ -218,6 +218,250 @@
       "position_id": "2",
       "units": "3900000000",
       "engine_withdrawn": "0"
+    },
+    "wait_end": {
+      "amount_withdrawn": "3900000000",
+      "auto_claim_tx": "2j4ftDidWY3NMZHm3dhdNx3rcz4tKb7PknvgtnSVd4jP8pNY4yarKHJkpeZu3X9diKt57VTguNhUYZeNGZeq244e",
+      "auto_claim_link": "https://explorer.solana.com/tx/2j4ftDidWY3NMZHm3dhdNx3rcz4tKb7PknvgtnSVd4jP8pNY4yarKHJkpeZu3X9diKt57VTguNhUYZeNGZeq244e?cluster=devnet",
+      "memo": "[10] Auto-Claim"
+    },
+    "sync": {
+      "near_tx": "GyDe3pdEt6WntUJtZvgqxgEKNtXJuj8K4xVHM3en2DDN",
+      "link": "https://testnet.near.rocks/tx/GyDe3pdEt6WntUJtZvgqxgEKNtXJuj8K4xVHM3en2DDN",
+      "gas_tgas": 17.91,
+      "mpc_responses": [
+        {
+          "payload_hash": "0782aa378e96814e282aee811f3f8448e89c0707a7b729333d70cd14352cfc66",
+          "signature": {
+            "scheme": "Secp256k1",
+            "big_r": {
+              "affine_point": "03cfbc9bf0296c65972b057702bd4d9700c547fe3393bac467ad17adec620be7f3"
+            },
+            "s": {
+              "scalar": "0956791e18132236e507b5976dc608fb1f55bb719d6bbdc21ab86a2312e6e8e2"
+            },
+            "recovery_id": 0
+          }
+        }
+      ],
+      "booked": "3800000000",
+      "swept_before": {
+        "balance": "0",
+        "pending": "0"
+      },
+      "swept_after": {
+        "balance": "3800000000",
+        "pending": "0"
+      },
+      "stream_pruned": true
+    },
+    "claim": {
+      "nonce_account": "9TxjqMACEGvF3L2e1oaABTP8FN2Cmim8FoEefGBgeYie",
+      "nonce_base": "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n",
+      "nonce_seed": "5b5e5669f3e18f8da246a7caw56u6mwa",
+      "receipt_account": "9wGBZKaTHhrdDYQbsqr9ra8bi1eyvQKxEEVHgVXba1ck",
+      "receipt_seed": "5b5e5669f3e18f8da246a7caw56u6mwr",
+      "nonce_create_tx": "2U3JHdhqAnZGmyiJonQU13zFxFbmcoC1ef84Q5keusYgSuXfg5yjiK5eGiFV1qeHYHtqTXZqWbxHvBEGUkP8KbcK",
+      "nonce_create_link": "https://explorer.solana.com/tx/2U3JHdhqAnZGmyiJonQU13zFxFbmcoC1ef84Q5keusYgSuXfg5yjiK5eGiFV1qeHYHtqTXZqWbxHvBEGUkP8KbcK?cluster=devnet",
+      "to_owner": "6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n",
+      "amount": "3800000000",
+      "nonce_value": "Dgjs2vqfURYDPSyYBQPBNFD82UKuTYphwR9vYGTNUX3j",
+      "swept_before": {
+        "balance": "3800000000",
+        "pending": "0"
+      },
+      "near_tx": "3TPw2vCRxKo4GTXDhEdP4jMpmeLfLwt9cPpG878qGCUm",
+      "link": "https://testnet.near.rocks/tx/3TPw2vCRxKo4GTXDhEdP4jMpmeLfLwt9cPpG878qGCUm",
+      "gas_tgas": 44.05,
+      "mpc_responses": [
+        {
+          "payload_hash": "6c3ab6da49518580a58e21986aeb1b1c5c64a7d0e189a951a7b6eb09216b9672",
+          "signature": {
+            "scheme": "Secp256k1",
+            "big_r": {
+              "affine_point": "03b58e6125ee53b90c001bde71afd94fb38813482bb3c32072092dd8cce8d77f1f"
+            },
+            "s": {
+              "scalar": "2151d10e485bd6bf4200923c4981f256a7d462913f29b7034ebbd09686f97fbb"
+            },
+            "recovery_id": 0
+          }
+        },
+        {
+          "scheme": "Ed25519",
+          "signature": [
+            226,
+            36,
+            47,
+            95,
+            20,
+            22,
+            243,
+            108,
+            18,
+            44,
+            103,
+            98,
+            34,
+            171,
+            39,
+            189,
+            164,
+            122,
+            159,
+            39,
+            134,
+            160,
+            227,
+            213,
+            25,
+            249,
+            192,
+            205,
+            149,
+            83,
+            193,
+            82,
+            91,
+            106,
+            26,
+            76,
+            156,
+            31,
+            75,
+            54,
+            43,
+            199,
+            71,
+            145,
+            210,
+            240,
+            92,
+            139,
+            47,
+            137,
+            66,
+            243,
+            128,
+            127,
+            194,
+            136,
+            231,
+            6,
+            0,
+            18,
+            1,
+            47,
+            139,
+            10
+          ]
+        },
+        {
+          "scheme": "Ed25519",
+          "signature": [
+            106,
+            18,
+            134,
+            76,
+            228,
+            10,
+            21,
+            156,
+            185,
+            22,
+            77,
+            5,
+            16,
+            35,
+            50,
+            186,
+            164,
+            131,
+            80,
+            108,
+            10,
+            171,
+            20,
+            157,
+            75,
+            165,
+            241,
+            235,
+            27,
+            252,
+            241,
+            141,
+            36,
+            64,
+            52,
+            2,
+            15,
+            201,
+            37,
+            89,
+            149,
+            178,
+            147,
+            222,
+            86,
+            225,
+            7,
+            0,
+            93,
+            144,
+            210,
+            248,
+            104,
+            96,
+            113,
+            114,
+            173,
+            222,
+            202,
+            79,
+            94,
+            216,
+            212,
+            3
+          ]
+        }
+      ],
+      "payout_id": "10",
+      "swept_pending": "3800000000",
+      "balance_before": "0",
+      "solana_tx": "38189CkkpiF9cbQVGubqAv3um6suGs5MxH5yJzvcfaeJpsHGJq2pqEstiHbfHffcvsNqyd6nhwx3T29EqNc56i5p",
+      "solana_link": "https://explorer.solana.com/tx/38189CkkpiF9cbQVGubqAv3um6suGs5MxH5yJzvcfaeJpsHGJq2pqEstiHbfHffcvsNqyd6nhwx3T29EqNc56i5p?cluster=devnet",
+      "fee": 10000,
+      "units": 405,
+      "recipient_balance": {
+        "before": "0",
+        "after": "3800000000"
+      }
+    },
+    "confirm": {
+      "near_tx": "R4KvtgBHzAvo2CnBLJefcGHpAjR3SFXf3mwtkoQvd7U",
+      "link": "https://testnet.near.rocks/tx/R4KvtgBHzAvo2CnBLJefcGHpAjR3SFXf3mwtkoQvd7U",
+      "gas_tgas": 16.92,
+      "mpc_responses": [
+        {
+          "payload_hash": "d7883578e03731840fda9cc5f3061ce97624a8e111238296b4cb525f6e902894",
+          "signature": {
+            "scheme": "Secp256k1",
+            "big_r": {
+              "affine_point": "020b4498de8d766c525a4405ff12ee33a2e3045a099cfcd7cd4e04845332a726cc"
+            },
+            "s": {
+              "scalar": "4650e885f5df0e00c4af33030f474771c730713580464c1ddca03092ca4f5761"
+            },
+            "recovery_id": 0
+          }
+        }
+      ],
+      "status": "Landed",
+      "swept_after": {
+        "balance": "0",
+        "pending": "0"
+      }
     }
   }
 }
