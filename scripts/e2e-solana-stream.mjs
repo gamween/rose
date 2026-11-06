@@ -559,6 +559,9 @@ async function stepRedeem() {
     const hash = nearCall(nearHolder, "redeem", { position_id: state.steps.register.position_id, to: holder.publicKey.toBase58(), nonce: proof }, "200 Tgas", "0.025 NEAR");
     await record("redeem", hash, nearHolder);
     releaseId = await nearView(engine, "get_pending_release", { position_id: state.steps.register.position_id });
+    // The engine refunds the burn in the same transaction when the MPC's nonce attestation fails
+    // or times out (`payout_failed`): the position is Held again and the step can simply rerun.
+    if (releaseId === null) throw new Error(`the release was refunded in ${nearExplorer(hash)} (payout_failed): run redeem again`);
   }
   const payout = await waitPayout(releaseId);
   if (payout.status !== "Signed") throw new Error(`release not signed: ${JSON.stringify(payout.status)}`);
