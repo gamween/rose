@@ -131,10 +131,13 @@ pub(super) fn ed_signature(key: &ed25519_dalek::SigningKey, message: &[u8]) -> P
 /// The MPC response of `vault/base` signing the stored digest of payout `id`, as the live
 /// contract returns it (low `s`, recovery id, `big_r` compressed).
 pub(super) fn base_signature(contract: &Contract, id: u64) -> SignatureResponse {
+    base_signature_by(&vault_base_signer(), contract, id)
+}
+
+/// A signature of payout `id`'s digest by `key`, in the MPC response format.
+fn base_signature_by(key: &EcdsaKey, contract: &Contract, id: u64) -> SignatureResponse {
     let digest = hex::decode(contract.get_payout(U64(id)).unwrap().digest.unwrap()).unwrap();
-    let (signature, recovery) = vault_base_signer()
-        .sign_prehash_recoverable(&digest)
-        .unwrap();
+    let (signature, recovery) = key.sign_prehash_recoverable(&digest).unwrap();
     let bytes = signature.to_bytes();
     let mut big_r = [0u8; 33];
     big_r[0] = 0x02 | u8::from(recovery.is_y_odd());
@@ -680,6 +683,19 @@ fn base_cash_is_credited_for_any_token_and_only_accepted_ones_host_rounds() {
         "never refunded"
     );
     env_at(&accounts(4), ts(1_006));
+    contract.retry_base_signature(U64(0)).detach();
+    // A readable response that does not recover to the vault is stored nowhere and makes the
+    // payout retryable at once, like a failed request.
+    let stranger = EcdsaKey::from_bytes(&[0x43u8; 32].into()).unwrap();
+    env_with_results(
+        ts(1_008),
+        vec![json(&base_signature_by(&stranger, &contract, 0))],
+    );
+    assert!(!contract.on_base_signed(U64(0)));
+    let payout = contract.get_payout(U64(0)).unwrap();
+    assert_eq!(payout.status, PayoutStatus::Requested);
+    assert!(payout.base.is_none());
+    env_at(&accounts(4), ts(1_009));
     contract.retry_base_signature(U64(0)).detach();
     env_with_results(ts(1_010), vec![json(&base_signature(&contract, 0))]);
     assert!(contract.on_base_signed(U64(0)));

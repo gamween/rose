@@ -483,7 +483,8 @@ impl Contract {
     /// Base signature callback: stores `(r, s, v)` and completes the action. A Base
     /// authorization is never refunded: a signature of its digest could surface after the
     /// request failed (an MPC response arriving past the yield timeout is public), and it would
-    /// stay executable on RoseVault forever. A failed request makes the payout retryable at once
+    /// stay executable on RoseVault forever. A failed request, or a readable response that is not
+    /// a signature of the vault over the digest, makes the payout retryable at once
     /// (`retry_base_signature`); an unreadable response leaves it `Requested` for
     /// `submit_base_signature` or a retry after [`PENDING_EXPIRY_BLOCKS`]. A callback for a
     /// payout no longer `Requested` changes nothing. Called by the contract itself.
@@ -499,7 +500,7 @@ impl Contract {
                 self.mark_request_resolved(id);
                 return false;
             }
-            MpcResult::Unreadable => None,
+            MpcResult::Unreadable => return false,
             MpcResult::Value(response) => response
                 .as_secp256k1()
                 .and_then(|signature| EvmSignature::from_mpc(signature).ok()),
@@ -509,7 +510,10 @@ impl Contract {
                 self.store_base_signature(id, &signature);
                 true
             }
-            None => false,
+            None => {
+                self.mark_request_resolved(id);
+                false
+            }
         }
     }
 
