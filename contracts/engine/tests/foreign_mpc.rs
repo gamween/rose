@@ -108,9 +108,13 @@ fn live_vectors_reproduce_the_signed_payload_hash() {
             computed
         );
     }
-    assert!(
-        base >= 5 && solana >= 3,
-        "{base} Base and {solana} Solana vectors"
+    // Pinned: the sandbox's mock MPC signs whatever hash a test registers, so these recorded
+    // live responses are the only check of the byte layout against the real nodes. Re-record
+    // them (never drop one) when `near/mpc` moves past 3.18.0.
+    assert_eq!(
+        (vectors.len(), base, solana),
+        (10, 6, 4),
+        "the recorded live vectors are all present"
     );
 }
 
