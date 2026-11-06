@@ -313,7 +313,26 @@ No other party can move funds, see bids early or stop a round.
   registers for a request, computed by the engine's own code, so a byte-layout drift between the
   engine and the live nodes would pass the sandbox suites. The ten recorded live responses in
   `tests/vectors/foreign/mpc_live_vectors.json` are the check: `cargo test --workspace` replays
-  them, pinned at ten, and they are re-recorded when `near/mpc` moves past 3.18.0.
+  them, pinned at ten, and they are re-recorded when `near/mpc` moves past 3.18.0. The mock does
+  refuse what the live contract refuses in a request's own fields: a CKD request off the CKD
+  domain or with an inconsistent `AppPublicKeyPV`, a ForeignTx payload version other than 1, an
+  `Eddsa` payload over 1,232 bytes, under 15 Tgas or 1 yoctoNEAR.
+- **The CKD master key is fixed at init.** The engine stores the MPC's domain-2 public key once
+  (`new` refuses one outside the G2 subgroup, and the deployment script compares it with the live
+  key before deleting the keys). Resharings keep the public key, but a rotation to a new domain-2
+  key would leave every round of the keyless engine without a verifiable key: each would end in
+  `cancel_no_key`, everything refundable, and sealing would need a new engine account, as every
+  new version does.
+- **Test tokens.** `tusdc.rose-app.testnet` is keyless and cannot be changed. When an
+  `ft_transfer_call` is refused and its sender unregistered from the token before the refund,
+  the standard resolver burns the amount and logs an `ft_burn` (memo `refund`), and the token
+  logs a second `ft_burn` for the same amount with the memo "receiver closed its account during
+  transfer", although the closed account is the sender's: balances and supply are right, an
+  indexer counting `ft_burn` events counts that burn twice. The source in `contracts/tusdc` is
+  left as deployed so it keeps describing that contract. Its public `mint` pays the row of each
+  new minting account (about 100 bytes) from the token's own balance, about 1.39 NEAR free
+  today, so roughly 1,400 fresh accounts can exhaust it; `mint` then fails for new accounts
+  until anyone sends the token NEAR with a plain transfer (spec 8.4).
 - **Liveness is the participants' job.** There is no keeper: a round advances when someone calls the
   next step, and a signed Solana payout blocks the streams it draws on until someone broadcasts and
   confirms it (anyone can).
@@ -345,6 +364,7 @@ milestone unless stated.
 | 11 | Full engine, RoseVault, tUSDC and the SDK bindings (`f1a8ba5`) | Opus 5.5 | 1 blocker (a bare-hex address spelling let a stranger strand someone's Base cash), 3 majors (unbounded round windows, under-charged storage rows, client ABI drift), 4 minors, 10 nits | Fixed, each with a test that fails before the fix: canonical EVM addresses at every entry point, bounded round windows, rows charged at their measured worst case (cash rows included), per-account class list behind the portfolio view, buy quantities measured against the supply at creation, a refused stream's return keeps its vested tokens (RoseVault `Release` gains `vestedToRecipient`, so the vault is redeployed), custody addresses refused as Base recipients |
 | 12 | Contracts before deployment (`cd00318`) | Opus 5.5 | 1 blocker (Streamflow's auto-claim of ended streams read as a landed payout: claims destroyed, tokens stranded), 1 major (the free event history could push the engine below its MPC reserve), 4 minors, 6 nits | Fixed: verdicts on a receipt nonce account, `sync_sol_stream` and the swept balance, draws and redeems stop five minutes before a stream's end, attribution refuses streams ending within an hour; event history bounded in bytes and funded at init; non-accepted Base cash listed; Exit bids reserve the buyer's row; RoseVault forwards third-party withdrawals of a returned stream; release fees sent by the SDK |
 | 13 | Contracts, SDK bindings and deployment scripts (`3d48a02`) | Fable 5.1 | 0 blockers, 1 major (`distribute_units` at 50 receivers exceeded NEAR's 16,384-byte total log limit), 4 minors, 3 nits | Fixed, each with a test: 30 receivers per call (the measured worst case with 64-character ids) and gas sized per receiver in the SDK; `create_tender` escrows from the canonical venue; a moved Streamflow stream registered after its end is registered and its auto-claim booked as swept; a late deposit callback acts only on its own request's mark; the live MPC vectors pinned. Documented: what a Base redeemer bears between the signature and the release, the Solana clock skew on draws, `cancelable_by_recipient` |
+| 14 | Contracts, SDK bindings and deployment scripts before the final deployment (`15316b4`) | Fable 5.1 | 0 blockers, 1 major (`deploy-engine.sh` skipped the RoseVault signer check when the vault was passed with `--rose-vault`, then deleted the keys), 7 minors, 10 nits | Fixed, each with a test: every check before the key deletion read live and never skipped (RoseVault `SIGNER()` and `LOCKUP()`, `get_config` against the init arguments with the CKD key read again from the MPC, the chain id), `LOCKUP()` read back by `deploy-base.sh` from one source, the CKD key subgroup-checked in `new`, `close` checks its gas upfront, the SDK's Streamflow refusals, the mock MPC's request checks, a non-recovering Base signature retryable at once. Documented: the fixed CKD key, the deployed tUSDC's double `ft_burn` and its mint storage |
 
 The web app was also exercised live through its demo wallets against the staging engines; the bugs
 found that way were fixed, and each is recorded with its fixing commit in
