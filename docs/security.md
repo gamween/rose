@@ -21,7 +21,7 @@ addresses, byte layouts) is recorded with its command in [`verification.md`](./v
 |---|---|---|---|
 | **NEAR MPC network** (`v1.signer-prod.testnet`, contract 3.18.0, reconstruction threshold 11) | Signing for the engine's derived keys (domain 0 `vault/base`; domain 1 `vault/sol`, `gas/sol`, the per-holder deposit keys), releasing a round key through Confidential Key Derivation (domain 2) only when the engine asks, attesting Base logs and Solana accounts through ForeignTx (domain 3), each provider of a node's quorum having to return the same verdict | With a threshold of colluding nodes: sign any RoseVault authorization or Solana transaction (drain custody), derive a round key before the deadline (read sealed bids early), attest a deposit that never happened (mint units against nothing). Without a threshold but by withholding: delay deposits (a failed proof surfaces after about 2 minutes), stall a round until `cancel_no_key` refunds it, delay payouts (every `Requested` state has a retry) | Change the engine's code, change a clearing result computed on chain from opened bids, or move funds below the threshold. A key it returns is checked by a pairing check before the engine stores it; every signature it returns is checked (`ecrecover` against `vault/base`, `ed25519_verify` against the derived key) before it is stored |
 | **TEE nodes** | The MPC nodes run threshold signing and CKD in TEEs (spec 7.4) | A TEE compromise on enough nodes is the threshold case above | rose treats TEEs as defense in depth that raises the cost of collusion; the threshold assumption is the one that matters |
-| **rose-engine code** | Implementing the specification correctly. The engine has no upgrade, migrate, delete-account or generic call method, and the CKD request is reachable only after the deadline; the final deployment deploys the reproducible build of a public commit and deletes every access key after init (`scripts/deploy-engine.sh --role final --reproducible --keyless`: the on-chain code hash must equal the artifact's sha256 before any key is deleted, `contract_source_metadata` names the commit and the pinned build image, and `view_access_key_list` then returns `[]`), so a new version deploys to a new account | A bug is not mitigated by anyone: the code is unaudited | Be changed after a keyless deployment. **Staging engines are not keyless:** `engine-s1` to `engine-s5` keep a full-access key held by the team, `engine-s3` was updated in place once (verification log, "Staging deployment 3"), and `engine-s1`, `engine-s2` and `engine-s3` now run an empty contract (their code storage was reclaimed, "Staging deployment 4" and "Staging deployment 5"). `engine-s5`, the app's engine today, runs the reproducible build of `b32248e`. Treat every staging engine as a test deployment |
+| **rose-engine code** | Implementing the specification correctly. The engine has no upgrade, migrate, delete-account or generic call method, and the CKD request is reachable only after the deadline; the final deployment deploys the reproducible build of a public commit and deletes every access key after init (`scripts/deploy-engine.sh --role final --reproducible --keyless`: the on-chain code hash must equal the artifact's sha256 before any key is deleted, `contract_source_metadata` names the commit and the pinned build image, and `view_access_key_list` then returns `[]`), so a new version deploys to a new account | A bug is not mitigated by anyone: the code is unaudited | Be changed after a keyless deployment. **The app's engine, `engine.rose-app.testnet`, is that final keyless deployment:** the reproducible build of `d5e1e0c`, every key deleted in [47F3F4LA…](https://testnet.near.rocks/tx/47F3F4LAZwj5ByTcpFco3A75yCQmSKi2soBUT8LJP2e2), `view_access_key_list` returns `[]` (verification log, "Final deployment"). The staging engines before it were not keyless and are history only: `engine-s1` to `engine-s5` kept a full-access key held by the team, `engine-s3` was updated in place once (verification log, "Staging deployment 3"), and `engine-s1` to `engine-s4` now run an empty contract (their code storage was reclaimed) |
 | **The team that deploys rose** | Running the web app, the demo faucet route and its testnet hot wallets; the fee recipient is fixed at init | Serve a frontend that shows wrong numbers or builds wrong transactions; stop funding the faucet | After a keyless deployment: read a bid early, sign a payout, cancel a round after its first bid, or upgrade the engine. Wallets show every call's arguments, every result links to an explorer, the round page's Verify panel recomputes clearing in the browser from on-chain data, and `@rose/sdk` reaches the engine without the app |
 | **RoseVault** (Base Sepolia) | Correct code. Immutable: no owner, no pause, no upgrade, no `receive`; Sablier Lockup and the signer are fixed in the constructor | A bug in it is not mitigated by anyone (unaudited) | Release a stream or a token without an EIP-712 authorization recovering to the engine's `vault/base` address (`v` exactly 27 or 28, low `s`, one shared replay bitmap; the id is consumed before any external call) |
 | **The issuer** (whoever runs a Tender or creates a cohort's streams) | Naming the NEAR account that receives each stream in `createStreams`, and `distribute_units` to its holders: holders trust the issuer for their allocation exactly as they do for their vesting today. Choosing the Tender's `retire_to` address | Credit the wrong accounts when it creates the cohort; retire bought units to an address of its choice | Pay less than it promised: the budget plus the 30 bps fee are escrowed at creation. Read asks before close, change the budget or the max price after creation, or cancel once the first ask is placed |
@@ -66,12 +66,12 @@ No other party can move funds, see bids early or stop a round.
 - If no key arrives within `key_timeout` (default 1 h), anyone calls `cancel_no_key` once no request
   is in flight (250 blocks after the last `close`, past the MPC's 200-block yield), and every escrow,
   bond and locked unit is refundable. `close` is refused after the timeout, so nobody can keep a
-  request in flight to block the cancellation. Exercised live on `engine-s5`
-  (`close` refused after the timeout
-  [3Lh9SkF1…](https://testnet.near.rocks/tx/3Lh9SkF1FaNJMavexYUDbjCGWSc9cLw95RAZDzkMJ5dw),
-  [cancel_no_key](https://testnet.near.rocks/tx/FzHeiPW7YnZ4sgyuUz8TFbfEzf2jYghT4wNVp713cB7H),
-  [refund](https://testnet.near.rocks/tx/C1wTSQTcrsuKvJz5abFCT1Nnx8UvtAmt5NcStPqpusxb)), and
-  earlier on `engine-s3`
+  request in flight to block the cancellation. Exercised live on the final engine
+  `engine.rose-app.testnet` (`close` refused after the timeout
+  [CW1rCyXj…](https://testnet.near.rocks/tx/CW1rCyXjQhBsUhXVRkwzjYaJ1Jx5Xx1bbaL1M8eU5a1q),
+  [cancel_no_key](https://testnet.near.rocks/tx/EVpeZQkSXQHQwKBET3Ew326CLic93dTfMs24p1fDCmGc),
+  [refund](https://testnet.near.rocks/tx/8gct8dyPahKxZGGYEmKEnyBwZoz1US47RJnT4v38pWpi)), and
+  earlier on the staging engine `engine-s3`
   ([cancel_no_key](https://testnet.near.rocks/tx/4CszxtfbVfadaWgWZv7tF1eUt2NYbXVw16hQi3tNazk7),
   [refund](https://testnet.near.rocks/tx/A1LojEZZ4YuXY6RdTFvHv4qEsjd3RYFsEZcPcQg8h1zW)).
 - **Residual:** a cancelled round's key can still become public. MPC nodes that answer after the
@@ -91,11 +91,11 @@ No other party can move funds, see bids early or stop a round.
 - After the reveal window, unopened orders are void and their bond slashed; an opened order whose
   `limit * quantity` plus its 30 bps fee exceeds its escrow, whose buy quantity exceeds the round's `max_buy_quantity`
   (fixed at creation, so a later redeem never voids a covered bid), or whose quantity exceeds its
-  locked units, is void and slashed too. Shown live on `engine-s5`: a malformed bid's author's own opening refused
-  ([EE9vC4QR…](https://testnet.near.rocks/tx/EE9vC4QRDFPWp4VzwtA3TTGRuiWKxh9Aqnnoo5XgkUsq)) and its
+  locked units, is void and slashed too. Shown live on the final engine: a malformed bid's author's own opening refused
+  ([FLajwXe8…](https://testnet.near.rocks/tx/FLajwXe8XR32R7XwYy9vLYXkdD8MYkSUaNRKtsYTMXB8)) and its
   bond slashed at settlement
-  ([Gq2uLUZu…](https://testnet.near.rocks/tx/Gq2uLUZu9QVo97LqnxpnxAZUgw1A3azqXf4gDWc1TJJw)), as earlier on
-  `engine-s3` ([5cy62YfE…](https://testnet.near.rocks/tx/5cy62YfEpE4MioY1txbjGSGWWGAgqRNK2kzQZxSC4LEs),
+  ([Dh5i3YVQ…](https://testnet.near.rocks/tx/Dh5i3YVQsPVKsh7TKZZVWp6UxmkxtbNEM1L1qpMaFvUE)), as earlier on
+  the staging engine `engine-s3` ([5cy62YfE…](https://testnet.near.rocks/tx/5cy62YfEpE4MioY1txbjGSGWWGAgqRNK2kzQZxSC4LEs),
   [3mMoWJc4…](https://testnet.near.rocks/tx/3mMoWJc42KYSES6Vx4wpBk8dXHgcifyZgweV8Wanjr9H)).
 
 ### Clearing
@@ -218,20 +218,24 @@ No other party can move funds, see bids early or stop a round.
     about to be emptied.
 - A nonce account's seed starts with a prefix of the claimant's NEAR account hash, so nobody can
   spend or front-run another claimant's nonce values (spec 7.3).
-- Shown live on `engine-s5`, settled on the receipt: a payout drawing on a stream, signed and
-  broadcast ([4ZyG3Wfu…](https://testnet.near.rocks/tx/4ZyG3WfusGEYnSXERzaLUuvrix22nsTfqFh1oQ5gs2Vt),
-  [4vwuRBBJ…](https://explorer.solana.com/tx/4vwuRBBJZVVux348EB1g316t12wZBtJYkmNRHa887VGqupoSQoiHv3KX62q5dcC1jVowu1ZD26Qmep2EEsYu9eTD?cluster=devnet)),
+- Shown live on the final engine `engine.rose-app.testnet`, settled on the receipt: a payout
+  drawing on a stream, signed and broadcast
+  ([9fsQ267s…](https://testnet.near.rocks/tx/9fsQ267sZE1GteYkFn6U84DGXPdz4SDY6EoB86TrUBzY),
+  [26JUFvVS…](https://explorer.solana.com/tx/26JUFvVSWryUumiSDjSAQQQKgB4oSGSt7PuGMX7HtBBnr7CSXdGYKVHtQXUDgUNjCi8fWzemVbSP7qd7sNmEXFNF?cluster=devnet)),
   then confirmed `Landed`
-  ([BRV8Voje…](https://testnet.near.rocks/tx/BRV8VojeGDC2hXjYMiiMjGoTaRyhG7gUk1HWH4mjNE85)); an ended
-  stream's auto-claim
-  ([3KHqQvJW…](https://explorer.solana.com/tx/3KHqQvJWv7CCiGExdgKNQaS7jEQKtuQfPYmm2DyheRFv77yNAJ6YHbwhm4njxL3mjE3SAv2519hfysivwiKaoeqz?cluster=devnet))
-  synced from the app ([3TAmMgNc…](https://testnet.near.rocks/tx/3TAmMgNcvBbyiU6ZXQwuCUGi17DRWXbe1C3tSedCpbfw))
+  ([EtFQK9LT…](https://testnet.near.rocks/tx/EtFQK9LTrWnnYLdzBdvkkyQvtaBDMfzZMfZptwoGsVFP)); the same from the app
+  ([77AggSPX…](https://testnet.near.rocks/tx/77AggSPXRYcqzN9Z5d6ETnwJqFrZpi6goDhD9hWM5HJz)); an ended stream's auto-claim
+  ([2mmp1Esu…](https://explorer.solana.com/tx/2mmp1Esurq6h3kFSrXokCPb2oDx1BojFbcoXdwgYmztTfVQsJ83a7hTqYbf12wHfq1ibpzUFLBXkRj2pfHZkcTFD?cluster=devnet))
+  synced ([Gcku9nnF…](https://testnet.near.rocks/tx/Gcku9nnFTbXCMNeLup42pmTz468u7MFwCfihqdrANLh1))
   and paid from the swept balance alone
-  ([2ShT3TqZ…](https://explorer.solana.com/tx/2ShT3TqZKJvYF9xhVvkg8bBrTVrcUxP3wgmtb1QpQxBfHykftBHD5zAAz6iM36o3iz7psHUdPRFhRD4pSy5Xzzrd?cluster=devnet),
-  [EhLjMXGH…](https://testnet.near.rocks/tx/EhLjMXGH8ogMmnpQuBzpHEhHnnxgCHZursmrpxCwQNJs)). The
+  ([5shzwd1D…](https://explorer.solana.com/tx/5shzwd1DYxtjYbYJx5JqepcthD1Cz8Q4k3KbGNSv4ugrerq5ttFUweorxi5JoDBUNzx4bzUYU7KwRJqugbHHmcrc?cluster=devnet),
+  [CwqWxZZw…](https://testnet.near.rocks/tx/CwqWxZZwm1Prp9ffVYLBnpGBdBCR6dUgVXuoUZZkfTKt)). Earlier, on the staging engine `engine-s5`,
+  the sync was sent from the app's Sync button
+  ([3TAmMgNc…](https://testnet.near.rocks/tx/3TAmMgNcvBbyiU6ZXQwuCUGi17DRWXbe1C3tSedCpbfw)). The
   orderings a live run cannot force (a payout broadcast after the sweep, a cancellation racing it)
   ran on devnet transactions against a sandbox engine ([`verification.md`](./verification.md),
-  "Streamflow auto-claim"); this run is its "Staging deployment 5" section.
+  "Streamflow auto-claim"); these runs are its "Staging deployment 5" and "Live end-to-end, final
+  engine" sections.
 
 ### Redeem in kind
 
@@ -291,7 +295,8 @@ No other party can move funds, see bids early or stop a round.
   passes below, not an audit. Do not use this code with assets of value.
 - **Testnet only.** NEAR testnet, Base Sepolia, Solana devnet; the MPC testnet network's liveness and
   latency are those of a test deployment.
-- **Staging engines keep a key** (see the trust model). Only the final engine is deployed keyless.
+- **The staging engines kept a key** (see the trust model). They are history; only the final engine,
+  `engine.rose-app.testnet`, the one the app uses, is deployed keyless.
 - **A cancelled round's key can become public** through a late MPC response, and anything encrypted
   to a round identity is readable after its key is public (ePrint 2025/2048).
 - **Public collateral** bounds each order's size; hiding it costs over-collateralization.
@@ -366,7 +371,8 @@ milestone unless stated.
 | 13 | Contracts, SDK bindings and deployment scripts (`3d48a02`) | Fable 5.1 | 0 blockers, 1 major (`distribute_units` at 50 receivers exceeded NEAR's 16,384-byte total log limit), 4 minors, 3 nits | Fixed, each with a test: 30 receivers per call (the measured worst case with 64-character ids) and gas sized per receiver in the SDK; `create_tender` escrows from the canonical venue; a moved Streamflow stream registered after its end is registered and its auto-claim booked as swept; a late deposit callback acts only on its own request's mark; the live MPC vectors pinned. Documented: what a Base redeemer bears between the signature and the release, the Solana clock skew on draws, `cancelable_by_recipient` |
 | 14 | Contracts, SDK bindings and deployment scripts before the final deployment (`15316b4`) | Fable 5.1 | 0 blockers, 1 major (`deploy-engine.sh` skipped the RoseVault signer check when the vault was passed with `--rose-vault`, then deleted the keys), 7 minors, 10 nits | Fixed, each with a test: every check before the key deletion read live and never skipped (RoseVault `SIGNER()` and `LOCKUP()`, `get_config` against the init arguments with the CKD key read again from the MPC, the chain id), `LOCKUP()` read back by `deploy-base.sh` from one source, the CKD key subgroup-checked in `new`, `close` checks its gas upfront, the SDK's Streamflow refusals, the mock MPC's request checks, a non-recovering Base signature retryable at once. Documented: the fixed CKD key, the deployed tUSDC's double `ft_burn` and its mint storage |
 
-The web app was also exercised live through its demo wallets against the staging engines; the bugs
+The web app was also exercised live through its demo wallets against the staging engines and the
+final engine; the bugs
 found that way were fixed, and each is recorded with its fixing commit in
 [`verification.md`](./verification.md) (a Verify mismatch on a no-crossing cancellation, a stale
 RPC view after the MPC wait, layout overflow at 375 px, among others).
@@ -381,7 +387,7 @@ RPC view after the MPC wait, layout overflow at 375 px, among others).
   sandbox with a signing mock MPC, including a round at the 64-order cap, the two-phase Solana payout
   and redeem settled on receipts, a synced Streamflow withdrawal paid from the swept balance, and a replay of real staging transactions; every user-facing call asserted under
   300 Tgas.
-- `forge test`: RoseVault and the demo contracts (139 tests, fork tests against the live Sablier
+- `forge test`: RoseVault and the demo contracts (140 tests, fork tests against the live Sablier
   Lockup).
 - `pnpm -r test`: the SDK (bindings checked against the engine ABI, clearing reference bit for bit
   with the Rust vectors) and the web app; Playwright against the deployed app.
