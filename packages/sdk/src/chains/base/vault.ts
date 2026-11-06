@@ -10,7 +10,12 @@ export interface DepositStreamParams {
   vault: Address;
   streamId: bigint;
   nearAccount: string;
-  /** Extra wei sent above `calculateMinFeeWei` (the fee is oracle-based and can move between blocks); refunded by the vault. */
+  /**
+   * Extra wei sent above `calculateMinFeeWei` (the fee is oracle-based and can move between
+   * blocks); refunded by the vault. Defaults to 0: the fee read in the same flow is sent exactly,
+   * which is enough while Sablier's fee is 0 (live today) and, once it is not, costs at most a
+   * reverted simulation and a retry when it rises between the read and the transaction.
+   */
   feeMarginWei?: bigint;
   lockup?: Address;
 }
@@ -51,7 +56,11 @@ export interface CreateStreamsParams {
   token: Address;
   schedule: CohortSchedule;
   allocations: Allocation[];
-  /** Wei forwarded for Sablier's withdrawal fee when the schedule already started (the vault withdraws the vested part to the issuer); the unused part is refunded. */
+  /**
+   * Wei forwarded for Sablier's withdrawal fee when the schedule already started (the vault
+   * withdraws the vested part to the issuer); the unused part is refunded. Defaults to 0, enough
+   * while Sablier's fee is 0 (live today); the caller reads the fee and adds its margin otherwise.
+   */
   value?: bigint;
 }
 
@@ -112,8 +121,8 @@ export function executeTransfer(wallet: SignerClient, params: { vault: Address; 
  * Submits an engine-signed `Release` authorization (in-kind redeem, or the return of a refused
  * stream). The vault withdraws the stream's vested balance first, which costs Sablier's
  * withdrawal fee when it is switched on (admin-controlled, 0 today): the fee is read in the same
- * flow (`calculateMinFeeWei`) and sent with `feeMarginWei` on top; the vault refunds what it does
- * not use.
+ * flow (`calculateMinFeeWei`) and sent with `feeMarginWei` on top (0 by default, as in
+ * `depositStream`); the vault refunds what it does not use.
  */
 export async function executeRelease(wallet: SignerClient, client: PublicClient, params: { vault: Address; authorization: ReleaseAuthorization; feeMarginWei?: bigint } & Eip712Signature): Promise<Hex> {
   const { lockup, streamId, to, vestedToRecipient, id } = params.authorization;
@@ -132,7 +141,10 @@ export function isAuthorizationUsed(client: PublicClient, vault: Address, id: bi
   return client.readContract({ address: vault, abi: roseVaultAbi, functionName: "isAuthorizationUsed", args: [id] });
 }
 
-/** `TestUSDC.mint(amount)`: public mint capped at 10,000 tUSDC per address per rolling 24 h. */
+/**
+ * `TestUSDC.mint(amount)`: public mint capped at 10,000 tUSDC per address per fixed 24 h window,
+ * which starts at the address's first mint after its previous window expired (not rolling).
+ */
 export function mintTestUsdc(wallet: SignerClient, token: Address, amount: bigint): Promise<Hex> {
   return wallet.writeContract({ address: token, abi: testUsdcAbi, functionName: "mint", args: [amount] });
 }

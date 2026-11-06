@@ -245,7 +245,11 @@ export function approveStream(wallet: SignerClient, streamId: bigint, spender: A
   return wallet.writeContract({ ...lockupContract(lockup), functionName: "approve", args: [spender, streamId] });
 }
 
-/** `withdrawMax(streamId, to)`: allowed for anyone when `to` is the stream's recipient (spec 7.3). */
+/**
+ * `withdrawMax(streamId, to)`: allowed for anyone when `to` is the stream's recipient (spec 7.3).
+ * `value` pays Sablier's withdrawal fee and defaults to 0, enough while the fee is 0 (live today);
+ * otherwise pass `calculateMinFeeWei` plus a margin.
+ */
 export function withdrawMax(wallet: SignerClient, streamId: bigint, to: Address, options: { lockup?: Address; value?: bigint } = {}): Promise<Hex> {
   return wallet.writeContract({
     ...lockupContract(options.lockup ?? SABLIER_LOCKUP_V4),
