@@ -520,6 +520,13 @@ fn deposit_eligibility_checks_every_flag() {
         StreamflowMetadata::check_deposit(&short, &program, &vault),
         Err(StreamflowError::Length)
     );
+    // `cancelable_by_recipient` is deliberately left unchecked (spec 4): the recipient is the
+    // vault or a deposit address, and the engine never signs a `cancel`.
+    let mut cancelable_by_recipient = eligible.clone();
+    cancelable_by_recipient.data[458] = 1;
+    let checked =
+        StreamflowMetadata::check_deposit(&cancelable_by_recipient, &program, &vault).unwrap();
+    assert!(checked.cancelable_by_recipient);
 }
 
 #[test]
