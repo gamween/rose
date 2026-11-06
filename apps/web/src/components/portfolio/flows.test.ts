@@ -12,7 +12,7 @@ const sdk = vi.hoisted(() => ({ withdrawMax: vi.fn(), readStream: vi.fn(), token
 vi.mock("@/lib/deployment", async (original) => ({ ...(await original<typeof import("@/lib/deployment")>()), deployedAddress: () => VAULT }));
 vi.mock("@rose/sdk", async (original) => ({ ...(await original<typeof import("@rose/sdk")>()), ...sdk }));
 
-const { claimBaseTokensSteps, claimSolTokensSteps, classBaseStreams, confirmPayoutSteps, finishPayoutSteps, syncSolStreamSteps, withdrawBaseCashSteps } = await import("./flows");
+const { claimBaseTokensSteps, claimSolTokensSteps, classBaseStreams, confirmPayoutSteps, finishPayoutSteps, syncSolStreamSteps, withdrawBaseCashSteps, withdrawNearCashSteps } = await import("./flows");
 type FlowDeps = Parameters<typeof confirmPayoutSteps>[0];
 
 function context(): StepContext & { details: string[]; links: string[] } {
@@ -226,6 +226,15 @@ describe("claims", () => {
     await expect(run(sign!)).rejects.toMatchObject({ message: "the authority signature failed. Your balance was refunded; retry requests a new one.", retryable: true });
     expect((await run(sign!)).message).toBe("Payout #31 signed by the MPC");
     expect(requests).toEqual(["withdraw_base_cash", "withdraw_base_cash"]);
+  });
+
+  it("keeps the NEAR explorer link of a tUSDC withdrawal the token refused", async () => {
+    const flow = deps({ calls: { withdrawNearCash: () => ({ receiverId: "engine", methodName: "withdraw_near_cash", args: {}, gas: 1n, deposit: 0n }) as FunctionCall } as Partial<EngineCalls> });
+    flow.sendNearCall = () => Promise.resolve(outcome("nearRefused", [`EVENT_JSON:${JSON.stringify({ standard: "rose", version: "1.0.0", event: "cash_withdrawal_failed", data: {} })}`]));
+    const [withdraw] = withdrawNearCashSteps(flow, 5n);
+    const step = context();
+    await expect(withdraw!.run(step)).rejects.toMatchObject({ title: "tUSDC transfer refused", retryable: true });
+    expect(step.links).toEqual(["https://testnet.near.rocks/tx/nearRefused", "https://nearvalidate.org/txns/nearRefused?network=testnet"]);
   });
 });
 

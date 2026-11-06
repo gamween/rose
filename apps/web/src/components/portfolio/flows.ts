@@ -308,13 +308,14 @@ export function withdrawNearCashSteps(deps: FlowDeps, amount: bigint): StepDefin
     {
       id: "withdraw",
       label: "Transfer tUSDC from the engine to your NEAR account",
-      run: async () => {
+      run: async (context) => {
         const outcome = await deps.sendNearCall(deps.calls.withdrawNearCash(amount));
+        context.addLinks(txLinks("near", outcome.transaction.hash));
         const failed = decodeEventLogs(outcomeLogs(outcome)).some((decoded) => decoded.standard === "rose" && decoded.event.event === "cash_withdrawal_failed");
         if (failed) {
           throw new RoseActionError("contract", "tUSDC transfer refused", "The token refused the transfer and the engine re-credited your cash. Register on the tUSDC token first (minting from \"Get test funds\" does it).", true);
         }
-        return { message: "tUSDC received", links: txLinks("near", outcome.transaction.hash) };
+        return { message: "tUSDC received" };
       },
     },
   ];
