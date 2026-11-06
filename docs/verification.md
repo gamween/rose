@@ -1407,3 +1407,18 @@ Production runs on `engine-s5`; `engine-s4` keeps only historical records. Its c
 |---|---|---|
 | Deploy the 34-byte no-op wasm | `near contract deploy engine-s4.rose-app.testnet use-file noop.wasm without-init-call network-config testnet sign-with-legacy-keychain send` | [H8M1uToh…](https://testnet.near.rocks/tx/H8M1uTohR7DHJ8GMe4QYxhYAKsxAod7buA6MFH5HkcDu); storage 1,080,406 B -> 74,278 B |
 | Sweep the free balance | `near tokens engine-s4.rose-app.testnet send-near rose-app.testnet '12.29 NEAR' network-config testnet sign-with-legacy-keychain send` | [GZBn9YNc…](https://testnet.near.rocks/tx/GZBn9YNcmXDxnuxZKTxX6KStgxQSF2Z3n1k2ecCYDwqR); `rose-app.testnet` 7.91 -> 20.20 NEAR (`view_account` at `final`) |
+
+## Final deployment (2026-11-06)
+
+The engine and the RoseVault are deployed once, keyless and immutable, after the Fable passes 2 and 3 (`docs/security.md`, review history).
+
+| Step | Command | Result |
+|---|---|---|
+| RoseVault | `scripts/deploy-base.sh --engine engine.rose-app.testnet --role final --demo-assets-from engine-s5.rose-app.testnet` | `0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f`, [0xb8703beb…](https://sepolia.basescan.org/tx/0xb8703beba725fd4b2ec3b6c56093467bed143373f04407271e882402eda20f68), block 55,234,214; read live: `SIGNER()` = `0x7ba1dee0d020927e7a748349433b095de7899384` (the engine's `vault/base`), `LOCKUP()` = `0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e` |
+| Reproducible build | `scripts/deploy-engine.sh engine.rose-app.testnet --role final --reproducible --keyless` (image `sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c8640a27172f83136a0f0aab2a9bf9d09f6ba0e6afd187addfaa9b92bae0`, source `git+https://github.com/gamween/rose?rev=d5e1e0c2363d67aaa405c2d4324bc006a3992237`) | 1,018,652 bytes, sha256 `dad185788b68aa1a01dbad0f14cee2a514daa53e1defe9cbc48481ed4c87a7bb` (bs58 `FjBBS6dRJYuneJJXRx8e3YvFdKUCGxhWCA3bp3d4irSN`) |
+| Account (17 NEAR) | same run | [3Uk9ZnfN…](https://testnet.near.rocks/tx/3Uk9ZnfNnxMpsAgWCTp9m2LNkzcB78f5JsG19a4AcWh3) |
+| Deploy and `new` | same run | [Hqhv1Xon…](https://testnet.near.rocks/tx/Hqhv1XonsuSq1c56arUinGQH5S2yQBmjoobCTsK4p2va) |
+| `bootstrap` | same run | [3834RY2f…](https://testnet.near.rocks/tx/3834RY2fT4SMF2TRTB8vPxKbGVwLazYBB9nvAGiitJNS); `vault_base` `0x7ba1dee0d020927e7a748349433b095de7899384`, `vault_sol` `GKharZus34WhG182v715Yzf411Akhdnsxxjo5u5C2RRq`, `gas_sol` `BE9yDmZ7QXDuwHxtThY527E9c5JSb7TMGdZx4crjFbAe`, each equal to the MPC's derivation |
+| Checks before the key deletion | same run | code hash equals the artifact; `get_config` equals every init argument (CKD key re-read from `v1.signer-prod.testnet`); `SIGNER()` and `LOCKUP()` read live |
+| Key deletion (one transaction) | same run | [47F3F4LA…](https://testnet.near.rocks/tx/47F3F4LAZwj5ByTcpFco3A75yCQmSKi2soBUT8LJP2e2) |
+| Keyless check | `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"engine.rose-app.testnet"}}' \| jq -c .result.keys` | `[]`; `view_account`: `code_hash` `FjBBS6dRJYuneJJXRx8e3YvFdKUCGxhWCA3bp3d4irSN`, storage 1,019,995 B, 16.99 NEAR |

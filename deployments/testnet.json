@@ -449,6 +449,50 @@
           "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
           "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
         ]
+      },
+      "near": {
+        "engine": {
+          "create_tx": "3Uk9ZnfNnxMpsAgWCTp9m2LNkzcB78f5JsG19a4AcWh3",
+          "init_args": {
+            "mpc_account": "v1.signer-prod.testnet",
+            "sign_secp256k1_domain": 0,
+            "sign_ed25519_domain": 1,
+            "ckd_domain": 2,
+            "foreign_tx_domain": 3,
+            "ckd_public_key": "bls12381g2:xeYho48G2Sr9oJz4gw9sLGZGspeeKpHZvMDAwWvoNTRnVMFJH96GxX98TT2MRhTtsot1wcGR1Ti2Xh8PCsbYJ2enbLNdJXDvTYSK8aTE3nJ5NZXU7Kt1F6mFtReWs5pR4kj",
+            "fee_recipient": "rose-app.testnet",
+            "near_cash_token": "tusdc.rose-app.testnet",
+            "base_cash_tokens": [
+              "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+            ],
+            "rose_vault": "0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f",
+            "base_chain_id": 84532,
+            "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+            "streamflow_program": "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ",
+            "default_key_timeout": null,
+            "default_reveal_window": null
+          },
+          "deploy_tx": "Hqhv1XonsuSq1c56arUinGQH5S2yQBmjoobCTsK4p2va",
+          "bootstrap_tx": "3834RY2fT4SMF2TRTB8vPxKbGVwLazYBB9nvAGiitJNS",
+          "account": "engine.rose-app.testnet",
+          "wasm": {
+            "sha256": "dad185788b68aa1a01dbad0f14cee2a514daa53e1defe9cbc48481ed4c87a7bb",
+            "bytes": 1018652,
+            "reproducible": true,
+            "build_environment": "sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c8640a27172f83136a0f0aab2a9bf9d09f6ba0e6afd187addfaa9b92bae0",
+            "source_code_snapshot": "git+https://github.com/gamween/rose?rev=d5e1e0c2363d67aaa405c2d4324bc006a3992237"
+          },
+          "code_sha256": "dad185788b68aa1a01dbad0f14cee2a514daa53e1defe9cbc48481ed4c87a7bb",
+          "delete_keys_tx": "47F3F4LAZwj5ByTcpFco3A75yCQmSKi2soBUT8LJP2e2",
+          "keyless": true,
+          "access_keys_checked_at": "2026-11-06T12:42:09Z"
+        },
+        "derived": {
+          "vault_base": "0x7ba1dee0d020927e7a748349433b095de7899384",
+          "vault_sol": "GKharZus34WhG182v715Yzf411Akhdnsxxjo5u5C2RRq",
+          "gas_sol": "BE9yDmZ7QXDuwHxtThY527E9c5JSb7TMGdZx4crjFbAe"
+        }
       }
     }
   }
