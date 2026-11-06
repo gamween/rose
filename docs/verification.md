@@ -1658,3 +1658,11 @@ and live table).
 (the specs read engine-v2's `NEXT_PUBLIC_*` from `apps/web/.env.local`), against deployment
 `DW9C6mZQaejHz1woLEyMtAU6weww`: **exit 0** on the first run, 145 passed, 25 skipped (each by its own
 condition), 4.7 min.
+
+## Final proofs on `3a99e6e` (2026-11-06)
+
+- Full gate: `pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build && cargo test --workspace && forge test`, exit 0 (engine 175 tests, SDK 215, web 409, ibe-wasm 8, forge 140).
+- Production `vercel deploy --prod --yes`, exit 0: `dpl_7j36nRVDGwVB8ZPt1LiyjTDSzstP`, aliased to https://rose-rounds.vercel.app (includes `3044a44`, the Base safe-head stall error).
+- `cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1` against it: 145 passed, 25 skipped by their own conditions, exit 0.
+- Keyless: `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"engine-v2.rose-app.testnet"}}' | jq -c .result.keys` returns `[]`.
+- Two consecutive counted full review passes, Fable 5.1 on `3044a44` then Opus 5.5 on `3a99e6e`: 0 blockers and 0 majors each (`docs/security.md`, review history rows 17 and 18); their one minor each is fixed.
