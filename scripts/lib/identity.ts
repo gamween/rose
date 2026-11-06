@@ -140,6 +140,23 @@ export const ROUNDS = {
 
 export type RoundKey = keyof typeof ROUNDS;
 
+/**
+ * The Exit left open after the story (`seed.ts open-round`) so that anyone can bid from the app:
+ * Halden Ventures asks part of its Seed Round position against NEAR tUSDC. The window defaults to
+ * 14 days, the key timeout to its 7-day maximum and the reveal window to the 24 h the spec
+ * suggests in production, so the round can still be closed and its orders opened well after the
+ * window ends.
+ */
+export const OPEN_ROUND = {
+  cohort: "seed-base",
+  creator: "halden",
+  maxPrice: 0.05,
+  ask: { who: "halden", quantity: 50_000, price: 0.03 },
+  windowMinutes: 14 * 24 * 60,
+  keyTimeoutMinutes: 7 * 24 * 60,
+  revealMinutes: 24 * 60,
+} as const satisfies { cohort: CohortKey; creator: Who; maxPrice: number; ask: SealedOrder; windowMinutes: number; keyTimeoutMinutes: number; revealMinutes: number };
+
 /** Whole tUSDC (6 decimals) or a price in tUSDC as base units; exact for the values above. */
 export function usdc(amount: number): bigint {
   return BigInt(Math.round(amount * 1_000_000));

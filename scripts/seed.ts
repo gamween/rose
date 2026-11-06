@@ -3,7 +3,7 @@
  * Cindral (CINDR), three cohorts held through rose by six holders, and one Tender, one Exit round
  * and one Advance opened with real sealed orders.
  *
- *   node scripts/seed.ts [step|all] [--env deployments/<engine>.env] [--window-minutes 12] [--reveal-minutes 5]
+ *   node scripts/seed.ts [step|all|open-round] [--env deployments/<engine>.env] [--window-minutes 12] [--reveal-minutes 5]
  *                        [--kol-wallet nadia]
  *
  * Steps, in order (`all` runs them all; each is recorded and never repeated):
@@ -19,6 +19,10 @@
  *   cash      tUSDC minted on NEAR and deposited as engine cash for bonds and escrows
  *   rounds    the three rounds and their sealed orders (encrypted to the live CKD key)
  *   summary   classes, positions and rounds, and the demo mint in the deployment files
+ *
+ * One step runs only when named, after the story: `open-round` creates the Exit left open for
+ * anyone to bid from the app (`OPEN_ROUND` in lib/identity.ts) with Halden Ventures' sealed ask;
+ * its window is 14 days unless `--window-minutes` is given.
  *
  * `--kol-wallet` names the EVM key of `~/.config/rose/seed-accounts.json` that mints Nadia Solvik's
  * own KOL stream from the DemoStreamFaucet and self-deposits it (default `nadia`, generated on first
@@ -70,14 +74,14 @@ import {
 import { registerCash, registerStream, sendBase, waitSafe } from "./lib/base.ts";
 import { createContext, type Context } from "./lib/context.ts";
 import { DEFAULT_ENV_FILE, log, NEAR_CASH_TOKEN, numberFlag, parseArgs, ROOT, sleep } from "./lib/env.ts";
-import { accountOf, CAST, COHORTS, EVERYONE, GAS_SOL_FUNDED, NADIA_ETH, ROUNDS, STRATEGIC_HOLDER_SOL, usdc, whole, type CohortKey, type Who } from "./lib/identity.ts";
+import { accountOf, CAST, COHORTS, EVERYONE, GAS_SOL_FUNDED, NADIA_ETH, OPEN_ROUND, ROUNDS, STRATEGIC_HOLDER_SOL, usdc, whole, type CohortKey, type Who } from "./lib/identity.ts";
 import { txRef } from "./lib/journal.ts";
 import { accountBalance, formatNear, near, nearRef, rpc, withRetry } from "./lib/near.ts";
 import { createRound, escrowFor, placeOrder, pricingOf, getRound, type OrderRecord, type RoundRecord } from "./lib/rounds.ts";
 import { cindrMint, createStrategicStream, depositStrategicStream, fundSol, type SolPosition } from "./lib/solana.ts";
 
 const USAGE =
-  "usage: node scripts/seed.ts [fund|base|solana|register|cash|rounds|summary|all] [--env deployments/<engine>.env] [--window-minutes 12] [--reveal-minutes 5] [--kol-wallet nadia]";
+  "usage: node scripts/seed.ts [fund|base|solana|register|cash|rounds|summary|all|open-round] [--env deployments/<engine>.env] [--window-minutes 12] [--reveal-minutes 5] [--kol-wallet nadia]";
 const args = parseArgs(process.argv.slice(2), USAGE);
 const ctx: Context = await createContext(args.flags.get("env") ?? DEFAULT_ENV_FILE);
 const windowMinutes = numberFlag(args, "window-minutes", 12);
@@ -419,6 +423,23 @@ async function stepSummary(): Promise<void> {
   log(JSON.stringify({ classes: labels, rounds, solana_demo_mint: mint }, null, 2));
 }
 
+async function stepOpenRound(): Promise<void> {
+  const o = OPEN_ROUND;
+  const classId = classIds()[o.cohort];
+  const minutes = args.flags.has("window-minutes") ? windowMinutes : o.windowMinutes;
+  const nanos = (m: number): bigint => BigInt(Math.round(m * 60)) * 1_000_000_000n;
+  const window = { closesAt: BigInt(Date.now()) * 1_000_000n + nanos(minutes), keyTimeout: nanos(o.keyTimeoutMinutes), revealWindow: nanos(o.revealMinutes) };
+  const round = await ctx.seed.step<RoundRecord>("round:open", (scope) =>
+    createRound(ctx, scope, `${CAST[o.creator].name}: create_exit (Seed Round, NEAR tUSDC, open to every bidder)`, ctx.actor(o.creator), "Exit", classId,
+      ctx.calls.createExit({ classId, venue: "Near", maxPrice: usdc(o.maxPrice), window }),
+    ),
+  );
+  await ctx.seed.step<OrderRecord>("orders:open", (scope) => {
+    const units = whole(o.ask.quantity, 18);
+    return placeOrder(ctx, scope, round, o.ask.who, ctx.actor(o.ask.who), "Sell", { quantity: units, price: usdc(o.ask.price), collateral: units });
+  });
+}
+
 const steps: Record<string, () => Promise<void>> = {
   fund: stepFund,
   base: stepBase,
@@ -432,7 +453,7 @@ const steps: Record<string, () => Promise<void>> = {
 if (args.step === "all") {
   for (const run of Object.values(steps)) await run();
 } else {
-  const run = steps[args.step];
+  const run = args.step === "open-round" ? stepOpenRound : steps[args.step];
   if (run === undefined) throw new Error(USAGE);
   await run();
 }
