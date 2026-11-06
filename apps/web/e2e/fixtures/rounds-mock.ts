@@ -849,6 +849,7 @@ export async function mockRounds(page: Page): Promise<RoundsMockState> {
   };
   await page.route("https://test.rpc.fastnear.com/**", handle);
   await page.route("https://rpc.testnet.near.org/**", handle);
+  await page.route("https://near-testnet.drpc.org/**", handle);
   await page.route("https://sepolia.base.org/**", async (route) => {
     const request = route.request().postDataJSON() as { id: number; method: string; params: unknown[] };
     if (request.method === "eth_call") {

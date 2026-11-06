@@ -6,7 +6,7 @@
 
 import { EngineCalls, EngineViews, NearRpc, NearRpcError, type ClassInfo, type Round, type RoundFilter, type RoundsPage } from "@rose/sdk";
 import { NotDeployedError } from "@/components/status/useLiveQuery";
-import { deployed, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL } from "@/lib/deployment";
+import { deployed, NEAR_READ_RPC_ENDPOINTS } from "@/lib/deployment";
 import { tokenSymbols } from "@/lib/token-symbols";
 
 export interface RoundsEngine {
@@ -22,7 +22,7 @@ export function roundsEngine(): RoundsEngine | null {
   const account = deployed("engineAccount");
   if (!account) return null;
   if (cached && cached.account === account) return cached;
-  const rpc = new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] });
+  const rpc = new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS });
   cached = { account, views: new EngineViews(rpc, account), calls: new EngineCalls(account) };
   return cached;
 }

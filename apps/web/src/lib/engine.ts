@@ -1,7 +1,5 @@
 import { NearRpc, NearRpcError } from "@rose/sdk";
-
-export const NEAR_TESTNET_RPC = "https://test.rpc.fastnear.com";
-export const NEAR_TESTNET_RPC_FALLBACK = "https://rpc.testnet.near.org";
+import { NEAR_READ_RPC_ENDPOINTS, NEAR_RPC_URL } from "./deployment";
 
 /** Decimals of the rose cash token (tUSDC) used for every USDC amount returned by the engine. */
 export const USDC_DECIMALS = 6;
@@ -75,8 +73,8 @@ function toBase64(text: string): string {
 
 type QueryResult = NonNullable<RpcResponse["result"]>;
 
-/** The shared client of the page: FastNEAR, then rpc.testnet.near.org, under the page's request budget. */
-const defaultRpc = new NearRpc({ endpoints: [NEAR_TESTNET_RPC, NEAR_TESTNET_RPC_FALLBACK] });
+/** The shared read client of the page: FastNEAR, then rpc.testnet.near.org, then dRPC, under the page's request budget. */
+const defaultRpc = new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS });
 
 /**
  * One NEAR `query` (any `request_type`): through the page's shared client with fallback by
@@ -103,7 +101,7 @@ async function queryWithFetch<T>(accountId: string, params: Record<string, strin
   const fetchImpl = options.fetchImpl ?? fetch;
   let response: Response;
   try {
-    response = await fetchImpl(options.rpcUrl ?? NEAR_TESTNET_RPC, {
+    response = await fetchImpl(options.rpcUrl ?? NEAR_RPC_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "rose", method: "query", params }),

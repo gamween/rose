@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 /** The public NEAR RPCs the app reads from (with fallback between them). */
-const NEAR_RPC_HOSTS = /^https:\/\/(test\.rpc\.fastnear\.com|rpc\.testnet\.near\.org)\//;
+const NEAR_RPC_HOSTS = /^https:\/\/(test\.rpc\.fastnear\.com|rpc\.testnet\.near\.org|near-testnet\.drpc\.org)\//;
 
 /**
  * Console errors and failed page responses. Tolerated: a public RPC answering 429, and the
