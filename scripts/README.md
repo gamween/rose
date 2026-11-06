@@ -36,15 +36,16 @@ secrets).
 
 NEAR views go to `NEAR_RPC_URL` (default `https://test.rpc.fastnear.com`) in the bash scripts and in `e2e-solana-stream.mjs`, which backs off and retries when the RPC answers -429 (rate limited); a step that stopped after its NEAR call can be run again: payout requests (`withdraw_base_cash`, the lien claim, `redeem`) are looked up and resumed, not sent twice.
 
-Order for a new engine account `<engine>` (the final deployment `engine.rose-app.testnet` reused the
-demo assets of the staging engine `engine-s5`, and a new engine reuses the same ones, so positions
+Order for a new engine account `<engine>` (the final deployment `engine-v2.rose-app.testnet` reused
+the demo assets first deployed for the staging engines, as `engine.rose-app.testnet`, which it
+superseded, did before it, and a new engine reuses the same ones, so positions
 minted from the app stay in the seeded classes; drop `--demo-assets-from` to deploy a new TestUSDC,
 DemoToken and DemoStreamFaucet):
 
 ```sh
 scripts/derive-vault-signer.sh <engine> --all
 scripts/rehearse-keyless.sh keyless-rehearsal-$(date +%s).<parent>   # optional dry run of the key deletion, 0.02 NEAR
-scripts/deploy-base.sh --engine <engine> --role final --demo-assets-from engine.rose-app.testnet
+scripts/deploy-base.sh --engine <engine> --role final --demo-assets-from engine-v2.rose-app.testnet
 scripts/deploy-engine.sh <engine> --role final --reproducible --keyless   # Docker running, about 2 GB free
 ```
 
