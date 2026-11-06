@@ -1,4 +1,5 @@
-import { NearRpcError } from "@rose/sdk";
+import { NearRpcError, roseVaultAbi } from "@rose/sdk";
+import { ContractFunctionExecutionError, ContractFunctionRevertedError } from "viem";
 import { describe, expect, it } from "vitest";
 import { failureToActionError, RoseActionError, toActionError } from "./errors";
 
@@ -46,6 +47,22 @@ describe("human-readable errors", () => {
     // viem, Base Sepolia account without ETH (live, 2026-11-04).
     expect(toActionError(new Error("Execution reverted with reason: gas required exceeds allowance (0)."))).toMatchObject({ kind: "insufficient_balance" });
     expect(toActionError(new Error("Smart contract panicked: Insufficient cash")).message).toContain("Deposit tUSDC");
+  });
+
+  it("reads the token's own ERC-20 reverts that the vault ABI cannot decode", () => {
+    const word = (hex: string) => hex.replace(/^0x/, "").padStart(64, "0");
+    const vault = "0x62358c4f2f0bf8c8b4a4b1f7c7d7e1e1a2b34d06";
+    const reverted = (raw: string) => {
+      const inner = Object.assign(new Error('The contract function "depositCash" reverted with the following signature:\n0x'), { name: "ContractFunctionRevertedError", raw });
+      return Object.assign(new Error("Execution reverted"), { name: "ContractFunctionExecutionError", cause: inner });
+    };
+    expect(toActionError(reverted(`0xfb8f41b2${word(vault)}${word("0x0")}${word("0x3b9aca00")}`))).toMatchObject({ kind: "contract", title: "Allowance too low", retryable: true, message: expect.stringContaining("needs 1000000000") });
+    expect(toActionError(reverted(`0xe450d38c${word(vault)}${word("0x5")}${word("0x3b9aca00")}`))).toMatchObject({ kind: "insufficient_balance", title: "Not enough tokens", message: expect.stringContaining("holds 5 base units") });
+    expect(toActionError(reverted("0xdeadbeef"))).toMatchObject({ kind: "contract", title: "Transaction failed" });
+    /* viem's own errors, as writeContract throws them for depositCash decoded with the vault ABI only. */
+    const data = `0xfb8f41b2${word(vault)}${word("0x0")}${word("0x3b9aca00")}` as const;
+    const viemError = new ContractFunctionExecutionError(new ContractFunctionRevertedError({ abi: roseVaultAbi, data, functionName: "depositCash" }), { abi: roseVaultAbi, functionName: "depositCash", args: ["0x69fa19ad00000000000000000000000000000000", 1_000_000_000n, "halden.testnet", 0n] });
+    expect(toActionError(viemError)).toMatchObject({ title: "Allowance too low" });
   });
 
   it("maps NEAR RPC errors to not deployed and unreachable", () => {
