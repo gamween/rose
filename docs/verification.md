@@ -1546,3 +1546,115 @@ build uses any more, funds the next final engine.
 |---|---|---|
 | Deploy the 34-byte no-op wasm (sha256 `0fede26e…7e7e`) | `near contract deploy engine-s5.rose-app.testnet use-file noop.wasm without-init-call network-config testnet sign-with-legacy-keychain send` | [FDkMSvqC…](https://testnet.near.rocks/tx/FDkMSvqCUVrWh1t6ne1AiAKzavGaV8mYjtFQaNrJ6jDz); storage 1,082,347 B -> 66,014 B, code hash `25BW6p7Dhpfyb4vcDq4QMVXa7U21baMgf5rQmwfQqjwj` |
 | Sweep the free balance | `near tokens engine-s5.rose-app.testnet send-near rose-app.testnet '17.1 NEAR' network-config testnet sign-with-legacy-keychain send` | [GUG8uKVH…](https://testnet.near.rocks/tx/GUG8uKVHhSEkfge3RjGZk8JZqwzumoTMboWDPadXt4Yx); `rose-app.testnet` 2.48 -> 19.58 NEAR (`view_account` at `final`) |
+
+## RoseVault for the second final engine (2026-11-06)
+
+`engine.rose-app.testnet` is superseded (an Advance funder's lien share never left its account
+index, fixed in `46358b2`; the keyless engine cannot be patched), and a RoseVault's `SIGNER()` is
+immutable and bound to one engine account, so the next final engine `engine-v2.rose-app.testnet`
+gets its own vault. The demo assets (TestUSDC, DemoToken, DemoStreamFaucet) are reused.
+
+| Step | Command | Result |
+|---|---|---|
+| Derived addresses of the new account | `scripts/derive-vault-signer.sh engine-v2.rose-app.testnet --all` | `vault_base` `0xc345e592c6db18c162c6225bfb6f6c92b425b7cb`, `vault_sol` `EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC`, `gas_sol` `HWx7jD36pAzB1Bo83bCvRYtnW5SHLcfdEZw4x4Zdn1Ng` (MPC `derived_public_key`) |
+| RoseVault | `scripts/deploy-base.sh --engine engine-v2.rose-app.testnet --role final --demo-assets-from engine.rose-app.testnet` | exit 0: `0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe`, [0x301ce573…](https://sepolia.basescan.org/tx/0x301ce5737f288a40df02e48ff3da1049bf2c3a5d4fa6f008020bf9512addf126), block 55,280,887; the script read back `SIGNER()` and `LOCKUP()` |
+| Independent read | `cast call --rpc-url https://sepolia.base.org 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe 'SIGNER()(address)'` and `'LOCKUP()(address)'` | `0xC345e592C6Db18c162c6225BFb6F6c92b425b7cb` (the engine's `vault/base`), `0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e` (Sablier Lockup); 13,255 bytes of code |
+| Superseded record | `jq` on `deployments/testnet.json` | `engine.rose-app.testnet`: `role` `superseded`, `superseded_by` `engine-v2.rose-app.testnet`, `superseded_reason` (no script reads the role; `deploy-base.sh` and `deploy-engine.sh` only write their own engine's) |
+
+## Second final deployment (2026-11-06)
+
+| Step | Command | Result |
+|---|---|---|
+| Reproducible build | in a plain clone of `0524b33` (pushed, full gate exit 0): `cargo near build reproducible-wasm` in `contracts/engine` (the steps of `deploy-engine.sh --reproducible`, run first on their own so the artifact's size could be checked against the 17 NEAR before any account was created), kept as `target/near/reproducible/rose_engine-0524b3388f7bf512f39bf521e9af68736482ef9e.wasm`; the build image removed afterwards | exit 0: 1,019,188 bytes, sha256 `0a0a16ef9cec1916d59b963183eee9a20ded1206e4ec25bbaef759335ae8e46a` (bs58 `gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`); embedded `build_environment` `sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c8640a27172f83136a0f0aab2a9bf9d09f6ba0e6afd187addfaa9b92bae0`, `source_code_snapshot` `git+https://github.com/gamween/rose?rev=0524b3388f7bf512f39bf521e9af68736482ef9e`. `new` needs about (1,019,188 + 2,000 + 458,752 bytes) x 1e19 yoctoNEAR + 0.5 NEAR = 15.3 NEAR |
+| Deployment | `scripts/deploy-engine.sh engine-v2.rose-app.testnet --role final --wasm target/near/reproducible/rose_engine-0524b3388f7bf512f39bf521e9af68736482ef9e.wasm --keyless --rose-vault 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe` (`--role final` accepts the artifact only because it names the pinned image and a commit on `origin`) | exit 0, first run |
+| Account (17 NEAR from `rose-app.testnet`) | same run | [AzUsL5Bb…](https://testnet.near.rocks/tx/AzUsL5BbbsG3C5s1rcfDqRPQK4YCMUMLVAMG15TRSD5R) |
+| Deploy and `new` | same run | [5y42Nnqc…](https://testnet.near.rocks/tx/5y42Nnqcy58dypq5B6SqqVmfgtM1JsRXTjVeJVJX94Zp) |
+| `bootstrap` | same run | [CfnCUcRC…](https://testnet.near.rocks/tx/CfnCUcRCXLHFLLtqhrmVmKBRKRvSnvuyobjW2eekmeaq); `vault_base`, `vault_sol` and `gas_sol` equal to the MPC's derivation above |
+| Checks before the key deletion | same run | code hash equals the artifact; `get_config` equals every init argument (CKD key re-read from `v1.signer-prod.testnet`); the bound RoseVault's `SIGNER()` and `LOCKUP()` read live |
+| Key deletion (one transaction) | same run | [2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3); `view_access_key_list` polled at `final` until `[]` |
+| Keyless check | `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"engine-v2.rose-app.testnet"}}' \| jq -c .result.keys` | `[]` (block 276,503,426); `view_account`: `code_hash` `gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`, storage 1,020,537 B, 16.99 NEAR |
+| Source metadata | `curl -s https://rpc.testnet.fastnear.com … "method_name":"contract_source_metadata" …` | link `https://github.com/gamween/rose/tree/0524b3388f7bf512f39bf521e9af68736482ef9e`, the pinned `build_environment`, `contract_path` `contracts/engine` |
+| near-cli signing path after a config migration | `near tokens rose-app.testnet send-near rose-app.testnet '0.001 NEAR' network-config testnet sign-with-legacy-keychain send` (near-cli-rs 0.30.1 had just migrated its config from V4 to V5) | [Hs1JhYTU…](https://testnet.near.rocks/tx/Hs1JhYTU8VaMAhzgo4SFCUc48TsiWzSmXyTHatkAyh2n): the `Transaction ID:` line the scripts parse is unchanged |
+
+## Live end-to-end, engine-v2 (2026-11-06)
+
+Every flow of the seeded story and of the Solana custody run again on the final keyless engine
+`engine-v2.rose-app.testnet` and its RoseVault `0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe`, with
+the same scripts as on the engines before it. Full transaction tables:
+`deployments/e2e/engine-v2.rose-app.testnet.{seed,live,solana,solana-ended}.json`
+(`node scripts/e2e-live.ts report --env deployments/engine-v2.rose-app.testnet.env` prints the seed
+and live table).
+
+| Step | Command | Result |
+|---|---|---|
+| Seed | `node scripts/seed.ts all --env deployments/engine-v2.rose-app.testnet.env --kol-wallet nadia-v2` | First run stopped by hand at the Base registrations: its process kept reading a Base safe head of 55,282,265 for over 20 minutes while a fresh process (`cast block safe`, and viem in a new Node process) read 55,283,214, so its HTTP connection was pinned to a lagging `sepolia.base.org` backend. The registration of stream 157 was already in flight when it stopped (position 3 registered at block 276,503,993; its hash is not in the journal). Second run, same command: exit 0, resuming from the journal. Cast topped up from `rose-app.testnet` (e.g. [A8kzVECg…](https://testnet.near.rocks/tx/A8kzVECg27vCHSSMnmSRpRKT2PyUKbV3wJRMxamKLBxZ)); Seed Round `createStreams` [0xc2cf7629…](https://sepolia.basescan.org/tx/0xc2cf76299e247fabcc8f167f312203a278e43111acea652c7b5f99ece3e2fb45) (streams 157 Halden Ventures, 158 Tessaro Capital), KOL Round [0x04826032…](https://sepolia.basescan.org/tx/0x04826032a57625150d51f339a2088bc8501399c872cc997d9024d9b790529163), Nadia's self-deposit [0x8454f0cf…](https://sepolia.basescan.org/tx/0x8454f0cf75ca5298a0c9fffa98b36597bbf34003872b74186439d5b8896751c8); `register_base_deposit` of stream 158 [3B4xGvii…](https://testnet.near.rocks/tx/3B4xGviiUP7aA4KKa9GRPeMJ519S8zWi7TvHeQcZMvvi), 159 (first attempt [KQTRFPN1…](https://testnet.near.rocks/tx/KQTRFPN1t1hExZmP8KQvTj2BKw38bycU3Qtk6H3XYdV) not attested, the status page's one failed ForeignTx; retry [6g1YFNqB…](https://testnet.near.rocks/tx/6g1YFNqB13PNoevvhd3HYZKe7kBr4d3E71tGHr8YAEyF)), 160 [AWEapohT…](https://testnet.near.rocks/tx/AWEapohTuAwznqqhLGn26Y2RUFUYQBmWcqvPWEvYY4kx), 161 [FX3smDbE…](https://testnet.near.rocks/tx/FX3smDbEdS2Pqq4sTzR6rx6RoWtRyqsndGNQjpC2KHTs); Strategic Round attributed [149ZdeKg…](https://testnet.near.rocks/tx/149ZdeKgSz5wofm9fNWXKZ9fW6cNKPSuMNrg8WPTnoLG), moved [4xBFUiy1…](https://explorer.solana.com/tx/4xBFUiy1ARwnU4rZnWNjfMVHHR2guLPA1FAJkfAajVmxoQJqRDURS2bH9ssJaVfCSmR6Xjh3ooGXKuFhTFkreaAU?cluster=devnet), registered [FnTRaGhi…](https://testnet.near.rocks/tx/FnTRaGhixi42tKbYjGyJ3KhPqLke6vpBc9JTJ8dmhhik); rounds 0 Tender [9CB4AN7f…](https://testnet.near.rocks/tx/9CB4AN7f63h6onD2GrakwxRFwF27VH5REuWUcofe9zbN), 1 Exit [6id5iHD1…](https://testnet.near.rocks/tx/6id5iHD167Z6SCf9zHyMd44DmcenKhEQ9ARwh6bpvQPD), 2 Advance [FxcVyrVU…](https://testnet.near.rocks/tx/FxcVyrVUtfMbWgR5m8Xw8gHm7yesWE3m5mAdUEvC4MSQ) with 10 sealed orders; demo mint `2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv` (the cast's, reused) |
+| No-key round | `node scripts/e2e-live.ts all --env deployments/engine-v2.rose-app.testnet.env` | round 3: `close` refused after the 60 s timeout [EYSv5djd…](https://testnet.near.rocks/tx/EYSv5djd3wmH72cC4TRxtJmywErjZEdGbGdeFU8Akb3T) ("Key timeout reached"), `cancel_no_key` [GuA2xPAB…](https://testnet.near.rocks/tx/GuA2xPAB5ifbzwjAqv6LbfmHzSMnqPmvrQdvLaWsWj8e), refund [7w8kTEDA…](https://testnet.near.rocks/tx/7w8kTEDApo1rDY4jPBrWHrHqLYxVepdTsBrEV2Vdx8Bn) |
+| Key release after close | same run | Tender [82iWCcCj…](https://testnet.near.rocks/tx/82iWCcCjj1Jb9CBNiR4vtsv5Si9tkQRPsB8fv47Ck377) 4.76 s, Exit [9D31fRAL…](https://testnet.near.rocks/tx/9D31fRALyropD1cFjAVZduN8cSXrgWR5PHHHfkYM819Y) 4.23 s, Advance [EvYijsfB…](https://testnet.near.rocks/tx/EvYijsfBSK1rsCtAG3NQeqmRv1nFADSdTBJs8dkPTR7j) 4.87 s; 37.4 to 37.5 Tgas; key by callback, each equal to the offline unwrap of the MPC response |
+| Openings | same run | 9 openings by `rose-app.testnet` at 132.10 to 132.15 Tgas (e.g. [Eqq9Cwqy…](https://testnet.near.rocks/tx/Eqq9CwqytozdU8jv4G526aC3gNtPYTs8Sz9LhST8eJTD)); the malformed bid's own opening refused [CnvMqSd2…](https://testnet.near.rocks/tx/CnvMqSd25evQwrSRmHezWhQf3mXTX6ME2TSVe1JNFYwk) ("Opening does not match the ciphertext", 131.3 Tgas) |
+| Clearing = reference | same run, then once more | Tender [2cvvExqG…](https://testnet.near.rocks/tx/2cvvExqGXGTMwunyC4xYN9YigCCxduytVDLNZxhetqDn) 0.036 tUSDC, volume 41,666.67 CINDR; Exit (Strategic Round, Solana positions) [GFhakKKW…](https://testnet.near.rocks/tx/GFhakKKWK2oZWR8xw3CiTetdZqxnhsr65aXmDDTXAAyu) 0.027, volume 70,000; Advance (KOL Round, Base) [26xm8LXQ…](https://testnet.near.rocks/tx/26xm8LXQH4FAUBiMQ3hraYFgckuRzPUJ17RDKpbmRo6r) 0.0375, 3,000 claimed tokens; every price and fill equal to `@rose/sdk` on the opened orders. The first run then stopped with exit 1 at the Tender's first `settle_bid`: `-429` from `rpc.testnet.fastnear.com`, caused by a block scan sent from the same address at the same time (stopped); the second run of the same command exited 0, resuming from the journal |
+| Settlement | second run | 10 `settle_bid`; the malformed bid void (`Unopened`) and its 1 tUSDC bond slashed [93F56CBa…](https://testnet.near.rocks/tx/93F56CBaDPUZrdcuUjvccnDb9qDVKKamMyDVz7nyfFJu) |
+| NEAR USDC payout | same run | `withdraw_near_cash` [FswYgYh7…](https://testnet.near.rocks/tx/FswYgYh7PC715bmwLNCmseUy9JA7o1g7gw5WqYjw3xfG): 1,732.3875 tUSDC to Ines Marlow |
+| Base USDC payout | same run | `withdraw_base_cash` [9BESbgMJ…](https://testnet.near.rocks/tx/9BESbgMJ85ixAdGiY8XQ1R5rRRFX4wDimkrng9C5cWEu) + `executeTransfer` [0xb403f62a…](https://sepolia.basescan.org/tx/0xb403f62afe5728f748cdbe80a630e3aab7b7d2705eb953e81d2d878117edd432): 1,460 tUSDC to Halden Ventures on Base |
+| Base token payout (Advance repaid from unlocks) | same run | `withdrawMax` of stream 159 [0xcbe7b057…](https://sepolia.basescan.org/tx/0xcbe7b05790f81def67601e73de7ca7abd36504441485edac85514f63877aba28), `claim_base_tokens` [7SsvHCs3…](https://testnet.near.rocks/tx/7SsvHCs3gMQrNUmaKHc9BZK65B23EW4VtNpvNsHgnwB1), `executeTransfer` [0x578ccbcd…](https://sepolia.basescan.org/tx/0x578ccbcd74ddc1d806f386562dab8bbd02f1168f19a9f320b0a040ddfa1db571): 0.9189 CINDR to Varick Partners |
+| In-kind redeem (Base) | same run | `redeem` of position 8 [3eTP42S7…](https://testnet.near.rocks/tx/3eTP42S7QcqX3yx5TSaPBAx1Hd9dahYqMzxpq4QWrz99) + `executeRelease` [0x59e6facd…](https://sepolia.basescan.org/tx/0x59e6facd04330c6d15a9a11559eb2ccd76e1787976e0bee0ab79a1e88e02d2c6): Sablier stream 161 back to Nadia Solvik |
+| Solana stream, main case | `node scripts/e2e-solana-stream.mjs engine-v2.rose-app.testnet all --holder b1.rose-ckd-1793753433.testnet` | exit 1 at `claim` ("nothing claimable yet", by design: the stream starts a few minutes after its creation); attribute [FARYkkRk…](https://testnet.near.rocks/tx/FARYkkRkDtW3ET4sAL7MNz99AVo2bCGfJj8cWC9rN2YC), move [2EcxR4tu…](https://testnet.near.rocks/tx/2EcxR4tufh8GhseKimJfboVLgLfvq3oqejDCacK6EzF4) + [5YRsRaSc…](https://explorer.solana.com/tx/5YRsRaScTMa2TMYTRPv9cuUGLsaNMjVEMyANeuKXVKZYj1S4QuLq18KfHyFsEj3xaq6Vk12bW8X91xj8ikCKZ1pa?cluster=devnet), register [BbfHakRW…](https://testnet.near.rocks/tx/BbfHakRWU2gtRiNdvY8yrckh2EvaCz7apX1CR2WJzCy5) (position 5) |
+| | `… claim` (38 s after the stream's start, then 3 min later) | exit 1 ("nothing claimable yet"), then exit 0: receipt-nonce payout 4, `claim_sol_tokens` [86wtZg82…](https://testnet.near.rocks/tx/86wtZg822RMxqXMPGVUFHsEB6dqfzehq34g5eVkaE76V), broadcast [46ZF74WS…](https://explorer.solana.com/tx/46ZF74WSUihFctEX5YYQcTEiBbfUC6dxUXpq6eHFUbf9Hd5zj6ybgd9etxFWCsNqVhy4g18yeeS2LJZHNgxRV4U6?cluster=devnet) (180 tokens) |
+| | `… confirm`, `… redeem`, `… confirm-redeem` | exit 0 each, first run: `confirm_sol_payout` [Bv9RZpax…](https://testnet.near.rocks/tx/Bv9RZpaxVzX2G9CZqAM8LvpRZoB9QXunYFpCoJ7yji4K) (`Landed`), `redeem` [5erw3mkz…](https://testnet.near.rocks/tx/5erw3mkzPLi6GNoE3bNmmoD4xmg47ebpue3Hs3VRvdwq), `transfer_recipient` to the holder [4SjvN2x7…](https://explorer.solana.com/tx/4SjvN2x7MZH9yy3MCDCZiteBbDm7RiMKQVdTosUmHSu3Q7nKcB7zhuapm7MgNjE4Q2sGDooTKJRBLydeGYkSuecT?cluster=devnet), `confirm_sol_redeem` [4Vpy2Ywg…](https://testnet.near.rocks/tx/4Vpy2YwgSE6Nbr6gTzCt3HfBoFqpGQWNHtH4SsvsyXG2): position 5 `Released` |
+| Solana stream, ended case | `node scripts/e2e-solana-stream.mjs engine-v2.rose-app.testnet all --holder b1.rose-ckd-1793753433.testnet --case ended` (started during the seed; the main case ran while it waited) | exit 0, first run, 65-minute stream `SCrDSoL2…`: attribute [5KLWPJoV…](https://testnet.near.rocks/tx/5KLWPJoVchnFyJYDAw5yMV69LQCvJnXrWTWrod3ZKo96), move [51gZdyRa…](https://testnet.near.rocks/tx/51gZdyRaESMH5weuzh22FnExShNobHHngcrhi9pXkCgp) + [3SBmduyT…](https://explorer.solana.com/tx/3SBmduyTRrZzXqY8exCMX5AUDVh9nA86B1kvkCwNnVuSGf3AxRV5Btvh1fLcjwVZK81bZ7oyDeq2GGMEuEkTzuK1?cluster=devnet), register [BvWWGwhw…](https://testnet.near.rocks/tx/BvWWGwhwDve63j8yqhVbmcycaCJQvU2ovBk8iVFg33bo) (position 2); Streamflow's auto-claim at the end [2j4ftDid…](https://explorer.solana.com/tx/2j4ftDidWY3NMZHm3dhdNx3rcz4tKb7PknvgtnSVd4jP8pNY4yarKHJkpeZu3X9diKt57VTguNhUYZeNGZeq244e?cluster=devnet) ("[10] Auto-Claim", 3,900 of 3,900 withdrawn); `sync_sol_stream` [GyDe3pdE…](https://testnet.near.rocks/tx/GyDe3pdEt6WntUJtZvgqxgEKNtXJuj8K4xVHM3en2DDN) booked 3,800 (the app's claim below drew 100 before the end), stream pruned; claim paid from the swept balance alone [3TPw2vCR…](https://testnet.near.rocks/tx/3TPw2vCRxKo4GTXDhEdP4jMpmeLfLwt9cPpG878qGCUm) + [38189Ckk…](https://explorer.solana.com/tx/38189CkkpiF9cbQVGubqAv3um6suGs5MxH5yJzvcfaeJpsHGJq2pqEstiHbfHffcvsNqyd6nhwx3T29EqNc56i5p?cluster=devnet) (`TransferChecked`, 405 CU), `confirm_sol_payout` [R4KvtgBH…](https://testnet.near.rocks/tx/R4KvtgBHzAvo2CnBLJefcGHpAjR3SFXf3mwtkoQvd7U): payout 10 `Landed`, swept balance 0 |
+| Demo manifest | `node scripts/demo-manifest.ts --env deployments/engine-v2.rose-app.testnet.env` | exit 0: 4 rounds (#0 tender, #1 exit, #2 advance, #3 no-key), 35 steps, 116 transactions; the views recorded into `apps/web/e2e/fixtures/demo-engine.json` (157 events); `engine-s5`'s manifest and recording removed (reclaimed), `engine.rose-app.testnet`'s kept as `demo-engine-v1.json`. Local `playwright test e2e/demo.spec.ts e2e/docs.spec.ts` on an engine-v2 build: exit 0, 22 passed |
+| Round left open | `node scripts/seed.ts open-round --env deployments/engine-v2.rose-app.testnet.env` | exit 0: Exit round 4 on the Seed Round, NEAR tUSDC, closes 2026-11-20T16:05:24Z, key timeout 7 d, reveal window 24 h [5PuzdAAa…](https://testnet.near.rocks/tx/5PuzdAAadD1MUkDN4uVEv3bqEe5tnSfBXfXVJvfK4w6Z); Halden Ventures' sealed ask of 50,000 units [8QtBKsve…](https://testnet.near.rocks/tx/8QtBKsveSR2x23sBuaCwgHZLLuGJaupheCcLFQ7njmLJ) |
+| gas/sol | `node topup-gas2.mjs HWx7jD36pAzB1Bo83bCvRYtnW5SHLcfdEZw4x4Zdn1Ng 0.2` (scratch script: one SystemProgram transfer from the ops key up to the target) | 0.0955 SOL topped up to 0.2 SOL [3yhmcg2t…](https://explorer.solana.com/tx/3yhmcg2tF8Wm1ugifWC2W7Qo7r7ZzEG5yekDDBbxYJdwE4paVwymVcpS2WrwRT9mTd5vkUPx5MeeDfsWibRQPWPJ?cluster=devnet) |
+
+### Production switch to engine-v2
+
+- `vercel env rm <name> production --yes` then `vercel env add <name> production` (value on stdin)
+  for the eight `NEXT_PUBLIC_*` of `deployments/engine-v2.rose-app.testnet.env`: 16 commands, exit 0.
+  `vercel env pull --environment=production` then a sorted diff of the eight lines against the env
+  file: identical (the pulled file deleted).
+- `vercel deploy --prod --yes` (repo root, `3287317`): exit 0, deployment `DW9C6mZQaejHz1woLEyMtAU6weww`,
+  aliased to https://rose-rounds.vercel.app. `/status`: "Keyless", account
+  `engine-v2.rose-app.testnet`, keyless check "None", engine wasm `gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`,
+  MPC latency of rounds 0 to 2 (4.8, 4.2, 4.9 s), RoseVault `0xb72a42bc…` "Signer matches engine",
+  `gas/sol` "Gas funded"; 0 px horizontal overflow at 1470 and 375 px.
+
+### Live click-through on engine-v2 (real UI on production, demo wallets)
+
+- Get test funds with fresh demo wallets (`rose-demo-e1v9wh.testnet`, `0x7650…98C9`): account
+  created with 10 NEAR [EDHkVYgE…](https://testnet.near.rocks/tx/EDHkVYgEySG9a5F2k32xsK4unNcK4go3VqiiKxVFWrdN),
+  1,000 tUSDC on NEAR [G5nNjjuR…](https://testnet.near.rocks/tx/G5nNjjuR7MLsgathZkuyw9PhnZgx5jdvAD9V6BoDjjxb),
+  0.002 ETH [0xa7d07926…](https://sepolia.basescan.org/tx/0xa7d079265cb152f413caa33b74d73e5aaea0427b1dcbf89610c18a5600753e1a),
+  1,000 tUSDC on Base [0x69224110…](https://sepolia.basescan.org/tx/0x69224110ba8180c006cf67a2f953d5460c165a892f0d5aac1486bf2442d2feb0),
+  demo vesting position, Sablier stream 162 [0x24dc4449…](https://sepolia.basescan.org/tx/0x24dc4449c691a6a22ac4493c6e43886026eae59a3cc73542afb3b32173893dc3).
+- Deposit of stream 162 from the deposit wizard, about 3 minutes: approve
+  [0xa081f221…](https://sepolia.basescan.org/tx/0xa081f2216f685d0cb109f1c09536d8284a7da3a9616088edefd6cced3719c46c),
+  `depositStream` [0x9756c7f9…](https://sepolia.basescan.org/tx/0x9756c7f96ff46a05fd6b778fd78120ae467ab8ab2f48b1082d9b43fbbe069323),
+  safe head wait, `register_base_deposit`
+  [AVaMqXA4…](https://testnet.near.rocks/tx/AVaMqXA48fwGVLNoUoZmKVhkQruqksAcRejPaieektP8):
+  100,000 units of the Seed Round class minted.
+- Sealed bid on round 4: "Deposit cash" `ft_transfer_call` of 41.12 tUSDC
+  [6k9azSdh…](https://testnet.near.rocks/tx/6k9azSdhjDAfkbx7oburPsYAGC9vSmViCmDUWoyvvo4u), then
+  "Seal and place bid" (1,000 units at 0.04, escrow 40.12, bond 1.00)
+  [FogbeL6E…](https://testnet.near.rocks/tx/FogbeL6EGCZeH5jDZ48CpoeMSML3Pudjjro7J2UcsTVf): bid #1,
+  shown sealed in the book with "My orders" keeping the plaintext in the browser. The driving
+  script's first attempt waited for a toast reading "deposited" while the app's success toast
+  reads "credited to your cash" (a script bug; the cash was credited, `get_cash` 41.12 tUSDC).
+- Guided demo (`/app/demo`) live on engine-v2: the Tender's openings at 132.1 Tgas, the Exit to its
+  last step, 0 px overflow at 375 px.
+- Solana claim with confirm, 100 tokens of the ended-case class before its draws stopped, with
+  `b1`'s NEAR key and a fresh Solana demo key `H4sSHegW…EEhv` funded 0.05 SOL
+  [4UzADJ5n…](https://explorer.solana.com/tx/4UzADJ5nzQSCyYTLHT5ToiCCFM9EAgzoHQJ3Gf6bRydpEBGq81X5T9CYbi14QmVAuMRfcMy7rPJBi8dxhN6Zt93R?cluster=devnet),
+  60 s: nonce and receipt accounts [3deArM8Q…](https://explorer.solana.com/tx/3deArM8Qs9LNcofDcX82414CVyYwqR16TfUzkYCazrKZgCuNfmAQr6z4yPtunySXV8tJYTEnHf5yXEMnyxwxVoFP?cluster=devnet),
+  request [HWFtWrxi…](https://testnet.near.rocks/tx/HWFtWrxiiVQwgGE3o4BQYX16bKcjEMrRgcugnuqE8eJ),
+  broadcast [5mfhsBW8…](https://explorer.solana.com/tx/5mfhsBW8CeBSmtwgqgDrZU5YMxvbhseqhwNJVnkr9c95uxLVqFubBtxARbS3wMgo2NEFSPTEF9y1PjPAwtVnNKvj?cluster=devnet),
+  `confirm_sol_payout` [F8Yg1PxD…](https://testnet.near.rocks/tx/F8Yg1PxDohv5C8vQo42MgN2YKCwxEk4NpKtTTPGDvZTW):
+  payout 9 `Landed`.
+- Pages reviewed on that deployment at 1470 and 375 px (`/`, `/app`, `/app/rounds`,
+  `/app/rounds/4`, `/app/demo`, `/status`, `/docs/contracts-and-addresses`,
+  `/docs/trust-and-security`, `/app/prices`, `/app/issuer`): 0 px horizontal overflow on each.
+
+### Playwright against production on engine-v2
+
+`cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1`
+(the specs read engine-v2's `NEXT_PUBLIC_*` from `apps/web/.env.local`), against deployment
+`DW9C6mZQaejHz1woLEyMtAU6weww`: **exit 0** on the first run, 145 passed, 25 skipped (each by its own
+condition), 4.7 min.
