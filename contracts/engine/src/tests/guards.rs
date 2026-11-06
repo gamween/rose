@@ -23,6 +23,14 @@ fn round_creation_guards() {
     panics_with("Attach the round storage deposit", || {
         contract.create_exit(exit(ts(6_000), Venue::Near, 1))
     });
+    env(
+        &creator,
+        ROUND_STORAGE_DEPOSIT.saturating_add(NearToken::from_yoctonear(1)),
+        ts(2_000),
+    );
+    panics_with("Attach the round storage deposit", || {
+        contract.create_exit(exit(ts(6_000), Venue::Near, 1))
+    });
     env(&creator, ROUND_STORAGE_DEPOSIT, ts(2_000));
     panics_with("max_price must be positive", || {
         contract.create_exit(exit(ts(6_000), Venue::Near, 0))
@@ -268,6 +276,10 @@ fn cash_guards() {
     env(&alice, one_yocto(), ts(1_000));
     contract.withdraw_near_cash(U128(2 * USDC)).detach();
     assert_eq!(cash(&contract, &alice), 3 * USDC);
+    assert!(
+        contract.has_obligations(&alice),
+        "the withdrawal holds the account"
+    );
     env_at(&engine(), ts(1_000));
     assert!(!contract.on_near_cash_withdrawn(
         alice.clone(),
@@ -282,6 +294,10 @@ fn cash_guards() {
     assert_eq!(
         events("rose").last().unwrap()["event"],
         "cash_withdrawal_failed"
+    );
+    assert!(
+        !contract.has_obligations(&alice),
+        "the callback releases it"
     );
     env_at(&engine(), ts(1_000));
     assert!(contract.on_near_cash_withdrawn(alice.clone(), U128(2 * USDC), Ok(())));

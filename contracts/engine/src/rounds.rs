@@ -327,8 +327,8 @@ impl Contract {
         advance: Option<AdvanceTerms>,
     ) -> RoundId {
         require!(
-            env::attached_deposit() >= ROUND_STORAGE_DEPOSIT,
-            "Attach the round storage deposit (0.05 NEAR)"
+            env::attached_deposit() == ROUND_STORAGE_DEPOSIT,
+            "Attach the round storage deposit (exactly 0.05 NEAR)"
         );
         require!(max_price > 0, "max_price must be positive");
         let venue = venue.canonical();

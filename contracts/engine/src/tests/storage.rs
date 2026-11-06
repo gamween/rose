@@ -104,6 +104,8 @@ fn holding_rows_consume_the_deposit_and_free_it_when_emptied() {
     env(&alice, one_yocto(), ts(1_000));
     contract.withdraw_near_cash(U128(USDC)).detach();
     assert_eq!(used(&contract), before - CASH_ROW_BYTES);
+    env_at(&engine(), ts(1_000));
+    assert!(contract.on_near_cash_withdrawn(alice.clone(), U128(USDC), Ok(())));
     assert_eq!(
         contract
             .storage_balance_of(alice.clone())

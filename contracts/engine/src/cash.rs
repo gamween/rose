@@ -61,13 +61,15 @@ impl Contract {
 
     /// Withdraws `amount` of the caller's `Near` cash to its account through `ft_transfer`. The
     /// caller must be registered on the cash token; a failed transfer is credited back by the
-    /// callback. Anyone with cash; requires exactly 1 yoctoNEAR (forwarded to the token).
+    /// callback. The account is held until the callback, so its storage cannot leave before a
+    /// credit-back lands. Anyone with cash; requires exactly 1 yoctoNEAR (forwarded to the token).
     #[payable]
     pub fn withdraw_near_cash(&mut self, amount: U128) -> Promise {
         crate::assert_one_yocto();
         require!(amount.0 > 0, "Amount must be positive");
         let account = env::predecessor_account_id();
         self.debit_cash(&account, &Venue::Near, amount.0);
+        self.hold(&account);
         ext_ft::ext(self.config.near_cash_token.clone())
             .with_attached_deposit(NearToken::from_yoctonear(1))
             .with_static_gas(GAS_FOR_FT_TRANSFER)
@@ -83,8 +85,8 @@ impl Contract {
             )
     }
 
-    /// Callback of `withdraw_near_cash`: credits the amount back when the transfer failed.
-    /// Called by the contract itself.
+    /// Callback of `withdraw_near_cash`: releases the account's hold and credits the amount back
+    /// when the transfer failed. Called by the contract itself.
     #[private]
     pub fn on_near_cash_withdrawn(
         &mut self,
@@ -92,6 +94,7 @@ impl Contract {
         amount: U128,
         #[callback_result] result: Result<(), PromiseError>,
     ) -> bool {
+        self.release_hold(&account);
         match result {
             Ok(()) => {
                 self.emit(RoseEvent::CashWithdrawn {
