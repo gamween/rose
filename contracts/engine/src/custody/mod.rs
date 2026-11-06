@@ -461,12 +461,11 @@ impl Contract {
         }
     }
 
-    /// True while `key` is pending (a request in flight or abandoned but not replaced).
-    pub(crate) fn is_pending(&self, key: &ReplayKey) -> bool {
-        matches!(
-            self.custody.replays.get(key),
-            Some(ReplayState::Pending { .. })
-        )
+    /// True while `key` is pending under the mark made at block `since`: the callback of a
+    /// request abandoned and replaced since then is not the request now in flight, and must
+    /// neither release its hold nor act on its mark.
+    pub(crate) fn is_own_pending(&self, key: &ReplayKey, since: u64) -> bool {
+        self.custody.replays.get(key) == Some(&ReplayState::Pending { since_block: since })
     }
 
     /// Clears a key marked pending at block `since` (a payout's own nonce mark): a newer mark of

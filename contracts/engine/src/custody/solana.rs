@@ -440,14 +440,17 @@ impl Contract {
                     metadata_data,
                     env::predecessor_account_id(),
                     U128(env::attached_deposit().as_yoctonear()),
+                    U64(env::block_height()),
                 ),
         )
     }
 
     /// Registration callback: mints the units or records the refusal of a stream proven at the
     /// vault. A proof of a stream not at the vault, a failed or mismatched proof, or a stream
-    /// whose stage moved on meanwhile clears the key and returns everything attached. Called by
-    /// the contract itself; never panics once the key is pending.
+    /// whose stage moved on meanwhile clears the key and returns everything attached; so does a
+    /// late callback of a request replaced since (the key is no longer pending under the mark
+    /// of its own request, `requested_at`), which touches neither the key nor its hold. Called
+    /// by the contract itself; never panics once the key is pending.
     #[private]
     pub fn on_sol_deposit_verified(
         &mut self,
@@ -456,11 +459,12 @@ impl Contract {
         metadata_data: String,
         caller: AccountId,
         attached: U128,
+        requested_at: U64,
     ) -> bool {
         let ReplayKey::SolStream { metadata } = &key else {
             env::panic_str("Internal custody error: not a Solana stream key");
         };
-        if !self.is_pending(&key) {
+        if !self.is_own_pending(&key, requested_at.0) {
             Self::refund_registration_deposit(&caller, NearToken::from_yoctonear(attached.0));
             return false;
         }

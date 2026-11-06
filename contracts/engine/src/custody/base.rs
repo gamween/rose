@@ -91,13 +91,15 @@ impl Contract {
                     fields,
                     env::predecessor_account_id(),
                     U128(env::attached_deposit().as_yoctonear()),
+                    U64(env::block_height()),
                 ),
         )
     }
 
     /// Deposit callback: compares the attested hash, consumes the key and registers the
-    /// position, or records the refusal. Called by the contract itself; never panics once the
-    /// key is pending.
+    /// position, or records the refusal. Acts only while the key is pending under the mark of
+    /// its own request (`requested_at`); a late callback of a request replaced since returns
+    /// what was attached. Called by the contract itself; never panics once the key is pending.
     #[private]
     pub fn on_base_deposit_verified(
         &mut self,
@@ -106,8 +108,9 @@ impl Contract {
         fields: StreamDepositedFields,
         caller: AccountId,
         attached: U128,
+        requested_at: U64,
     ) -> bool {
-        if !self.is_pending(&key) {
+        if !self.is_own_pending(&key, requested_at.0) {
             Self::refund_registration_deposit(&caller, NearToken::from_yoctonear(attached.0));
             return false;
         }
@@ -178,12 +181,14 @@ impl Contract {
                     hex::encode(hash),
                     fields,
                     env::predecessor_account_id(),
+                    U64(env::block_height()),
                 ),
         )
     }
 
-    /// Cash deposit callback: credits the venue once the log is attested. Called by the
-    /// contract itself.
+    /// Cash deposit callback: credits the venue once the log is attested, while the key is
+    /// pending under the mark of its own request (`requested_at`). Called by the contract
+    /// itself.
     #[private]
     pub fn on_base_cash_verified(
         &mut self,
@@ -191,8 +196,9 @@ impl Contract {
         expected_hash: String,
         fields: CashDepositedFields,
         caller: AccountId,
+        requested_at: U64,
     ) -> bool {
-        if !self.is_pending(&key) || !self.attested(&key, &expected_hash) {
+        if !self.is_own_pending(&key, requested_at.0) || !self.attested(&key, &expected_hash) {
             Self::refund_registration_deposit(&caller, RECORD_STORAGE_DEPOSIT);
             return false;
         }

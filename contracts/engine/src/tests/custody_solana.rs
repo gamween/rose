@@ -353,6 +353,7 @@ fn register_as(contract: &mut Contract, stream: [u8; 32], spec: &StreamSpec, at:
         hex::encode(stream_bytes(stream, spec)),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(contract, &stream_key(stream)),
     )
 }
 
@@ -1043,6 +1044,7 @@ fn a_premature_registration_records_nothing_and_no_one_keeps_both_units_and_stre
         hex::encode(stream_bytes(STREAM, &still_at_deposit)),
         accounts(3),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &stream_key(STREAM))
     ));
     assert_eq!(contract.get_replay(stream_key(STREAM)), None, "key cleared");
     assert!(
@@ -1115,6 +1117,7 @@ fn a_stream_refused_at_the_vault_is_never_attributed_again() {
         hex::encode(stream_bytes(STREAM, &other_mint)),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &stream_key(STREAM))
     ));
     let refused = contract.get_refused_deposit(stream_key(STREAM)).unwrap();
     assert!(matches!(
@@ -1188,6 +1191,7 @@ fn attribution_callbacks_recheck_the_stage_and_never_touch_replay_keys() {
         hex::encode(stream_bytes(STREAM, &at_deposit)),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &stream_key(STREAM))
     ));
     assert_eq!(contract.get_replay(stream_key(STREAM)), None);
     move_stream(&mut contract, &args.metadata, ts(2_100));
@@ -1235,6 +1239,7 @@ fn attribution_callbacks_recheck_the_stage_and_never_touch_replay_keys() {
         hex::encode(stream_bytes(STREAM, &spec)),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &stream_key(STREAM))
     ));
 
     // Another late attribution callback after the registration changes nothing.
@@ -1263,6 +1268,7 @@ fn attribution_callbacks_recheck_the_stage_and_never_touch_replay_keys() {
         hex::encode(stream_bytes(STREAM, &spec)),
         accounts(2),
         U128(7),
+        requested_at(&contract, &stream_key(STREAM))
     ));
     assert_eq!(transferred_to(&accounts(2)), 7);
     assert_eq!(
@@ -1529,6 +1535,7 @@ fn draws_are_checked_against_the_class_the_stream_and_its_unconfirmed_payout() {
         hex::encode(stream_bytes(other_stream, &other_vault)),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &stream_key(other_stream))
     ));
     let other_class = contract.get_position(U64(2)).unwrap().position.class_id;
     assert_ne!(other_class, class);
@@ -1946,6 +1953,7 @@ fn a_redeem_is_never_blocked_by_the_class_fractions_rounding_dust() {
         hex::encode(stream_bytes(STREAM, &vault_spec)),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &stream_key(STREAM))
     ));
 
     env_at(&accounts(1), ts(2_500));
@@ -3425,6 +3433,7 @@ fn deposit_schedule(
         hex::encode(stream_bytes(stream, &at_vault)),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(contract, &stream_key(stream))
     ));
     args.class_id
 }
@@ -3639,4 +3648,76 @@ fn a_closed_stream_not_emptied_by_the_auto_claim_is_refused() {
     attribute_stream(&mut contract, STREAM_2, &closed_at_deposit);
     let refused = contract.get_refused_deposit(stream_key(STREAM_2)).unwrap();
     assert!(refused.reason.contains("Closed"), "{}", refused.reason);
+}
+
+/// The late callback of a registration abandoned and requested again acts on nothing: the new
+/// request keeps its pending mark and its hold on the account, which therefore cannot withdraw
+/// its storage, and the new callback registers the stream.
+#[test]
+fn a_late_callback_of_a_replaced_registration_keeps_the_new_hold() {
+    let mut contract = bootstrapped();
+    let args = attribute_stream(&mut contract, STREAM, &sol_spec(deposit_address()));
+    move_stream(&mut contract, &args.metadata, ts(2_100));
+    let spec = at_vault(0);
+    let data = hex::encode(stream_bytes(STREAM, &spec));
+    let deposit = NearToken::from_yoctonear(
+        contract
+            .registration_deposit_for(accounts(1), stepped_class_id())
+            .0,
+    );
+    let request = |contract: &mut Contract, at: u64| {
+        env(&accounts(5), deposit, at);
+        contract
+            .register_sol_deposit(fmt(&STREAM), anchor(), data.clone())
+            .detach();
+        requested_at(contract, &stream_key(STREAM))
+    };
+    let abandoned = request(&mut contract, ts(3_000));
+    assert_eq!(abandoned, U64(3_000));
+    let replacing = request(&mut contract, ts(3_000 + crate::PENDING_EXPIRY_BLOCKS));
+    assert!(contract.has_pending_custody(&accounts(1)));
+
+    let hash = sol_hash(vec![metadata_account(STREAM, &spec)]);
+    env_with_results(
+        ts(3_010 + crate::PENDING_EXPIRY_BLOCKS),
+        vec![foreign_response(hash)],
+    );
+    let before = transferred_to(&accounts(5));
+    assert!(!contract.on_sol_deposit_verified(
+        stream_key(STREAM),
+        hex::encode(hash),
+        data.clone(),
+        accounts(5),
+        U128(deposit.as_yoctonear()),
+        abandoned,
+    ));
+    assert_eq!(
+        transferred_to(&accounts(5)) - before,
+        deposit.as_yoctonear(),
+        "the late callback returns what its own request attached"
+    );
+    assert_eq!(requested_at(&contract, &stream_key(STREAM)), replacing);
+    assert!(
+        contract.has_pending_custody(&accounts(1)),
+        "the replacing request still holds the account"
+    );
+    assert!(contract.get_sol_stream(U64(0)).is_none());
+
+    env_with_results(
+        ts(3_011 + crate::PENDING_EXPIRY_BLOCKS),
+        vec![foreign_response(hash)],
+    );
+    assert!(contract.on_sol_deposit_verified(
+        stream_key(STREAM),
+        hex::encode(hash),
+        data,
+        accounts(5),
+        U128(deposit.as_yoctonear()),
+        replacing,
+    ));
+    assert!(!contract.has_pending_custody(&accounts(1)));
+    assert_eq!(
+        contract.get_replay(stream_key(STREAM)),
+        Some(ReplayState::Consumed)
+    );
 }

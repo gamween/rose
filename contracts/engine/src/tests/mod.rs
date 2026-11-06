@@ -521,6 +521,15 @@ pub fn last_call_args(method: &str) -> serde_json::Value {
         .unwrap_or_else(|| panic!("no call to {method}"))
 }
 
+/// The block at which a request marked `key` pending (0 when it is not pending): what the
+/// engine passes the request's callback as `requested_at`.
+pub fn requested_at(contract: &Contract, key: &crate::custody::ReplayKey) -> U64 {
+    match contract.get_replay(key.clone()) {
+        Some(crate::custody::ReplayState::Pending { since_block }) => U64(since_block),
+        _ => U64(0),
+    }
+}
+
 /// Parsed `EVENT_JSON:` logs with the given standard.
 pub fn events(standard: &str) -> Vec<serde_json::Value> {
     all_logs()

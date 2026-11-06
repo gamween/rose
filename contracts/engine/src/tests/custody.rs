@@ -328,6 +328,7 @@ fn register_base(contract: &mut Contract, fields: StreamDepositedFields) -> Stri
         fields,
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(contract, &base_key())
     ));
     contract.get_position(U64(0)).unwrap().position.class_id
 }
@@ -437,6 +438,7 @@ fn base_deposit_mismatch_and_failure_clear_the_key() {
         base_fields(),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &base_key())
     ));
     assert_eq!(contract.get_replay(base_key()), None);
     assert!(contract.get_position(U64(0)).is_none());
@@ -453,6 +455,7 @@ fn base_deposit_mismatch_and_failure_clear_the_key() {
         base_fields(),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &base_key())
     ));
     assert_eq!(contract.get_replay(base_key()), None);
     let names: Vec<String> = events("rose")
@@ -483,6 +486,7 @@ fn refused_base_stream_is_recorded_and_returned_to_its_sender() {
         fields.clone(),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &base_key())
     ));
     assert_eq!(
         transferred_to(&accounts(5)),
@@ -614,7 +618,8 @@ fn base_cash_is_credited_for_any_token_and_only_accepted_ones_host_rounds() {
             key.clone(),
             hex::encode(hash),
             fields,
-            accounts(5)
+            accounts(5),
+            requested_at(&contract, &key.clone())
         ));
         assert_fits(
             record_bytes(1 + borsh_len(&key), borsh_len(&ReplayState::Consumed))
@@ -719,6 +724,7 @@ fn claim_base_tokens_debits_then_signs_and_never_refunds() {
         fields.clone(),
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &base_key())
     ));
     let class = contract.get_position(U64(0)).unwrap().position.class_id;
     let holding = contract.holding(&Holder::Account(accounts(1)), &class);
@@ -842,6 +848,7 @@ fn midstream_holder() -> (Contract, String) {
         fields,
         accounts(5),
         U128(deposit.as_yoctonear()),
+        requested_at(&contract, &base_key())
     ));
     let class = contract.get_position(U64(0)).unwrap().position.class_id;
     (contract, class)
@@ -999,6 +1006,7 @@ fn deposit_callback_credits_a_holder_that_tried_to_withdraw_its_storage_meanwhil
         base_fields(),
         accounts(5),
         U128(0),
+        requested_at(&contract, &base_key())
     ));
     env(&holder, one_yocto(), ts(BASE_NOW + 8));
     contract.storage_withdraw(None);
@@ -1020,6 +1028,7 @@ fn deposit_callback_credits_a_holder_that_tried_to_withdraw_its_storage_meanwhil
         base_fields(),
         accounts(5),
         U128(0),
+        requested_at(&contract, &base_key())
     ));
     let class = contract.get_position(U64(0)).unwrap().position.class_id;
     assert_eq!(
@@ -1448,6 +1457,7 @@ fn every_spelling_of_a_stream_deposit_registers_the_canonical_position_once() {
             forwarded,
             accounts(5),
             U128(deposit.as_yoctonear()),
+            requested_at(&contract, &base_key())
         ));
         let position = contract.get_position(U64(0)).unwrap().position;
         assert_eq!(position.class_id, canonical_class);
@@ -1493,6 +1503,7 @@ fn every_spelling_of_a_refused_stream_records_the_canonical_return() {
             forwarded,
             accounts(5),
             U128(deposit.as_yoctonear()),
+            requested_at(&contract, &base_key())
         ));
         let refused = contract.get_refused_deposit(base_key()).unwrap();
         assert_eq!(refused.reason, "stream is cancelable");
@@ -1587,7 +1598,8 @@ fn every_spelling_of_a_cash_deposit_credits_the_canonical_venue() {
             base_key(),
             hex::encode(hash),
             forwarded,
-            accounts(5)
+            accounts(5),
+            requested_at(&contract, &base_key())
         ));
         let venue = Venue::Base {
             token: accepted.to_string(),
@@ -1665,4 +1677,52 @@ fn base_payouts_store_the_canonical_recipient_and_refuse_custody_addresses() {
             vested_to_recipient: false,
         }
     );
+}
+
+/// The late callback of a Base registration abandoned and requested again acts on nothing:
+/// the replacing request keeps its mark and its hold, and its own callback registers the log.
+#[test]
+fn a_late_callback_of_a_replaced_base_registration_keeps_the_new_hold() {
+    let mut contract = bootstrapped();
+    let deposit = registration_deposit(&contract, &accounts(1));
+    let request = |contract: &mut Contract, at: u64| {
+        env(&accounts(5), deposit, at);
+        contract
+            .register_base_deposit(base_location(), base_fields())
+            .detach();
+        requested_at(contract, &base_key())
+    };
+    let abandoned = request(&mut contract, ts(BASE_NOW));
+    let replacing = request(&mut contract, ts(BASE_NOW + crate::PENDING_EXPIRY_BLOCKS));
+    assert_ne!(abandoned, replacing);
+    let hash = stream_hash(&contract, &base_location(), &base_fields());
+    env_with_results(
+        ts(BASE_NOW + crate::PENDING_EXPIRY_BLOCKS + 7),
+        vec![foreign_response(hash)],
+    );
+    assert!(!contract.on_base_deposit_verified(
+        base_key(),
+        hex::encode(hash),
+        base_fields(),
+        accounts(5),
+        U128(deposit.as_yoctonear()),
+        abandoned,
+    ));
+    assert_eq!(requested_at(&contract, &base_key()), replacing);
+    assert!(contract.has_pending_custody(&accounts(1)));
+    assert!(contract.get_position(U64(0)).is_none());
+    env_with_results(
+        ts(BASE_NOW + crate::PENDING_EXPIRY_BLOCKS + 8),
+        vec![foreign_response(hash)],
+    );
+    assert!(contract.on_base_deposit_verified(
+        base_key(),
+        hex::encode(hash),
+        base_fields(),
+        accounts(5),
+        U128(deposit.as_yoctonear()),
+        replacing,
+    ));
+    assert!(!contract.has_pending_custody(&accounts(1)));
+    assert!(contract.get_position(U64(0)).is_some());
 }
