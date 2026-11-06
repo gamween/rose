@@ -148,6 +148,7 @@ if [[ -z "$rose_vault" ]]; then
   rose_vault="$(deployments_value "$engine" ".base.rose_vault.address")"
 fi
 [[ "$rose_vault" =~ ^0x[0-9a-f]{40}$ ]] || die "RoseVault address missing: run scripts/deploy-base.sh --engine $engine first or pass --rose-vault"
+require_recorded_vault "$engine" "$rose_vault"
 
 # expected_init_args: the init arguments of `new`, as JSON, with the CKD master public key read
 # live from the MPC contract (domain 2). The deployment sends them and the checks compare
@@ -225,21 +226,29 @@ deploy() {
   deployments_set "$engine" ".near.engine.bootstrap_tx" "\"$bootstrap_tx\""
 }
 
-deployments_set "$engine" ".role" "\"$role\""
-deployments_set "$engine" ".near.engine.account" "\"$engine\""
-deployments_set "$engine" ".near.engine.wasm" "$(jq -cn --arg s "$wasm_sha256" --argjson b "$wasm_bytes" --arg e "$build_environment" \
-  --arg pinned "$build_image@$build_digest" --arg src "$source_snapshot" \
-  '{sha256:$s,bytes:$b,reproducible:($e == $pinned),build_environment:(if $e == "" then null else $e end),source_code_snapshot:(if $src == "" then null else $src end)}')"
+# record_engine: the role and the artifact, written once the artifact is known to be on chain.
+record_engine() {
+  deployments_set "$engine" ".role" "\"$role\""
+  deployments_set "$engine" ".near.engine.account" "\"$engine\""
+  deployments_set "$engine" ".near.engine.wasm" "$(jq -cn --arg s "$wasm_sha256" --argjson b "$wasm_bytes" --arg e "$build_environment" \
+    --arg pinned "$build_image@$build_digest" --arg src "$source_snapshot" \
+    '{sha256:$s,bytes:$b,reproducible:($e == $pinned),build_environment:(if $e == "" then null else $e end),source_code_snapshot:(if $src == "" then null else $src end)}')"
+}
 
 if [[ "$verify_only" -eq 1 ]]; then
   near_account_exists "$engine" || die "$engine does not exist"
 else
+  # `new` binds the engine to the vault once and for all: refuse a wrong vault before the account
+  # name is spent on it.
+  require_base_chain
+  require_rose_vault "$rose_vault" "$("$ROSE_ROOT/scripts/derive-vault-signer.sh" "$engine" --all | grep '^vault_base=' | cut -d= -f2)"
   deploy
 fi
 
 # Checks, in order, before any key is deleted (see the header): the exact code, the configuration,
 # the bootstrapped addresses, the RoseVault.
 near_require_code "$engine" "$wasm"
+record_engine
 deployments_set "$engine" ".near.engine.code_sha256" "\"$wasm_sha256\""
 
 expected_config="$(expected_init_args)"
@@ -262,6 +271,8 @@ log "derived addresses: $derived"
 require_base_chain
 bound_vault="$(near_view "$engine" get_config | jq -r .rose_vault)" || die "get_config $engine failed"
 require_rose_vault "$bound_vault" "$(jq -r .vault_base <<<"$derived")"
+require_recorded_vault "$engine" "$bound_vault"
+deployments_set "$engine" ".base.rose_vault.address" "\"$bound_vault\""
 
 if [[ "$keyless" -eq 1 ]]; then
   if [[ "$verify_only" -eq 0 ]]; then

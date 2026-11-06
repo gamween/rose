@@ -284,6 +284,18 @@ require_rose_vault() {
   log "RoseVault $vault on chain: SIGNER() $signer, LOCKUP() $SABLIER_LOCKUP"
 }
 
+# require_recorded_vault <engine> <vault>: dies when the deployments file records a RoseVault for
+# <engine> other than <vault>. The web app's env snippet is generated from that record, so an engine
+# bound to one vault while the record names another would send every deposit to a vault the engine
+# never reads.
+require_recorded_vault() {
+  local recorded vault
+  recorded="$(lowercase "$(deployments_value "$1" ".base.rose_vault.address")")"
+  vault="$(lowercase "$2")"
+  [[ -z "$recorded" || "$recorded" == "$vault" ]] \
+    || die "$DEPLOYMENTS_FILE records RoseVault $recorded for $1, not $vault: deploy the vault for $1 with scripts/deploy-base.sh, or drop --rose-vault"
+}
+
 # require_engine_config <engine> <expected init args, JSON>: dies unless get_config of <engine>,
 # read at `final`, equals every expected init argument (the default round windows excepted: `new`
 # bounds them and nothing depends on them), naming each field that differs.

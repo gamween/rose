@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -101,4 +101,23 @@ await test("a reproducible artifact names its commit and HEAD when they differ",
   assert.equal(same.stdout, "deploying the artifact of b32248e8e5204ce9812929ad59570e210e638587 (HEAD)\n");
   const other = spawnSync("bash", ["-c", `source "${LIB}"; artifact_revision_note "${snapshot}" 15316b4`], { encoding: "utf8" });
   assert.equal(other.stdout, "deploying the artifact of b32248e8e5204ce9812929ad59570e210e638587, HEAD is 15316b4: the artifact is not built from HEAD\n");
+});
+
+await test("the engine's vault must be the one the deployments file records", () => {
+  const record = join(bin, "testnet.json");
+  writeFileSync(record, JSON.stringify({ deployments: { "engine.rose-app.testnet": { base: { rose_vault: { address: VAULT } } } } }));
+  const check = (vault: string) => run(`DEPLOYMENTS_FILE="${record}"; require_recorded_vault engine.rose-app.testnet ${vault}`);
+  assert.equal(check(VAULT).status, 0);
+  assert.equal(check(VAULT.toUpperCase().replace("0X", "0x")).status, 0);
+  dies(check("0x0000000000000000000000000000000000000002"), /records RoseVault 0x62358c4f.* not 0x0{39}2/);
+  const unrecorded = run(`DEPLOYMENTS_FILE="${record}"; require_recorded_vault engine-s9.rose-app.testnet ${VAULT}`);
+  assert.equal(unrecorded.status, 0, unrecorded.stderr);
+});
+
+await test("the SDK's Sablier Lockup is the one the scripts deploy against", () => {
+  const lib = /^SABLIER_LOCKUP="(0x[0-9a-f]{40})"$/m.exec(readFileSync(LIB, "utf8"))?.[1];
+  const client = readFileSync(join(import.meta.dirname, "..", "..", "packages", "sdk", "src", "chains", "base", "client.ts"), "utf8");
+  const sdk = /export const SABLIER_LOCKUP_V4: Address = "(0x[0-9a-fA-F]{40})"/.exec(client)?.[1];
+  assert.ok(lib && sdk);
+  assert.equal(sdk.toLowerCase(), lib);
 });
