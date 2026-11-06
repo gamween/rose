@@ -171,6 +171,26 @@ describe("streamflow validation", () => {
     expect(() => new StreamflowStream({ ...params, cliffAmount: U64_MAX + 1n })).toThrow(RangeError);
   });
 
+  it("refuses the stream permissions and the history the engine refuses, before the schedule", () => {
+    const refused = (p: StreamflowParams, code: string): void => {
+      expect(scheduleErrorCode(() => new StreamflowStream(p))).toBe(code);
+    };
+    refused({ ...params, pausable: true }, "pausable");
+    refused({ ...params, canUpdateRate: true }, "rate_updatable");
+    refused({ ...params, canTopup: true }, "topup");
+    refused({ ...params, currentPauseStart: 1n }, "pause_or_rate_history");
+    refused({ ...params, pauseCumulative: 1n }, "pause_or_rate_history");
+    refused({ ...params, lastRateChangeTime: 1n }, "pause_or_rate_history");
+    refused({ ...params, fundsUnlockedAtLastRateChange: 1n }, "pause_or_rate_history");
+    // The engine's order: the permissions first, then the history, then the schedule.
+    refused({ ...params, pausable: true, canTopup: true, netAmountDeposited: 0n }, "pausable");
+    refused({ ...params, lastRateChangeTime: 5n, period: 0n }, "pause_or_rate_history");
+    expect(() => new StreamflowStream({ ...params, pauseCumulative: U64_MAX + 1n })).toThrow(RangeError);
+    const plain = new StreamflowStream({ ...params, pausable: false, canUpdateRate: false, canTopup: false, currentPauseStart: 0n, pauseCumulative: 0n, lastRateChangeTime: 0n, fundsUnlockedAtLastRateChange: 0n });
+    expect(SteppedClass.fromStream(plain)).toEqual(SteppedClass.fromStream(new StreamflowStream(params)));
+    expect(new ScheduleError("pause_or_rate_history").message).toContain("stream was paused or re-rated");
+  });
+
   it("normalizes amounts and the effective start", () => {
     const a = new StreamflowStream(params);
     const b = new StreamflowStream({

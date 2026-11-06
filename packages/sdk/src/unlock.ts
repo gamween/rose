@@ -36,7 +36,11 @@ export type ScheduleErrorCode =
   | "cliff_amount_exceeds_deposit"
   | "end_before_start"
   | "deposit_below_minimum"
-  | "token_decimals_too_large";
+  | "token_decimals_too_large"
+  | "pausable"
+  | "rate_updatable"
+  | "topup"
+  | "pause_or_rate_history";
 
 const SCHEDULE_ERROR_MESSAGES: Readonly<Record<ScheduleErrorCode, string>> = {
   zero_deposit: "deposited amount is zero",
@@ -53,6 +57,10 @@ const SCHEDULE_ERROR_MESSAGES: Readonly<Record<ScheduleErrorCode, string>> = {
   end_before_start: "end time is before the start time",
   deposit_below_minimum: "position is smaller than one whole token",
   token_decimals_too_large: "token decimals are too large",
+  pausable: "stream may be paused",
+  rate_updatable: "stream rate may be updated",
+  topup: "stream may be topped up",
+  pause_or_rate_history: "stream was paused or re-rated",
 };
 
 /** A schedule the engine refuses. */
@@ -190,7 +198,12 @@ export class SablierLinearStream {
   }
 }
 
-/** Raw parameters of a Streamflow stream, as read from its metadata account. */
+/**
+ * Raw parameters of a Streamflow stream, as read from its metadata account. The flags and history
+ * fields are optional and default to `false` and `0n`, the only values {@link StreamflowStream}
+ * accepts (as the engine's `StreamflowParams::default()`): a schedule built for a new stream can
+ * omit them, a decoded stream passes what its metadata says.
+ */
 export interface StreamflowParams {
   /** `ix.start_time`. */
   readonly startTime: Timestamp;
@@ -206,6 +219,20 @@ export interface StreamflowParams {
   readonly netAmountDeposited: bigint;
   /** `end_time`, computed by the program at creation and stored in the account. */
   readonly endTime: Timestamp;
+  /** `ix.pausable`. */
+  readonly pausable?: boolean;
+  /** `ix.can_update_rate`. */
+  readonly canUpdateRate?: boolean;
+  /** `ix.can_topup`. */
+  readonly canTopup?: boolean;
+  /** `current_pause_start`. */
+  readonly currentPauseStart?: bigint;
+  /** `pause_cumulative`. */
+  readonly pauseCumulative?: bigint;
+  /** `last_rate_change_time`. */
+  readonly lastRateChangeTime?: bigint;
+  /** `funds_unlocked_at_last_rate_change`. */
+  readonly fundsUnlockedAtLastRateChange?: bigint;
 }
 
 /**
@@ -213,8 +240,8 @@ export interface StreamflowParams {
  *
  * {@link StreamflowStream.unlockedAmount} ports `Contract::available_to_claim` and its helpers of
  * `streamflow-finance/rust-sdk` (commit `63df7d7b`), through the engine's own port, for a stream
- * that was never paused and whose rate was never updated (the engine refuses pausable,
- * rate-updatable and top-up streams):
+ * that was never paused and whose rate was never updated (the constructor refuses pausable,
+ * rate-updatable and top-up streams and any pause or rate history, as the engine does):
  *
  * - `start = cliff` when `cliff > 0`, else `startTime`;
  * - `t < start`: `0`;
@@ -227,7 +254,8 @@ export class StreamflowStream {
   readonly params: StreamflowParams;
 
   /**
-   * Validates raw stream parameters.
+   * Validates raw stream parameters: a plain stream (no pause, rate update or top-up permission,
+   * no such history) with a non-empty, well-ordered schedule, in the engine's order of checks.
    *
    * @throws {ScheduleError} When the engine refuses the stream.
    * @throws {RangeError} When a parameter is outside its integer domain.
@@ -240,6 +268,25 @@ export class StreamflowStream {
     assertU64(params.amountPerPeriod, "amountPerPeriod");
     assertU64(params.netAmountDeposited, "netAmountDeposited");
     assertU64(params.endTime, "endTime");
+    const history = [
+      ["currentPauseStart", params.currentPauseStart ?? 0n],
+      ["pauseCumulative", params.pauseCumulative ?? 0n],
+      ["lastRateChangeTime", params.lastRateChangeTime ?? 0n],
+      ["fundsUnlockedAtLastRateChange", params.fundsUnlockedAtLastRateChange ?? 0n],
+    ] as const;
+    for (const [field, value] of history) assertU64(value, field);
+    if (params.pausable === true) {
+      throw new ScheduleError("pausable");
+    }
+    if (params.canUpdateRate === true) {
+      throw new ScheduleError("rate_updatable");
+    }
+    if (params.canTopup === true) {
+      throw new ScheduleError("topup");
+    }
+    if (history.some(([, value]) => value !== 0n)) {
+      throw new ScheduleError("pause_or_rate_history");
+    }
     if (params.netAmountDeposited === 0n) {
       throw new ScheduleError("zero_deposit");
     }
