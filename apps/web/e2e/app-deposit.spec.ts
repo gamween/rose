@@ -296,6 +296,9 @@ test.describe("deposit wizard (mocked chains)", () => {
         return [{ signature: "4Vw2CJ8ovmS9r4z5x6YzbXk3Ck1nQ7rmT8uGv1pA2bC3dE4fG5hJ6kL7mN8pQ9rS1tU2vW3xY4zA5bC6dE7fG8h", slot: 518_422_000, err: null, memo: null, blockTime: NOW, confirmationStatus: "finalized" }];
       case "getLatestBlockhash":
         return { context: { slot: 518_422_893 }, value: { blockhash: "EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N", lastValidBlockHeight: 500_000_000 } };
+      case "getSignatureStatuses":
+        // The confirmation polls over HTTP: a sent transfer not seen yet keeps the step waiting.
+        return { context, value: (params[0] as string[]).map(() => null) };
       case "sendTransaction":
         return "4Vw2CJ8ovmS9r4z5x6YzbXk3Ck1nQ7rmT8uGv1pA2bC3dE4fG5hJ6kL7mN8pQ9rS1tU2vW3xY4zA5bC6dE7fG8h";
       case "getBlockHeight":
