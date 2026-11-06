@@ -1,5 +1,6 @@
 import { createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync, getMint } from "@solana/spl-token";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { sendAndConfirmLegacyTransaction } from "@rose/sdk";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, actions, baseDecode, type KeyPairString } from "near-api-js";
 import { createPublicClient, createWalletClient, formatEther, http, nonceManager, parseEther, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -285,7 +286,7 @@ export function createFaucetSenders(env: NodeJS.ProcessEnv, config: FaucetConfig
       }
       const transaction = new Transaction().add(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: recipient, lamports }));
       try {
-        const signature = await sendAndConfirmTransaction(connection, transaction, [payer], { commitment: "confirmed" });
+        const signature = await sendAndConfirmLegacyTransaction(connection, transaction, [payer], { commitment: "confirmed" });
         return { signature, amount: lamports.toString() };
       } catch (error) {
         throw new FaucetError("upstream", `Solana devnet transfer failed: ${safeMessage(error)}`);
@@ -457,7 +458,7 @@ export async function sendDemoTokens(
     createTransferCheckedInstruction(source, mint, destination, payer.publicKey, amount, decimals),
   );
   try {
-    const signature = await sendAndConfirmTransaction(connection, transaction, [payer], { commitment: "confirmed" });
+    const signature = await sendAndConfirmLegacyTransaction(connection, transaction, [payer], { commitment: "confirmed" });
     return { signature, amount: amount.toString(), decimals, mint: mint.toBase58() };
   } catch (error) {
     throw new FaucetError("upstream", `Solana devnet token transfer failed: ${safeMessage(error)}`);
