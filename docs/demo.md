@@ -75,9 +75,9 @@ own sealed bid from the app.
   Streamflow streams on Solana. Every deposit was attested to the NEAR contract by the MPC network's
   foreign transaction verification."
 - **Explorer:** `createStreams` of the Seed Round,
-  [0xb87e1f42…](https://sepolia.basescan.org/tx/0xb87e1f4256248d13fe5d893985a48f3e11dfb69cf6f66b7b52291999549ec985),
+  [0x4bfd967f…](https://sepolia.basescan.org/tx/0x4bfd967f6b53243cfa15515528637b389beb0ac183f76d53bf3ae0402bc22592),
   then its registration on NEAR,
-  [H5NLXune…](https://testnet.near.rocks/tx/H5NLXuneb9WgEUtPQ4ppC8Ku592YpVCcb3wBUbc6imoG).
+  [CbBF24Py…](https://testnet.near.rocks/tx/CbBF24Py8cJYQSWscHsokHdmagAv4E72TDggoXwC4KCb).
 
 ### 4. Watch a full round: the Tender (0:55 to 1:45)
 
