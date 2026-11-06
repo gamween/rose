@@ -23,7 +23,7 @@ OTC desks for locked tokens quote spreads measured in percentage points, and bil
 
 ## Fee recipient
 
-The fee recipient is fixed when the engine is initialized and cannot be changed afterwards (the engine is keyless and has no upgrade method). Slashed bonds go to the same treasury.
+The fee recipient is fixed when the engine is initialized. No method changes it and the engine has no upgrade method; the final engine is keyless, so its code cannot be replaced either. A staging engine keeps a full-access key, and the [status page](/status) shows the live access key check of the engine the app uses. Slashed bonds go to the same treasury.
 
 ## What is not a fee
 
