@@ -92,11 +92,12 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
       keyTimeout: minutesToNs(timing.keyTimeout),
       revealWindow: minutesToNs(timing.revealWindow),
       unlock: cls,
+      engine: base.config,
     };
     const result = tenderArgsFromForm(values, now, base.limits);
     if ("error" in result) return result;
     return { args: result.args, call: base.engine.calls.createTender(result.args) };
-  }, [base.engine.calls, base.limits, budget, closesAt, cls, discount, maxPrice, mode, now, opensAt, opensNow, reference, retireTo, timing, venue]);
+  }, [base.config, base.engine.calls, base.limits, budget, closesAt, cls, discount, maxPrice, mode, now, opensAt, opensNow, reference, retireTo, timing, venue]);
   const timingErrors = durationErrors({ keyTimeout: minutesToNs(timing.keyTimeout), revealWindow: minutesToNs(timing.revealWindow) }, base.limits);
 
   const budgetUnits = parseAmount(budget, USDC) ?? 0n;
