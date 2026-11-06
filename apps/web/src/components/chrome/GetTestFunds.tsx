@@ -25,7 +25,7 @@ const NEAR_TUSDC_STORAGE_DEPOSIT = 1_250_000_000_000_000_000_000n;
 
 type FaucetInfo = {
   limits: { perAddress: number; perIp: number; windowSeconds: number };
-  chains: Record<"base" | "solana" | "near", { configured: boolean; amount: string; unit: string }>;
+  chains: Record<"base" | "solana" | "near" | "solana-demo-token", { configured: boolean; amount: string; unit: string }>;
 };
 
 type FaucetSuccess =
@@ -350,7 +350,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title="Create a demo Streamflow position"
               description="Creates a non-cancelable, transferable Streamflow stream of 1,000 demo tokens to your own address. The faucet sends the demo tokens when your wallet holds fewer than 1,000; your wallet pays about 0.012 SOL of rent and fees (send SOL first)."
               state={solPosition}
-              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.solana.publicKey ? "Connect a Solana devnet wallet first." : info && !info.chains["solana-demo-token"].configured ? "The Solana demo token faucet is not configured on this deployment." : null}
               onRun={() =>
                 void runSolPosition("Creating a Streamflow position", async () => {
                   const signer = wallets.getSolanaSigner();
