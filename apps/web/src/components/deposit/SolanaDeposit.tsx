@@ -14,7 +14,7 @@ import { formatAmount, formatDay, formatDuration, secondsToMs, shortHex } from "
 import { deployed } from "@/lib/deployment";
 import { useTokenSymbol } from "@/lib/token-symbols";
 import { nearRpc, requireEngine } from "@/lib/engine-client";
-import { RoseActionError } from "@/lib/errors";
+import { RoseActionError, type ActionError } from "@/lib/errors";
 import { txLinks, type ChainId } from "@/lib/explorer";
 import { blockhashActionState, broadcastBlockhashAction, latestSuccessfulSignature, payoutIdFromOutcome, sleep, waitForPayout } from "@/lib/payouts";
 import { ROUTES } from "@/lib/routes";
@@ -100,6 +100,8 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
   const listing = useEngineQuery(fetcher, { enabled: owner !== null, pollMs: 60_000 });
   const flow = useFlow({ onComplete: () => void listing.refresh() });
   const demo = useAction({ onSuccess: () => void listing.refresh() });
+  const resuming = useAction();
+  const [resumingKey, setResumingKey] = useState<string | null>(null);
 
   const disabledReason = useMemo(() => {
     if (!vaultSol) return "The engine's Solana vault is not deployed yet.";
@@ -257,10 +259,15 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
     ]);
   };
 
-  const resume = async (attempt: AttemptedDeposit) => {
-    if (!attempt.solClassId || !("SolStream" in attempt.key)) return;
-    const row = await readSolanaStreamRow(solanaConnection("confirmed"), new PublicKey(attempt.key.SolStream.metadata), attempt.solClassId);
-    startDeposit(row);
+  /** Reads the stream and its mint again, then restarts the flow, whose steps each skip what is already done. */
+  const resume = (attempt: AttemptedDeposit) => {
+    setResumingKey("SolStream" in attempt.key ? attempt.key.SolStream.metadata : null);
+    return resuming.run("Reading the stream to resume its deposit", async () => {
+      if (!attempt.solClassId || !("SolStream" in attempt.key)) throw new RoseActionError("unknown", "Not a Solana deposit", "This record names no Streamflow stream and class; it cannot be resumed here.");
+      const row = await readSolanaStreamRow(solanaConnection("confirmed"), new PublicKey(attempt.key.SolStream.metadata), attempt.solClassId);
+      startDeposit(row);
+      return { message: `Resuming the deposit of ${attempt.label}` };
+    });
   };
 
   if (!owner) {
@@ -275,7 +282,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
   const flowStopped = !flow.running && !flow.completed && flow.steps.some((step) => step.status === "idle") && !flow.steps.some((step) => step.status === "error");
   return (
     <div className="flex flex-col gap-4">
-      <PendingSolanaDeposits owner={owner} nearAccount={nearAccount} vault={vaultSol} busy={flow.running || disabledReason !== null} refreshKey={flow.running} onResume={(attempt) => void resume(attempt)} />
+      <PendingSolanaDeposits owner={owner} nearAccount={nearAccount} vault={vaultSol} busy={flow.running || disabledReason !== null || resuming.state.status === "loading"} reading={resuming.state.status === "loading" ? resumingKey : null} error={resuming.state.status === "error" ? resuming.state.error : null} refreshKey={flow.running} onResume={(attempt) => void resume(attempt)} />
       <Card>
         <CardHeader
           title="Your Streamflow streams"
@@ -377,7 +384,26 @@ type PendingDeposit = { attempt: AttemptedDeposit; metadata: string; status: str
  * (the tab was closed, "Stop waiting" was pressed, or a step failed): the stream no longer
  * names this wallet, so the list above cannot show it. Each one resumes where it stopped.
  */
-function PendingSolanaDeposits({ owner, nearAccount, vault, busy, refreshKey, onResume }: { owner: string; nearAccount: string | null; vault: string | null; busy: boolean; refreshKey: boolean; onResume: (attempt: AttemptedDeposit) => void }) {
+function PendingSolanaDeposits({
+  owner,
+  nearAccount,
+  vault,
+  busy,
+  reading,
+  error,
+  refreshKey,
+  onResume,
+}: {
+  owner: string;
+  nearAccount: string | null;
+  vault: string | null;
+  busy: boolean;
+  /** The stream whose resume is reading its accounts, if any. */
+  reading: string | null;
+  error: ActionError | null;
+  refreshKey: boolean;
+  onResume: (attempt: AttemptedDeposit) => void;
+}) {
   const [attempts, setAttempts] = useState<AttemptedDeposit[]>([]);
   useEffect(() => {
     const timer = window.setTimeout(() => setAttempts(loadAttempted().filter((attempt) => attempt.chain === "solana" && attempt.solClassId && attempt.nearAccount === nearAccount)), 0);
@@ -417,12 +443,17 @@ function PendingSolanaDeposits({ owner, nearAccount, vault, busy, refreshKey, on
                   {status} Started {formatDay(attempt.attemptedAt)} for {attempt.nearAccount}.
                 </p>
               </div>
-              <Button size="sm" onClick={() => onResume(attempt)} disabled={busy} data-resume-deposit>
+              <Button size="sm" onClick={() => onResume(attempt)} disabled={busy} loading={reading === metadata} loadingLabel="Reading" data-resume-deposit>
                 Resume
               </Button>
             </li>
           ))}
         </ul>
+        {error ? (
+          <p className="mt-2 text-[12px] text-danger-400" role="alert" data-resume-error>
+            {error.title}: {error.message}
+          </p>
+        ) : null}
       </CardBody>
     </Card>
   );

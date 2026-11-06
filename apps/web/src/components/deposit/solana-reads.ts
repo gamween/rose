@@ -69,9 +69,17 @@ export async function listSolanaStreams(connection: Connection, views: EngineVie
  * One stream as a deposit row, read again from the chain: what an interrupted deposit resumes
  * from once the stream has left the wallet (its class was recorded when the deposit started).
  */
-export async function readSolanaStreamRow(connection: Connection, metadata: PublicKey, classId: string): Promise<SolanaStreamRow> {
+export async function readSolanaStreamRow(connection: Connection, metadata: PublicKey, classId: string): Promise<SolanaStreamRow & { mint: MintAccount }> {
   const state = await readStreamflowStream(connection, metadata, "confirmed");
   const mint = await readMintAccount(connection, state.metadata.mint);
+  if (!mint) {
+    throw new RoseActionError(
+      "rpc",
+      "Could not read the mint",
+      `The Solana RPC returned no 82-byte SPL mint account for ${state.metadata.mint.toBase58()} at finalized; the attribution needs its exact bytes. Retry in a few seconds.`,
+      true,
+    );
+  }
   return { metadataPubkey: metadata.toBase58(), metadata: state.metadata, mint, verdict: { eligible: true, reasons: [] }, classId, classExists: true };
 }
 
