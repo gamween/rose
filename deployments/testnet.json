@@ -493,6 +493,9 @@
           "vault_sol": "GKharZus34WhG182v715Yzf411Akhdnsxxjo5u5C2RRq",
           "gas_sol": "BE9yDmZ7QXDuwHxtThY527E9c5JSb7TMGdZx4crjFbAe"
         }
+      },
+      "solana": {
+        "demo_mint": "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv"
       }
     }
   }
