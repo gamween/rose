@@ -273,7 +273,7 @@ contract RoseVault is EIP712, ReentrancyGuardTransient, IERC721Receiver {
         payable
         nonReentrant
     {
-        if (lockup != LOCKUP) {
+        if (address(lockup) != address(LOCKUP)) {
             revert WrongLockup(address(lockup));
         }
         if (!NearAccountId.isValid(nearAccount)) {
