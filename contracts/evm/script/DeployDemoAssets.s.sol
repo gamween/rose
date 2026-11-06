@@ -10,13 +10,13 @@ import {TestUSDC} from "../src/TestUSDC.sol";
 import {ISablierLockup} from "../src/interfaces/ISablierLockup.sol";
 
 /// @notice Deploys rose's Base Sepolia test assets: tUSDC, the demo issuer's token and the demo stream faucet.
-/// @dev Env: DEMO_TOKEN_NAME, DEMO_TOKEN_SYMBOL. The broadcaster is the demo issuer: it receives the token supply and
+/// @dev Env: DEMO_TOKEN_NAME, DEMO_TOKEN_SYMBOL, SABLIER_LOCKUP (the canonical Sablier Lockup, passed by
+/// scripts/deploy-base.sh from scripts/lib.sh). The broadcaster is the demo issuer: it receives the token supply and
 /// funds the faucet. Class schedules are anchored to the deployment time so that a Seed position is still before its
 /// cliff (nothing withdrawable) and a KOL position is already partly vested.
-/// Run: forge script contracts/evm/script/DeployDemoAssets.s.sol --rpc-url base_sepolia --broadcast --private-key ...
+/// Run: scripts/deploy-base.sh, which runs forge script contracts/evm/script/DeployDemoAssets.s.sol with them.
 contract DeployDemoAssets is Script {
     uint256 internal constant BASE_SEPOLIA = 84532;
-    ISablierLockup internal constant SABLIER_LOCKUP = ISablierLockup(0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e);
     uint256 internal constant TOTAL_SUPPLY = 1_000_000_000e18;
     uint256 internal constant FAUCET_FUNDING = 50_000_000e18;
 
@@ -24,6 +24,7 @@ contract DeployDemoAssets is Script {
         require(block.chainid == BASE_SEPOLIA, "DeployDemoAssets: Base Sepolia only");
         string memory name = vm.envString("DEMO_TOKEN_NAME");
         string memory symbol = vm.envString("DEMO_TOKEN_SYMBOL");
+        ISablierLockup lockup = ISablierLockup(vm.envAddress("SABLIER_LOCKUP"));
         uint40 t0 = uint40(block.timestamp);
 
         vm.startBroadcast();
@@ -31,7 +32,7 @@ contract DeployDemoAssets is Script {
         usdc = new TestUSDC();
         token = new DemoToken(name, symbol, issuer, TOTAL_SUPPLY);
         faucet = new DemoStreamFaucet(
-            SABLIER_LOCKUP,
+            lockup,
             IERC20(address(token)),
             DemoStreamFaucet.Schedule({
                 start: t0 - 180 days,

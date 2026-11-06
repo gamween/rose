@@ -3,7 +3,10 @@
 # "CINDR"), DemoStreamFaucet (DeployDemoAssets.s.sol) and RoseVault (DeployRoseVault.s.sol) with
 # ROSE_VAULT_SIGNER = the engine's MPC-derived vault/base address. The vault is immutable, so the
 # script refuses to broadcast unless the signer it is about to use equals what
-# scripts/derive-vault-signer.sh computes for the engine account.
+# scripts/derive-vault-signer.sh computes for the engine account, and unless the Sablier Lockup of
+# scripts/lib.sh (SABLIER_LOCKUP, the one source of the address: both forge scripts read it from
+# the environment) answers as the Sablier Lockup. After the deployment it reads SIGNER() and
+# LOCKUP() back from the vault and dies unless they are that signer and that Lockup.
 #
 # Usage: scripts/deploy-base.sh --engine <engine account> [--role staging|final]
 #                               [--signer <0x address>] [--demo-assets-from <engine account>]
@@ -34,14 +37,14 @@ evm_signer evm-deployer
 deployer="$(cast wallet address "${EVM_WALLET_ARGS[@]}")"
 [[ "$(tr '[:upper:]' '[:lower:]' <<<"$deployer")" == "$EVM_ADDRESS" ]] || die "the keystore of evm-deployer.env opens to $deployer, not $EVM_ADDRESS"
 
-chain_id="$(cast chain-id --rpc-url "$BASE_RPC_URL")"
-[[ "$chain_id" == "$BASE_CHAIN_ID" ]] || die "RPC $BASE_RPC_URL is chain $chain_id, not Base Sepolia ($BASE_CHAIN_ID)"
+require_base_chain
+require_sablier_lockup
 
 derived="$("$ROSE_ROOT/scripts/derive-vault-signer.sh" "$engine")"
 if [[ -z "$signer" ]]; then
   signer="$derived"
 fi
-signer="$(tr '[:upper:]' '[:lower:]' <<<"$signer")"
+signer="$(lowercase "$signer")"
 if [[ "$signer" != "$derived" ]]; then
   die "refusing to broadcast: signer $signer is not the derived vault/base address $derived of $engine"
 fi
@@ -86,18 +89,17 @@ if [[ -n "$demo_assets_from" ]]; then
     log "reusing $key of $demo_assets_from at $(jq -r .address <<<"$record")"
   done
 else
-  run="$(forge_run DeployDemoAssets DEMO_TOKEN_NAME=Cindral DEMO_TOKEN_SYMBOL=CINDR)"
+  run="$(forge_run DeployDemoAssets DEMO_TOKEN_NAME=Cindral DEMO_TOKEN_SYMBOL=CINDR SABLIER_LOCKUP="$SABLIER_LOCKUP")"
   record_contract "$engine" test_usdc TestUSDC "$run"
   record_contract "$engine" demo_token DemoToken "$run"
   record_contract "$engine" demo_stream_faucet DemoStreamFaucet "$run"
 fi
 
-run="$(forge_run DeployRoseVault ROSE_VAULT_SIGNER="$signer")"
+run="$(forge_run DeployRoseVault ROSE_VAULT_SIGNER="$signer" SABLIER_LOCKUP="$SABLIER_LOCKUP")"
 record_contract "$engine" rose_vault RoseVault "$run"
 vault="$(deployments_value "$engine" ".base.rose_vault.address")"
 [[ "$vault" =~ ^0x[0-9a-f]{40}$ ]] || die "no RoseVault address recorded for $engine"
-on_chain_signer="$(cast call --rpc-url "$BASE_RPC_URL" "$vault" 'SIGNER()(address)' | tr '[:upper:]' '[:lower:]')"
-[[ "$on_chain_signer" == "$signer" ]] || die "deployed RoseVault signer $on_chain_signer differs from $signer"
+require_rose_vault "$vault" "$signer"
 deployments_set "$engine" ".base.rose_vault.signer" "\"$signer\""
 deployments_set "$engine" ".base.accepted_cash_tokens" "$(jq -cn --arg t "$(deployments_value "$engine" ".base.test_usdc.address")" --arg c "$CIRCLE_USDC_BASE_SEPOLIA" '[$t, $c] | map(select(. != ""))')"
 
