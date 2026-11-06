@@ -151,6 +151,12 @@ No other party can move funds, see bids early or stop a round.
   after its attribution (Streamflow's auto-claim would otherwise empty a stream still at its
   deposit address, or refused at the vault, into a token account no engine path reaches). One
   registration per stream, ever; a stream refused at the vault is never attributed again.
+- **Late registration:** a stream moved to the vault but registered only after its end (an MPC
+  outage, a closed tab) is registered all the same. Nothing withdraws from a stream at its deposit
+  address, so the amount withdrawn at attribution is what the holder was paid before the deposit;
+  whatever the registration proof shows withdrawn beyond it was put in the vault's token account
+  by the auto-claim and is booked in the class's swept balance at once. Only the auto-claim's
+  closing is accepted (`closed` with everything withdrawn and `canceled_at` 0).
 - **Residual:** a stream left at its deposit address, or refused at the vault and not returned,
   until its end is emptied by the auto-claim into that address's token account and stays there.
   The depositor has at least an hour to complete or return it (both permissionless, about a
@@ -226,6 +232,11 @@ No other party can move funds, see bids early or stop a round.
   units locked in rounds cannot be redeemed; one release per position at a time).
 - **Base:** the authorization releases the stream, withdrawing any unlocked balance to the vault
   first so accrued tokens stay with unit holders; final once signed.
+- **Residual (Base):** the burn stops the position's accrual when the redeem is signed, while
+  `executeRelease` withdraws to the vault what the stream has vested when it executes. What vests
+  in between (or what a third party's `withdrawMax` pushes to the vault then) stays in RoseVault,
+  booked to no unit: the redeemer bears it, which favors the pool. The app submits the release as
+  soon as the signature is stored.
 - **Solana:** the stream must carry no unconfirmed payout and be more than five minutes from its
   end, and the redeemer pays from its own claimable what the stream still owes the unit holders.
   The transaction advances the redeemer's receipt nonce last; the position is `Releasing` until
@@ -286,6 +297,16 @@ No other party can move funds, see bids early or stop a round.
   transfer and rebasing tokens are unsupported.
 - **Third-party programs:** Sablier's withdrawal fee is admin-controlled; Streamflow is upgradeable and
   its on-chain source is not public.
+- **Solana draws and clock skew.** A draw of everything a stream has unlocked is sized from
+  NEAR's block time, and Streamflow checks it against the Solana cluster's clock: broadcast while
+  that clock is behind NEAR's across an unlock step, the `withdraw` fails (error 115) and the
+  payout is refunded on its receipt after two proofs 150 blocks apart, the stream blocked
+  meanwhile. Nothing is lost; drawing what the stream had unlocked a minute earlier avoids it.
+- **The sandbox's MPC is a mock.** `contracts/mock-mpc` signs the ForeignTx payload hash a test
+  registers for a request, computed by the engine's own code, so a byte-layout drift between the
+  engine and the live nodes would pass the sandbox suites. The ten recorded live responses in
+  `tests/vectors/foreign/mpc_live_vectors.json` are the check: `cargo test --workspace` replays
+  them, pinned at ten, and they are re-recorded when `near/mpc` moves past 3.18.0.
 - **Liveness is the participants' job.** There is no keeper: a round advances when someone calls the
   next step, and a signed Solana payout blocks the streams it draws on until someone broadcasts and
   confirms it (anyone can).
@@ -316,6 +337,7 @@ milestone unless stated.
 | 10 | Solana custody v2 (`b10bba2..d05f542`) and every value-moving custody path | Opus 5.5 | 0 blockers, 1 major (a redeem confirmation could be finalized by a stale lower read), 8 minors, 5 nits | Fixed in `f1a8ba5`, each with a test that fails before the fix: monotone redeem verdict, request-height spacing of the two proofs, exact "unchanged" reading (Streamflow `withdraw` verified exact-or-fail on devnet), payout nonce accounts derived with a seed bound to the claimant's NEAR account, freeze-authority mints refused, Tender `retire_to` checks, u64 amounts as strings, accrual remainder kept so a sole holder can always redeem, stored enum order pinned. `engine-s3` runs the reviewed build, without these fixes |
 | 11 | Full engine, RoseVault, tUSDC and the SDK bindings (`f1a8ba5`) | Opus 5.5 | 1 blocker (a bare-hex address spelling let a stranger strand someone's Base cash), 3 majors (unbounded round windows, under-charged storage rows, client ABI drift), 4 minors, 10 nits | Fixed, each with a test that fails before the fix: canonical EVM addresses at every entry point, bounded round windows, rows charged at their measured worst case (cash rows included), per-account class list behind the portfolio view, buy quantities measured against the supply at creation, a refused stream's return keeps its vested tokens (RoseVault `Release` gains `vestedToRecipient`, so the vault is redeployed), custody addresses refused as Base recipients |
 | 12 | Contracts before deployment (`cd00318`) | Opus 5.5 | 1 blocker (Streamflow's auto-claim of ended streams read as a landed payout: claims destroyed, tokens stranded), 1 major (the free event history could push the engine below its MPC reserve), 4 minors, 6 nits | Fixed: verdicts on a receipt nonce account, `sync_sol_stream` and the swept balance, draws and redeems stop five minutes before a stream's end, attribution refuses streams ending within an hour; event history bounded in bytes and funded at init; non-accepted Base cash listed; Exit bids reserve the buyer's row; RoseVault forwards third-party withdrawals of a returned stream; release fees sent by the SDK |
+| 13 | Contracts, SDK bindings and deployment scripts (`3d48a02`) | Fable 5.1 | 0 blockers, 1 major (`distribute_units` at 50 receivers exceeded NEAR's 16,384-byte total log limit), 4 minors, 3 nits | Fixed, each with a test: 30 receivers per call (the measured worst case with 64-character ids) and gas sized per receiver in the SDK; `create_tender` escrows from the canonical venue; a moved Streamflow stream registered after its end is registered and its auto-claim booked as swept; a late deposit callback acts only on its own request's mark; the live MPC vectors pinned. Documented: what a Base redeemer bears between the signature and the release, the Solana clock skew on draws, `cancelable_by_recipient` |
 
 The web app was also exercised live through its demo wallets against the staging engines; 18 bugs
 found that way were fixed (event history decoding, a deposit resume after a reload, prepaid gas that
