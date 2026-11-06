@@ -413,6 +413,43 @@
       "solana": {
         "demo_mint": "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv"
       }
+    },
+    "engine.rose-app.testnet": {
+      "role": "final",
+      "base": {
+        "chain_id": 84532,
+        "deployer": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+        "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+        "test_usdc": {
+          "contract": "TestUSDC",
+          "address": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "tx": "0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9",
+          "block": 54195713
+        },
+        "demo_token": {
+          "contract": "DemoToken",
+          "address": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+          "tx": "0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954",
+          "block": 54195713
+        },
+        "demo_stream_faucet": {
+          "contract": "DemoStreamFaucet",
+          "address": "0xf7b1302c20faab06ad5121981b3e949da24fd98d",
+          "tx": "0xb9c69f8c83640e28e40e9be9036e2afa9b2275fc5b7da90434663abc27b397e5",
+          "block": 54195713
+        },
+        "rose_vault": {
+          "contract": "RoseVault",
+          "address": "0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f",
+          "tx": "0xb8703beba725fd4b2ec3b6c56093467bed143373f04407271e882402eda20f68",
+          "block": 55234214,
+          "signer": "0x7ba1dee0d020927e7a748349433b095de7899384"
+        },
+        "accepted_cash_tokens": [
+          "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+        ]
+      }
     }
   }
 }
