@@ -1398,3 +1398,12 @@ Facts behind the fixes of the Fable 5.1 contracts review before the final deploy
 | tUSDC is keyless and runs the recorded wasm (why its source is documented, not changed) | `query view_access_key_list` and `view_account` (finality `final`) on `tusdc.rose-app.testnet` at `https://test.rpc.fastnear.com` | `keys: []` (block 276,484,795); `code_hash` `7JHPYMQ1o7QVhVyMwmzzxS3vVhyqEkcWQrGJUcmubizP`, the deployment above; balance 3.0224 NEAR with 163,630 bytes stored (1.6363 NEAR locked, about 1.39 NEAR free for new minting accounts' rows) |
 | near-contract-standards already logs the burn of a refused transfer whose sender unregistered | `~/.cargo/registry/src/*/near-contract-standards-5.30.0/src/fungible_token/core_impl.rs`, `internal_ft_resolve_transfer` | `FtBurn { owner_id: &receiver_id, amount, memo: Some("refund") }` before `return (amount, refund_amount)`; tUSDC's `ft_resolve_transfer` then emits its own `FtBurn` for `burned > 0` |
 | The sandbox suites with the new `close` gas check and the stricter mock MPC | `ROSE_SANDBOX=1 cargo test -p rose-engine --test <suite> -- --test-threads=1`, one suite at a time | `sandbox_lifecycle` 8/8 (333.3 s) once its three direct `close` calls attach 80 Tgas instead of 60 (refused before with "Attach more gas: this call needs 60 Tgas more"), `sandbox_recorded` 1/1 (33.6 s), `sandbox_staging` 1/1 (38.9 s); `pgrep -fl near-sandbox` empty afterwards |
+
+## Reclaim of engine-s4 for the final deployment (2026-11-06)
+
+Production runs on `engine-s5`; `engine-s4` keeps only historical records. Its code storage was reclaimed the same way as `engine-s1` to `engine-s3`, to fund the final engine (`new` requires about 15.4 NEAR, `deploy-engine.sh` funds 17).
+
+| Step | Command | Result |
+|---|---|---|
+| Deploy the 34-byte no-op wasm | `near contract deploy engine-s4.rose-app.testnet use-file noop.wasm without-init-call network-config testnet sign-with-legacy-keychain send` | [H8M1uToh…](https://testnet.near.rocks/tx/H8M1uTohR7DHJ8GMe4QYxhYAKsxAod7buA6MFH5HkcDu); storage 1,080,406 B -> 74,278 B |
+| Sweep the free balance | `near tokens engine-s4.rose-app.testnet send-near rose-app.testnet '12.29 NEAR' network-config testnet sign-with-legacy-keychain send` | [GZBn9YNc…](https://testnet.near.rocks/tx/GZBn9YNcmXDxnuxZKTxX6KStgxQSF2Z3n1k2ecCYDwqR); `rose-app.testnet` 7.91 -> 20.20 NEAR (`view_account` at `final`) |
