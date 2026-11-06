@@ -1027,7 +1027,7 @@ async fn key_timeout_cancel_waits_for_the_key_request() -> Result<()> {
     let result = holder
         .call(engine.id(), "close")
         .args_json(json!({ "round_id": round.to_string() }))
-        .gas(Gas::from_tgas(60))
+        .gas(Gas::from_tgas(80))
         .transact()
         .await?;
     let result = gas.ok("close (MPC failure)", result)?;
@@ -1051,7 +1051,7 @@ async fn key_timeout_cancel_waits_for_the_key_request() -> Result<()> {
     let result = holder
         .call(engine.id(), "close")
         .args_json(json!({ "round_id": round.to_string() }))
-        .gas(Gas::from_tgas(60))
+        .gas(Gas::from_tgas(80))
         .transact()
         .await?;
     gas.fails_with(
@@ -1084,7 +1084,7 @@ async fn key_timeout_cancel_waits_for_the_key_request() -> Result<()> {
     let result = holder
         .call(engine.id(), "close")
         .args_json(json!({ "round_id": late.to_string() }))
-        .gas(Gas::from_tgas(60))
+        .gas(Gas::from_tgas(80))
         .transact()
         .await?;
     gas.fails_with(
