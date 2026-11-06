@@ -267,6 +267,33 @@ fn close_retries_while_the_key_is_missing_and_bad_responses_store_nothing() {
 }
 
 #[test]
+fn close_with_too_little_gas_is_refused_before_anything_changes() {
+    let (mut contract, _, _, _, round, _, _) = exit_with_orders();
+    let with_gas = |tgas: u64| {
+        keep_history();
+        testing_env!(near_sdk::test_utils::VMContextBuilder::new()
+            .current_account_id(engine())
+            .predecessor_account_id(accounts(5))
+            .block_timestamp(ts(6_000))
+            .block_height(6_000)
+            .prepaid_gas(near_sdk::Gas::from_tgas(tgas))
+            .build());
+    };
+    with_gas(55);
+    panics_with("Attach more gas: this call needs 60 Tgas more", || {
+        contract.close(U64(round))
+    });
+    assert_eq!(contract.round(round).phase, Phase::Bidding);
+    assert!(contract.round(round).close_requested_block.is_none());
+    with_gas(80);
+    assert!(contract.close(U64(round)).is_some());
+    assert_eq!(
+        contract.get_round(U64(round)).unwrap().status,
+        RoundStatus::KeyRequested
+    );
+}
+
+#[test]
 fn submit_key_accepts_the_right_key_and_rejects_others() {
     let (mut contract, _, _, _, round, (ask, ask_sealed), _) = exit_with_orders();
     let key = rose_ibe::format_near_g1(&round_key(round));

@@ -16,11 +16,17 @@ use crate::rounds::{reveal_deadline, round_pricing};
 use crate::types::{CancelReason, KeySource, Opened, Phase, RoundId, RoundKind, Side, VoidReason};
 use crate::{Contract, ContractExt, RoseEvent};
 
-/// Gas attached to `request_app_private_key` (19 Tgas is the measured minimum).
-const GAS_FOR_CKD_REQUEST: Gas = Gas::from_tgas(25);
-/// Static gas of the CKD callback: 12.4 Tgas measured (unwrap plus pairing check), 20 Tgas
+/// Tgas attached to `request_app_private_key` (19 Tgas is the measured minimum).
+const TGAS_CKD_REQUEST: u64 = 25;
+/// Static Tgas of the CKD callback: 12.4 Tgas measured (unwrap plus pairing check), 20 Tgas
 /// attached so a slower host never starves the callback that stores the key.
-const GAS_FOR_CKD_CALLBACK: Gas = Gas::from_tgas(20);
+const TGAS_CKD_CALLBACK: u64 = 20;
+/// Tgas `close` must still have when it creates the request and its callback: what both attach
+/// and the fees of both receipts.
+const TGAS_CKD_ROUND_TRIP: u64 =
+    TGAS_CKD_REQUEST + TGAS_CKD_CALLBACK + 2 * crate::custody::TGAS_CALL_FEES;
+const GAS_FOR_CKD_REQUEST: Gas = Gas::from_tgas(TGAS_CKD_REQUEST);
+const GAS_FOR_CKD_CALLBACK: Gas = Gas::from_tgas(TGAS_CKD_CALLBACK);
 /// Blocks a CKD request may stay in flight: the MPC yield times out after 200 blocks and the
 /// callback runs right after. `cancel_no_key` waits for them, so the engine can never store a
 /// key, nor open or clear anything, for a round already cancelled. The key itself may still
@@ -62,7 +68,8 @@ impl Contract {
     /// scalar, 1 yoctoNEAR paid by the engine). Anyone, once `now >= closes_at`; callable again
     /// while no key has arrived (the key is deterministic) until `closes_at + key_timeout`, when
     /// the round becomes cancellable instead. A round without any sealed order is cancelled
-    /// instead: there is nothing to reveal. Attach 80 Tgas.
+    /// instead: there is nothing to reveal. Attach 80 Tgas: a call with less than 60 Tgas left
+    /// for the request and its callback is refused before anything changes.
     pub fn close(&mut self, round_id: U64) -> Option<Promise> {
         let round = self.round(round_id.0).clone();
         require!(
@@ -96,6 +103,7 @@ impl Contract {
                 domain_id: self.config.ckd_domain,
             },
         };
+        crate::custody::require_gas_left(TGAS_CKD_ROUND_TRIP);
         {
             let round = self.round_mut(round_id.0);
             round.phase = Phase::KeyRequested;

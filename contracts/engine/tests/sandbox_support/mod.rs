@@ -1013,7 +1013,7 @@ impl Engine {
         let result = caller
             .call(self.id(), "close")
             .args_json(json!({ "round_id": round_id.to_string() }))
-            .gas(Gas::from_tgas(60))
+            .gas(Gas::from_tgas(80))
             .transact()
             .await?;
         let result = gas.ok("close", result)?;

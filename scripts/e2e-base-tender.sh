@@ -243,7 +243,8 @@ step_ask() {
 
 # Gas: this script signs with funded full-access keys, so it attaches its own limits instead of the
 # SDK's GAS table (packages/sdk/src/engine/calls.ts), which keeps prepaid gas low for small demo
-# wallets: close 60 Tgas (SDK 80, burns about 37.5), open_bid 300 Tgas (SDK 200, burns about 132),
+# wallets: close 80 Tgas (as the SDK: the engine refuses a close left with less than 60 Tgas for the
+# CKD request and its callback; burns about 37.5), open_bid 300 Tgas (SDK 200, burns about 132),
 # clear 100 Tgas (SDK 50, burns about 5). Unused prepaid gas is refunded.
 step_close() {
   local round closes now hash status
@@ -254,7 +255,7 @@ step_close() {
     log "waiting $((closes - now + 2)) s for the round to close"
     sleep $((closes - now + 2))
   fi
-  hash="$(near_call "$issuer" "$engine" close "$(jq -cn --arg r "$round" '{round_id:$r}')" '60 Tgas' '0 NEAR')"
+  hash="$(near_call "$issuer" "$engine" close "$(jq -cn --arg r "$round" '{round_id:$r}')" '80 Tgas' '0 NEAR')"
   status="$(record_near close "$hash")"
   local ckd key
   ckd="$(jq -r '[.receipts_outcome[] | select(.outcome.executor_id == "v1.signer-prod.testnet") | .outcome.status.SuccessValue // empty][0]' <<<"$status" | base64 -d)"
