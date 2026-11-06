@@ -183,7 +183,8 @@ impl Contract {
 
     /// Cancels a round whose key has not arrived by `closes_at + key_timeout`, once no key
     /// request is in flight ([`KEY_REQUEST_FLIGHT_BLOCKS`] after the last `close`). Anyone.
-    /// Every escrow, bond and locked unit becomes refundable through `settle_bid`.
+    /// Every escrow, bond and locked unit becomes refundable through `settle_bid`. A round
+    /// without orders is recorded as empty, as `close` would record it.
     pub fn cancel_no_key(&mut self, round_id: U64) {
         let round = self.round(round_id.0).clone();
         require!(
@@ -201,7 +202,12 @@ impl Contract {
             }),
             "A key request is in flight: cancel once it has resolved"
         );
-        self.cancel(round_id.0, CancelReason::NoKey);
+        let reason = if round.bid_count == 0 {
+            CancelReason::Empty
+        } else {
+            CancelReason::NoKey
+        };
+        self.cancel(round_id.0, reason);
     }
 
     /// Opens a sealed order with its `(plaintext, sigma)` opening (48 and 32 bytes, hex). Anyone,

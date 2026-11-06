@@ -40,7 +40,7 @@ pub const CASH_TOKEN: &str = "tusdc.rose-app.testnet";
 pub const TREASURY: &str = "treasury.rose-app.testnet";
 pub const USDC: u128 = 1_000_000;
 /// Solana payout address of the test Tenders (the stepped class lives on Solana).
-pub const RETIRE_TO: &str = "11111111111111111111111111111111";
+pub const RETIRE_TO: &str = "1nc1nerator11111111111111111111111111111111";
 pub const NS: u64 = 1_000_000_000;
 /// Ten minutes, the configured reveal window.
 pub const REVEAL_WINDOW: u64 = 600 * NS;

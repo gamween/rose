@@ -414,6 +414,26 @@ fn closing_an_empty_round_cancels_it_without_a_key_request() {
     assert_eq!(transferred_to(&accounts(0)), 0);
 }
 
+#[test]
+fn cancel_no_key_records_a_round_without_orders_as_empty() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let round = create_exit(
+        &mut contract,
+        &accounts(0),
+        &class,
+        2_000_000,
+        ts(2_500),
+        ts(6_000),
+    );
+    env_at(&accounts(5), ts(6_000) + KEY_TIMEOUT);
+    contract.cancel_no_key(U64(round));
+    assert_eq!(
+        contract.round(round).cancel_reason,
+        Some(CancelReason::Empty)
+    );
+}
+
 /// A late CKD response must never revive a cancelled round: close at the timeout, cancel the
 /// next block, then the callback arrives.
 fn late_callback_is_ignored(contract: &mut Contract, round: u64) {

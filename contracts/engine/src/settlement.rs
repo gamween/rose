@@ -326,7 +326,9 @@ impl Contract {
     /// when the proof failed or a signed Solana transaction was proven not to have executed
     /// (never on a failed signature request). Panics with "Not enough claimable tokens" when the
     /// source is short. The receipt names the class, chain and token, and the foreign address a
-    /// retired lot restricts the payout to.
+    /// retired lot restricts the payout to. A funder's last tokens of a fully delivered lien take
+    /// the lien out of the funder's index, so it no longer holds the storage deposit; a refund
+    /// puts it back.
     pub fn take_claimable(&mut self, source: &ClaimSource, amount: u128) -> ClaimReceipt {
         require!(amount > 0, "Amount must be positive");
         let class_id = self.claim_class(source);
@@ -363,13 +365,20 @@ impl Contract {
                 let share = self.lien_shares.get(&key).copied().unwrap_or_default();
                 let available = lien.entitlement(share.claim).saturating_sub(share.claimed);
                 require!(available >= amount, "Not enough claimable tokens");
+                let claimed = share.claimed + amount;
                 self.lien_shares.insert(
                     key,
                     LienShare {
                         claim: share.claim,
-                        claimed: share.claimed + amount,
+                        claimed,
                     },
                 );
+                if lien.is_satisfied() && claimed >= lien.entitlement(share.claim) {
+                    self.index_mut(funder)
+                        .lien_shares
+                        .retain(|id| id != lien_id);
+                    self.prune_index(funder);
+                }
                 None
             }
         };
@@ -408,6 +417,10 @@ impl Contract {
                         claimed: share.claimed.saturating_sub(amount),
                     },
                 );
+                let index = self.index_mut(funder);
+                if !index.lien_shares.contains(lien_id) {
+                    index.lien_shares.push(*lien_id);
+                }
             }
         }
     }

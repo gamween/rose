@@ -103,6 +103,7 @@ describe("tender form", () => {
     expect(validateRetireTo("Base", "0x000000000000000000000000000000000000dead", ENGINE)).toBeNull();
     expect(validateRetireTo("Base", "1nc1nerator11111111111111111111111111111111", ENGINE)).not.toBeNull();
     expect(validateRetireTo("Solana", "1nc1nerator11111111111111111111111111111111", ENGINE)).toBeNull();
+    expect(validateRetireTo("Solana", "11111111111111111111111111111111", ENGINE)).toMatch(/System Program/);
   });
   it("refuses the retire_to addresses the engine refuses, before signing", () => {
     expect(validateRetireTo("Base", "0x0000000000000000000000000000000000000000", ENGINE)).toContain("zero address");

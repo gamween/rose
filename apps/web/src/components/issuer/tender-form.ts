@@ -40,6 +40,8 @@ export function tenderEscrow(budget: bigint): { fee: bigint; escrow: bigint } {
 export type EngineAddresses = Pick<ConfigView, "rose_vault" | "derived_addresses">;
 
 const ZERO_EVM_ADDRESS = `0x${"0".repeat(40)}`;
+/** The all-zero Solana key (the System Program id), refused like the EVM zero address. */
+const ZERO_SOLANA_ADDRESS = "11111111111111111111111111111111";
 
 /**
  * The engine's `retire_to` rules (`create_tender`): an EVM address on Base, a base58 key on
@@ -57,6 +59,7 @@ export function validateRetireTo(chain: Chain, value: string, engine: EngineAddr
     return null;
   }
   if (!isSolanaAddress(value)) return "Enter a Solana address (base58).";
+  if (value === ZERO_SOLANA_ADDRESS) return "The System Program address cannot receive the retired tokens: the lot could never be paid out. Use the incinerator or a treasury.";
   if (derived !== null && (value === derived.vault_sol || value === derived.gas_sol)) return "The engine's Solana vault and gas keys cannot receive the retired tokens: they would sit outside every record.";
   return null;
 }

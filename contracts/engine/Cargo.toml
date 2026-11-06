@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 # `cargo near build reproducible-wasm` builds inside this image (cargo-near 0.22.0, the version of
 # the non-reproducible builds, with Rust 1.97.0, the oldest toolchain sourcescan publishes for it),
-# so anyone can rebuild the deployed wasm from a commit and compare its sha256. Tag and digest read
+# so anyone with the repository can rebuild the deployed wasm from a commit and compare its sha256. Tag and digest read
 # from Docker Hub (`sourcescan/cargo-near`), see docs/verification.md.
 [package.metadata.near.reproducible_build]
 image = "sourcescan/cargo-near:0.22.0-rust-1.97.0"

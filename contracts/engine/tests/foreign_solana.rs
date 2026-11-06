@@ -462,7 +462,19 @@ fn deposit_eligibility_checks_every_flag() {
     eligible.data[462] = 0;
     let checked = StreamflowMetadata::check_deposit(&eligible, &program, &vault).unwrap();
     assert!(!checked.can_topup);
-    let accounts = StreamflowWithdrawAccounts::for_vault(&checked, pubkey, vault).unwrap();
+    let accounts = StreamflowWithdrawAccounts {
+        authority: vault,
+        recipient: vault,
+        recipient_tokens: checked.recipient_tokens,
+        metadata: pubkey,
+        escrow_tokens: checked.escrow_tokens,
+        streamflow_treasury: STREAMFLOW_TREASURY,
+        streamflow_treasury_tokens: associated_token_address(&STREAMFLOW_TREASURY, &checked.mint)
+            .unwrap(),
+        partner: checked.partner,
+        partner_tokens: associated_token_address(&checked.partner, &checked.mint).unwrap(),
+        mint: checked.mint,
+    };
     assert_eq!(accounts.authority, vault);
     assert_eq!(accounts.recipient_tokens, checked.recipient_tokens);
     assert_eq!(accounts.escrow_tokens, checked.escrow_tokens);

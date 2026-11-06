@@ -25,7 +25,7 @@
 #                    artifact is built from HEAD only.
 # An artifact is reproducible when its NEP-330 source metadata (`contract_source_metadata`, embedded
 # in the wasm) names that pinned image as `build_environment`; `--role final` refuses any other, so
-# anyone can rebuild the final engine from its commit and compare the sha256. The artifact's sha256
+# anyone with the repository can rebuild the final engine from its commit and compare the sha256. The artifact's sha256
 # and size are recorded before anything is sent, and the on-chain code hash must equal that sha256
 # before any key is deleted.
 #

@@ -86,7 +86,7 @@ pub const PENDING_EXPIRY_BLOCKS: u64 = 600;
 /// Blocks between the first proof that a signed Solana transaction's nonce advanced without its
 /// effects and the proof that may conclude it did not execute (about 90 s): by then every
 /// RPC's finalized view is past the slot that advanced the nonce, so the second read of the
-/// streams cannot be stale.
+/// receipt nonce account cannot be stale.
 pub const CONFIRM_FAILURE_DELAY_BLOCKS: u64 = 150;
 
 /// Tgas attached to `sign` and `verify_foreign_transaction` (the live floor).

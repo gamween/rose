@@ -82,8 +82,12 @@ impl Contract {
                 "retire_to must be a 20-byte hex address (Base) or a 32-byte base58 key (Solana)",
             )
         });
+        let zero = match chain {
+            Chain::Base => crate::foreign::evm::format_address(&[0u8; 20]),
+            Chain::Solana => crate::foreign::solana::format_pubkey(&[0u8; 32]),
+        };
         require!(
-            !(chain == Chain::Base && retire_to == crate::foreign::evm::format_address(&[0u8; 20])),
+            retire_to != zero,
             "retire_to must not be the zero address: the retired lot could never be paid out"
         );
         require!(

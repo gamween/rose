@@ -6,8 +6,9 @@
 //! makes the authorization usable once. A Solana transaction is not: a durable-nonce transaction
 //! that fails on chain still advances its nonce, so a signed payout or redeem stays `Signed`
 //! until someone proves its nonce advanced (`confirm_sol_payout`, `confirm_sol_redeem`); the
-//! streams attested in the same proof then say whether it executed. Only then is the payout
-//! final (`Landed`) or refunded (`Failed`).
+//! receipt nonce account attested in the same proof then says whether it executed (on the
+//! nonce's new value: executed; behind it on two proofs 150 blocks apart: not executed). Only
+//! then is the payout final (`Landed`) or refunded (`Failed`).
 //!
 //! A Solana payout draws on streams the vault still holds, which the claimant names, and on its
 //! class's swept balance: the transaction is `[AdvanceNonce] + one Streamflow withdraw(amount)

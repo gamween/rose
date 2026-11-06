@@ -435,6 +435,10 @@ fn retire_to_must_match_the_class_chain() {
             || contract.create_tender(tender(bad)),
         );
     }
+    env(&issuer, ROUND_STORAGE_DEPOSIT, ts(2_000));
+    panics_with("retire_to must not be the zero address", || {
+        contract.create_tender(tender("11111111111111111111111111111111"))
+    });
     for engine_key in [TEST_VAULT_SOL, TEST_GAS_SOL] {
         env(&issuer, ROUND_STORAGE_DEPOSIT, ts(2_000));
         panics_with("retire_to must not be RoseVault", || {

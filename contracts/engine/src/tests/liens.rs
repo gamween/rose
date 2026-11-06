@@ -141,4 +141,79 @@ fn holding_claims_include_the_pending_lien_excess() {
     });
     env_at(&engine(), ts(10_000));
     panics_with("Unknown lien", || contract.release_lien(U64(9)));
+
+    // The lien is fully delivered: the funder's last tokens free its storage deposit, and a
+    // refund of that payout holds it again until the tokens are taken once more.
+    assert!(contract.has_obligations(&funder));
+    contract.take_claimable(&share, 700_000);
+    assert!(!contract.has_obligations(&funder));
+    assert!(contract
+        .get_portfolio(funder.clone())
+        .lien_shares
+        .is_empty());
+    contract.refund_claimable(&share, 5);
+    assert!(contract.has_obligations(&funder));
+    assert_eq!(contract.claimable_of(&share), 5);
+    contract.take_claimable(&share, 5);
+    assert!(!contract.has_obligations(&funder));
+}
+
+#[test]
+fn a_partly_delivered_lien_keeps_its_funders_obligation() {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    let (holder, funder) = (accounts(1), accounts(2));
+    mint(&mut contract, &class, &holder, 4_000_000, ts(1_000));
+    fund(&mut contract, &holder, USDC, ts(1_000));
+    fund(&mut contract, &funder, 3_000_000, ts(1_000));
+    let round = create_advance(
+        &mut contract,
+        &holder,
+        &class,
+        AdvanceSpec {
+            units: 4_000_000,
+            claim: 1_000_000,
+            min_fill: 0,
+            max_price: 2_000_000,
+        },
+        ts(2_500),
+        ts(6_000),
+    );
+    let (ask, ask_sealed) = place_ask(
+        &mut contract,
+        round,
+        &holder,
+        1_000_000,
+        1_000_000,
+        1_000_000,
+        ts(3_000),
+    );
+    let (bid, bid_sealed) = place_bid(
+        &mut contract,
+        round,
+        &funder,
+        1_000_000,
+        1_000_000,
+        1_500_000,
+        ts(3_500),
+    );
+    let received = close_and_release(&mut contract, round, ts(6_000));
+    open(&mut contract, round, ask, &ask_sealed, received + NS);
+    open(&mut contract, round, bid, &bid_sealed, received + NS);
+    clear(&mut contract, round, received + REVEAL_WINDOW);
+    settle(&mut contract, round, ask, ts(7_000));
+    settle(&mut contract, round, bid, ts(7_000));
+
+    // One unlock step after settlement the lien is partly delivered: taking everything
+    // claimable so far leaves the rest of the share owed, so the funder keeps its obligation.
+    env_at(&engine(), ts(8_000));
+    let share = ClaimSource::LienShare {
+        lien_id: 0,
+        funder: funder.clone(),
+    };
+    let claimable = contract.claimable_of(&share);
+    assert!(claimable > 0 && claimable < 1_000_000);
+    contract.take_claimable(&share, claimable);
+    assert!(!contract.liens.get(&0).unwrap().lien.is_satisfied());
+    assert!(contract.has_obligations(&funder));
 }

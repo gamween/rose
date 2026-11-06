@@ -202,7 +202,8 @@ pub fn create_program_address(
     Ok((!is_on_curve(&candidate)).then_some(candidate))
 }
 
-/// `Pubkey::find_program_address`: the highest bump (255 down to 0) that gives an off-curve key.
+/// `Pubkey::find_program_address`: the highest bump (255 down to 1, as the Solana SDK searches)
+/// that gives an off-curve key.
 pub fn find_program_address(
     seeds: &[&[u8]],
     program_id: &Pubkey,
@@ -210,7 +211,7 @@ pub fn find_program_address(
     if seeds.len() >= MAX_SEEDS {
         return Err(SolanaError::Seeds);
     }
-    for bump in (0..=255u8).rev() {
+    for bump in (1..=255u8).rev() {
         let bump_seed = [bump];
         let mut with_bump: Vec<&[u8]> = seeds.to_vec();
         with_bump.push(&bump_seed);
@@ -434,31 +435,6 @@ pub struct StreamflowWithdrawAccounts {
     pub partner_tokens: Pubkey,
     /// Token mint.
     pub mint: Pubkey,
-}
-
-impl StreamflowWithdrawAccounts {
-    /// The accounts for a withdrawal by the vault of a stream whose recipient is the vault.
-    pub fn for_vault(
-        metadata: &StreamflowMetadata,
-        metadata_pubkey: Pubkey,
-        vault: Pubkey,
-    ) -> Result<Self, SolanaError> {
-        Ok(Self {
-            authority: vault,
-            recipient: vault,
-            recipient_tokens: metadata.recipient_tokens,
-            metadata: metadata_pubkey,
-            escrow_tokens: metadata.escrow_tokens,
-            streamflow_treasury: STREAMFLOW_TREASURY,
-            streamflow_treasury_tokens: associated_token_address(
-                &STREAMFLOW_TREASURY,
-                &metadata.mint,
-            )?,
-            partner: metadata.partner,
-            partner_tokens: associated_token_address(&metadata.partner, &metadata.mint)?,
-            mint: metadata.mint,
-        })
-    }
 }
 
 /// Streamflow `withdraw(amount)`: data is the discriminator, `amount` as `u64` LE and 10 zero
