@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { checkRows, cohortSizeError, distributionDeposit, parseAllocationLines, rowsTotal, splitBatches } from "./allocations";
 import { dateTimeToSeconds, normalizeLinear, normalizeStepped, sablierScheduleArgs, secondsToDateTime, streamflowScheduleArgs } from "./class-schedule";
 import { sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, yoctoToNearText } from "./dao";
-import { askOrders, candidateTable, eventsOfRound, isFinalRound, recompute, tenderReportCsv } from "./report";
+import { askOrders, candidateTable, csvCell, eventsOfRound, isFinalRound, recompute, tenderReportCsv } from "./report";
 import { defaultRoundClass, isFullyUnlocked } from "./shared";
 import { maxPriceFromDiscount, percentToBps, tenderArgsFromForm, tenderEscrow, validateRetireTo, windowFromInput } from "./tender-form";
 
@@ -11,6 +11,8 @@ const DAY = 86_400n;
 const T0 = 1_762_200_000n;
 
 const SECOND = 1_000_000_000n;
+/** Illustrative RoseVault and derived keys of an engine (`get_config`). */
+const ENGINE = { rose_vault: "0x62358c4f00000000000000000000000000004d06", derived_addresses: { vault_base: "0x1111111111111111111111111111111111111111", vault_sol: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin", gas_sol: "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T" } };
 /** The engine's `get_limits` bounds (spec 5.6): key timeout 1 min to 7 d, reveal window 5 min to 7 d, horizon 30 d. */
 const BOUNDS = { minKeyTimeout: 60n * SECOND, maxKeyTimeout: 7n * 86_400n * SECOND, minRevealWindow: 300n * SECOND, maxRevealWindow: 7n * 86_400n * SECOND, maxRoundHorizon: 30n * 86_400n * SECOND };
 
@@ -58,17 +60,22 @@ describe("allocations", () => {
         { account: "nadia.testnet", amount: "0" },
       ],
       18,
-      5n * 10n ** 18n,
+      { unitAmount: 5n * 10n ** 18n },
     );
     expect(rows.map((row) => row.error)).toEqual([null, "Not a valid NEAR account id.", "Duplicate account.", "Not a multiple of the unit amount.", "The amount must be positive."]);
     expect(rowsTotal(rows)).toBe(1000n * 10n ** 18n);
+  });
+  it("refuses the sender as a receiver of distribute_units before signing", () => {
+    const rows = checkRows([{ account: "cindral.testnet", amount: "5" }, { account: "ines.testnet", amount: "7" }], 18, { sender: "cindral.testnet" });
+    expect(rows.map((row) => row.error)).toEqual([expect.stringContaining("transfer to self"), null]);
+    expect(checkRows([{ account: "cindral.testnet", amount: "5" }], 18).map((row) => row.error)).toEqual([null]);
   });
   it("splits receivers into batches under the engine limit", () => {
     expect(splitBatches([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
     expect(splitBatches([], 50)).toEqual([]);
   });
   it("refuses what RoseVault refuses: an allocation under one whole token, more than 50 holders", () => {
-    const rows = checkRows([{ account: "halden.testnet", amount: "0.5" }, { account: "ines.testnet", amount: "1" }], 18, null, 10n ** 18n);
+    const rows = checkRows([{ account: "halden.testnet", amount: "0.5" }, { account: "ines.testnet", amount: "1" }], 18, { minimum: 10n ** 18n });
     expect(rows.map((row) => row.error)).toEqual(["At least one whole token per holder (RoseVault minimum).", null]);
     expect(cohortSizeError(50)).toBeNull();
     expect(cohortSizeError(51)).toContain("at most 50 holders");
@@ -93,9 +100,17 @@ describe("tender form", () => {
     expect(tenderEscrow(950_000_000n)).toEqual({ fee: 2_850_000n, escrow: 952_850_000n });
   });
   it("validates retire_to per chain", () => {
-    expect(validateRetireTo("Base", "0x000000000000000000000000000000000000dead")).toBeNull();
-    expect(validateRetireTo("Base", "1nc1nerator11111111111111111111111111111111")).not.toBeNull();
-    expect(validateRetireTo("Solana", "1nc1nerator11111111111111111111111111111111")).toBeNull();
+    expect(validateRetireTo("Base", "0x000000000000000000000000000000000000dead", ENGINE)).toBeNull();
+    expect(validateRetireTo("Base", "1nc1nerator11111111111111111111111111111111", ENGINE)).not.toBeNull();
+    expect(validateRetireTo("Solana", "1nc1nerator11111111111111111111111111111111", ENGINE)).toBeNull();
+  });
+  it("refuses the retire_to addresses the engine refuses, before signing", () => {
+    expect(validateRetireTo("Base", "0x0000000000000000000000000000000000000000", ENGINE)).toContain("zero address");
+    expect(validateRetireTo("Base", ENGINE.rose_vault.toUpperCase().replace("0X", "0x"), ENGINE)).toContain("RoseVault");
+    expect(validateRetireTo("Base", ENGINE.derived_addresses!.vault_base, ENGINE)).toContain("RoseVault");
+    expect(validateRetireTo("Solana", ENGINE.derived_addresses!.vault_sol, ENGINE)).toContain("Solana vault");
+    expect(validateRetireTo("Solana", ENGINE.derived_addresses!.gas_sol, ENGINE)).toContain("Solana vault");
+    expect(validateRetireTo("Base", "0x000000000000000000000000000000000000dead", { rose_vault: ENGINE.rose_vault, derived_addresses: null })).toBeNull();
   });
   it("validates the window and converts it to nanoseconds", () => {
     const now = Date.UTC(2026, 10, 4, 12, 0);
@@ -107,7 +122,7 @@ describe("tender form", () => {
   });
   it("turns the form into create_tender arguments", () => {
     const now = Date.UTC(2026, 10, 4, 12, 0);
-    const form = { classId: "c", chain: "Base" as const, venue: "Near" as const, budget: 950_000_000n, mode: "discount" as const, maxPrice: null, referencePrice: 10_000_000n, discountBps: 1000, retireTo: "0x000000000000000000000000000000000000DEAD", window: { opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND };
+    const form = { classId: "c", chain: "Base" as const, venue: "Near" as const, budget: 950_000_000n, mode: "discount" as const, maxPrice: null, referencePrice: 10_000_000n, discountBps: 1000, retireTo: "0x000000000000000000000000000000000000DEAD", window: { opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND, engine: ENGINE };
     const result = tenderArgsFromForm(form, now, BOUNDS);
     expect(result).toMatchObject({ args: { maxPrice: 9_000_000n, referencePrice: 10_000_000n, retireTo: "0x000000000000000000000000000000000000dead", window: { keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND } } });
     expect(tenderArgsFromForm({ ...form, budget: 0n }, now, BOUNDS)).toEqual({ error: "Enter a positive budget." });
@@ -117,7 +132,7 @@ describe("tender form", () => {
   });
   it("refuses a class that is fully unlocked at the close time, as the engine does", () => {
     const now = Date.UTC(2026, 10, 4, 12, 0);
-    const form = { classId: "c", chain: "Base" as const, venue: "Near" as const, budget: 950_000_000n, mode: "price" as const, maxPrice: 9_000_000n, referencePrice: null, discountBps: null, retireTo: "0x000000000000000000000000000000000000dead", window: { opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND };
+    const form = { classId: "c", chain: "Base" as const, venue: "Near" as const, budget: 950_000_000n, mode: "price" as const, maxPrice: 9_000_000n, referencePrice: null, discountBps: null, retireTo: "0x000000000000000000000000000000000000dead", window: { opensNow: true, opensAt: "", closesAt: "2026-11-05T12:00" }, keyTimeout: 3_600n * SECOND, revealWindow: 600n * SECOND, engine: ENGINE };
     const start = BigInt(Date.UTC(2026, 9, 1) / 1000);
     const schedule = (end: bigint) => ({ kind: "Linear" as const, start, cliff: 0n, end, granularity: 1n, total: 1n, startUnlock: 0n, cliffUnlock: 0n, minDeposit: 10n ** 18n });
     const endsBeforeClose = { decimals: 18, schedule: schedule(BigInt(Date.UTC(2026, 10, 4, 18, 0) / 1000)) };
@@ -165,6 +180,8 @@ describe("DAO wrappers", () => {
     for (const name of placeholders) expect(names.has(name!), name).toBe(true);
     expect((manifest.args.params as { reference_price: string }).reference_price).toBe("{{reference_price}}");
     expect(manifest.fields.find((field) => field.name === "budget")?.default).toBe("950000000");
+    // Trezu `amount` fields carry base units as digit strings, unscaled (DSL field types).
+    for (const field of manifest.fields.filter((item) => item.type === "amount")) expect(String(field.default)).toMatch(/^\d+$/);
   });
 });
 
@@ -202,6 +219,18 @@ describe("tender report", () => {
     expect(settled).toContain("result,volume_units,1666.666666666666666666\n");
     expect(settled).toContain("result,notional_usdc,59.999999\n");
     expect(eventsOfRound([{ seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "7" } } }], 7n)).toHaveLength(1);
+  });
+
+  it("neutralizes CSV formula injection in text cells and keeps numbers as numbers", () => {
+    expect(csvCell("=HYPERLINK(\"https://x\")")).toBe("\"'=HYPERLINK(\"\"https://x\"\")\"");
+    for (const start of ["+", "-", "@", "\t"]) expect(csvCell(`${start}SUM(A1)`)).toBe(`'${start}SUM(A1)`);
+    expect(csvCell("\rcmd")).toBe("\"'\rcmd\"");
+    expect(csvCell("-5")).toBe("-5");
+    expect(csvCell("12.5")).toBe("12.5");
+    expect(csvCell(-3)).toBe("-3");
+    expect(csvCell("halden.testnet")).toBe("halden.testnet");
+    const csv = tenderReportCsv({ engine: "e", round, cls, symbol: "=CMD|' /C calc'!A0", bids, result: null, events: [], generatedAt: 0 });
+    expect(csv).toContain("parameters,class,'=CMD|' /C calc'!A0 ");
   });
 
   it("leaves out base_cash_registered events, whose round id is only a depositCash earmark", () => {

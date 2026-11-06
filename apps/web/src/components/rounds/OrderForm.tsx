@@ -11,6 +11,7 @@
 import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
 import { useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
@@ -274,6 +275,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
             {showDeposit ? <CashDeposit engine={engine} venue={round.venue} roundId={round.roundId} shortfall={shortfall} nearCashToken={config.near_cash_token} onDeposited={onPlaced} /> : null}
           </div>
         ) : null}
+        {viewer && open && round.venue !== "Near" && !showDeposit ? <PendingCashDeposits token={round.venue.Base.token} creditTo={viewer.account} onRegistered={onPlaced} /> : null}
         {sealError ? <Notice tone="danger">{sealError}</Notice> : null}
         {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
 

@@ -213,7 +213,7 @@ normative version):
   reachable only after the deadline. The final deployment deletes every access key after init:
   `deploy-engine.sh --role final` refuses to run without `--keyless`, checks the deployed code
   hash before deleting any key, and records the engine as keyless only once
-  `view_access_key_list` at `final` returns `[]`.
+  `view_access_key_list` at `final` returns `[]`. New versions deploy to new accounts.
   [Deployed contracts](#deployed-contracts) says whether the listed engine is that keyless one;
   **a staging engine keeps a key and is not this trust model.**
 - **RoseVault:** immutable, no owner, no pause, no upgrade; Sablier Lockup and the signer fixed in

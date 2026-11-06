@@ -15,7 +15,7 @@ Everything runs on testnets. Open the testnet banner and use "Get test funds":
 - Test USDC: minted on-chain by anyone, on NEAR testnet (`tusdc.rose-app.testnet`) and on Base Sepolia. The mint is capped at 10,000 tUSDC per account per 24-hour window, which starts at the account's first mint after the previous window ended, and the token is labeled "Test USDC". Circle's Base Sepolia USDC is also accepted as a Base cash token when you already have it.
 - Base Sepolia gas: a little ETH from the `/api/faucet` route (a demo convenience, not part of the protocol).
 - Solana devnet SOL, for the Solana deposit flow.
-- "Mint me a demo vesting position": a Sablier stream of the demo token on Base, or a Streamflow stream on Solana (the faucet first sends the 1,000 demo tokens it locks; your wallet pays about 0.012 SOL of rent), if you want to try the holder side too.
+- "Mint me a demo vesting position": a Sablier stream of the demo token on Base, or a Streamflow stream on Solana (the faucet first sends the 1,000 demo tokens it locks; your wallet needs 0.012 SOL and spends about 0.008 SOL of it: 0.0063 SOL of rent for the stream's metadata account, 0.0015 SOL for its escrow token account, and the fee), if you want to try the holder side too.
 
 You see each balance in the top bar next to the connected wallet.
 

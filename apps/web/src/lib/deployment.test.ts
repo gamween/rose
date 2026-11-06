@@ -1,6 +1,7 @@
 import { BASE_SEPOLIA_CHAIN_ID as SDK_BASE_SEPOLIA_CHAIN_ID } from "@rose/sdk";
-import { describe, expect, it } from "vitest";
-import { BASE_SEPOLIA_CHAIN_ID, DEPLOYMENT, deployed, deployedAddress, isDeployed, missingDeployments, NEAR_TUSDC_ACCOUNT, SABLIER_LOCKUP_ADDRESS } from "./deployment";
+import { describe, expect, it, vi } from "vitest";
+import { NearRpc } from "@rose/sdk";
+import { BASE_SEPOLIA_CHAIN_ID, DEPLOYMENT, deployed, deployedAddress, isDeployed, missingDeployments, NEAR_READ_RPC_ENDPOINTS, NEAR_TUSDC_ACCOUNT, SABLIER_LOCKUP_ADDRESS } from "./deployment";
 
 describe("deployment config", () => {
   it("lists every deployable contract with its NEXT_PUBLIC variable", () => {
@@ -22,6 +23,16 @@ describe("deployment config", () => {
     expect(deployedAddress("roseVault")).toBeNull();
     expect(isDeployed("roseVault", "engineAccount")).toBe(false);
     expect(missingDeployments().map((entry) => entry.key)).toContain("roseVault");
+  });
+
+  it("reads NEAR through dRPC when FastNEAR and the official RPC both rate limit the visitor", async () => {
+    expect(NEAR_READ_RPC_ENDPOINTS).toEqual(["https://test.rpc.fastnear.com", "https://rpc.testnet.near.org", "https://near-testnet.drpc.org"]);
+    const fetch = vi.fn((url: string | URL | Request) =>
+      Promise.resolve(String(url).includes("drpc") ? new Response(JSON.stringify({ jsonrpc: "2.0", id: "rose", result: { header: { height: 7, hash: "h", timestamp: 0, timestamp_nanosec: "0" } } })) : new Response("Too Many Requests", { status: 429 })),
+    );
+    const rpc = new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS, fetch: fetch as unknown as typeof globalThis.fetch });
+    await expect(rpc.block("final")).resolves.toMatchObject({ header: { height: 7 } });
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([...NEAR_READ_RPC_ENDPOINTS]);
   });
 
   it("exposes the fixed testnet addresses", () => {

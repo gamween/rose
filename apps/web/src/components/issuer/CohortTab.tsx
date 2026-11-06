@@ -2,12 +2,10 @@
 
 import {
   approveToken,
-  calculateMinFeeWei,
   cohortTotal,
   createStreams,
   decodeStreamDeposited,
   erc20Abi,
-  sablierLockupExtrasAbi,
   waitForSafeHead,
   type Allocation,
   type StreamDepositedLog,
@@ -29,6 +27,7 @@ import { useFlow } from "@/lib/use-action";
 import { checkRows, cohortSizeError, parseAllocationLines, rowsTotal, type AllocationRow } from "./allocations";
 import { registerStreamLog } from "./base-registration";
 import { dateTimeToSeconds, secondsToDateTime } from "./class-schedule";
+import { vaultStreamFeeWei } from "./sablier-fee";
 import { FieldLabel, Hint, Preview, type IssuerBase, baseClient } from "./shared";
 
 const COHORT_STORAGE_KEY = "rose.issuer.cohort-tx";
@@ -87,7 +86,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
   }, []);
 
   const decimals = tokenInfo?.decimals ?? 18;
-  const checked = useMemo(() => checkRows(rows, decimals, parseAmount(unitAmount, decimals), 10n ** BigInt(decimals)), [rows, decimals, unitAmount]);
+  const checked = useMemo(() => checkRows(rows, decimals, { unitAmount: parseAmount(unitAmount, decimals), minimum: 10n ** BigInt(decimals) }), [rows, decimals, unitAmount]);
   const total = rowsTotal(checked);
   const sizeError = cohortSizeError(checked.length);
   const valid = checked.length > 0 && sizeError === null && checked.every((row) => row.error === null);
@@ -179,8 +178,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
           let value = 0n;
           const nowSec = BigInt(Math.floor(Date.now() / 1000));
           if (startSec <= nowSec) {
-            const next = await client.readContract({ address: base.config.sablier_lockup as `0x${string}`, abi: sablierLockupExtrasAbi, functionName: "nextStreamId" });
-            const fee = next > 1n ? await calculateMinFeeWei(client, next - 1n, base.config.sablier_lockup as `0x${string}`) : 0n;
+            const fee = await vaultStreamFeeWei(client, base.config.sablier_lockup as `0x${string}`, vault);
             value = (fee * BigInt(allocations.length) * 11n) / 10n;
             setDetail(`The schedule already started: ${value.toString()} wei forwarded for Sablier's withdrawal fee (${fee.toString()} wei per stream + 10 %, unused part refunded).`);
           }

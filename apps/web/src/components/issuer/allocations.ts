@@ -29,14 +29,17 @@ export function parseAllocationLines(text: string): AllocationRow[] {
  * Validates rows for `createStreams`: a NEAR account, a positive amount in whole-token text, at
  * least `minimum` base units when one is given (RoseVault refuses an allocation below one whole
  * token, `AmountBelowMinimum`), a multiple of `unitAmount` (base units) when one is given, no
- * duplicate accounts.
+ * duplicate accounts, and not `sender` when one is given (`distribute_units` panics "Cannot
+ * transfer to self" when the issuer lists itself).
  */
-export function checkRows(rows: readonly AllocationRow[], decimals: number, unitAmount: bigint | null, minimum: bigint | null = null): CheckedRow[] {
+export function checkRows(rows: readonly AllocationRow[], decimals: number, options: { unitAmount?: bigint | null; minimum?: bigint | null; sender?: string | null } = {}): CheckedRow[] {
+  const { unitAmount = null, minimum = null, sender = null } = options;
   const seen = new Set<string>();
   return rows.map((row) => {
     const amountUnits = parseAmount(row.amount, decimals);
     let error: string | null = null;
     if (!isNearAccountId(row.account)) error = "Not a valid NEAR account id.";
+    else if (sender !== null && row.account === sender) error = "This is your own account: the units are already yours (the engine refuses a transfer to self).";
     else if (seen.has(row.account)) error = "Duplicate account.";
     else if (amountUnits === null) error = `Not an amount (at most ${String(decimals)} decimals).`;
     else if (amountUnits <= 0n) error = "The amount must be positive.";

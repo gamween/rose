@@ -74,25 +74,23 @@ function ReportBody({ data, printable }: { data: Loaded; printable: boolean }) {
           <Stat label="Reference price" value={round.referencePrice === null ? "none" : formatUsdc(round.referencePrice, 4)} unit={round.referencePrice === null ? undefined : "USDC"} hint={round.referencePrice === null ? "not declared" : "issuer-declared, display only"} />
           <Stat label="Remaining lock at settlement" value={formatDuration(Number(round.remainingLockSecs))} hint={`f(ts) = ${formatFraction(round.fTs, 2)}`} />
         </dl>
-        <Table>
-          <TBody>
-            {[
-              ["Round", `#${round.roundId.toString()} (${round.status}${round.cancelReason ? `, ${round.cancelReason}` : ""})`],
-              ["Class", `${symbol} on ${cls.chain}, ${String(cls.decimals)} decimals, id ${round.classId}`],
-              ["Cash venue", venueLabel(round.venue, data.symbols)],
-              ["Issuer", round.creator],
-              ["Retired units pay to", round.retireTo ?? "—"],
-              ["Window (UTC)", `${formatDate(nsToMs(round.opensAt))} → ${formatDate(nsToMs(round.closesAt))}`],
-              ["Key", round.key ? `${round.keySource ?? ""} at ${round.keyReceivedAt ? formatDate(nsToMs(round.keyReceivedAt)) : "—"}` : "not released"],
-              ["Issuer escrow", round.issuerEscrow === null ? "—" : `${formatUsdc(round.issuerEscrow)} USDC (budget + 30 bps)`],
-            ].map(([label, value]) => (
-              <TR key={label}>
-                <TD className="w-48 text-ink-400">{label}</TD>
-                <TD className="break-all">{value}</TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
+        <dl className="flex flex-col divide-y divide-ink-800 text-[13px]" data-report-parameters>
+          {[
+            ["Round", `#${round.roundId.toString()} (${round.status}${round.cancelReason ? `, ${round.cancelReason}` : ""})`],
+            ["Class", `${symbol} on ${cls.chain}, ${String(cls.decimals)} decimals, id ${round.classId}`],
+            ["Cash venue", venueLabel(round.venue, data.symbols)],
+            ["Issuer", round.creator],
+            ["Retired units pay to", round.retireTo ?? "—"],
+            ["Window (UTC)", `${formatDate(nsToMs(round.opensAt))} → ${formatDate(nsToMs(round.closesAt))}`],
+            ["Key", round.key ? `${round.keySource ?? ""} at ${round.keyReceivedAt ? formatDate(nsToMs(round.keyReceivedAt)) : "—"}` : "not released"],
+            ["Issuer escrow", round.issuerEscrow === null ? "—" : `${formatUsdc(round.issuerEscrow)} USDC (budget + 30 bps)`],
+          ].map(([label, value]) => (
+            <div key={label} className="grid gap-0.5 py-2 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-3">
+              <dt className="text-ink-400">{label}</dt>
+              <dd className="tabular text-ink-100 [overflow-wrap:anywhere]">{value}</dd>
+            </div>
+          ))}
+        </dl>
       </Section>
       <Section title="Sealed book before close">
         <dl className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-3">
@@ -228,7 +226,7 @@ function ReportBody({ data, printable }: { data: Loaded; printable: boolean }) {
                 <TR key={entry.seq.toString()}>
                   <TD className="tabular">{entry.seq.toString()}</TD>
                   <TD>{entry.event.event.replace(/_/g, " ")}</TD>
-                  <TD>{formatDate(nsToMs(entry.timestamp))}</TD>
+                  <TD className="whitespace-nowrap">{formatDate(nsToMs(entry.timestamp))}</TD>
                   <TD>
                     <a href={nearAccountUrl(entry.predecessor)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
                       {entry.predecessor}

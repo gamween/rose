@@ -4,7 +4,7 @@
  * the engine's bounds and the `retire_to` address checked against the class chain.
  */
 
-import { BPS_DENOMINATOR, fee, ONE, type Chain, type ClassInfo, type TenderArgs, type Venue } from "@rose/sdk";
+import { BPS_DENOMINATOR, fee, ONE, type Chain, type ClassInfo, type ConfigView, type TenderArgs, type Venue } from "@rose/sdk";
 import { isEvmAddress, isSolanaAddress, msToNs } from "@/lib/amounts";
 import { durationErrors, horizonError, type WindowBounds } from "@/lib/round-window";
 import { fractionAt } from "@/lib/unlock-schedule";
@@ -36,10 +36,29 @@ export function tenderEscrow(budget: bigint): { fee: bigint; escrow: bigint } {
   return { fee: charged, escrow: budget + charged };
 }
 
-/** The engine's `retire_to` rule: a lowercase `0x` address on Base, a base58 key on Solana. */
-export function validateRetireTo(chain: Chain, value: string): string | null {
-  if (chain === "Base") return isEvmAddress(value) ? null : "Enter a Base address (0x followed by 40 hex characters).";
-  return isSolanaAddress(value) ? null : "Enter a Solana address (base58).";
+/** The engine addresses `create_tender` refuses as `retire_to`, from `get_config`. */
+export type EngineAddresses = Pick<ConfigView, "rose_vault" | "derived_addresses">;
+
+const ZERO_EVM_ADDRESS = `0x${"0".repeat(40)}`;
+
+/**
+ * The engine's `retire_to` rules (`create_tender`): an EVM address on Base, a base58 key on
+ * Solana; never the zero address on Base (the lot could never be paid out); never RoseVault or
+ * one of the engine's own derived keys (Base vault, Solana vault, Solana gas), where tokens would
+ * sit outside every record.
+ */
+export function validateRetireTo(chain: Chain, value: string, engine: EngineAddresses): string | null {
+  const derived = engine.derived_addresses ?? null;
+  if (chain === "Base") {
+    if (!isEvmAddress(value)) return "Enter a Base address (0x followed by 40 hex characters).";
+    const address = value.toLowerCase();
+    if (address === ZERO_EVM_ADDRESS) return "The zero address cannot receive the retired tokens: the lot could never be paid out. Use the burn address or a treasury.";
+    if (address === engine.rose_vault.toLowerCase() || (derived !== null && address === derived.vault_base.toLowerCase())) return "RoseVault and the engine's own Base key cannot receive the retired tokens: they would sit outside every record.";
+    return null;
+  }
+  if (!isSolanaAddress(value)) return "Enter a Solana address (base58).";
+  if (derived !== null && (value === derived.vault_sol || value === derived.gas_sol)) return "The engine's Solana vault and gas keys cannot receive the retired tokens: they would sit outside every record.";
+  return null;
 }
 
 /** The address as the engine stores it (lowercase on Base). */
@@ -88,6 +107,8 @@ export type TenderFormValues = {
   revealWindow: bigint | null;
   /** The class schedule, to refuse a close time at which the class is fully unlocked (rounds.rs). */
   unlock?: Pick<ClassInfo, "schedule" | "decimals">;
+  /** The engine's own addresses, which `retire_to` must not name. */
+  engine: EngineAddresses;
 };
 
 export type TenderFormResult = { args: TenderArgs } | { error: string };
@@ -105,7 +126,7 @@ export function tenderArgsFromForm(values: TenderFormValues, nowMs: number, limi
     maxPrice = maxPriceFromDiscount(values.referencePrice, values.discountBps);
     if (maxPrice <= 0n) return { error: "The discount leaves no price to pay." };
   }
-  const retireError = validateRetireTo(values.chain, values.retireTo);
+  const retireError = validateRetireTo(values.chain, values.retireTo, values.engine);
   if (retireError) return { error: retireError };
   const window = windowFromInput(values.window, nowMs, limits);
   if ("error" in window) return { error: window.error };

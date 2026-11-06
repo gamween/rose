@@ -1,7 +1,25 @@
 import type { EngineViews, ReplayStateView, SolDepositView } from "@rose/sdk";
+import { Keypair, type Connection } from "@solana/web3.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitForReplay } from "./base-reads";
-import { pendingStatus, streamLocation, waitForStage } from "./solana-reads";
+import { pendingStatus, readSolanaStreamRow, streamLocation, waitForStage } from "./solana-reads";
+
+const MINT = Keypair.generate().publicKey;
+vi.mock("@rose/sdk", async (original) => ({ ...(await original<typeof import("@rose/sdk")>()), readStreamflowStream: () => Promise.resolve({ metadata: { mint: MINT }, raw: new Uint8Array(), slot: 1 }) }));
+
+describe("resuming a Solana deposit", () => {
+  it("fails with a retryable error when the mint read misses, instead of doing nothing", async () => {
+    const connection = { getAccountInfo: () => Promise.resolve(null) } as unknown as Connection;
+    await expect(readSolanaStreamRow(connection, Keypair.generate().publicKey, "c".repeat(64))).rejects.toMatchObject({ kind: "rpc", title: "Could not read the mint", retryable: true });
+  });
+  it("returns the row with its mint bytes when the mint reads", async () => {
+    const data = new Uint8Array(82);
+    data[44] = 9;
+    const connection = { getAccountInfo: () => Promise.resolve({ owner: Keypair.generate().publicKey, data }) } as unknown as Connection;
+    const row = await readSolanaStreamRow(connection, Keypair.generate().publicKey, "c".repeat(64));
+    expect(row.mint.decimals).toBe(9);
+  });
+});
 
 function views(deposits: (SolDepositView | null)[], replays: (ReplayStateView | null)[] = []): EngineViews {
   let deposit = 0;

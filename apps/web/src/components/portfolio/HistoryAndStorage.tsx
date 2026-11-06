@@ -10,7 +10,7 @@ import { Field, NumberInput } from "@/components/ui/Input";
 import { amountToText, formatAmount, formatDate, nsToMs, parseAmount } from "@/lib/amounts";
 import { CASH_ROW_BYTES, HOLDING_ROW_BYTES, STORAGE_BYTE_COST } from "@/lib/engine-storage";
 import { deployedAddress } from "@/lib/deployment";
-import { nearAccountUrl } from "@/lib/explorer";
+import { nearAccountUrl, nearBlockUrl } from "@/lib/explorer";
 import { eventAmountFormat } from "@/lib/event-format";
 import { describePayout, payoutExplorerLink } from "@/lib/payouts";
 import { ROUTES } from "@/lib/routes";
@@ -59,7 +59,7 @@ export function HistorySection({ data }: { data: PortfolioData }) {
                       {entry.predecessor}
                     </a>
                     <span aria-hidden>·</span>
-                    <a href={`https://testnet.near.rocks/block/${entry.blockHeight.toString()}`} target="_blank" rel="noreferrer" className="tabular underline-offset-2 hover:underline">
+                    <a href={nearBlockUrl(entry.blockHeight)} target="_blank" rel="noreferrer" className="tabular underline-offset-2 hover:underline">
                       block {entry.blockHeight.toString()} ↗
                     </a>
                   </div>

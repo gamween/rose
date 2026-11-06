@@ -21,7 +21,7 @@ Plainly:
 
 ### The operator
 
-The people who deploy rose hold no key that matters after deployment. The engine account has no access keys, RoseVault has no owner, the Solana vault is an MPC-derived address. The operator cannot read a bid before close, cannot sign a payout, cannot freeze or cancel a round after its first bid, and cannot upgrade the contract in place. A new version is a new account that users would have to opt into.
+Once the final engine is deployed, the people who deploy rose hold no key that matters. The final engine account has no access keys, RoseVault has no owner, the Solana vault is an MPC-derived address. Against that engine the operator cannot read a bid before close, cannot sign a payout, cannot freeze or cancel a round after its first bid, and cannot upgrade the contract in place. A new version is a new account that users would have to opt into. A staging engine keeps a full-access key, so its operator could replace its code; the [status page](/status) shows the live access key check of the engine the app uses.
 
 What the operator does control: the web app. A malicious frontend could show wrong numbers or craft wrong transactions. Mitigations: every transaction is signed by the user's wallet with its arguments visible, every result links to an explorer, the "Verify" panel recomputes clearing in the browser from on-chain data, and the SDK lets anyone bypass the app entirely.
 

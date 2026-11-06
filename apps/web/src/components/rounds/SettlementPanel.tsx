@@ -48,10 +48,10 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
         <div>
           <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">NEAR · cash and units</dt>
           <dd className="mt-0.5 flex flex-col gap-0.5">
-            <a href={nearAccountUrl(engine.account)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
+            <a href={nearAccountUrl(engine.account)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
               engine {engine.account} ↗
             </a>
-            <a href={nearAccountUrl(venueTokenAccount(round.venue))} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
+            <a href={nearAccountUrl(venueTokenAccount(round.venue))} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
               {round.venue === "Near" ? `cash token ${venueTokenAccount(round.venue)}` : `venue ${venueLabel(round.venue)}`} ↗
             </a>
             <Link href={ROUTES.portfolio} className="text-ember-300 underline-offset-2 hover:underline">
@@ -63,19 +63,19 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
           <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Base Sepolia · {cls.chain === "Base" ? "stream tokens" : "cash"}</dt>
           <dd className="mt-0.5 flex flex-col gap-0.5">
             {roseVault ? (
-              <a href={addressUrl("base", roseVault)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
+              <a href={addressUrl("base", roseVault)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
                 RoseVault {roseVault.slice(0, 10)}… ↗
               </a>
             ) : (
               <span className="text-ink-400">RoseVault not deployed yet</span>
             )}
             {round.venue !== "Near" ? (
-              <a href={addressUrl("base", round.venue.Base.token)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
+              <a href={addressUrl("base", round.venue.Base.token)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
                 cash token {round.venue.Base.token.slice(0, 10)}… ↗
               </a>
             ) : null}
             {cls.chain === "Base" ? (
-              <a href={addressUrl("base", cls.token)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
+              <a href={addressUrl("base", cls.token)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
                 class token {cls.token.slice(0, 10)}… ↗
               </a>
             ) : null}
@@ -87,13 +87,13 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
             {cls.chain === "Solana" ? (
               <>
                 {solanaVault ? (
-                  <a href={addressUrl("solana", solanaVault)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
+                  <a href={addressUrl("solana", solanaVault)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
                     vault {solanaVault.slice(0, 10)}… ↗
                   </a>
                 ) : (
                   <span className="text-ink-400">Solana vault not bootstrapped yet</span>
                 )}
-                <a href={addressUrl("solana", cls.token)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
+                <a href={addressUrl("solana", cls.token)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
                   mint {cls.token.slice(0, 10)}… ↗
                 </a>
               </>

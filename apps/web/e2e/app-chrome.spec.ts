@@ -142,4 +142,23 @@ test.describe("app chrome", () => {
     await page.keyboard.press("Enter");
     await page.waitForURL("**/docs");
   });
+
+  test("an unknown URL answers 404 with the site chrome and the ways back", async ({ page }) => {
+    // The document itself answers 404, which the console reports as a failed resource: only page errors count here.
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const response = await page.goto("/this-page-does-not-exist");
+    expect(response?.status()).toBe(404);
+    const main = page.locator("[data-not-found]");
+    await expect(main.getByRole("heading", { name: "This page does not exist" })).toBeVisible();
+    await expect(main.getByRole("link", { name: "Back to the app" })).toHaveAttribute("href", "/app");
+    await expect(main.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs");
+    await expect(main.getByRole("link", { name: "Status" })).toHaveAttribute("href", "/status");
+    await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
+    await expect(page.locator("footer")).toBeVisible();
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(7, 6, 5)");
+    await main.getByRole("link", { name: "Back to the app" }).click();
+    await page.waitForURL("**/app");
+    expect(errors).toEqual([]);
+  });
 });

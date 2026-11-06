@@ -21,7 +21,8 @@ const DEMO_PERIODS = 23 * 24;
 const DEMO_CLIFF_SECONDS = 7 * 24 * 3_600;
 /**
  * SOL the creation needs from the wallet: the 1,104-byte metadata account and the escrow token
- * account rent (about 0.0077 and 0.002 SOL) plus fees, with a margin.
+ * account rent (6,258,560 and 1,488,440 lamports measured on devnet, about 0.0063 and 0.0015 SOL)
+ * plus fees, with a margin (docs/verification.md, "Rent of a Streamflow stream").
  */
 export const DEMO_MIN_LAMPORTS = 12_000_000;
 const TOKEN_WAIT_MS = 60_000;
@@ -132,8 +133,9 @@ export async function createSolanaDemoPosition(signer: SolanaSigner, onProgress?
       canUpdateRate: false,
     },
     /*
-     * The js-sdk treats any sender without `secretKey` as a wallet adapter and only calls its
-     * `publicKey` and `signTransaction`, which is exactly what `SolanaSigner` provides.
+     * `create` signs through @streamflow/common 13.4.0 `signTransaction`, which treats a sender
+     * whose `signTransaction` is defined as a wallet adapter (`isSignerWallet`) and only asks it
+     * for its `publicKey` and `signTransaction`: exactly what `SolanaSigner` provides.
      */
     { sender: signer as unknown as CreateSender, isNative: false },
   );

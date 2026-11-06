@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { privateKeyToAddress } from "viem/accounts";
 import { decryptKeystore, encryptKeystore, keystoreAddress } from "./keystore.ts";
 
+/** The public example key of the ethers and web3.js documentation: not a secret, used by no rose account. */
 const KEY = "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318";
 
 await test("a keystore decrypts to the key it encrypted and names its address", () => {

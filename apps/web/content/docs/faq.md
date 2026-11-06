@@ -92,7 +92,7 @@ Hidden until close: every price and every exact quantity. Public: the number of 
 
 ### Can the operator read bids?
 
-No. Bids are encrypted to a per-round identity. Its key is derived by the NEAR MPC network only when the engine contract asks, and the only function that asks is guarded by `now >= closes_at`. The engine is keyless and has no upgrade path, so that guard cannot be removed.
+No. Bids are encrypted to a per-round identity. Its key is derived by the NEAR MPC network only when the engine contract asks, and the only function that asks is guarded by `now >= closes_at`. The engine has no upgrade path and the final engine is keyless, so on it that guard cannot be removed. A staging engine keeps a full-access key; the [status page](/status) shows whether the engine the app uses has one.
 
 ### Who opens the bids after close?
 
@@ -160,7 +160,7 @@ Yes, in two ways. Sell your units in a round and claim the cash in the round's v
 
 ### Who do I trust?
 
-The NEAR MPC network (a threshold of nodes could break custody and sealing; foreign state is trusted to their RPC quorum), the keyless engine code, and the immutable RoseVault. For the tokens themselves, their issuers: on Base, an ERC-20 with pause or blacklist powers can freeze RoseVault's balance (on Solana, mints with a freeze authority are refused). Nobody else can move funds, see bids early or stop a round. See [Trust and security](/docs/trust-and-security).
+The NEAR MPC network (a threshold of nodes could break custody and sealing; foreign state is trusted to their RPC quorum), the engine code (the final engine is keyless, so nobody can change it; a staging engine keeps a key, and the [status page](/status) shows which kind the app uses), and the immutable RoseVault. For the tokens themselves, their issuers: on Base, an ERC-20 with pause or blacklist powers can freeze RoseVault's balance (on Solana, mints with a freeze authority are refused). Nobody else can move funds, see bids early or stop a round. See [Trust and security](/docs/trust-and-security).
 
 ### Is it audited?
 
@@ -168,4 +168,4 @@ No. Testnet only, no assets of value.
 
 ### Where are the addresses?
 
-[Contracts and addresses](/docs/contracts-and-addresses) and the [status page](/status), which also checks live that the engine has no access keys.
+[Contracts and addresses](/docs/contracts-and-addresses) and the [status page](/status), which also checks live whether the engine has any access key.

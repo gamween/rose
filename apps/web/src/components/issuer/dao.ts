@@ -107,7 +107,9 @@ export type TrezuTemplateInput = {
  * A Trezu manifest for this Tender: the class, venue and retire-to are fixed by the template
  * author; budget, max price, reference price and closing time are member inputs defaulted to
  * the console's values (amounts and timestamps are digit strings, so `{{placeholders}}` resolve
- * inside string values as the DSL requires).
+ * inside string values as the DSL requires). An `amount` field is "a whole-number string, u128-safe
+ * (base units, no decimals)" that stays a digit string end to end (the DSL doc's field types),
+ * so Trezu passes the cash base units through unscaled.
  */
 export function trezuTemplate(input: TrezuTemplateInput): TrezuManifest {
   const { tender } = input;

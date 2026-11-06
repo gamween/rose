@@ -7,7 +7,7 @@
 #
 # Usage: scripts/e2e-base-tender.sh <engine account> <step> [--holder <near account>]
 #        [--issuer <near account>] [--stream <sablier stream id>] [--receipt <cast receipt json>]
-#        [--evm-env <name>]
+#        [--evm-env <name>] [--record <step> <near tx hash>]
 # --stream deposits an existing stream of the EVM holder instead of minting one; with --receipt
 # (the `cast send --json` receipt of an earlier depositStream) the deposit step only records it.
 # `record --record <step> <near tx hash>` stores a transaction sent by hand under a step name.
@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
     *) die "unknown argument $1" ;;
   esac
 done
-[[ -n "$engine" && -n "$step" ]] || die "usage: $0 <engine account> <step|all> [--holder a] [--issuer b] [--stream id]"
+[[ -n "$engine" && -n "$step" ]] || die "usage: $0 <engine account> <step|all|record> [--holder a] [--issuer b] [--stream id] [--receipt file] [--evm-env name] [--record <step> <near tx hash>]"
 
 STATE="$ROSE_ROOT/deployments/e2e/$engine.json"
 mkdir -p "$(dirname "$STATE")"
@@ -168,7 +168,7 @@ step_register() {
   deposit="$(near_view "$engine" registration_deposit_for "$(jq -cn --arg a "$holder" --arg c "$class" '{account:$a,class_id:$c}')" | jq -r .)"
   log "class $class, registration deposit $deposit yoctoNEAR"
   local hash status
-  hash="$(near_call "$issuer" "$engine" register_base_deposit "$args" '80 Tgas' "$(python3 -c "print(int('$deposit') / 1e24)") NEAR")"
+  hash="$(near_call "$issuer" "$engine" register_base_deposit "$args" '80 Tgas' "$deposit yoctoNEAR")"
   status="$(record_near register "$hash" "$(jq -cn --arg c "$class" '{class_id:$c}')")"
   near_tx_logs "$status" | grep -o '"event":"[a-z_]*"' | tr '\n' ' ' >&2; echo >&2
   local replay
@@ -241,6 +241,10 @@ step_ask() {
   log "sealed ask $bid placed: 1,000 CINDR at 0.005 tUSDC per locked token (hidden until the key is released)"
 }
 
+# Gas: this script signs with funded full-access keys, so it attaches its own limits instead of the
+# SDK's GAS table (packages/sdk/src/engine/calls.ts), which keeps prepaid gas low for small demo
+# wallets: close 60 Tgas (SDK 80, burns about 37.5), open_bid 300 Tgas (SDK 200, burns about 132),
+# clear 100 Tgas (SDK 50, burns about 5). Unused prepaid gas is refunded.
 step_close() {
   local round closes now hash status
   round="$(state_get .steps.tender.round_id)"

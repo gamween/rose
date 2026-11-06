@@ -92,6 +92,7 @@ export function LandingSequence() {
           onStats: wantsFps ? setStats : undefined,
           onFrame: ({ tail, launchReady: ready }) => {
             launchReady = ready;
+            stage.dataset.ready = ready ? "true" : "false";
             stage.style.setProperty("--tail-x", `${tail.x.toFixed(1)}px`);
             stage.style.setProperty("--tail-y", `${tail.y.toFixed(1)}px`);
           },
@@ -205,6 +206,11 @@ export function LandingSequence() {
               <path d="M0 0h1v1H0zM1 1h1v1H1zM2 2h1v1H2zM3 1h1v1H3zM4 0h1v1H4z" fill="currentColor" />
             </svg>
           </div>
+        ) : null}
+        {mode === "live" ? (
+          <p aria-hidden className="launch-hint" data-launch-hint>
+            Hover the dragon to launch the app
+          </p>
         ) : null}
         <Link href={ROUTES.app} data-launch className="launch-app">
           Launch app

@@ -62,9 +62,62 @@ const EXPIRED_BLOCKHASH = /blockhash not found|block height exceeded|Transaction
 const MPC_TIMEOUT = /request has timed out|yield.*resumed|PromiseError/i;
 const NETWORK = /fetch failed|Failed to fetch|NetworkError|ECONNREFUSED|ETIMEDOUT|TimeoutError|signal timed out|HTTP 5\d\d|\b429\b/i;
 
+/**
+ * OpenZeppelin v5 `IERC20Errors` selectors (`toFunctionSelector`, recorded in docs/verification.md).
+ * The tokens' own reverts, which RoseVault's SafeERC20 bubbles up, are not in the vault ABI viem
+ * decodes `depositCash`, `createStreams` and `depositStream` with, so viem only reports the raw data.
+ */
+const ERC20_INSUFFICIENT_BALANCE = "0xe450d38c";
+const ERC20_INSUFFICIENT_ALLOWANCE = "0xfb8f41b2";
+
+/** The raw revert data of a viem `ContractFunctionRevertedError` anywhere in the cause chain (viem is not imported here: every page loads this module). */
+function revertData(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current !== null && typeof current === "object"; depth += 1) {
+    const raw = (current as { raw?: unknown }).raw;
+    if ((current as { name?: unknown }).name === "ContractFunctionRevertedError" && typeof raw === "string" && /^0x[0-9a-fA-F]*$/.test(raw)) return raw.toLowerCase();
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/** `(address, uint256, uint256)` arguments of an `IERC20Errors` revert, or null when the data is not one. */
+function erc20ErrorArgs(data: string, selector: string): { account: string; held: bigint; needed: bigint } | null {
+  if (!data.startsWith(selector) || data.length < 10 + 3 * 64) return null;
+  const word = (index: number) => data.slice(10 + index * 64, 10 + (index + 1) * 64);
+  return { account: `0x${word(0).slice(24)}`, held: BigInt(`0x${word(1)}`), needed: BigInt(`0x${word(2)}`) };
+}
+
+/** A token's `ERC20InsufficientBalance` / `ERC20InsufficientAllowance` revert, in words. */
+function erc20Revert(error: unknown): ActionError | null {
+  const data = revertData(error);
+  if (data === null) return null;
+  const balance = erc20ErrorArgs(data, ERC20_INSUFFICIENT_BALANCE);
+  if (balance) {
+    return {
+      kind: "insufficient_balance",
+      title: "Not enough tokens",
+      message: `${balance.account} holds ${balance.held.toString()} base units of the token and the transfer needs ${balance.needed.toString()}. Mint test tokens from "Get test funds", or lower the amount.`,
+      retryable: false,
+    };
+  }
+  const allowance = erc20ErrorArgs(data, ERC20_INSUFFICIENT_ALLOWANCE);
+  if (allowance) {
+    return {
+      kind: "contract",
+      title: "Allowance too low",
+      message: `RoseVault (${allowance.account}) may pull ${allowance.held.toString()} base units of the token and the transfer needs ${allowance.needed.toString()}. Approve the amount again and retry.`,
+      retryable: true,
+    };
+  }
+  return null;
+}
+
 /** Maps anything thrown by a wallet, an RPC or a contract to a message a person can act on. */
 export function toActionError(error: unknown): ActionError {
   if (error instanceof RoseActionError) return error;
+  const token = erc20Revert(error);
+  if (token) return token;
   if (error instanceof NearRpcError) {
     if (error.kind === "account_missing") return { kind: "contract", title: "Account not found", message: error.message, retryable: false };
     if (error.kind === "no_contract" || error.kind === "method_missing") {

@@ -173,23 +173,35 @@ export function groupByToken(series: readonly ClassSeries[], symbols: ReadonlyMa
   return [...groups.values()].sort((a, b) => settled(b) - settled(a) || a.symbol.localeCompare(b.symbol));
 }
 
+/** The 1, 2, 5 progression step `niceTicks` uses for `count` ticks over `[min, max]`. */
+function niceStep(min: number, max: number, count: number): number {
+  const rough = (max - min) / Math.max(1, count - 1);
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const residual = rough / magnitude;
+  return (residual >= 7 ? 10 : residual >= 3 ? 5 : residual >= 1.5 ? 2 : 1) * magnitude;
+}
+
 /** Round numbers for an axis: at most `count` ticks on a 1, 2, 5 progression covering `[min, max]`. */
 export function niceTicks(min: number, max: number, count = 5): number[] {
   if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
   if (max <= min) return [min];
-  const rough = (max - min) / Math.max(1, count - 1);
-  const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const residual = rough / magnitude;
-  const step = (residual >= 7 ? 10 : residual >= 3 ? 5 : residual >= 1.5 ? 2 : 1) * magnitude;
+  const step = niceStep(min, max, count);
   const ticks: number[] = [];
   for (let tick = Math.ceil(min / step) * step; tick <= max + step / 2; tick += step) ticks.push(Number(tick.toFixed(10)));
   return ticks;
 }
 
-/** `[0, max * 1.1]` for prices (a price axis always starts at zero) and a padded range for days. */
+/**
+ * `[0, top]` for prices (a price axis always starts at zero): `top` is the first tick of the
+ * 5-tick progression at or above `max * 1.1`, so the highest price always sits under a labeled
+ * gridline (0.036 gets a 0.04 line, not a 0.03 one with the point above it).
+ */
 export function priceDomain(values: readonly number[]): [number, number] {
   const max = Math.max(0, ...values);
-  return [0, max === 0 ? 1 : max * 1.1];
+  if (max === 0) return [0, 1];
+  const padded = max * 1.1;
+  const step = niceStep(0, padded, 5);
+  return [0, Number((Math.ceil(padded / step - 1e-9) * step).toFixed(10))];
 }
 
 export function dayDomain(values: readonly number[]): [number, number] {

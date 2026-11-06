@@ -6,9 +6,11 @@
  * Every label keeps the full address at hand for a tooltip.
  */
 
+import type { Venue } from "@rose/sdk";
 import { useEffect, useState } from "react";
-import { decodeString, ethCall, SELECTORS } from "@/components/status/rpc";
+import { decodeString, decodeUint, ethCall, SELECTORS } from "@/components/status/rpc";
 import { CIRCLE_USDC_BASE_SEPOLIA, deployed } from "./deployment";
+import { USDC_DECIMALS } from "./engine";
 
 export type TokenChain = "Base" | "Solana";
 
@@ -52,6 +54,60 @@ export function baseTokenSymbol(token: string): Promise<string | null> {
     baseCache.set(key, pending);
   }
   return pending;
+}
+
+const decimalsCache = new Map<string, Promise<number | null>>();
+
+/**
+ * ERC-20 `decimals()` of a Base token through a raw `eth_call`, cached per page load; null when
+ * the call fails or answers more than 36, so no amount is shown at a guessed scale (anyone can
+ * `depositCash` any token to a NEAR account, so a Base cash row can hold any ERC-20).
+ */
+export function baseTokenDecimals(token: string): Promise<number | null> {
+  const key = tokenKey(token);
+  let pending = decimalsCache.get(key);
+  if (!pending) {
+    pending = ethCall(token, SELECTORS["decimals()"])
+      .then((hex) => {
+        const decimals = decodeUint(hex);
+        return decimals <= 36n ? Number(decimals) : null;
+      })
+      .catch(() => {
+        decimalsCache.delete(key);
+        return null;
+      });
+    decimalsCache.set(key, pending);
+  }
+  return pending;
+}
+
+/** The token of a Base cash venue, or null for the NEAR tUSDC venue. */
+function venueToken(venue: Venue): string | null {
+  return venue === "Near" ? null : venue.Base.token;
+}
+
+/** Decimals of a cash venue: 6 for the NEAR tUSDC venue, the token's own `decimals()` for a Base venue (null when unreadable). */
+export function venueDecimals(venue: Venue): Promise<number | null> {
+  const token = venueToken(venue);
+  return token === null ? Promise.resolve(USDC_DECIMALS) : baseTokenDecimals(token);
+}
+
+/** `venueDecimals` as React state: null until a Base token's decimals are read, and when the read failed. */
+export function useVenueDecimals(venue: Venue): number | null {
+  const token = venueToken(venue);
+  const [resolved, setResolved] = useState<{ token: string; decimals: number | null } | null>(null);
+  useEffect(() => {
+    if (token === null) return;
+    let live = true;
+    void baseTokenDecimals(token).then((decimals) => {
+      if (live) setResolved({ token, decimals });
+    });
+    return () => {
+      live = false;
+    };
+  }, [token]);
+  if (token === null) return USDC_DECIMALS;
+  return resolved?.token === token ? resolved.decimals : null;
 }
 
 /** Symbol of a Solana mint: the Base demo token's symbol for the deployment's demo mint, null otherwise. */

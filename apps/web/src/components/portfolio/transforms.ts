@@ -215,7 +215,8 @@ export type SolClaimPlan = { draws: SolDrawArgs[]; swept: bigint };
  * (`low` = one token, or the whole remainder of a stream it empties): the `k` largest streams can
  * pay any amount between the sum of their lows and the sum of their withdrawables, and the swept
  * balance covers the difference with the claim. Each draw starts at its low and the rest is
- * filled largest first.
+ * filled largest first. When no prefix fits (the largest streams' lows exceed a small claim), a
+ * single stream whose range holds the claim pays it, the smallest first.
  */
 export function planSolClaim(streams: readonly DrawableStream[], sweptAvailable: bigint, amount: bigint, decimals: number): SolClaimPlan {
   if (amount <= sweptAvailable) return { draws: [], swept: amount };
@@ -245,6 +246,11 @@ export function planSolClaim(streams: readonly DrawableStream[], sweptAvailable:
       return { position_id: option.positionId, amount: (option.low + add).toString() };
     });
     return { draws, swept: amount - drawn };
+  }
+  /* The largest streams' lows can exceed a small claim that one stream alone pays: a stream it empties for less than a token. */
+  for (const option of [...options].reverse()) {
+    const drawn = option.low > minimumDrawn ? option.low : minimumDrawn;
+    if (drawn <= option.withdrawable && drawn <= amount) return { draws: [{ position_id: option.positionId, amount: drawn.toString() }], swept: amount - drawn };
   }
   throw new RoseActionError(
     "contract",

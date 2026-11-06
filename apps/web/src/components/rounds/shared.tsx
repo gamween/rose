@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
 import { DEPLOYMENT } from "@/lib/deployment";
 import { ROUTES } from "@/lib/routes";
-import { KIND_LABEL, STATUS_LABEL, STATUS_TONE } from "./model";
+import { formatDate, formatDateShort, formatDateTime, formatDateTimeShort, KIND_LABEL, STATUS_LABEL, STATUS_TONE } from "./model";
 
 const KIND_TONE: Record<RoundKind, "ember" | "rose" | "info"> = { Tender: "ember", Exit: "rose", Advance: "info" };
 
@@ -81,12 +81,30 @@ export function LoadingCards({ count = 6 }: { count?: number }) {
 }
 
 /** Label and value pair for dense parameter grids. */
+/**
+ * One labeled value of a parameter grid. Values are never cut with an ellipsis (a number or a
+ * date must read in full): a value wider than its cell wraps, so grids of `Param` use one column
+ * below `sm`. Long identifiers are shortened by the caller and keep the full value in a title.
+ */
 export function Param({ label, children, className, mono = true }: { label: ReactNode; children: ReactNode; className?: string; mono?: boolean }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
       <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{label}</dt>
-      <dd className={cn("truncate text-[13px] text-ink-100", mono && "tabular")}>{children}</dd>
+      <dd className={cn("text-[13px] text-ink-100 [overflow-wrap:anywhere]", mono && "tabular")}>{children}</dd>
     </div>
+  );
+}
+
+/** A date and time in full from `sm` up, in the short form below it; screen readers always get the full form. */
+export function DateTimeText({ ms, withTime = true }: { ms: number; withTime?: boolean }) {
+  const full = withTime ? formatDateTime(ms) : formatDate(ms);
+  return (
+    <time dateTime={new Date(ms).toISOString()} title={full}>
+      <span aria-hidden className="sm:hidden">
+        {withTime ? formatDateTimeShort(ms) : formatDateShort(ms)}
+      </span>
+      <span className="max-sm:sr-only">{full}</span>
+    </time>
   );
 }
 

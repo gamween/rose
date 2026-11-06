@@ -1,7 +1,7 @@
 import { ONE, perClaimedToken, type Round } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
 import { fractionAt } from "@/lib/unlock-schedule";
-import { bondFor, cancelledOutcome, cancelNoKeyAt, canCancelAsCreator, canCancelNoKey, canClose, clearingOf, formatQty, formatUsdc, KEY_REQUEST_FLIGHT_NS, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, timeline } from "./model";
+import { bondFor, cancelledOutcome, cancelNoKeyAt, canCancelAsCreator, canCancelNoKey, canClose, clearingOf, formatDateShort, formatDateTime, formatDateTimeShort, formatQty, formatUsdc, KEY_REQUEST_FLIGHT_NS, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, timeline } from "./model";
 
 const NOW_MS = 1_762_200_000_000;
 const SEC = 1_000_000_000n;
@@ -237,5 +237,15 @@ describe("cancelledOutcome", () => {
     expect(cancelledOutcome(round({ status: "Cancelled", cancelReason: "NoCrossing" }))).toBe("No crossing");
     expect(cancelledOutcome(round({ status: "Cancelled", cancelReason: "Empty" }))).toBe("No orders");
     expect(cancelledOutcome(round({ status: "Cancelled", cancelReason: "Creator" }))).toBe("Withdrawn");
+  });
+});
+
+describe("narrow date formats", () => {
+  it("shorten dates for 375 px without losing the day, the time or the zone", () => {
+    const ms = Date.UTC(2026, 10, 4, 16, 50, 12);
+    expect(formatDateTime(ms)).toBe("4 Nov 2026, 16:50 UTC");
+    expect(formatDateTimeShort(ms)).toBe("4 Nov 26, 16:50 UTC");
+    expect(formatDateTimeShort(Date.UTC(2026, 0, 9, 0, 5))).toBe("9 Jan 26, 00:05 UTC");
+    expect(formatDateShort(Date.UTC(2027, 6, 25))).toBe("Jul 2027");
   });
 });

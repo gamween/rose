@@ -88,7 +88,7 @@ const components: Partial<Components> = {
   blockquote: (props) => <blockquote className="my-4 border-l-2 border-ember-600 pl-4 text-ink-300" {...props} />,
   code: (props) => (
     <code
-      className="rounded-sm bg-ink-800 px-1 py-0.5 font-mono text-[12.5px] text-ink-100 [pre_&]:bg-transparent [pre_&]:p-0 [pre_&]:text-inherit"
+      className="rounded-sm bg-ink-800 px-1 py-0.5 font-mono text-[12.5px] text-ink-100 [overflow-wrap:anywhere] [pre_&]:bg-transparent [pre_&]:p-0 [pre_&]:text-inherit"
       {...props}
     />
   ),

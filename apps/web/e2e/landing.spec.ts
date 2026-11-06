@@ -62,6 +62,28 @@ test.describe("landing", () => {
     }
     expect(errors).toEqual([]);
   });
+
+  test("tells a mouse user to hover the dragon once the sequence ends, and never shows the hint on touch", async ({ page }) => {
+    await page.goto("/");
+    const stage = page.locator("[data-mode]");
+    await expect(stage).not.toHaveAttribute("data-mode", "poster", { timeout: 20_000 });
+    test.skip((await stage.getAttribute("data-mode")) !== "live", "the hint belongs to the live WebGL sequence");
+    const hint = page.locator("[data-launch-hint]");
+    await expect(hint).toBeHidden();
+    await page.evaluate(() => {
+      const section = document.querySelector<HTMLElement>("[data-landing]")!;
+      window.scrollTo(0, section.offsetHeight - window.innerHeight);
+    });
+    await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
+    const finePointer = await page.evaluate(() => window.matchMedia("(hover: hover) and (pointer: fine)").matches);
+    if (finePointer) {
+      await expect(hint).toBeVisible();
+      await expect(hint).toHaveText("Hover the dragon to launch the app");
+    } else {
+      await expect(hint).toBeHidden();
+      await expect.poll(() => opacityOf(page, "[data-launch]")).toBe(1);
+    }
+  });
 });
 
 test.describe("landing with reduced motion", () => {

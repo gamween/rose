@@ -5,7 +5,7 @@
  */
 
 import { EngineCalls, EngineViews, NearRpc, NearRpcError } from "@rose/sdk";
-import { deployed, MPC_ACCOUNT, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL } from "./deployment";
+import { deployed, MPC_ACCOUNT, NEAR_READ_RPC_ENDPOINTS } from "./deployment";
 
 /** Thrown by page fetchers when the engine (or another address they need) is not deployed yet. */
 export class EngineNotDeployedError extends Error {
@@ -24,9 +24,9 @@ export function isNotDeployedError(error: unknown): boolean {
 
 let rpc: NearRpc | null = null;
 
-/** The shared NEAR RPC client (FastNEAR with the official testnet RPC as fallback). */
+/** The shared read-only NEAR RPC client (FastNEAR, then the official testnet RPC, then dRPC). */
 export function nearRpc(): NearRpc {
-  rpc ??= new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] });
+  rpc ??= new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS });
   return rpc;
 }
 

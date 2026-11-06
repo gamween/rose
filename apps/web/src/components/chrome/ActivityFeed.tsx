@@ -7,7 +7,7 @@ import { Drawer } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { toActionError } from "@/lib/errors";
-import { deployed, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL } from "@/lib/deployment";
+import { deployed, NEAR_READ_RPC_ENDPOINTS } from "@/lib/deployment";
 import { eventAmountFormat, eventClassIds } from "@/lib/event-format";
 import { readEventRange } from "@/lib/event-pages";
 import { nearAccountUrl } from "@/lib/explorer";
@@ -45,7 +45,7 @@ export function useActivityFeed(enabled: boolean): { state: FeedState; refresh: 
       return;
     }
     try {
-      const views = engineViews(engine, new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] }));
+      const views = engineViews(engine, new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS }));
       const probe = await views.getEvents(undefined, 1);
       const total = probe.total;
       const from = total > BigInt(FEED_LIMIT) ? total - BigInt(FEED_LIMIT) : 0n;

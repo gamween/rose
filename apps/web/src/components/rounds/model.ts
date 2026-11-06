@@ -56,6 +56,16 @@ export function formatDate(ms: number): string {
   return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(ms));
 }
 
+/** `formatDateTime` for narrow screens: two-digit year, no seconds (`4 Nov 26, 16:50 UTC`). */
+export function formatDateTimeShort(ms: number): string {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }).format(new Date(ms)) + " UTC";
+}
+
+/** `formatDate` for narrow screens: month and year (`Jul 2027`). */
+export function formatDateShort(ms: number): string {
+  return new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(ms));
+}
+
 export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   if (s < 60) return `${String(s)} s`;

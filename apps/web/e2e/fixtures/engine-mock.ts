@@ -257,6 +257,7 @@ export async function mockChains(page: Page, overrides: MockOverrides = {}): Pro
   };
   await page.route("https://test.rpc.fastnear.com/**", near);
   await page.route("https://rpc.testnet.near.org/**", near);
+  await page.route("https://near-testnet.drpc.org/**", near);
   await page.route("https://sepolia.base.org/**", async (route) => {
     const request = route.request().postDataJSON() as { id: number; method: string; params: unknown[] };
     const custom = overrides.baseRequest?.(request.method, request.params);

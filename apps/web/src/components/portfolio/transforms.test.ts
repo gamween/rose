@@ -155,6 +155,12 @@ describe("planSolClaim", () => {
     expect(() => planSolClaim([entry("1", "5")], 0n, 5n, 1)).toThrow("at least one whole token");
     expect(planSolClaim([entry("1", "5", 1_000, 995)], 0n, 5n, 1)).toEqual({ draws: [{ position_id: "1", amount: "5" }], swept: 0n });
   });
+  it("pays a sub-token claim from a small stream it empties when the largest stream's whole-token minimum exceeds it", () => {
+    const small = [entry("A", "50"), entry("B", "3", 1_000, 997)];
+    expect(planSolClaim(small, 0n, 3n, 1)).toEqual({ draws: [{ position_id: "B", amount: "3" }], swept: 0n });
+    expect(planSolClaim(small, 2n, 5n, 1)).toEqual({ draws: [{ position_id: "B", amount: "3" }], swept: 2n });
+    expect(() => planSolClaim(small, 0n, 2n, 1)).toThrow("cannot pay this amount right now");
+  });
   it("leaves a whole token for the next stream instead of refusing a feasible split", () => {
     expect(planSolClaim([entry("A", "120"), entry("B", "50")], 0n, 123n, 1).draws).toEqual([
       { position_id: "A", amount: "113" },

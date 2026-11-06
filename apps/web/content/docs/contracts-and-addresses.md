@@ -5,7 +5,7 @@ order: 11
 section: Reference
 ---
 
-All addresses are testnet. Nothing is deployed on any mainnet. Live checks (keyless engine, balances, recent MPC requests) are on the [status page](/status).
+All addresses are testnet. Nothing is deployed on any mainnet. Live checks (engine access keys, balances, recent MPC requests) are on the [status page](/status).
 
 ## NEAR testnet
 
