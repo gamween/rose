@@ -280,7 +280,7 @@ Every async action has loading, success and failure states, human-readable error
 ## 9. Demo scenario and seed data
 
 - A fictional issuer and token (verify the name and ticker collide with no notable existing token), with three classes: a seed cohort on Base (Sablier), a strategic cohort on Solana (Streamflow), and a KOL cohort on Base.
-- Seed script creates the token on Base Sepolia and Solana devnet, the streams, deposits for six holders, and opens: one Tender (issuer budget in USDC), one Exit round with sellers and buyers, one Advance.
+- The token exists on Base Sepolia and Solana devnet: the Base token is the demo token `scripts/deploy-base.sh` deploys with DemoStreamFaucet (so faucet-minted demo positions join the seeded classes), and the seed script creates the Solana devnet mint. The seed script then creates the streams, deposits for six holders, and opens: one Tender (issuer budget in USDC), one Exit round with sellers and buyers, one Advance.
 - Guided demo mode in the app ("Watch a full round"): steps through a pre-seeded round with real transactions and real explorer links, for the video and for judges who do not want to set up wallets.
 - The pitch replays the Monad case (sourced, fixed price vs sealed round); the product never impersonates Monad or any real project.
 
