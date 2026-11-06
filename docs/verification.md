@@ -1521,3 +1521,16 @@ same scripts as on the staging engines. Full transaction tables: `deployments/e2
   vault as its authority, and the seed does not name the engine, so a Solana wallet that claimed
   on one engine needs another wallet on the next (no user wallet is affected: production ran only
   staging engines before).
+
+## Engine-specific payout nonce seeds (2026-11-06)
+
+- `2bc5413`: the app's payout nonce seed suffix is the first 6 characters of the engine's
+  `vault/sol` address (the receipt adds `r`), within the 8 characters spec 7.3 allows after
+  `nonce_seed_prefix_of`, so a Solana wallet gets separate nonce accounts per engine and the
+  "Nonce account in use" stop recorded above no longer applies. Unit test:
+  `apps/web/src/lib/payouts.test.ts` ("derives nonce seeds per engine").
+- Full gate on `2bc5413`: `pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build && cargo test --workspace && forge test`, exit 0 (web 409 tests, forge 140).
+- Production `vercel deploy --prod`, exit 0: `dpl_6Ex3utxSJgaRwX8CWtUUpiBNoKeN`, aliased to
+  https://rose-rounds.vercel.app.
+- `cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1`
+  against it: 145 passed, 25 skipped by their own conditions, exit 0.
