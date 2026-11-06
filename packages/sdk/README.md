@@ -41,7 +41,7 @@ Read a round and build the call that opens an Exit round on the engine (sign and
 ```ts
 import { EngineCalls, engineViews } from "@rose/sdk";
 
-const engine = "engine-s5.rose-app.testnet";
+const engine = "engine.rose-app.testnet";
 const views = engineViews(engine);
 const round = await views.getRound(0n);
 round?.status; // "Settled"
