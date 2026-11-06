@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
-import { Keypair, PublicKey, SendTransactionError, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey, SendTransactionError, SystemProgram, Transaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { broadcastSignedTransaction, classifySolanaError, confirmSignature, SolanaTransactionError } from "../../src/chains/solana/broadcast.js";
+import { broadcastSignedTransaction, classifySolanaError, confirmSignature, sendAndConfirmLegacyTransaction, SolanaBlockhashExpiredError, SolanaTransactionError, waitForSignature } from "../../src/chains/solana/broadcast.js";
 import { must } from "./must.js";
 import { stubConnection } from "./rpc.js";
 import { accountStateArgs, createNonceAccountTransaction, NONCE_ACCOUNT_LEN, nonceAccountStateArgs, nonceRent, nonceSeedPrefix, payoutNonceAddress, payoutNonceSeed, readNonceAccount } from "../../src/chains/solana/nonce.js";
@@ -12,6 +12,7 @@ interface MessagesFixture {
 }
 /** A real devnet signature (the payout broadcast of the sign spike, docs/verification.md). */
 const SIGNATURE = "4CrVjw75paRmX7Uopaoeyfv1D83oLKpyJBLM6AbNziMkuPGQ4ykxgUBGT3TZ8vxZeajR7XqsAvnEMtutNBuTL9Wy";
+const BLOCKHASH = new PublicKey(Buffer.alloc(32, 1)).toBase58();
 const messages = JSON.parse(readFileSync(new URL("./fixtures/solana_messages.json", import.meta.url), "utf8")) as MessagesFixture;
 
 /** System nonce account bytes: version u32 LE (1), state u32 LE (1 = initialized), authority, nonce, lamports per signature u64 LE. */
@@ -106,13 +107,96 @@ describe("broadcast", () => {
     expect((first[1] as { skipPreflight?: boolean }).skipPreflight).toBeFalsy();
     await broadcastSignedTransaction(connection, Buffer.from(wire).toString("base64"), { skipPreflight: true });
     expect((must(sent[1])[1] as { skipPreflight?: boolean }).skipPreflight).toBe(true);
-    await expect(confirmSignature(connection, signature, { strategy: "blockhash", blockhash: new PublicKey(Buffer.alloc(32, 1)).toBase58(), lastValidBlockHeight: 10 })).resolves.toBeUndefined();
+    await expect(confirmSignature(connection, signature, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10 })).resolves.toBeUndefined();
   });
 
   it("surfaces an on-chain failure as SolanaTransactionError", async () => {
     const connection = stubConnection((method) => (method === "getSignatureStatuses" ? { context: { slot: 2 }, value: [{ slot: 1, confirmations: 1, err: { InstructionError: [0, "Custom"] }, confirmationStatus: "confirmed" }] } : 1));
-    await expect(confirmSignature(connection, SIGNATURE, { strategy: "blockhash", blockhash: new PublicKey(Buffer.alloc(32, 1)).toBase58(), lastValidBlockHeight: 10 })).rejects.toBeInstanceOf(SolanaTransactionError);
+    await expect(confirmSignature(connection, SIGNATURE, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10 })).rejects.toBeInstanceOf(SolanaTransactionError);
   });
+});
+
+describe("confirmation over HTTP polling", () => {
+  /** A connection answering the statuses of `script` in turn (the last one repeats) at block height `height()`. */
+  function polled(script: (null | { status: string; err?: unknown })[], height: () => number) {
+    const methods: string[] = [];
+    let index = 0;
+    const connection = stubConnection(
+      (method) => {
+        if (method === "getSignatureStatuses") {
+          const entry = script[Math.min(index, script.length - 1)] ?? null;
+          index += 1;
+          return { context: { slot: 2 }, value: [entry === null ? null : { slot: 1, confirmations: null, err: entry.err ?? null, confirmationStatus: entry.status }] };
+        }
+        if (method === "getBlockHeight") return height();
+        return null;
+      },
+      (method, params) => {
+        methods.push(method);
+        if (method === "getSignatureStatuses") expect((params[1] as { searchTransactionHistory?: boolean }).searchTransactionHistory).toBe(true);
+      },
+    );
+    return { connection, methods };
+  }
+
+  it("polls the status until the wanted commitment, without any subscription", async () => {
+    const { connection, methods } = polled([null, { status: "processed" }, { status: "confirmed" }, { status: "finalized" }], () => 5);
+    const status = await waitForSignature(connection, SIGNATURE, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10, commitment: "finalized", intervalMs: 0 });
+    expect(status.confirmationStatus).toBe("finalized");
+    expect(methods.filter((method) => method === "getSignatureStatuses")).toHaveLength(4);
+    expect(new Set(methods)).toEqual(new Set(["getSignatureStatuses", "getBlockHeight"]));
+  });
+
+  it("reports an expiry only once the block height passed and the signature is still unseen", async () => {
+    let height = 9;
+    const { connection } = polled([null], () => (height += 1));
+    const expired = waitForSignature(connection, SIGNATURE, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10, intervalMs: 0 });
+    await expect(expired).rejects.toBeInstanceOf(SolanaBlockhashExpiredError);
+    await expect(expired).rejects.toThrow("has expired");
+    expect(classifySolanaError(new SolanaBlockhashExpiredError(SIGNATURE, BLOCKHASH, 10)).kind).toBe("expired_blockhash");
+  });
+
+  it("keeps waiting for a transaction seen on the last read after the expiry height", async () => {
+    // Unseen while the height passes, then seen on the re-read: it landed in time.
+    const { connection } = polled([null, { status: "processed" }, { status: "confirmed" }], () => 11);
+    await expect(confirmSignature(connection, SIGNATURE, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10, intervalMs: 0 })).resolves.toBeUndefined();
+  });
+
+  it("stops when the signal aborts", async () => {
+    const { connection } = polled([null], () => 1);
+    const controller = new AbortController();
+    controller.abort(new Error("closed"));
+    await expect(waitForSignature(connection, SIGNATURE, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10, signal: controller.signal })).rejects.toThrow("closed");
+  });
+
+  it("signs a legacy transaction with a fresh blockhash, sends it and confirms it by polling", async () => {
+    const payer = Keypair.generate();
+    const sent: string[] = [];
+    let statusReads = 0;
+    const connection = stubConnection((method, params) => {
+      if (method === "getLatestBlockhash") return { context: { slot: 2 }, value: { blockhash: BLOCKHASH, lastValidBlockHeight: 50 } };
+      if (method === "sendTransaction") {
+        sent.push(params[0] as string);
+        return SIGNATURE;
+      }
+      if (method === "getSignatureStatuses") {
+        statusReads += 1;
+        return { context: { slot: 2 }, value: [statusReads < 2 ? null : { slot: 1, confirmations: 1, err: null, confirmationStatus: "confirmed" }] };
+      }
+      if (method === "getBlockHeight") return 3;
+      return null;
+    });
+    const transaction = new Transaction().add(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 }));
+    expect(await sendAndConfirmLegacyTransaction(connection, transaction, [payer], { intervalMs: 0 })).toBe(SIGNATURE);
+    const wire = Transaction.from(Buffer.from(must(sent[0]), "base64"));
+    expect(wire.recentBlockhash).toBe(BLOCKHASH);
+    expect(wire.feePayer?.equals(payer.publicKey)).toBe(true);
+    expect(wire.verifySignatures()).toBe(true);
+    expect(statusReads).toBe(2);
+  });
+});
+
+describe("error classification", () => {
 
   it("classifies errors the UI acts on", () => {
     expect(classifySolanaError(new Error("User rejected the request")).kind).toBe("rejected");
