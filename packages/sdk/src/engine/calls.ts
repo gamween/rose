@@ -61,6 +61,15 @@ export const GAS = {
 } as const;
 
 /**
+ * Gas for `distribute_units` to `receivers` receivers: 10 Tgas plus 1 Tgas per receiver. Measured
+ * in the sandbox at the 30-receiver cap with 64-character issuer and receiver ids, every receiver
+ * registered by the call: 27.87 Tgas burnt of the 40 attached (docs/verification.md).
+ */
+export function distributeUnitsGas(receivers: number): bigint {
+  return 10n * TGAS + BigInt(receivers) * TGAS;
+}
+
+/**
  * NEP-145 storage of one cash row (`CASH_ROW_BYTES`, 172 bytes at 1e19 yoctoNEAR per byte):
  * `ft_on_transfer` refuses a NEAR cash deposit (the token refunds it) unless the sender is
  * registered with room for its row in the venue. `storage_balance_bounds().min` covers the
@@ -253,15 +262,16 @@ export class EngineCalls {
   }
 
   /**
-   * Issuer distribution: at most 50 receivers per call (`get_limits().max_distribution_receivers`).
-   * `registrationDeposit` (at least 1 yocto) registers receivers that never touched the engine and
-   * pays their holding row; the unused part is refunded.
+   * Issuer distribution: at most `get_limits().max_distribution_receivers` receivers per call (30:
+   * NEAR caps the logs of one call at 16,384 bytes in total). `registrationDeposit` (at least
+   * 1 yocto) registers receivers that never touched the engine and pays their holding row; the
+   * unused part is refunded. Gas grows with the receiver count ({@link distributeUnitsGas}).
    */
   distributeUnits(tokenId: string, receivers: { account: AccountId; units: bigint }[], registrationDeposit: bigint = ONE_YOCTO): FunctionCall {
     return this.call(
       "distribute_units",
       { token_id: tokenId, receivers: receivers.map((r) => [r.account, r.units.toString()]) },
-      GAS.simple,
+      distributeUnitsGas(receivers.length),
       registrationDeposit < ONE_YOCTO ? ONE_YOCTO : registrationDeposit,
     );
   }

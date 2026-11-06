@@ -67,8 +67,13 @@ pub const ROUND_STORAGE_DEPOSIT: NearToken = NearToken::from_millinear(50);
 pub const INIT_STATE_BYTES: u64 = 2_000;
 /// Largest number of bids a round accepts, so `clear` fits one transaction.
 pub const MAX_BIDS_PER_ROUND: u32 = 64;
-/// Largest number of receivers of one `distribute_units` call.
-pub const MAX_DISTRIBUTION_RECEIVERS: usize = 50;
+/// Largest number of receivers of one `distribute_units` call. NEAR caps the logs of one
+/// function call at 16,384 bytes in total (`max_total_log_length`, however many messages they
+/// are split into), so the bound is the worst case of the logs the call writes: a 64-character
+/// sender, 64-character receivers that all need a registration (one `storage_deposited` event
+/// each, 229 bytes) and 38-digit amounts (one `mt_transfer` entry each, 300 bytes), 15,951 bytes
+/// at 30 receivers while 31 exceed the limit (measured in `tests::units`).
+pub const MAX_DISTRIBUTION_RECEIVERS: usize = 30;
 /// One USDC in cash base units (6 decimals): the bond floor.
 pub const ONE_USDC: u128 = 1_000_000;
 /// Default `key_timeout`: one hour.

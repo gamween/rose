@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BID_STORAGE_DEPOSIT, depositNearCashCall, EngineCalls, GAS, mintTestUsdcCall, ONE_YOCTO, ROUND_STORAGE_DEPOSIT, sideIndex, TGAS } from "../../src/engine/calls.js";
+import { BID_STORAGE_DEPOSIT, depositNearCashCall, distributeUnitsGas, EngineCalls, GAS, mintTestUsdcCall, ONE_YOCTO, ROUND_STORAGE_DEPOSIT, sideIndex, TGAS } from "../../src/engine/calls.js";
 
 describe("engine change-call builders", () => {
   const calls = new EngineCalls("engine.rose-app.testnet");
@@ -39,6 +39,16 @@ describe("engine change-call builders", () => {
     expect(calls.placeAsk(7n, "ab".repeat(192), 5n)).toMatchObject({ methodName: "place_ask", args: { units: "5" } });
     expect(calls.mtTransfer("b.testnet", "c", 5n)).toMatchObject({ deposit: ONE_YOCTO, args: { approval: null, memo: null, amount: "5" } });
     expect(calls.distributeUnits("c", [{ account: "b.testnet", units: 5n }]).args).toEqual({ token_id: "c", receivers: [["b.testnet", "5"]] });
+  });
+
+  it("sizes distribute_units gas from the receiver count, under the wallet cap at the engine's bound", () => {
+    expect(distributeUnitsGas(1)).toBe(11n * TGAS);
+    expect(distributeUnitsGas(30)).toBe(40n * TGAS);
+    const receivers = Array.from({ length: 30 }, (_, i) => ({ account: `${String(i).padStart(2, "0")}${"a".repeat(62)}`, units: 10n ** 37n }));
+    const call = calls.distributeUnits("c", receivers, 30n);
+    expect(call.gas).toBe(40n * TGAS);
+    expect(call.deposit).toBe(30n);
+    expect(calls.distributeUnits("c", receivers.slice(0, 2)).gas).toBe(12n * TGAS);
   });
 
   it("keeps every call under the 300 Tgas wallet cap and gives opening and clearing the maximum", () => {

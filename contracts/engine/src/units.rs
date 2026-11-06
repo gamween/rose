@@ -235,8 +235,9 @@ impl Contract {
         used
     }
 
-    /// Transfers one class to up to 50 receivers in one call (issuer distribution, spec
-    /// sections 2 and 8.3). Anyone holding units; requires at least 1 yoctoNEAR. The attached
+    /// Transfers one class to up to [`MAX_DISTRIBUTION_RECEIVERS`] receivers in one call (issuer
+    /// distribution, spec sections 2 and 8.3; the bound keeps the call's logs under NEAR's
+    /// total log limit). Anyone holding units; requires at least 1 yoctoNEAR. The attached
     /// NEAR registers the receivers that have no storage account (`storage_balance_bounds().min`
     /// each) and covers their new holding row when their deposit is short; what is left is
     /// refunded. Emits one NEP-245 `mt_transfer` event listing every transfer.
@@ -250,7 +251,7 @@ impl Contract {
         require!(!receivers.is_empty(), "No receivers");
         require!(
             receivers.len() <= MAX_DISTRIBUTION_RECEIVERS,
-            "At most 50 receivers per call"
+            format!("At most {MAX_DISTRIBUTION_RECEIVERS} receivers per call")
         );
         let sender = env::predecessor_account_id();
         let f_now = self.fraction_now(&token_id);

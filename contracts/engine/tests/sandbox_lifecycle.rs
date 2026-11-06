@@ -1266,6 +1266,98 @@ async fn storage_registration_and_transfer_call_refund() -> Result<()> {
     Ok(())
 }
 
+/// Gas the SDK attaches to `distribute_units` for `receivers` receivers
+/// (`packages/sdk/src/engine/calls.ts`, `distributeUnitsGas`).
+fn sdk_distribute_tgas(receivers: usize) -> u64 {
+    10 + receivers as u64
+}
+
+/// `distribute_units` at `max_distribution_receivers` in the worst case for its logs and gas: a
+/// 64-character issuer, 64-character receivers that all need a registration, 37-digit amounts.
+/// It must land with the gas the SDK attaches (NEAR caps the logs of one call at 16,384 bytes in
+/// total, which 50 receivers exceeded whatever their ids).
+#[tokio::test]
+async fn distribute_units_at_the_cap_with_the_longest_ids() -> Result<()> {
+    if !enabled("distribute_units_at_the_cap_with_the_longest_ids") {
+        return Ok(());
+    }
+    let gas = GasTable::new("distribution");
+    let engine = Engine::deploy(EngineSpec::test(&TestKey::new())).await?;
+    engine.bootstrap(&gas).await?;
+    let limits: Value = engine.view("get_limits", json!({})).await?;
+    let cap = limits["max_distribution_receivers"]
+        .as_u64()
+        .expect("max_distribution_receivers") as usize;
+    assert_eq!(cap, 30);
+    let issuer_id = format!("{}.rose-app.testnet", "i".repeat(47));
+    assert_eq!(issuer_id.len(), 64);
+    let issuer = ensure_account(&engine.worker, &issuer_id).await?;
+    let amount = 10u128.pow(36);
+    let now = engine.now_ns().await? / NS;
+    let stream = BaseStream::midstream(
+        41,
+        &issuer_id,
+        now,
+        10,
+        100_000,
+        amount * (cap as u128 + 1),
+        5,
+    );
+    let class = engine.base_deposit(&issuer, &stream, &gas).await?;
+    let bounds: Value = engine.view("storage_balance_bounds", json!({})).await?;
+    let min = u128_of(&bounds["min"])?;
+    let receivers = |count: usize, tag: char| -> Vec<(String, String)> {
+        (0..count)
+            .map(|i| {
+                let id = format!("{tag}{i:02}{}", "a".repeat(61));
+                (id, amount.to_string())
+            })
+            .collect()
+    };
+
+    let too_many = receivers(cap + 1, 'x');
+    let result = issuer
+        .call(engine.id(), "distribute_units")
+        .args_json(json!({ "token_id": class, "receivers": too_many }))
+        .deposit(NearToken::from_yoctonear(min * (cap as u128 + 1)))
+        .gas(Gas::from_tgas(sdk_distribute_tgas(cap + 1)))
+        .transact()
+        .await?;
+    gas.fails_with(
+        "distribute_units (above the cap)",
+        result,
+        "At most 30 receivers per call",
+    )?;
+
+    let list = receivers(cap, 'r');
+    assert!(list.iter().all(|(id, _)| id.len() == 64));
+    let attached = sdk_distribute_tgas(cap);
+    let result = issuer
+        .call(engine.id(), "distribute_units")
+        .args_json(json!({ "token_id": class, "receivers": list }))
+        .deposit(NearToken::from_yoctonear(min * cap as u128))
+        .gas(Gas::from_tgas(attached))
+        .transact()
+        .await?;
+    let done = gas.ok("distribute_units (30 x 64-char ids)", result)?;
+    let log_bytes: usize = done.logs.iter().map(String::len).sum();
+    let burnt = gas
+        .tgas("distribute_units (30 x 64-char ids)")
+        .unwrap_or_default();
+    eprintln!("distribute_units at the cap: {log_bytes} log bytes, {burnt:.2} Tgas burnt, {attached} Tgas attached");
+    assert!(log_bytes <= 16_384);
+    assert!(
+        burnt < attached as f64 * 0.8,
+        "{burnt:.2} Tgas burnt of {attached}"
+    );
+    for (id, _) in &list {
+        assert_eq!(engine.balance(&id.parse()?, &class).await?, amount);
+    }
+    assert_eq!(engine.balance(issuer.id(), &class).await?, amount);
+    gas.print();
+    Ok(())
+}
+
 /// Gas of `get_portfolio(holder)` called as a transaction, and the number of holdings it lists.
 async fn portfolio_tgas(
     engine: &Engine,

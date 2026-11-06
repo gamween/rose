@@ -9,6 +9,7 @@ use serde_json::json;
 use super::*;
 use crate::math::ONE;
 use crate::types::Holder;
+use crate::MAX_DISTRIBUTION_RECEIVERS;
 
 #[test]
 fn transfers_accrue_to_whoever_held_the_units() {
@@ -183,11 +184,11 @@ fn distribute_units_moves_one_class_to_many_holders_in_one_event() {
     assert_eq!(transfer["data"][2]["new_owner_id"], accounts(3).as_str());
     assert_eq!(transfer["data"][2]["amounts"], json!(["300000"]));
 
-    let too_many: Vec<(AccountId, U128)> = (0..51)
+    let too_many: Vec<(AccountId, U128)> = (0..=MAX_DISTRIBUTION_RECEIVERS)
         .map(|i| (format!("h{i}.testnet").parse().unwrap(), U128(1)))
         .collect();
     env(&issuer, one_yocto(), ts(3_000));
-    panics_with("At most 50 receivers per call", || {
+    panics_with("At most 30 receivers per call", || {
         contract.distribute_units(class.clone(), too_many)
     });
     env(&issuer, one_yocto(), ts(3_000));
@@ -204,6 +205,71 @@ fn distribute_units_moves_one_class_to_many_holders_in_one_event() {
         "Requires an attached deposit of at least 1 yoctoNEAR",
         || contract.distribute_units(class.clone(), vec![(accounts(4), U128(1))]),
     );
+}
+
+/// NEAR's `max_total_log_length`: every log of one function call together.
+const MAX_TOTAL_LOG_BYTES: usize = 16_384;
+
+/// The logs `distribute_units` writes for `count` receivers in the worst case: a 64-character
+/// sender, 64-character receivers that all need a registration, 38-digit amounts. Returns the
+/// call's logs (the mocked VM enforces NEAR's total log limit, as the runtime does).
+fn worst_case_distribution_logs(count: usize) -> Vec<String> {
+    let mut contract = init();
+    let class = stepped_class(&mut contract, 6);
+    assert_eq!(class.len(), 64);
+    let issuer: AccountId = "f".repeat(64).parse().unwrap();
+    let amount = 10u128.pow(37);
+    mint(
+        &mut contract,
+        &class,
+        &issuer,
+        amount * count as u128,
+        ts(1_000),
+    );
+    let receivers: Vec<(AccountId, U128)> = (0..count)
+        .map(|i| {
+            (
+                format!("{i:02}{}", "a".repeat(62)).parse().unwrap(),
+                U128(amount),
+            )
+        })
+        .collect();
+    let min = contract.storage_balance_bounds().min.0;
+    env(
+        &issuer,
+        NearToken::from_yoctonear(count as u128 * min),
+        ts(3_000),
+    );
+    contract.distribute_units(class.clone(), receivers);
+    for i in 0..count {
+        let receiver: AccountId = format!("{i:02}{}", "a".repeat(62)).parse().unwrap();
+        assert_eq!(contract.mt_balance_of(receiver, class.clone()).0, amount);
+    }
+    near_sdk::test_utils::get_logs()
+}
+
+#[test]
+fn distribute_units_at_the_cap_fits_the_log_limit_with_the_longest_ids() {
+    let logs = worst_case_distribution_logs(MAX_DISTRIBUTION_RECEIVERS);
+    let total: usize = logs.iter().map(String::len).sum();
+    // One registration event per receiver and one NEP-245 event listing every transfer.
+    assert_eq!(logs.len(), MAX_DISTRIBUTION_RECEIVERS + 1);
+    assert_eq!(total, 15_951);
+    assert!(total <= MAX_TOTAL_LOG_BYTES);
+    let transfer = events("nep245").last().unwrap().clone();
+    assert_eq!(transfer["event"], "mt_transfer");
+    assert_eq!(
+        transfer["data"].as_array().unwrap().len(),
+        MAX_DISTRIBUTION_RECEIVERS
+    );
+    // One receiver more would not fit: the bound is the measured maximum.
+    let per_receiver = (total
+        - worst_case_distribution_logs(1)
+            .iter()
+            .map(String::len)
+            .sum::<usize>())
+        / (MAX_DISTRIBUTION_RECEIVERS - 1);
+    assert!(total + per_receiver > MAX_TOTAL_LOG_BYTES);
 }
 
 #[test]
