@@ -315,7 +315,7 @@ test.describe("issuer console", () => {
     await openConsole(page, "#fund");
     state.account = await connectNearDemo(page);
     await expect(page.locator("[data-issuer-tab='fund']")).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator("[data-preview]")).toContainText("1,000.00 USDC", { timeout: 30_000 });
+    await expect(page.locator("[data-preview]")).toContainText("1,000.00 tUSDC", { timeout: 30_000 });
     await expect(page.locator("[data-storage-notice='top_up']")).toContainText("storage top-up of 0.00619 NEAR", { timeout: 30_000 });
     await shot(page, "fund");
     await page.locator("[data-fund-near]").click();

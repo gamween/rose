@@ -97,6 +97,17 @@ export function venueLabel(venue: Venue, symbols: ReadonlyMap<string, string> = 
   return `Base ${symbols.get(token) ?? deployedCashSymbol(token) ?? shortHex(token)}`;
 }
 
+/** Decimals of a venue's cash: 6 for NEAR tUSDC, the Base token's `decimals()` from `known` (keyed by lowercase address), null when unread. */
+export function cashDecimalsOf(venue: Venue, known: ReadonlyMap<string, number>): number | null {
+  if (venue === "Near") return USDC_DECIMALS;
+  return known.get(venue.Base.token.toLowerCase()) ?? null;
+}
+
+/** Venue cash at its token's decimals with two fraction digits; the exact base units, labeled, while the decimals are unknown. */
+export function formatVenueCash(amount: bigint, decimals: number | null): string {
+  return decimals === null ? `${amount.toString()} base units` : formatUnits(amount, decimals, 2);
+}
+
 export function venueChain(venue: Venue): "near" | "base" {
   return venue === "Near" ? "near" : "base";
 }

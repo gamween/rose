@@ -7,16 +7,15 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input, NumberInput } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { formatUsdc, parseAmount, venueLabel } from "@/lib/amounts";
+import { cashDecimalsOf, formatUsdc, formatVenueCash, parseAmount, venueLabel } from "@/lib/amounts";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { RoseActionError } from "@/lib/errors";
 import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
+import { useVenueDecimals, venueDecimals } from "@/lib/token-symbols";
 import { useAction } from "@/lib/use-action";
 import { BaseCashFunding } from "./BaseCashFunding";
 import { isNearAccountId } from "./dao-accounts";
 import { ActionFeedback, FieldLabel, Hint, Preview, useVenueOptions, type IssuerBase } from "./shared";
-
-const USDC = 6;
 
 /** Tab 5: funding the issuer's engine cash in the round's venue (NEAR tUSDC, or Base USDC through RoseVault). */
 export function FundTab({ base }: { base: IssuerBase }) {
@@ -32,7 +31,10 @@ export function FundTab({ base }: { base: IssuerBase }) {
   const near = useAction();
   const storageNeed = useNearCashStorageNeed(base.engine, wallets.near.accountId, near.state.status);
   const option = venues.find((item) => item.id === venueId) ?? venues[0]!;
-  const amountUnits = parseAmount(amount, USDC);
+  /** The venue token's decimals (6 for NEAR tUSDC, `decimals()` of a Base token): amounts are parsed only once they are known. */
+  const decimals = useVenueDecimals(option.venue);
+  const amountUnits = decimals === null ? null : parseAmount(amount, decimals);
+  const [venueDecimalsMap, setVenueDecimalsMap] = useState<Map<string, number>>(new Map());
 
   const creditTo = option.venue === "Near" ? (wallets.near.accountId ?? "") : creditInput.trim() || (wallets.near.accountId ?? "");
   const creditValid = creditTo === "" || isNearAccountId(creditTo);
@@ -48,6 +50,16 @@ export function FundTab({ base }: { base: IssuerBase }) {
       setCash(null);
     }
   }, [base.engine, creditTo]);
+
+  useEffect(() => {
+    let live = true;
+    void Promise.all(venues.map(async (item) => [item.venue === "Near" ? "near" : item.venue.Base.token.toLowerCase(), await venueDecimals(item.venue)] as const)).then((entries) => {
+      if (live) setVenueDecimalsMap(new Map(entries.flatMap(([key, value]) => (value === null ? [] : [[key, value] as const]))));
+    });
+    return () => {
+      live = false;
+    };
+  }, [venues]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshCash(), 0);
@@ -83,7 +95,7 @@ export function FundTab({ base }: { base: IssuerBase }) {
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="fund-amount">Amount</FieldLabel>
-              <NumberInput id="fund-amount" value={amount} onValueChange={setAmount} decimals={USDC} unit="USDC" />
+              <NumberInput id="fund-amount" value={amount} onValueChange={setAmount} decimals={decimals ?? 6} unit={option.label.replace(/^(NEAR|Base) /, "")} />
             </div>
           </div>
           {option.venue === "Near" ? (
@@ -132,7 +144,7 @@ export function FundTab({ base }: { base: IssuerBase }) {
           {cash === null ? (
             <p className="text-[13px] text-ink-400">{creditTo && creditValid ? "Reading…" : "Cash balances are per NEAR account."}</p>
           ) : (
-            <Preview rows={venues.map((item) => ({ label: item.label, value: `${formatUsdc(cash.find((entry) => venueLabel(entry.venue, base.symbols) === item.label)?.amount ?? 0n)} USDC`, emphasis: item.id === venueId }))} />
+            <Preview rows={venues.map((item) => ({ label: item.label, value: `${formatVenueCash(cash.find((entry) => venueLabel(entry.venue, base.symbols) === item.label)?.amount ?? 0n, cashDecimalsOf(item.venue, venueDecimalsMap))} ${item.label.replace(/^(NEAR|Base) /, "")}`, emphasis: item.id === venueId }))} />
           )}
         </CardBody>
       </Card>

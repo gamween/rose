@@ -10,7 +10,7 @@ import { deployedAddress } from "@/lib/deployment";
 import { readEventRange } from "@/lib/event-pages";
 import { blockhashActionState, isBlockhashAction } from "@/lib/payouts";
 import { requireEngine, nearRpc } from "@/lib/engine-client";
-import { tokenSymbols } from "@/lib/token-symbols";
+import { baseTokenDecimals, tokenKey, tokenSymbols } from "@/lib/token-symbols";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
 import { accountEvents, orderRoundIds, payoutState, solStreamPhase, type ForeignState, type PayoutState, type SolStreamPhase } from "./transforms";
@@ -43,6 +43,8 @@ export type PortfolioData = {
   storage: StorageBalance | null;
   storageMinimum: bigint;
   symbols: Map<string, string>;
+  /** `decimals()` of the Base cash tokens the account holds, by `tokenKey`; a token whose read failed is absent. */
+  cashDecimals: Map<string, number>;
   events: StoredEvent[];
   blockHeight: bigint;
   /** Timestamp (seconds) of the block the views were read at: the "now" every amount is valued at. */
@@ -185,6 +187,12 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
     ...config.base_cash_tokens.map((token) => ({ chain: "Base" as const, token })),
     ...portfolio.cash.flatMap((entry) => (entry.venue === "Near" ? [] : [{ chain: "Base" as const, token: entry.venue.Base.token }])),
   ]);
+  const baseCashTokens = [...new Set(portfolio.cash.flatMap((entry) => (entry.venue === "Near" ? [] : [tokenKey(entry.venue.Base.token)])))];
+  const decimalsRead = await Promise.all(baseCashTokens.map((token) => baseTokenDecimals(token)));
+  const cashDecimals = new Map(baseCashTokens.flatMap((token, index) => {
+    const decimals = decimalsRead[index];
+    return decimals === null || decimals === undefined ? [] : [[token, decimals] as const];
+  }));
   const blockHeight = BigInt(block.header.height);
   const rounds = new Map<string, Round>();
   roundList.forEach((round) => {
@@ -204,6 +212,7 @@ export async function fetchPortfolioData(account: string, signal: AbortSignal): 
     storage,
     storageMinimum,
     symbols,
+    cashDecimals,
     events,
     blockHeight,
     blockTimeSec,

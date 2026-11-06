@@ -11,7 +11,7 @@ import { useMemo } from "react";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Stat } from "@/components/ui/Stat";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { formatAmount, formatUsdc, venueLabel } from "@/lib/amounts";
+import { cashDecimalsOf, formatAmount, formatUsdc, formatVenueCash, shortHex, venueLabel } from "@/lib/amounts";
 import { deployed } from "@/lib/deployment";
 import { nearRpc, requireEngine } from "@/lib/engine-client";
 import { txLinks } from "@/lib/explorer";
@@ -99,15 +99,16 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
       return;
     }
     const token = venue.Base.token;
+    const decimals = cashDecimalsOf(venue, data.cashDecimals);
     setPrompt({
       title: `Claim ${venueLabel(venue, data.symbols)}`,
       description: "The engine debits your cash, the MPC signs a RoseVault Transfer, and you submit executeTransfer from your EVM wallet (you pay the Base gas).",
-      amount: { max: row.cash.amount, decimals: 6, unit: data.symbols.get(token.toLowerCase()) ?? "USDC" },
+      amount: { max: row.cash.amount, decimals: decimals ?? 0, unit: decimals === null ? "base units" : (data.symbols.get(token.toLowerCase()) ?? shortHex(token)) },
       destination: { chain: "base", initial: wallets.evm.address ?? "" },
       confirmLabel: "Claim",
       onConfirm: ({ amount, destination }) => {
         setPrompt(null);
-        setFlow({ title: `Claim ${venueLabel(venue, data.symbols)}`, summary: `${formatUsdc(amount)} to ${destination}`, steps: () => withdrawBaseCashSteps(deps(), token, amount, destination.toLowerCase()) });
+        setFlow({ title: `Claim ${venueLabel(venue, data.symbols)}`, summary: `${formatVenueCash(amount, decimals)} to ${destination}`, steps: () => withdrawBaseCashSteps(deps(), token, amount, destination.toLowerCase()) });
       },
     });
   };
@@ -205,9 +206,9 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
             <Stat label="Token claims" value={totalClaims} hint={totalClaims > 0 ? "ready to pull" : "none yet"} />
             <Stat
               label="Cash"
-              value={cash.length <= 1 ? formatUsdc(cash[0]?.cash.amount ?? 0n) : `${String(cash.length)} venues`}
-              unit={cash.length <= 1 ? "USDC" : undefined}
-              hint={cash.length === 1 ? venueLabel(cash[0]!.cash.venue, data.symbols) : cash.length > 1 ? cash.map((row) => `${formatUsdc(row.cash.amount)} ${venueLabel(row.cash.venue, data.symbols)}`).join(" · ") : "no cash in the engine"}
+              value={cash[0] && cash.length === 1 ? formatVenueCash(cash[0].cash.amount, cashDecimalsOf(cash[0].cash.venue, data.cashDecimals)) : cash.length === 0 ? formatUsdc(0n) : `${String(cash.length)} venues`}
+              unit={cash.length === 0 ? "USDC" : undefined}
+              hint={cash.length === 1 ? venueLabel(cash[0]!.cash.venue, data.symbols) : cash.length > 1 ? cash.map((row) => `${formatVenueCash(row.cash.amount, cashDecimalsOf(row.cash.venue, data.cashDecimals))} ${venueLabel(row.cash.venue, data.symbols)}`).join(" · ") : "no cash in the engine"}
             />
           </dl>
         </CardBody>
