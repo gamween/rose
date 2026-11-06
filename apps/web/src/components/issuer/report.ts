@@ -60,9 +60,20 @@ export type TenderReportData = {
   generatedAt: number;
 };
 
-function csvCell(value: string | number | bigint | boolean | null): string {
-  const text = value === null ? "" : String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+/** A plain decimal number: what the amount columns hold, which a spreadsheet must keep reading as a number. */
+const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/;
+/** First characters that make a spreadsheet read a cell as a formula (OWASP CSV injection). */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/**
+ * One RFC 4180 cell. Text from the chain (account ids, token symbols any ERC-20 sets) that a
+ * spreadsheet would run as a formula gets a leading `'`; plain numbers stay numbers (they cannot
+ * carry a formula, and every amount of the report is non-negative anyway).
+ */
+export function csvCell(value: string | number | bigint | boolean | null): string {
+  const raw = value === null ? "" : String(value);
+  const text = typeof value === "string" && FORMULA_START.test(raw) && !PLAIN_NUMBER.test(raw) ? `'${raw}` : raw;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
 }
 
 function csvRows(rows: (string | number | bigint | boolean | null)[][]): string {

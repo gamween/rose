@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { checkRows, cohortSizeError, distributionDeposit, parseAllocationLines, rowsTotal, splitBatches } from "./allocations";
 import { dateTimeToSeconds, normalizeLinear, normalizeStepped, sablierScheduleArgs, secondsToDateTime, streamflowScheduleArgs } from "./class-schedule";
 import { sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, yoctoToNearText } from "./dao";
-import { askOrders, candidateTable, eventsOfRound, isFinalRound, recompute, tenderReportCsv } from "./report";
+import { askOrders, candidateTable, csvCell, eventsOfRound, isFinalRound, recompute, tenderReportCsv } from "./report";
 import { defaultRoundClass, isFullyUnlocked } from "./shared";
 import { maxPriceFromDiscount, percentToBps, tenderArgsFromForm, tenderEscrow, validateRetireTo, windowFromInput } from "./tender-form";
 
@@ -202,6 +202,18 @@ describe("tender report", () => {
     expect(settled).toContain("result,volume_units,1666.666666666666666666\n");
     expect(settled).toContain("result,notional_usdc,59.999999\n");
     expect(eventsOfRound([{ seq: 1n, blockHeight: 1n, timestamp: 0n, predecessor: "a", event: { event: "key_requested", data: { round_id: "7" } } }], 7n)).toHaveLength(1);
+  });
+
+  it("neutralizes CSV formula injection in text cells and keeps numbers as numbers", () => {
+    expect(csvCell("=HYPERLINK(\"https://x\")")).toBe("\"'=HYPERLINK(\"\"https://x\"\")\"");
+    for (const start of ["+", "-", "@", "\t"]) expect(csvCell(`${start}SUM(A1)`)).toBe(`'${start}SUM(A1)`);
+    expect(csvCell("\rcmd")).toBe("\"'\rcmd\"");
+    expect(csvCell("-5")).toBe("-5");
+    expect(csvCell("12.5")).toBe("12.5");
+    expect(csvCell(-3)).toBe("-3");
+    expect(csvCell("halden.testnet")).toBe("halden.testnet");
+    const csv = tenderReportCsv({ engine: "e", round, cls, symbol: "=CMD|' /C calc'!A0", bids, result: null, events: [], generatedAt: 0 });
+    expect(csv).toContain("parameters,class,'=CMD|' /C calc'!A0 ");
   });
 
   it("leaves out base_cash_registered events, whose round id is only a depositCash earmark", () => {
