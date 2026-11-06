@@ -93,7 +93,8 @@ async function readStatus(connection: Connection, signature: TransactionSignatur
  * cluster's confirmed block height has passed `lastValidBlockHeight` with the signature still
  * unseen on a last read. No websocket subscription, so a devnet websocket outage cannot turn a
  * landed transaction into a false expiry. Returns the final status; throws
- * `SolanaTransactionError` when the transaction landed with an error, and
+ * `SolanaTransactionError` when the transaction landed with an error (reported once it reaches
+ * `commitment`, like a success), and
  * `SolanaBlockhashExpiredError` when it can no longer land.
  */
 export async function waitForSignature(connection: Connection, signature: TransactionSignature, options: ConfirmOptions): Promise<SignatureStatus> {
@@ -101,8 +102,10 @@ export async function waitForSignature(connection: Connection, signature: Transa
   const interval = options.intervalMs ?? 2_000;
   for (;;) {
     const status = await readStatus(connection, signature);
-    if (status?.err) throw new SolanaTransactionError(signature, status.err);
-    if (status && rank(status.confirmationStatus ?? "processed") >= wanted) return status;
+    if (status && rank(status.confirmationStatus ?? "processed") >= wanted) {
+      if (status.err) throw new SolanaTransactionError(signature, status.err);
+      return status;
+    }
     if (!status) {
       const height = await connection.getBlockHeight("confirmed");
       if (height > options.lastValidBlockHeight) {

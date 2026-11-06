@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { broadcastSignedTransaction, classifySolanaError, confirmSignature, sendAndConfirmLegacyTransaction, SolanaBlockhashExpiredError, SolanaTransactionError, waitForSignature } from "../../src/chains/solana/broadcast.js";
 import { must } from "./must.js";
 import { stubConnection } from "./rpc.js";
-import { accountStateArgs, createNonceAccountTransaction, NONCE_ACCOUNT_LEN, nonceAccountStateArgs, nonceRent, nonceSeedPrefix, payoutNonceAddress, payoutNonceSeed, readNonceAccount } from "../../src/chains/solana/nonce.js";
+import { createNonceAccountTransaction, NONCE_ACCOUNT_LEN, nonceRent, nonceSeedPrefix, payoutNonceAddress, payoutNonceSeed, readNonceAccount } from "../../src/chains/solana/nonce.js";
 
 interface MessagesFixture {
   keys: Record<string, string>;
@@ -55,7 +55,7 @@ describe("nonce accounts", () => {
     expect(transaction.instructions[0]?.keys.map((key) => key.pubkey.toBase58())).toContain(nonceAccount.toBase58());
   });
 
-  it("reads the rent, decodes a nonce account and encodes the AccountState proof", async () => {
+  it("reads the rent and decodes a nonce account", async () => {
     const authority = new PublicKey(must(messages.keys["vault"]));
     const nonce = new PublicKey(must(messages.keys["nonceValue"]));
     const bytes = nonceBytes(authority, nonce, 5000);
@@ -71,11 +71,7 @@ describe("nonce accounts", () => {
     expect(state.feeCalculator.lamportsPerSignature).toBe(5000);
     expect(state.slot).toBe(518404430);
     expect(state.owner.equals(SystemProgram.programId)).toBe(true);
-    const args = nonceAccountStateArgs(state);
-    expect(args.owner).toBe("0".repeat(64));
-    expect(args.data).toBe(Buffer.from(bytes).toString("hex"));
-    expect(args.data.slice(16, 80)).toBe(Buffer.from(authority.toBytes()).toString("hex"));
-    expect(accountStateArgs(new PublicKey(must(messages.keys["vault"])), new Uint8Array([1, 255])).data).toBe("01ff");
+    expect(state.raw).toEqual(Uint8Array.from(bytes));
   });
 
   it("refuses a missing or oddly sized nonce account", async () => {
@@ -145,6 +141,14 @@ describe("confirmation over HTTP polling", () => {
     expect(status.confirmationStatus).toBe("finalized");
     expect(methods.filter((method) => method === "getSignatureStatuses")).toHaveLength(4);
     expect(new Set(methods)).toEqual(new Set(["getSignatureStatuses", "getBlockHeight"]));
+  });
+
+  it("reports a landed error only once the error reaches the wanted commitment", async () => {
+    const err = { InstructionError: [0, "Custom"] };
+    const { connection, methods } = polled([{ status: "processed", err }, { status: "confirmed", err }, { status: "finalized", err }], () => 5);
+    const failed = waitForSignature(connection, SIGNATURE, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10, commitment: "finalized", intervalMs: 0 });
+    await expect(failed).rejects.toBeInstanceOf(SolanaTransactionError);
+    expect(methods.filter((method) => method === "getSignatureStatuses")).toHaveLength(3);
   });
 
   it("reports an expiry only once the block height passed and the signature is still unseen", async () => {

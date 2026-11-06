@@ -94,16 +94,3 @@ export async function readNonceAccount(connection: Connection, pubkey: PublicKey
     slot: response.context.slot,
   };
 }
-
-/** `SvmAccount` JSON of `foreign::mpc`: `owner` is a `Bytes32` (lowercase hex, no `0x`), `data` lowercase hex (`hex_vec`). */
-export interface AccountStateArgs { owner: string; data: string }
-
-/** Encodes raw account bytes the way the engine's `AccountState` proof arguments expect them. */
-export function accountStateArgs(owner: PublicKey, raw: Uint8Array): AccountStateArgs {
-  return { owner: bytesToHex(owner.toBytes()), data: bytesToHex(raw) };
-}
-
-/** Owner and bytes of a nonce account for the engine's proof before signing a payout. */
-export function nonceAccountStateArgs(state: NonceAccountState): AccountStateArgs {
-  return accountStateArgs(state.owner, state.raw);
-}
