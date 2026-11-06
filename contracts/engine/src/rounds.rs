@@ -98,10 +98,12 @@ impl Contract {
             .checked_add(fee)
             .unwrap_or_else(|| env::panic_str("Budget too large"));
         let creator = env::predecessor_account_id();
+        // Cash rows are keyed by the canonical venue: escrow from the one the round stores.
+        let venue = params.venue.canonical();
         let round_id = self.create_round(
             RoundKind::Tender,
             params.class_id,
-            params.venue.clone(),
+            venue.clone(),
             params.max_price.0,
             params.reference_price.map(|p| p.0),
             params.window,
@@ -112,7 +114,7 @@ impl Contract {
             }),
             None,
         );
-        self.debit_cash(&creator, &params.venue, escrow);
+        self.debit_cash(&creator, &venue, escrow);
         U64(round_id)
     }
 

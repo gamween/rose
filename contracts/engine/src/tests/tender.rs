@@ -231,3 +231,30 @@ fn tender_with_no_crossing_is_cancelled_and_refunds_everything() {
         ONE / 5
     );
 }
+
+#[test]
+fn a_tender_escrows_the_canonical_venue_whatever_its_spelling() {
+    let (mut contract, class, issuer, _, _) = setup();
+    let canonical = Venue::Base {
+        token: "0x036cbd53842c5426634e7929541ec2318f3dcf7e".into(),
+    };
+    env_at(&engine(), ts(500));
+    contract.credit_cash(&issuer, &canonical, 953);
+    with_derived_addresses(&mut contract);
+    env(&issuer, ROUND_STORAGE_DEPOSIT, ts(500));
+    // The address as Basescan prints it (EIP-55 checksum): cash rows are keyed lowercase.
+    let round = contract.create_tender(TenderParams {
+        class_id: class.clone(),
+        venue: Venue::Base {
+            token: "0x036CbD53842c5426634e7929541eC2318f3dCF7e".into(),
+        },
+        budget: U128(950),
+        max_price: U128(10),
+        reference_price: None,
+        retire_to: RETIRE_TO.to_string(),
+        window: window(ts(900)),
+    });
+    assert_eq!(contract.get_round(round).unwrap().venue, canonical);
+    assert_eq!(contract.cash_of(&issuer, &canonical), 0);
+    assert_eq!(cash(&contract, &issuer), 953, "the NEAR venue is untouched");
+}
