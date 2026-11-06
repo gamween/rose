@@ -66,7 +66,12 @@ No other party can move funds, see bids early or stop a round.
 - If no key arrives within `key_timeout` (default 1 h), anyone calls `cancel_no_key` once no request
   is in flight (250 blocks after the last `close`, past the MPC's 200-block yield), and every escrow,
   bond and locked unit is refundable. `close` is refused after the timeout, so nobody can keep a
-  request in flight to block the cancellation. Exercised live on `engine-s3`
+  request in flight to block the cancellation. Exercised live on `engine-s5`
+  (`close` refused after the timeout
+  [3Lh9SkF1…](https://testnet.near.rocks/tx/3Lh9SkF1FaNJMavexYUDbjCGWSc9cLw95RAZDzkMJ5dw),
+  [cancel_no_key](https://testnet.near.rocks/tx/FzHeiPW7YnZ4sgyuUz8TFbfEzf2jYghT4wNVp713cB7H),
+  [refund](https://testnet.near.rocks/tx/C1wTSQTcrsuKvJz5abFCT1Nnx8UvtAmt5NcStPqpusxb)), and
+  earlier on `engine-s3`
   ([cancel_no_key](https://testnet.near.rocks/tx/4CszxtfbVfadaWgWZv7tF1eUt2NYbXVw16hQi3tNazk7),
   [refund](https://testnet.near.rocks/tx/A1LojEZZ4YuXY6RdTFvHv4qEsjd3RYFsEZcPcQg8h1zW)).
 - **Residual:** a cancelled round's key can still become public. MPC nodes that answer after the
@@ -84,12 +89,14 @@ No other party can move funds, see bids early or stop a round.
   participant's browser decrypts the whole book. No party's cooperation is needed for an order to
   count.
 - After the reveal window, unopened orders are void and their bond slashed; an opened order whose
-  `limit * quantity` exceeds its escrow, whose buy quantity exceeds the round's `max_buy_quantity`
+  `limit * quantity` plus its 30 bps fee exceeds its escrow, whose buy quantity exceeds the round's `max_buy_quantity`
   (fixed at creation, so a later redeem never voids a covered bid), or whose quantity exceeds its
-  locked units, is void and slashed too. Shown live: a malformed bid's author's own opening refused
-  ([5cy62YfE…](https://testnet.near.rocks/tx/5cy62YfEpE4MioY1txbjGSGWWGAgqRNK2kzQZxSC4LEs)) and its
+  locked units, is void and slashed too. Shown live on `engine-s5`: a malformed bid's author's own opening refused
+  ([EE9vC4QR…](https://testnet.near.rocks/tx/EE9vC4QRDFPWp4VzwtA3TTGRuiWKxh9Aqnnoo5XgkUsq)) and its
   bond slashed at settlement
-  ([3mMoWJc4…](https://testnet.near.rocks/tx/3mMoWJc42KYSES6Vx4wpBk8dXHgcifyZgweV8Wanjr9H)).
+  ([Gq2uLUZu…](https://testnet.near.rocks/tx/Gq2uLUZu9QVo97LqnxpnxAZUgw1A3azqXf4gDWc1TJJw)), as earlier on
+  `engine-s3` ([5cy62YfE…](https://testnet.near.rocks/tx/5cy62YfEpE4MioY1txbjGSGWWGAgqRNK2kzQZxSC4LEs),
+  [3mMoWJc4…](https://testnet.near.rocks/tx/3mMoWJc42KYSES6Vx4wpBk8dXHgcifyZgweV8Wanjr9H)).
 
 ### Clearing
 
@@ -250,8 +257,8 @@ No other party can move funds, see bids early or stop a round.
   initialize an engine whose balance does not cover its code and state, that history and the
   0.5 NEAR MPC reserve (about 15.4 NEAR with a 1.03 MB wasm; the deployment script funds 17 NEAR), so
   filling the history can never eat the reserve, and a zero-deposit `storage_deposit` top-up
-  records nothing (before the fix, about 600 free calls pushed a 12 NEAR engine below its
-  reserve). Holding, cash and lien share rows are
+  records nothing (before the fix, free zero-deposit calls alone could push a 12 NEAR engine below
+  its reserve: review 12 in the history below). Holding, cash and lien share rows are
   charged at their measured size for the longest account id (310, 172 and 149 bytes; 137 for the
   account record), so a stranger distributing dust to many long account ids pays every byte it
   creates; a NEAR cash deposit needs room for its row, and an Exit buyer room for the units it buys.
@@ -313,13 +320,14 @@ milestone unless stated.
 | 7 | Full engine with custody (`8fdb5bf`) | Fable 5.1 | 2 blockers (the first Solana deposit of a class was impossible; an Advance holder could freeze funders' escrow by unregistering its storage), 2 majors (a Solana payout could be stranded by the vault token account's balance; `transferable_by_recipient` unchecked) | Fixed; the Streamflow flow exercised live on staging. The fixes were then verified with tests by Opus 5.5, which added a storage floor, zero-deposit registration for owed credits, and a guard so a late Base callback after a retry can never double-pay |
 | 8 | Engine custody (`b10bba2`) | Opus 5.5 | Do not deploy: 2 blockers, 9 majors (a signed Solana durable-nonce payout was treated as landed) | Solana custody redesigned around proof of landing: two-phase payouts and redeems, no vault pool, recipient token account proven, every stored signature verified |
 | 9 | That redesign | Opus 5.5 (Fable was rate-limited) | 0 blockers, 2 majors (a stale read could produce a "did not execute" verdict; refunds on a failed request although a late MPC response is public), 3 minors, 3 nits | All fixed: two proofs 150 blocks apart for a negative verdict, signature requests never refund, Solana actions cancelled by a nonce-only transaction |
-| 10 | Solana custody v2 (`b10bba2..d05f542`) and every value-moving custody path | Opus 5.5 | 0 blockers, 1 major (a redeem confirmation could be finalized by a stale lower read), 8 minors, 5 nits | Fixed in `f1a8ba5`, each with a test that fails before the fix: monotone redeem verdict, request-height spacing of the two proofs, exact "unchanged" reading (Streamflow `withdraw` verified exact-or-fail on devnet), payout nonce accounts derived with a seed bound to the claimant's NEAR account, freeze-authority mints refused, Tender `retire_to` checks, u64 amounts as strings, accrual remainder kept so a sole holder can always redeem, stored enum order pinned. `engine-s3` runs the reviewed build, without these fixes |
+| 10 | Solana custody v2 (`b10bba2..d05f542`) and every value-moving custody path | Opus 5.5 | 0 blockers, 1 major (a redeem confirmation could be finalized by a stale lower read), 8 minors, 5 nits | Fixed in `f1a8ba5`, each with a test that fails before the fix: monotone redeem verdict, request-height spacing of the two proofs, exact "unchanged" reading (Streamflow `withdraw` verified exact-or-fail on devnet), payout nonce accounts derived with a seed bound to the claimant's NEAR account, freeze-authority mints refused, Tender `retire_to` checks, u64 amounts as strings, accrual remainder kept so a sole holder can always redeem, stored enum order pinned. `engine-s3` ran the reviewed build, without these fixes (its code storage was reclaimed in staging deployment 5) |
 | 11 | Full engine, RoseVault, tUSDC and the SDK bindings (`f1a8ba5`) | Opus 5.5 | 1 blocker (a bare-hex address spelling let a stranger strand someone's Base cash), 3 majors (unbounded round windows, under-charged storage rows, client ABI drift), 4 minors, 10 nits | Fixed, each with a test that fails before the fix: canonical EVM addresses at every entry point, bounded round windows, rows charged at their measured worst case (cash rows included), per-account class list behind the portfolio view, buy quantities measured against the supply at creation, a refused stream's return keeps its vested tokens (RoseVault `Release` gains `vestedToRecipient`, so the vault is redeployed), custody addresses refused as Base recipients |
 | 12 | Contracts before deployment (`cd00318`) | Opus 5.5 | 1 blocker (Streamflow's auto-claim of ended streams read as a landed payout: claims destroyed, tokens stranded), 1 major (the free event history could push the engine below its MPC reserve), 4 minors, 6 nits | Fixed: verdicts on a receipt nonce account, `sync_sol_stream` and the swept balance, draws and redeems stop five minutes before a stream's end, attribution refuses streams ending within an hour; event history bounded in bytes and funded at init; non-accepted Base cash listed; Exit bids reserve the buyer's row; RoseVault forwards third-party withdrawals of a returned stream; release fees sent by the SDK |
 
-The web app was also exercised live through its demo wallets against the staging engines; 18 bugs
-found that way were fixed (event history decoding, a deposit resume after a reload, prepaid gas that
-locked out small accounts, public RPC rate limits, among others).
+The web app was also exercised live through its demo wallets against the staging engines; the bugs
+found that way were fixed, and each is recorded with its fixing commit in
+[`verification.md`](./verification.md) (a Verify mismatch on a no-crossing cancellation, a stale
+RPC view after the MPC wait, layout overflow at 375 px, among others).
 
 ## Tests behind the claims
 

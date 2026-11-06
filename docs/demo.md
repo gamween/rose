@@ -9,7 +9,10 @@ against the staging engine `engine-s5.rose-app.testnet`. Every transaction named
 
 The Monad case in scene 1 is a sourced public fact, shown as a citation card. The video never uses
 Monad's name as a character, its logo or its branding, and never presents Cindral as a real project
-(the name was checked against CoinGecko, CoinMarketCap, DefiLlama and DexScreener: no match).
+(the name was checked against CoinGecko, CoinMarketCap, DefiLlama and DexScreener: no project
+named Cindral. DexScreener lists one unrelated Ethereum token whose ticker is also CINDR, a single
+Uniswap pair with about 8,500 USD of market cap; the video therefore always shows the ticker next
+to the name Cindral).
 
 ## Before recording
 
