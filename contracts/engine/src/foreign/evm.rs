@@ -3,11 +3,12 @@
 //!
 //! Sources:
 //!
-//! - `contracts/evm/src/RoseVault.sol` in this repository: the `StreamDeposited` (line 119) and
-//!   `CashDeposited` (line 163) events with their documented ABI layouts, the `TRANSFER_TYPEHASH`
-//!   and `RELEASE_TYPEHASH` constants (lines 92-97), the `EIP712("RoseVault", "1")` domain
-//!   (line 208), `executeTransfer` and `executeRelease` which require `v` in `{27, 28}`, a low `s`
-//!   and the recovered address to equal the immutable signer.
+//! - `contracts/evm/src/RoseVault.sol` in this repository: the `StreamDeposited` and
+//!   `CashDeposited` events with their documented ABI layouts, the `TRANSFER_TYPEHASH` and
+//!   `RELEASE_TYPEHASH` constants, the `EIP712("RoseVault", "1")` domain of the constructor,
+//!   `executeTransfer` and `executeRelease` which require `v` in `{27, 28}`, a low `s` and the
+//!   recovered address to equal the immutable signer (named rather than cited by line, so the
+//!   references survive edits of the vault).
 //! - Solidity ABI encoding of events (`https://docs.soliditylang.org/en/v0.8.30/abi-spec.html`,
 //!   "Events" and "Formal Specification of the Encoding"): indexed value types are one topic each,
 //!   non-indexed values are ABI-encoded as a tuple in `data`; every static word is 32 bytes,
