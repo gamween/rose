@@ -504,6 +504,11 @@ pub struct SolDeposit {
     pub return_to: String,
     pub stage: SolDepositStage,
     pub attributed_at: U64,
+    /// The attested `amount_withdrawn` at attribution: paid to the holder before the deposit.
+    /// Nothing withdraws from a stream at its deposit address (only the engine holds that key,
+    /// and the end is more than an hour away), so whatever a registration proof shows withdrawn
+    /// beyond it was withdrawn after the move, into the vault's token account.
+    pub attributed_withdrawn: U64,
 }
 
 /// The accounts of a registered Streamflow position the engine needs to build instructions.

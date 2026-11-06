@@ -1095,6 +1095,34 @@ impl StreamflowMetadata {
         program: &Pubkey,
         vault: &Pubkey,
     ) -> Result<Self, StreamflowError> {
+        Self::check(account, program, vault, false)
+    }
+
+    /// [`Self::check_deposit`] for the registration of a stream proven at the vault, which also
+    /// accepts a stream Streamflow's auto-claim emptied and closed after its move (see
+    /// [`Self::auto_claimed`]): what it withdrew sits in the vault's token account.
+    pub fn check_registration(
+        account: &SvmAccount,
+        program: &Pubkey,
+        vault: &Pubkey,
+    ) -> Result<Self, StreamflowError> {
+        Self::check(account, program, vault, true)
+    }
+
+    /// True when Streamflow's auto-claim closed the stream: one second after `end_time` it
+    /// withdraws the whole remainder into the recipient's token account and sets `closed`, and
+    /// changes nothing else (measured on devnet), so `amount_withdrawn` equals
+    /// `net_amount_deposited` and `canceled_at` stays 0.
+    pub fn auto_claimed(&self) -> bool {
+        self.closed && self.canceled_at == 0 && self.amount_withdrawn >= self.net_amount_deposited
+    }
+
+    fn check(
+        account: &SvmAccount,
+        program: &Pubkey,
+        vault: &Pubkey,
+        auto_claimed_ok: bool,
+    ) -> Result<Self, StreamflowError> {
         if &account.owner.0 != program {
             return Err(StreamflowError::Owner);
         }
@@ -1102,7 +1130,7 @@ impl StreamflowMetadata {
         if &metadata.recipient != vault {
             return Err(StreamflowError::Recipient);
         }
-        if metadata.closed {
+        if metadata.closed && !(auto_claimed_ok && metadata.auto_claimed()) {
             return Err(StreamflowError::Closed);
         }
         if metadata.canceled_at != 0 {

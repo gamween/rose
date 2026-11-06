@@ -523,6 +523,49 @@ fn deposit_eligibility_checks_every_flag() {
 }
 
 #[test]
+fn registration_accepts_only_the_closing_by_the_auto_claim() {
+    let (_, account) = live_account("own_stream_finalized_expected");
+    let vault = StreamflowMetadata::parse(&account.data).unwrap().recipient;
+    let program = STREAMFLOW_DEVNET_PROGRAM;
+    let mut eligible = account.clone();
+    eligible.data[462] = 0;
+    assert!(StreamflowMetadata::check_registration(&eligible, &program, &vault).is_ok());
+
+    // Closed with tokens left: not the auto-claim.
+    let mut closed = eligible.clone();
+    closed.data[671] = 1;
+    assert_eq!(
+        StreamflowMetadata::check_registration(&closed, &program, &vault),
+        Err(StreamflowError::Closed)
+    );
+    // The auto-claim's bytes (measured on devnet): `amount_withdrawn` (17..25) becomes
+    // `net_amount_deposited` (417..425) and `closed` (671) becomes 1.
+    let mut auto_claimed = closed.clone();
+    let net: [u8; 8] = auto_claimed.data[417..425].try_into().unwrap();
+    auto_claimed.data[17..25].copy_from_slice(&net);
+    let checked = StreamflowMetadata::check_registration(&auto_claimed, &program, &vault).unwrap();
+    assert!(checked.auto_claimed());
+    assert_eq!(checked.amount_withdrawn, checked.net_amount_deposited);
+    assert_eq!(
+        StreamflowMetadata::check_deposit(&auto_claimed, &program, &vault),
+        Err(StreamflowError::Closed),
+        "attribution never accepts a closed stream"
+    );
+    let mut canceled = auto_claimed.clone();
+    canceled.data[25] = 1;
+    assert_eq!(
+        StreamflowMetadata::check_registration(&canceled, &program, &vault),
+        Err(StreamflowError::Closed)
+    );
+    let mut other_vault = vault;
+    other_vault[0] ^= 1;
+    assert_eq!(
+        StreamflowMetadata::check_registration(&auto_claimed, &program, &other_vault),
+        Err(StreamflowError::Recipient)
+    );
+}
+
+#[test]
 fn other_live_streamflow_accounts_parse() {
     for label in ["sol_finalized", "sol_volatile_finalized"] {
         let (_, account) = live_account(label);

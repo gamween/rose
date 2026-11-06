@@ -170,6 +170,14 @@ fn at_vault(withdrawn: u64) -> StreamSpec {
     }
 }
 
+/// The stream at the deposit address with `withdrawn` already paid to the holder.
+fn withdrawn_at_deposit_address(withdrawn: u64) -> StreamSpec {
+    StreamSpec {
+        amount_withdrawn: withdrawn,
+        ..sol_spec(deposit_address())
+    }
+}
+
 fn sol_account(owner: [u8; 32], data: Vec<u8>) -> SvmAccount {
     SvmAccount {
         owner: Bytes32(owner),
@@ -317,7 +325,13 @@ fn move_stream(contract: &mut Contract, metadata: &str, at: u64) -> u64 {
 /// Registers an attributed stream now at the vault with `withdrawn` already withdrawn at `at`;
 /// returns the position id.
 fn register_stream(contract: &mut Contract, stream: [u8; 32], withdrawn: u64, at: u64) -> u64 {
-    let spec = at_vault(withdrawn);
+    assert!(register_as(contract, stream, &at_vault(withdrawn), at));
+    contract.next_position_id - 1
+}
+
+/// Runs the registration of `stream` against the proven metadata `spec` at `at`; returns what
+/// the callback returned (true when registered).
+fn register_as(contract: &mut Contract, stream: [u8; 32], spec: &StreamSpec, at: u64) -> bool {
     let deposit = NearToken::from_yoctonear(
         contract
             .registration_deposit_for(accounts(1), stepped_class_id())
@@ -328,19 +342,18 @@ fn register_stream(contract: &mut Contract, stream: [u8; 32], withdrawn: u64, at
         .register_sol_deposit(
             fmt(&stream),
             anchor(),
-            hex::encode(stream_bytes(stream, &spec)),
+            hex::encode(stream_bytes(stream, spec)),
         )
         .detach();
-    let hash = sol_hash(vec![metadata_account(stream, &spec)]);
+    let hash = sol_hash(vec![metadata_account(stream, spec)]);
     env_with_results(at + 7 * NS, vec![foreign_response(hash)]);
-    assert!(contract.on_sol_deposit_verified(
+    contract.on_sol_deposit_verified(
         stream_key(stream),
         hex::encode(hash),
-        hex::encode(stream_bytes(stream, &spec)),
+        hex::encode(stream_bytes(stream, spec)),
         accounts(5),
         U128(deposit.as_yoctonear()),
-    ));
-    contract.next_position_id - 1
+    )
 }
 
 /// Attributes, moves and registers `stream` with `withdrawn` already withdrawn at `at`.
@@ -786,9 +799,11 @@ fn solana_deposit_is_attributed_moved_and_registered() {
             mint_data: hex::encode(mint_bytes(DECIMALS)),
         })
     });
-    let args = attribute_stream(&mut contract, STREAM, &sol_spec(deposit_address()));
+    // The holder withdrew 200 before the deposit.
+    let args = attribute_stream(&mut contract, STREAM, &withdrawn_at_deposit_address(200));
     let record = contract.get_sol_deposit(args.metadata.clone()).unwrap();
     assert_eq!(record.stage, SolDepositStage::Attributed);
+    assert_eq!(record.attributed_withdrawn, U64(200));
     assert_eq!(record.account, accounts(1));
     assert_eq!(record.class_id, stepped_class_id());
     assert_eq!(record.deposit_address, fmt(&deposit_address()));
@@ -1475,7 +1490,7 @@ fn a_payout_whose_transaction_failed_on_chain_is_refunded() {
 fn draws_are_checked_against_the_class_the_stream_and_its_unconfirmed_payout() {
     let mut contract = bootstrapped();
     deposit_stream(&mut contract, STREAM, 0, ts(500));
-    let args2 = attribute_stream(&mut contract, STREAM_2, &sol_spec(deposit_address()));
+    let args2 = attribute_stream(&mut contract, STREAM_2, &withdrawn_at_deposit_address(200));
     move_stream(&mut contract, &args2.metadata, ts(2_150));
     register_stream(&mut contract, STREAM_2, 200, ts(3_000));
     let class = stepped_class_id();
@@ -2655,7 +2670,7 @@ fn the_failure_delay_runs_from_the_first_answer_to_the_next_request() {
 fn a_multi_stream_payout_lands_on_its_receipt_and_counts_every_draw() {
     let mut contract = bootstrapped();
     deposit_stream(&mut contract, STREAM, 0, ts(500));
-    let args2 = attribute_stream(&mut contract, STREAM_2, &sol_spec(deposit_address()));
+    let args2 = attribute_stream(&mut contract, STREAM_2, &withdrawn_at_deposit_address(200));
     move_stream(&mut contract, &args2.metadata, ts(2_150));
     register_stream(&mut contract, STREAM_2, 200, ts(3_000));
     let class = stepped_class_id();
@@ -3520,4 +3535,108 @@ fn an_attribution_names_its_class_in_lowercase_hex() {
     panics_with("lowercase hex class id", || {
         contract.attribute_sol_deposit(args)
     });
+}
+
+/// A moved stream registered only after its end: Streamflow's auto-claim emptied it into the
+/// vault's token account. The registration mints the units (claimable at once), books what the
+/// auto-claim took beyond the holder's pre-deposit withdrawal in the swept balance, which then
+/// pays the claim, and prunes the stream.
+#[test]
+fn a_stream_registered_after_its_auto_claim_books_the_sweep_and_pays_the_claim() {
+    let mut contract = bootstrapped();
+    let args = attribute_stream(&mut contract, STREAM, &withdrawn_at_deposit_address(200));
+    move_stream(&mut contract, &args.metadata, ts(2_100));
+    assert!(register_as(
+        &mut contract,
+        STREAM,
+        &swept_spec(),
+        ts(12_000)
+    ));
+    let class = stepped_class_id();
+    let position = contract.get_position(U64(0)).unwrap().position;
+    assert_eq!(position.allocation.0, 1_000);
+    assert_eq!(position.state, PositionState::Held);
+    assert_eq!(
+        claimable(&contract, ts(12_010)),
+        800,
+        "everything the holder had not withdrawn before the deposit"
+    );
+    assert_eq!(contract.get_sol_swept(class.clone()).balance.0, 800);
+    let stream = contract.get_sol_stream(U64(0)).unwrap();
+    assert_eq!(
+        (stream.registered_withdrawn.0, stream.engine_withdrawn.0),
+        (200, 1_000)
+    );
+    assert!(
+        contract.get_sol_streams(class.clone()).is_empty(),
+        "a fully withdrawn stream is pruned"
+    );
+    let swept = events("rose")
+        .into_iter()
+        .rfind(|event| event["event"] == "sol_stream_swept")
+        .unwrap();
+    assert_eq!(swept["data"]["amount"], "800");
+
+    let id = claim_with(&mut contract, &class, vec![], 800, NONCE_VALUE, ts(12_100));
+    assert!(withdraw_amounts(&message_of(&contract, id)).is_empty());
+    assert_eq!(contract.get_sol_swept(class).pending.0, 800);
+}
+
+/// A moved stream registered after its end but before the auto-claim stays a vault stream with
+/// its units claimable at once; the sync after the auto-claim books the remainder.
+#[test]
+fn a_stream_registered_after_its_end_is_swept_by_the_next_sync() {
+    let mut contract = bootstrapped();
+    let args = attribute_stream(&mut contract, STREAM, &withdrawn_at_deposit_address(200));
+    move_stream(&mut contract, &args.metadata, ts(2_100));
+    assert!(register_as(
+        &mut contract,
+        STREAM,
+        &at_vault(200),
+        ts(11_500)
+    ));
+    let class = stepped_class_id();
+    assert_eq!(claimable(&contract, ts(11_510)), 800);
+    assert_eq!(contract.get_sol_swept(class.clone()).balance.0, 0);
+    assert_eq!(contract.get_sol_streams(class.clone()).len(), 1);
+    assert!(sync_stream(
+        &mut contract,
+        0,
+        STREAM,
+        &swept_spec(),
+        ts(11_600)
+    ));
+    assert_eq!(contract.get_sol_swept(class.clone()).balance.0, 800);
+    assert!(contract.get_sol_streams(class).is_empty());
+}
+
+/// Only the auto-claim's closing is accepted at registration: a closed stream that still shows
+/// tokens not withdrawn is refused at the vault, and a closed stream is never attributed.
+#[test]
+fn a_closed_stream_not_emptied_by_the_auto_claim_is_refused() {
+    let mut contract = bootstrapped();
+    let args = attribute_stream(&mut contract, STREAM, &withdrawn_at_deposit_address(200));
+    move_stream(&mut contract, &args.metadata, ts(2_100));
+    let closed_early = StreamSpec {
+        closed: true,
+        ..at_vault(200)
+    };
+    assert!(!register_as(
+        &mut contract,
+        STREAM,
+        &closed_early,
+        ts(4_000)
+    ));
+    let refused = contract.get_refused_deposit(stream_key(STREAM)).unwrap();
+    assert!(refused.reason.contains("Closed"), "{}", refused.reason);
+    assert_eq!(contract.get_sol_swept(stepped_class_id()).balance.0, 0);
+
+    let closed_at_deposit = StreamSpec {
+        closed: true,
+        amount_withdrawn: 1_000,
+        ..sol_spec(deposit_address())
+    };
+    attribute_stream(&mut contract, STREAM_2, &closed_at_deposit);
+    let refused = contract.get_refused_deposit(stream_key(STREAM_2)).unwrap();
+    assert!(refused.reason.contains("Closed"), "{}", refused.reason);
 }

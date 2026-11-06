@@ -25,8 +25,10 @@
 //! second after its end, whatever the stream's `automatic_withdrawal` flag says (measured on
 //! devnet). For a registered stream that is the vault's token account: `sync_sol_stream` proves
 //! the withdrawal and books it in the class's swept balance. A stream ending within
-//! [`DEPOSIT_END_MARGIN_SECS`] is refused at attribution, so a deposit never reaches its end
-//! while it sits at a deposit address or awaits its registration.
+//! [`DEPOSIT_END_MARGIN_SECS`] is refused at attribution, so a deposit normally never reaches
+//! its end while it sits at a deposit address. A moved stream whose registration comes after
+//! its end is still registered: the auto-claim's withdrawal, measured from the amount withdrawn
+//! at attribution, is booked in the swept balance at once.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{env, near, require, AccountId, Gas, NearToken, Promise, PromiseOrValue};
@@ -305,6 +307,7 @@ impl Contract {
                 return_to: args.return_to,
                 stage,
                 attributed_at: U64(env::block_timestamp()),
+                attributed_withdrawn: U64(metadata.amount_withdrawn),
             },
         );
         attributed
@@ -699,7 +702,7 @@ impl Contract {
             owner: Bytes32(program),
             data,
         };
-        let metadata = StreamflowMetadata::check_deposit(&account, &program, &vault)
+        let metadata = StreamflowMetadata::check_registration(&account, &program, &vault)
             .map_err(|e| format!("{e:?}"))?;
         if sol::format_pubkey(&metadata.mint) != deposit.mint {
             return Err("mint differs from the attributed stream".to_string());
@@ -707,7 +710,14 @@ impl Contract {
         if Ok(metadata.recipient_tokens) != associated_token_address(&vault, &metadata.mint) {
             return Err("stream pays a token account other than the vault's".to_string());
         }
-        let stream = eligible_stream(&metadata, deposit.decimals)?;
+        // Paid to the holder before the deposit; anything beyond it was withdrawn after the
+        // move, into the vault's token account (Streamflow's auto-claim of a stream registered
+        // after its end).
+        let withdrawn_before = deposit
+            .attributed_withdrawn
+            .0
+            .min(metadata.amount_withdrawn);
+        let stream = registrable_stream(&metadata, deposit.decimals, withdrawn_before)?;
         let allocation = u128::from(metadata.net_amount_deposited);
         let class_id = self.ensure_class(
             Chain::Solana,
@@ -720,7 +730,7 @@ impl Contract {
             &self.class(&class_id).schedule,
             self.fraction_now(&class_id),
             None,
-            u128::from(metadata.amount_withdrawn),
+            u128::from(withdrawn_before),
             allocation,
         );
         let position_id = self.insert_position(Position {
@@ -752,7 +762,7 @@ impl Contract {
                 net_amount_deposited: U64(metadata.net_amount_deposited),
                 end_time: metadata.end_time,
                 engine_withdrawn: U64(metadata.amount_withdrawn),
-                registered_withdrawn: U64(metadata.amount_withdrawn),
+                registered_withdrawn: U64(withdrawn_before),
                 checkpoint: U128(checkpoint),
                 drawing: None,
                 pending_withdraw: U64(0),
@@ -767,6 +777,23 @@ impl Contract {
             self.custody
                 .swept
                 .insert(class_id.clone(), super::SolSwept::default());
+        }
+        let swept = metadata.amount_withdrawn - withdrawn_before;
+        if swept > 0 {
+            let balance = self
+                .custody
+                .swept
+                .get_mut(&class_id)
+                .expect("created above");
+            balance.balance = U64(balance.balance.0 + swept);
+            self.emit(RoseEvent::SolStreamSwept {
+                position_id: U64(position_id),
+                class_id: class_id.clone(),
+                amount: U64(swept),
+            });
+        }
+        if metadata.amount_withdrawn >= metadata.net_amount_deposited {
+            self.prune_stream(&class_id, position_id);
         }
         self.custody
             .sol_deposits
@@ -852,25 +879,37 @@ const ENDS_TOO_SOON: &str = "the stream ends within an hour: Streamflow's auto-c
 /// Refusal reason of a stream whose mint has a freeze authority.
 const FREEZABLE_MINT: &str = "the mint has a freeze authority: its holder could freeze the vault's token account and block every payout of the class";
 
-/// The schedule of an attested stream when the engine can lock it: a valid plain schedule, not
-/// fully unlocked (its units would accrue nothing) and at least one whole token left to lock
-/// (`net_amount_deposited` and its part not withdrawn yet), like RoseVault on Base.
+/// The schedule of an attested stream when the engine can lock it at attribution: registrable
+/// (below) and not fully unlocked (its units would accrue nothing).
 fn eligible_stream(
     metadata: &StreamflowMetadata,
     decimals: u8,
 ) -> Result<StreamflowStream, String> {
+    let stream = registrable_stream(metadata, decimals, metadata.amount_withdrawn)?;
+    if ClassSchedule::from_streamflow(&stream).fraction(crate::now_secs()) == ONE {
+        return Err("stream is fully unlocked: withdraw it instead".to_string());
+    }
+    Ok(stream)
+}
+
+/// The schedule of a stream the vault can register: a valid plain schedule and at least one
+/// whole token left to lock after what was paid to the holder before the deposit
+/// (`net_amount_deposited` minus `withdrawn_before`), like RoseVault on Base. A stream that
+/// ended after its move is registered all the same: its units are claimable at once.
+fn registrable_stream(
+    metadata: &StreamflowMetadata,
+    decimals: u8,
+    withdrawn_before: u64,
+) -> Result<StreamflowStream, String> {
     let stream = StreamflowStream::new(metadata.params()).map_err(|e| e.to_string())?;
     let one_token = 10u128.checked_pow(u32::from(decimals)).unwrap_or(u128::MAX);
     let allocation = u128::from(metadata.net_amount_deposited);
-    let withdrawn = u128::from(metadata.amount_withdrawn);
+    let withdrawn = u128::from(withdrawn_before);
     if withdrawn >= allocation {
         return Err("stream is fully withdrawn".to_string());
     }
     if allocation < one_token || allocation - withdrawn < one_token {
         return Err("stream holds less than one whole token".to_string());
-    }
-    if ClassSchedule::from_streamflow(&stream).fraction(crate::now_secs()) == ONE {
-        return Err("stream is fully unlocked: withdraw it instead".to_string());
     }
     Ok(stream)
 }
