@@ -11,13 +11,15 @@ All addresses are testnet. Nothing is deployed on any mainnet. Live checks (engi
 
 | Contract | Account | Notes |
 |---|---|---|
-| rose-engine | `{{ENGINE_ACCOUNT}}` | Rust, near-sdk 5.x. Classes, positions, NEP-245 units, liens, rounds, sealed bids, opening, clearing, settlement, cash ledger, foreign custody. No upgrade method, no delete-account path, no generic call method; new versions deploy to new accounts. The final engine, `engine.rose-app.testnet`, is keyless after init (`view_access_key_list` returns `[]`); the earlier staging engines kept a key, see below. |
+| rose-engine | `{{ENGINE_ACCOUNT}}` | Rust, near-sdk 5.x. Classes, positions, NEP-245 units, liens, rounds, sealed bids, opening, clearing, settlement, cash ledger, foreign custody. No upgrade method, no delete-account path, no generic call method; new versions deploy to new accounts. The final engine, `engine-v2.rose-app.testnet`, is keyless after init (`view_access_key_list` returns `[]`); the engines before it are history, see below. |
 | rose tUSDC | `tusdc.rose-app.testnet` | NEP-141 "Test USDC", 6 decimals, public mint capped at 10,000 tUSDC per account per 24 h. The NEAR cash venue. Keyless. |
 | NEAR MPC | `v1.signer-prod.testnet` | Version 3.18.0. Domains: 0 Sign, CaitSith (secp256k1); 1 Sign, Frost (Ed25519); 2 Confidential Key Derivation (BLS12-381); 3 ForeignTx, CaitSith (secp256k1). Threshold 11. Foreign chains served include Base and Solana. |
 
 Circle's USDC on NEAR testnet exists but is minted only through a captcha-gated faucet, so the NEAR cash venue is rose tUSDC.
 
-The final engine `engine.rose-app.testnet` was deployed keyless from the reproducible build of commit `d5e1e0c`: its access keys were deleted after init, in the same run that checked its code hash and configuration. The staging engines before it (`engine-s1` to `engine-s5`) kept a full-access key held by the team; they are test history, not the trust model. The [status page](/status) shows the live access key check of the engine the app uses.
+The final engine `engine-v2.rose-app.testnet` was deployed keyless from the reproducible build of commit `0524b33`: its access keys were deleted after init, in the same run that checked its code hash and configuration. Its RoseVault is `0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe`.
+
+The engines before it are history, not the trust model. `engine.rose-app.testnet` (RoseVault `0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f`) was the first final engine, also keyless: it is superseded because an Advance funder's share of a lien never left its account index, so funders' storage deposits stayed locked. With every key deleted, an engine cannot be patched, so the fix was deployed as a new account; the old one still runs but the app no longer uses it. The staging engines (`engine-s1` to `engine-s5`) kept a full-access key held by the team and are retired. The [status page](/status) shows the live access key check of the engine the app uses.
 
 ### Engine methods
 

@@ -102,7 +102,7 @@ test.describe("docs", () => {
     await expect(page.locator("article")).not.toContainText("Wallet Selector");
     await page.goto("/docs/contracts-and-addresses");
     await expect(page.locator("article").getByRole("link", { name: "NEAR Rocks" })).toHaveAttribute("href", "https://testnet.near.rocks");
-    await expect(page.locator("article")).toContainText("The final engine, engine.rose-app.testnet, is keyless after init");
+    await expect(page.locator("article")).toContainText("The final engine, engine-v2.rose-app.testnet, is keyless after init");
     expect(errors).toEqual([]);
   });
 });
