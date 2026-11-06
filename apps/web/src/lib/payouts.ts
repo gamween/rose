@@ -154,13 +154,24 @@ export async function latestSuccessfulSignature(connection: Connection, address:
 
 export type CreatedNonce = { proof: SolNonceProof; nonceAccount: PublicKey; signature: string; nonceValue: string; slot: number };
 
-/** Seed suffix of the receipt nonce account, next to the nonce account's empty suffix. */
-const RECEIPT_SEED_SUFFIX = "r";
+/** Characters of the engine's `vault/sol` address that start both seed suffixes. */
+const ENGINE_SEED_TAG_LEN = 6;
+
+/**
+ * Seed suffixes of the payout nonce account and the receipt nonce account against the engine
+ * whose vault is `vaultSol`: both start with the vault address's first characters, so a wallet
+ * that claimed against one engine (nonce authority = that engine's vault) gets fresh accounts
+ * against another instead of reusing ones only the first vault can advance.
+ */
+export function payoutSeedSuffixes(vaultSol: string): { nonce: string; receipt: string } {
+  const tag = vaultSol.slice(0, ENGINE_SEED_TAG_LEN);
+  return { nonce: tag, receipt: `${tag}r` };
+}
 
 /**
  * The payout's durable nonce account and receipt nonce account of `nearAccount` (spec 7.3):
  * created from the claimant's Solana wallet with seeds bound to the NEAR account
- * (`createWithSeed(wallet, payoutNonceSeed)`, authority = the engine's vault; the wallet is the
+ * (`createWithSeed(wallet, payoutNonceSeed)` with `payoutSeedSuffixes`, authority = the engine's vault; the wallet is the
  * base and the only signer), or reused when they exist, together with the recipient's associated
  * token account for the mint (idempotent). After finality it reads back the exact bytes the
  * engine proves: both nonce accounts and the recipient's token account, anchored on a successful
@@ -175,8 +186,9 @@ export async function createPayoutNonce(
   onProgress?: (text: string) => void,
 ): Promise<CreatedNonce> {
   const authority = new PublicKey(vaultSol);
-  const seed = await payoutNonceSeed(nearAccount);
-  const receiptSeed = await payoutNonceSeed(nearAccount, RECEIPT_SEED_SUFFIX);
+  const suffixes = payoutSeedSuffixes(vaultSol);
+  const seed = await payoutNonceSeed(nearAccount, suffixes.nonce);
+  const receiptSeed = await payoutNonceSeed(nearAccount, suffixes.receipt);
   const nonceAccount = await payoutNonceAddress(signer.publicKey, seed);
   const receiptAccount = await payoutNonceAddress(signer.publicKey, receiptSeed);
   const recipientTokens = getAssociatedTokenAddressSync(recipient.mint, recipient.owner, true);

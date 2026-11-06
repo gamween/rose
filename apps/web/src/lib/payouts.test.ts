@@ -1,4 +1,4 @@
-import { bytesToBase64, type PayoutView, type SignerClient } from "@rose/sdk";
+import { bytesToBase64, payoutNonceSeed, type PayoutView, type SignerClient } from "@rose/sdk";
 import { Keypair } from "@solana/web3.js";
 import { baseEncode } from "near-api-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,7 @@ import {
   PayoutRefusedError,
   payoutExplorerLink,
   payoutMessageBlockhash,
+  payoutSeedSuffixes,
   secondProofBlock,
   sleep,
   solPayoutSignature,
@@ -217,6 +218,16 @@ describe("payout helpers", () => {
   it("says a refused move debited nothing and a refused claim was refunded", () => {
     expect(new PayoutRefusedError(moveSignature(Keypair.generate().publicKey.toBase58()).payout, "authority signature failed").message).toBe("authority signature failed. Nothing was debited; retry requests a new one.");
     expect(new PayoutRefusedError(solTransferPayout(), "proof failed").message).toBe("proof failed. Your balance was refunded; retry requests a new one.");
+  });
+
+  it("derives nonce seeds per engine so one wallet can claim against several engines", async () => {
+    const final = payoutSeedSuffixes("GKharZus34WhG182v715Yzf411Akhdnsxxjo5u5C2RRq");
+    const staging = payoutSeedSuffixes("6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n");
+    expect(final).toEqual({ nonce: "GKharZ", receipt: "GKharZr" });
+    expect(staging.nonce).not.toBe(final.nonce);
+    const seed = await payoutNonceSeed("alice.testnet", final.receipt);
+    expect(seed).toBe("9a7068ee6434852cdaff3acbGKharZr");
+    expect(seed.length).toBeLessThanOrEqual(32);
   });
 
   it("knows when the second non-execution proof may be requested", () => {
