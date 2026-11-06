@@ -8,21 +8,26 @@
  * `register_base_cash` so the engine verifies the log through the MPC and credits the ledger
  * (it pays the cash row out of its record deposit). The cash is reported credited only once the
  * engine consumed the log; a failed verification keeps the log and offers "Retry registration",
- * which never deposits a second time.
+ * which never deposits a second time. The deposit is recorded in this browser once its receipt is
+ * read, so a reload during the finality wait finds it under "Cash waiting for registration".
  */
 
 import type { CashDepositedLog, Venue } from "@rose/sdk";
 import { useCallback, useState } from "react";
+import { keyId, recordAttempted } from "@/components/deposit/attempted";
+import { baseLogReplayKey } from "@/components/deposit/eligibility";
+import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
 import { Button } from "@/components/ui/Button";
 import { Field, NumberInput } from "@/components/ui/Input";
 import { useToast } from "@/components/ui/Toast";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { amountToText } from "@/lib/amounts";
+import { amountToText, formatVenueCash, venueLabel } from "@/lib/amounts";
 import { cn } from "@/lib/cn";
 import { deployedAddress } from "@/lib/deployment";
 import { RoseActionError, toActionError, type ActionError } from "@/lib/errors";
 import { txLinks, txUrl } from "@/lib/explorer";
 import { depositNearCash, storageNotice, useNearCashStorageNeed } from "@/lib/near-cash";
+import { useVenueDecimals } from "@/lib/token-symbols";
 import { useAction } from "@/lib/use-action";
 import { useNearAction } from "./actions";
 import type { RoundsEngine } from "./engine";
@@ -48,16 +53,22 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
   const nearDeposit = useAction();
   const storageNeed = useNearCashStorageNeed(venue === "Near" ? engine : null, near.accountId, nearDeposit.state.status);
   const [editedAmount, setAmount] = useState<string | null>(null);
+  /** 6 for NEAR tUSDC, the Base token's own `decimals()` (null until read). */
+  const decimals = useVenueDecimals(venue);
+  const scale = decimals ?? USDC_DECIMALS;
+  const format = useCallback((value: bigint) => formatVenueCash(value, decimals), [decimals]);
+  const unit = venueLabel(venue).replace(/^(NEAR|Base) /, "");
   /** The shortfall until the viewer types another amount (a plain decimal: the field parses no separators). */
-  const amount = editedAmount ?? amountToText(shortfall, USDC_DECIMALS);
+  const amount = editedAmount ?? amountToText(shortfall, scale);
   const [baseStep, setBaseStep] = useState<BaseStep>("idle");
   const [baseError, setBaseError] = useState<ActionError | null>(null);
   const [failedStep, setFailedStep] = useState<BaseStep | null>(null);
   /** A deposit already on RoseVault whose registration has not succeeded yet. */
   const [pending, setPending] = useState<PendingCash | null>(null);
   const [finality, setFinality] = useState<string | null>(null);
-  const parsed = parseDecimal(amount, USDC_DECIMALS);
+  const parsed = decimals === null ? null : parseDecimal(amount, decimals);
   const valid = parsed !== null && parsed > 0n;
+  const [recorded, setRecorded] = useState(0);
 
   const depositNear = async () => {
     if (!valid || parsed === null || !near.accountId) return;
@@ -97,7 +108,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
             receipt: { engine: engine.account, roundId, kind: "cash", label: "register_base_cash" },
           }),
         );
-        toast.show({ tone: "success", title: `${formatUsdc(deposit.amount)} credited to your Base cash`, description: "The engine verified the CashDeposited log through the MPC.", links: txLinks("base", deposit.log.transactionHash) });
+        toast.show({ tone: "success", title: `${format(deposit.amount)} ${unit} credited to your Base cash`, description: "The engine verified the CashDeposited log through the MPC.", links: txLinks("base", deposit.log.transactionHash) });
         setPending(null);
         setBaseStep("done");
         void refreshBalances();
@@ -110,7 +121,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
         toast.show({ tone: "error", title: described.title, description: described.message, links: txLinks("base", deposit.log.transactionHash) });
       }
     },
-    [engine, onDeposited, refreshBalances, roundId, run, toast],
+    [engine, format, onDeposited, refreshBalances, roundId, run, toast, unit],
   );
 
   const depositBase = useCallback(async () => {
@@ -143,6 +154,8 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
       if (receipt.status !== "success") throw new RoseActionError("contract", "Deposit reverted on Base", "depositCash reverted: nothing left your wallet. Check the amount and retry.", true);
       const log = decodeCashDeposited(receipt)[0];
       if (!log) throw new RoseActionError("contract", "No CashDeposited log", "The transaction emitted no CashDeposited log.");
+      recordAttempted({ key: baseLogReplayKey(log), chain: "base", label: `depositCash of ${format(parsed)} ${unit}`, nearAccount: near.accountId, attemptedAt: Date.now(), baseTx: hash, cash: { creditTo: near.accountId, roundId: roundId.toString(), token: token.toLowerCase(), amount: parsed.toString() } });
+      setRecorded((count) => count + 1);
       deposit = { log, amount: parsed };
       setPending(deposit);
     } catch (error) {
@@ -154,7 +167,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
       return;
     }
     await registerLog(deposit);
-  }, [engine, getEvmWalletClient, near.accountId, parsed, registerLog, roundId, toast, valid, venue]);
+  }, [engine, format, getEvmWalletClient, near.accountId, parsed, registerLog, roundId, toast, unit, valid, venue]);
 
   if (venue === "Near") {
     const wallet = balances.nearTusdc;
@@ -186,11 +199,11 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
   return (
     <div className="flex flex-col gap-3 rounded-md border border-ink-700 bg-ink-900 p-3" data-cash-deposit="base">
       <p className="text-[12px] text-ink-300">
-        Your cash in this venue is short by <span className="tabular text-ink-50">{formatUsdc(shortfall)}</span>. Deposit the Base token into RoseVault with your EVM wallet; the engine verifies the `CashDeposited` log through the MPC once Base&apos;s safe head passes it (3 to 4 minutes).
+        Your cash in this venue is short by <span className="tabular text-ink-50">{format(shortfall)} {unit}</span>. Deposit the Base token into RoseVault with your EVM wallet; the engine verifies the `CashDeposited` log through the MPC once Base&apos;s safe head passes it (3 to 4 minutes).
       </p>
       {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : evm.status !== "connected" ? <Notice tone="warning">Connect an EVM wallet on Base Sepolia (or the demo wallet) to deposit.</Notice> : null}
-      <Field label="Amount to deposit" hint={baseBalance !== null ? `Wallet balance ${formatUsdc(baseBalance)} (rose tUSDC)` : "The venue token balance is read for rose tUSDC only."} error={!valid ? "Enter a positive amount." : null}>
-        {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={amount} onValueChange={setAmount} unit="USDC" decimals={USDC_DECIMALS} />}
+      <Field label="Amount to deposit" hint={decimals === null ? `Reading the decimals of ${unit}…` : baseBalance !== null ? `Wallet balance ${formatUsdc(baseBalance)} (rose tUSDC)` : "The venue token balance is read for rose tUSDC only."} error={decimals !== null && !valid ? "Enter a positive amount." : null}>
+        {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={amount} onValueChange={setAmount} unit={unit} decimals={scale} />}
       </Field>
       <ol className="flex flex-col gap-1 text-[12px]" data-base-cash-steps>
         {BASE_STEPS.map((step, index) => {
@@ -208,7 +221,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
       </ol>
       {pending && baseStep !== "done" ? (
         <p className="text-[12px] text-ink-300" data-pending-cash>
-          {formatUsdc(pending.amount)} sits in RoseVault (
+          {format(pending.amount)} {unit} sits in RoseVault (
           <a href={txUrl("base", pending.log.transactionHash)} target="_blank" rel="noreferrer" className="underline underline-offset-2">
             depositCash ↗
           </a>
@@ -227,6 +240,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
         )}
       </div>
       {baseError ? <Notice tone="danger">{baseError.title}: {baseError.message}</Notice> : null}
+      {near.accountId ? <PendingCashDeposits token={venue.Base.token} creditTo={near.accountId} exclude={pending ? keyId(baseLogReplayKey(pending.log)) : null} refreshKey={recorded} onRegistered={onDeposited} /> : null}
     </div>
   );
 }

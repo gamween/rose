@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { CASH_TX, cashAttemptJson, cashAttemptScript, withCashResume, type CashResume } from "./fixtures/base-cash";
 import { MOCK, mockChains, type MockOverrides } from "./fixtures/engine-mock";
 
 /**
@@ -59,6 +60,9 @@ const RESULT_7 = {
     { bid_id: 1, bidder: "tessaro.testnet", side: "Sell", escrow: "0", locked_units: `10${E18}`, bond: "1000000", fee: "0", cash: "0", fill_quantity: "0", settled: true, opened: { quantity: `10${E18}`, price: "10000000" }, void: null },
   ],
 };
+
+/** An open Exit round settled in the Base tUSDC venue. */
+const ROUND_8 = { ...ROUND_7, round_id: "8", kind: "Exit", status: "Open", venue: { Base: { token: MOCK.baseTusdc } }, creator: "alice.testnet", f_ts: "250000000000000000", closes_at: ns(NOW_SEC + DAY), opens_at: ns(NOW_SEC - DAY), budget: null, issuer_escrow: null, reference_price: null, retire_to: null, key: null, key_source: null, key_received_at: null, reveal_ends_at: null, ended_at: null, bid_count: 0, opened_count: 0, settled_count: 0 };
 
 const BIDS_7 = RESULT_7.fills.map((fill) => ({ round_id: "7", bid_id: fill.bid_id, bidder: fill.bidder, side: "Sell", status: "Settled", escrow: "0", locked_units: fill.locked_units, bond: fill.bond, fee: "0", cash: fill.cash, fill_quantity: fill.fill_quantity, ciphertext_hex: null, placed_at: ns(NOW_SEC - 5 * DAY + 100), opened: fill.opened, void: null }));
 
@@ -354,6 +358,32 @@ test.describe("issuer console", () => {
     await shot(page, "report");
   });
 
+  test("registers, from the Fund tab, a Base cash deposit a reload left unregistered", async ({ page }) => {
+    const state = { account: "", sent: [] as string[] };
+    const resume: CashResume = { creditTo: DAO, amount: 1_000_000_000n, roundId: 0n, registered: false, registerSent: 0 };
+    await mockChains(page, withCashResume(overrides(state), resume));
+    await page.addInitScript(cashAttemptScript(resume));
+    await openConsole(page, "#fund");
+    state.account = await connectNearDemo(page);
+    await page.locator("[data-fund-venue]").selectOption(`base:${MOCK.baseTusdc}`);
+    const pending = page.locator("[data-pending-cash]");
+    await expect(pending).toContainText("Cash waiting for registration", { timeout: 30_000 });
+    await expect(pending).toContainText(`1,000.00 tUSDC`);
+    await expect(pending).toContainText(DAO);
+    await expect(pending.getByRole("link", { name: "depositCash ↗" })).toHaveAttribute("href", `https://sepolia.basescan.org/tx/${CASH_TX}`);
+    await shot(page, "fund-pending-cash");
+    await pending.locator("[data-register-pending-cash]").click();
+    const flow = pending.locator("[data-pending-cash-flow]");
+    await expect(flow.locator("[data-status='done']")).toHaveCount(3, { timeout: 30_000 });
+    await expect(flow).toContainText(`CashDeposited in block 39000000 for ${DAO}.`);
+    await expect(flow).toContainText("Final since long ago");
+    await expect(flow).toContainText(`Credited to the Base cash of ${DAO}.`);
+    await expect(flow.getByRole("link", { name: /near.rocks/ })).toHaveAttribute("href", `https://testnet.near.rocks/tx/${TX_HASH}`);
+    await expect(pending.locator("[data-pending-cash-row]")).toHaveCount(0);
+    expect(resume.registerSent).toBe(1);
+    await shot(page, "fund-pending-cash-done");
+  });
+
   test("explains a missing round on the results page", async ({ page }) => {
     const state = { account: "", sent: [] as string[] };
     await mockChains(page, overrides(state));
@@ -362,6 +392,107 @@ test.describe("issuer console", () => {
     await page.reload();
     await expect(page.getByText("Round #42 does not exist")).toBeVisible({ timeout: 60_000 });
     await shot(page, "results-missing");
+  });
+});
+
+test.describe("Base cash waiting for registration, from the order form", () => {
+  test.skip(!process.env.NEXT_PUBLIC_ENGINE_ACCOUNT, "NEXT_PUBLIC_ENGINE_ACCOUNT is not set for this build");
+
+  test("an Exit buyer registers the cash deposit a reload interrupted, then sees it in the venue", async ({ page }) => {
+    const state = { account: "", sent: [] as string[] };
+    const resume: CashResume = { creditTo: "", amount: 50_000_000n, roundId: 8n, registered: false, registerSent: 0 };
+    const base = overrides(state);
+    await mockChains(
+      page,
+      withCashResume(
+        {
+          ...base,
+          engineView: (method, args) => {
+            if (method === "get_round" && String(args.round_id) === "8") return ROUND_8;
+            if (method === "get_bids" && String(args.round_id) === "8") return [];
+            if (method === "get_order_id") return null;
+            if (method === "get_cash") return resume.registered ? [{ venue: { Base: { token: MOCK.baseTusdc } }, amount: resume.amount.toString() }] : [];
+            if (method === "get_portfolio") return { holdings: [], bids: [], liens_held: [], lien_shares: [], cash: resume.registered ? [{ venue: { Base: { token: MOCK.baseTusdc } }, amount: resume.amount.toString() }] : [] };
+            return base.engineView?.(method, args);
+          },
+        },
+        resume,
+      ),
+    );
+    await page.clock.install({ time: NOW_SEC * 1000 });
+    await page.addInitScript(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.goto("/app/rounds/8");
+    state.account = await connectNearDemo(page);
+    resume.creditTo = state.account;
+    await page.evaluate((value) => localStorage.setItem("rose.deposits.attempted", value), cashAttemptJson(resume));
+    await page.reload();
+    const form = page.locator("[data-order-form]");
+    await expect(form).toBeVisible({ timeout: 30_000 });
+    const pending = form.locator("[data-pending-cash]");
+    await expect(pending).toContainText("50.00 tUSDC", { timeout: 30_000 });
+    await expect(pending).toContainText("round label 8");
+    await pending.locator("[data-register-pending-cash]").click();
+    const flow = pending.locator("[data-pending-cash-flow]");
+    await expect(flow.locator("[data-status='done']")).toHaveCount(3, { timeout: 30_000 });
+    await expect(flow).toContainText(`Credited to the Base cash of ${state.account}.`);
+    await expect(form.locator("[data-order-preview]")).toContainText("50.00 USDC", { timeout: 30_000 });
+    expect(resume.registerSent).toBe(1);
+  });
+});
+
+test.describe("values at 375 px", () => {
+  test.skip(!process.env.NEXT_PUBLIC_ENGINE_ACCOUNT, "NEXT_PUBLIC_ENGINE_ACCOUNT is not set for this build");
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  /** Text cut with an ellipsis that carries no title (only long identifiers may be shortened, with the full value in a title), and the page's own scroll width. */
+  async function clipped(page: Page): Promise<{ texts: string[]; scrollWidth: number }> {
+    return page.evaluate(() => {
+      const texts: string[] = [];
+      for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+        if (getComputedStyle(element).textOverflow !== "ellipsis" || element.offsetParent === null) continue;
+        if (element.scrollWidth > element.clientWidth + 1 && !element.closest("[title]")) texts.push((element.textContent ?? "").trim());
+      }
+      return { texts, scrollWidth: document.documentElement.scrollWidth };
+    });
+  }
+
+  test("numbers and dates read in full on the rounds list, a round, the Tender report, prices, the landing stats and the docs", async ({ page }) => {
+    const state = { account: "", sent: [] as string[] };
+    const base = overrides(state);
+    await mockChains(page, {
+      ...base,
+      engineView: (method, args) => {
+        if (method === "get_round" && String(args.round_id) === "8") return ROUND_8;
+        if (method === "get_bids" && String(args.round_id) === "8") return [];
+        if (method === "get_rounds" && !(args.filter as { creator?: string } | null)?.creator) return { rounds: [ROUND_8, ROUND_7], next: null };
+        return base.engineView?.(method, args);
+      },
+    });
+    await page.clock.install({ time: NOW_SEC * 1000 });
+    await page.addInitScript(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    const pages: [string, string][] = [
+      ["/app/rounds", "[data-round-card='7']"],
+      ["/app/rounds/8", "[data-parameters]"],
+      ["/app/issuer/results/7", "[data-report-parameters]"],
+      ["/app/prices", "figure"],
+      ["/", "[data-landing]"],
+      ["/docs/cross-chain-custody", "article"],
+    ];
+    for (const [path, ready] of pages) {
+      await page.goto(path);
+      await expect(page.locator(ready).first()).toBeVisible({ timeout: 30_000 });
+      await page.waitForTimeout(1_500);
+      const result = await clipped(page);
+      expect(result.texts, path).toEqual([]);
+      expect(result.scrollWidth, path).toBeLessThanOrEqual(375);
+    }
+    await page.goto("/app/rounds/8");
+    const closes = page.locator("[data-parameters] time").nth(1);
+    await expect(closes.locator("span[aria-hidden]")).toHaveText("4 Nov 25, 20:00 UTC");
+    await expect(closes.locator("span[aria-hidden]")).toBeVisible();
+    await expect(closes.locator("span:not([aria-hidden])")).toHaveCSS("position", "absolute");
+    await expect(closes).toHaveAttribute("title", "4 Nov 2025, 20:00 UTC");
+    await expect(page.locator("[data-parameters] dl")).toHaveCSS("grid-template-columns", /^\d+(\.\d+)?px$/);
   });
 });
 

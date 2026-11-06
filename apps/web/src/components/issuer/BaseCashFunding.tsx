@@ -1,13 +1,18 @@
 "use client";
 
 import { approveToken, decodeCashDeposited, depositCash, erc20Abi, waitForSafeHead, type CashDepositedLog } from "@rose/sdk";
+import { useState } from "react";
+import { recordAttempted, keyId } from "@/components/deposit/attempted";
+import { baseLogReplayKey } from "@/components/deposit/eligibility";
+import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
 import { Button } from "@/components/ui/Button";
 import { FlowSteps } from "@/components/ui/FlowSteps";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { formatUsdc, venueLabel } from "@/lib/amounts";
+import { formatVenueCash, venueLabel } from "@/lib/amounts";
 import { deployedAddress } from "@/lib/deployment";
 import { RoseActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
+import { useVenueDecimals } from "@/lib/token-symbols";
 import { useFlow } from "@/lib/use-action";
 import { requireSuccessfulReceipt } from "@/lib/wallet/receipt";
 import { registerCashLog } from "./base-registration";
@@ -38,20 +43,26 @@ export function BaseCashFunding({
   const vault = deployedAddress("roseVault");
   const flow = useFlow({ onComplete: onDone });
   const label = venueLabel({ Base: { token } }, base.symbols).replace(/^Base /, "");
+  const decimals = useVenueDecimals({ Base: { token } });
+  const format = (value: bigint) => formatVenueCash(value, decimals);
+  /** The deposit this flow registers, hidden from the "waiting for registration" list while the flow owns it. */
+  const [current, setCurrent] = useState<string | null>(null);
+  const [recorded, setRecorded] = useState(0);
 
   const run = async () => {
-    if (!vault || amount === null || amount <= 0n || !wallets.evm.address || !creditTo) return;
+    if (!vault || amount === null || amount <= 0n || decimals === null || !wallets.evm.address || !creditTo) return;
+    setCurrent(null);
     const tokenAddress = token as `0x${string}`;
     const client = baseClient();
     let log: CashDepositedLog | null = null;
     await flow.start([
       {
         id: "approve",
-        label: `Approve RoseVault for ${formatUsdc(amount)} ${label}`,
+        label: `Approve RoseVault for ${format(amount)} ${label}`,
         run: async () => {
           const owner = wallets.evm.address!;
           const [balance, allowance] = await Promise.all([client.readContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [owner] }), client.readContract({ address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [owner, vault] })]);
-          if (balance < amount) throw new RoseActionError("insufficient_balance", "Not enough tokens on Base", `Your Base wallet holds ${formatUsdc(balance)}. Mint tUSDC from "Get test funds".`);
+          if (balance < amount) throw new RoseActionError("insufficient_balance", "Not enough tokens on Base", `Your Base wallet holds ${format(balance)} ${label}. Mint tUSDC from "Get test funds".`);
           if (allowance >= amount) return { message: "Allowance already sufficient" };
           const wallet = await wallets.getEvmWalletClient();
           const hash = await approveToken(wallet, tokenAddress, vault, amount);
@@ -61,7 +72,7 @@ export function BaseCashFunding({
       },
       {
         id: "deposit",
-        label: `depositCash(${formatUsdc(amount)}, ${creditTo}, round ${roundId.toString()})`,
+        label: `depositCash(${format(amount)} ${label}, ${creditTo}, round ${roundId.toString()})`,
         run: async ({ setDetail }) => {
           const wallet = await wallets.getEvmWalletClient();
           const hash = await depositCash(wallet, { vault, token: tokenAddress, amount, nearAccount: creditTo, roundId });
@@ -69,6 +80,10 @@ export function BaseCashFunding({
           const receipt = requireSuccessfulReceipt(await client.waitForTransactionReceipt({ hash }), "depositCash");
           log = decodeCashDeposited(receipt)[0] ?? null;
           if (!log) throw new RoseActionError("contract", "No CashDeposited log", "RoseVault did not emit CashDeposited.");
+          const key = baseLogReplayKey(log);
+          recordAttempted({ key, chain: "base", label: `depositCash of ${format(amount)} ${label}`, nearAccount: creditTo, attemptedAt: Date.now(), baseTx: hash, cash: { creditTo, roundId: roundId.toString(), token: tokenAddress.toLowerCase(), amount: amount.toString() } });
+          setCurrent(keyId(key));
+          setRecorded((count) => count + 1);
           return { message: `CashDeposited in block ${receipt.blockNumber.toString()}`, links: txLinks("base", hash) };
         },
       },
@@ -86,7 +101,7 @@ export function BaseCashFunding({
         run: async ({ signal, setDetail }) => {
           const result = await registerCashLog(base.engine, wallets.sendNearCall, log!, { signal, onDetail: setDetail });
           if (result.outcome.outcome === "refused") throw new RoseActionError("contract", "Deposit refused", result.outcome.refused.reason);
-          return { message: `${formatUsdc(amount)} credited to the Base cash of ${creditTo}`, links: result.txHash ? txLinks("near", result.txHash) : [] };
+          return { message: `${format(amount)} ${label} credited to the Base cash of ${creditTo}`, links: result.txHash ? txLinks("near", result.txHash) : [] };
         },
       },
     ]);
@@ -100,9 +115,11 @@ export function BaseCashFunding({
         ? "Connect a NEAR wallet (it signs register_base_cash)."
         : !creditTo
           ? "Name the NEAR account to credit."
-          : amount === null || amount <= 0n
-            ? "Enter an amount."
-            : null;
+          : decimals === null
+            ? `Reading the decimals of ${label}…`
+            : amount === null || amount <= 0n
+              ? "Enter an amount."
+              : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -114,6 +131,7 @@ export function BaseCashFunding({
         {disabled ? <Hint>{disabled}</Hint> : null}
       </div>
       <FlowSteps steps={flow.steps} onRetry={() => void flow.retry()} running={flow.running} />
+      <PendingCashDeposits token={token} exclude={flow.completed ? null : current} refreshKey={recorded} onRegistered={onDone} />
     </div>
   );
 }
