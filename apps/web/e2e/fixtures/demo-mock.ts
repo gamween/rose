@@ -5,8 +5,9 @@ import { mockChains } from "./engine-mock";
 
 /**
  * The engine views the guided demo reads, recorded after the seed and the live end-to-end run of
- * each seeded staging engine (`get_round`, `get_bids`, `get_class`, `get_position`, `get_config`
- * and every readable `get_events` entry): `demo-engine-s5.json` and `demo-engine-s4.json` (2026-11-04).
+ * each seeded engine (`get_round`, `get_bids`, `get_class`, `get_position`, `get_config` and every
+ * readable `get_events` entry): `demo-engine.json` for the final engine `engine.rose-app.testnet`
+ * (2026-11-06) and `demo-engine-s5.json` for the staging engine `engine-s5` (2026-11-04).
  * The suite uses the recording of the engine the app is built with (`NEXT_PUBLIC_ENGINE_ACCOUNT`).
  * `expected` holds the values of that run the walkthrough must show.
  */
@@ -37,7 +38,7 @@ interface Recording {
   };
 }
 
-const RECORDINGS = ["demo-engine-s5.json", "demo-engine-s4.json"].map(
+const RECORDINGS = ["demo-engine.json", "demo-engine-s5.json"].map(
   (file) => JSON.parse(readFileSync(resolve(import.meta.dirname, file), "utf8")) as Recording,
 );
 
