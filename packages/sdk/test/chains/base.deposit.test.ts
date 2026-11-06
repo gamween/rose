@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { formatTransactionReceipt, type PublicClient, type RpcTransactionReceipt, type TransactionReceipt } from "viem";
 import { describe, expect, it } from "vitest";
 import { must } from "./must.js";
-import { baseLogLocation, decodeCashDeposited, decodeStreamDeposited, registerBaseCashArgs, registerBaseDepositArgs, waitForSafeHead, type SafeHeadProgress } from "../../src/chains/base/deposit.js";
+import { BaseSafeHeadStalledError, baseLogLocation, decodeCashDeposited, decodeStreamDeposited, registerBaseCashArgs, registerBaseDepositArgs, waitForSafeHead, type SafeHeadProgress } from "../../src/chains/base/deposit.js";
 
 const fixture = (name: string): RpcTransactionReceipt => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8")) as RpcTransactionReceipt;
 
@@ -125,6 +125,13 @@ describe("waitForSafeHead", () => {
     expect(result).toEqual({ safeHead: 54_159_300n, target: 54_159_281n, phase: "ready" });
     expect(progress.map((p) => p.phase)).toEqual(["waiting_safe", "waiting_safe", "margin", "ready"]);
     expect(sleeps).toEqual([10_000, 10_000, 30_000]);
+  });
+
+  it("gives up with a retryable error when the safe head does not move", async () => {
+    const sleep = () => Promise.resolve();
+    await expect(waitForSafeHead(clientWithSafeHeads([5n]), 10n, { pollMs: 10_000, stallMs: 60_000, sleep })).rejects.toBeInstanceOf(BaseSafeHeadStalledError);
+    const moving = waitForSafeHead(clientWithSafeHeads([5n, 5n, 5n, 6n, 6n, 6n, 7n, 7n, 10n]), 10n, { pollMs: 10_000, stallMs: 30_000, marginMs: 0, sleep });
+    await expect(moving).resolves.toMatchObject({ phase: "ready" });
   });
 
   it("stops when the signal aborts", async () => {

@@ -1,4 +1,4 @@
-import { NearRpcError, roseVaultAbi } from "@rose/sdk";
+import { BaseSafeHeadStalledError, NearRpcError, roseVaultAbi } from "@rose/sdk";
 import { ContractFunctionExecutionError, ContractFunctionRevertedError } from "viem";
 import { describe, expect, it } from "vitest";
 import { failureToActionError, RoseActionError, toActionError } from "./errors";
@@ -67,6 +67,7 @@ describe("human-readable errors", () => {
 
   it("maps NEAR RPC errors to not deployed and unreachable", () => {
     expect(toActionError(new NearRpcError("no_contract", "No contract is deployed on x."))).toMatchObject({ kind: "not_deployed" });
+    expect(toActionError(new BaseSafeHeadStalledError(5n, 900_000))).toMatchObject({ kind: "rpc", title: "Base RPC stalled", retryable: true });
     expect(toActionError(new NearRpcError("unreachable", "down"))).toMatchObject({ kind: "rpc", retryable: true });
   });
 

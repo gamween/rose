@@ -3,7 +3,7 @@
  * MPC timeout with retry, expired blockhash with retry, plus RPC and contract failures.
  */
 
-import { NearRpcError, describeFailure } from "@rose/sdk";
+import { BaseSafeHeadStalledError, NearRpcError, describeFailure } from "@rose/sdk";
 
 export type ActionErrorKind =
   | "rejected"
@@ -116,6 +116,7 @@ function erc20Revert(error: unknown): ActionError | null {
 /** Maps anything thrown by a wallet, an RPC or a contract to a message a person can act on. */
 export function toActionError(error: unknown): ActionError {
   if (error instanceof RoseActionError) return error;
+  if (error instanceof BaseSafeHeadStalledError) return { kind: "rpc", title: "Base RPC stalled", message: error.message, retryable: true };
   const token = erc20Revert(error);
   if (token) return token;
   if (error instanceof NearRpcError) {

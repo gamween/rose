@@ -90,6 +90,8 @@ export interface WaitForSafeHeadOptions {
   /** Extra wait after the safe head passed, because the MPC nodes' own providers can lag the public RPC (spec 7.1: about 30 s). */
   marginMs?: number;
   pollMs?: number;
+  /** Gives up when the safe head has not moved for this long (default 15 min; it normally moves every 3 to 4 min). */
+  stallMs?: number;
   signal?: AbortSignal;
   onProgress?: (progress: SafeHeadProgress) => void;
   /** Injectable clock for tests. */
@@ -114,19 +116,34 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** The RPC kept serving the same `safe` head for `stallMs`: a stuck backend, so the wait ends with a retryable error. */
+export class BaseSafeHeadStalledError extends Error {
+  constructor(readonly safeHead: bigint, readonly stallMs: number) {
+    super(`Base's safe head stayed at ${safeHead.toString()} for ${String(Math.round(stallMs / 60_000))} minutes on this RPC. The transaction is on chain: retry to register it.`);
+    this.name = "BaseSafeHeadStalledError";
+  }
+}
+
 /**
  * Resolves once Base's `safe` head has passed `blockNumber` plus `marginMs` (spec 7.1 step 3:
- * the engine verifies with finality `Safe`). Observed: the safe head jumps every 3 to 4 minutes.
+ * the engine verifies with finality `Safe`). Observed: the safe head jumps every 3 to 4 minutes;
+ * a head that does not move for `stallMs` throws `BaseSafeHeadStalledError`.
  */
 export async function waitForSafeHead(client: PublicClient, blockNumber: bigint, options: WaitForSafeHeadOptions = {}): Promise<SafeHeadProgress> {
   const marginMs = options.marginMs ?? 30_000;
   const pollMs = options.pollMs ?? 10_000;
+  const stallMs = options.stallMs ?? 900_000;
   const sleep = options.sleep ?? defaultSleep;
   let safeHead: bigint;
+  let previous: bigint | null = null;
+  let unchangedMs = 0;
   for (;;) {
     const block = await client.getBlock({ blockTag: "safe" });
     safeHead = block.number;
     if (safeHead >= blockNumber) break;
+    unchangedMs = safeHead === previous ? unchangedMs + pollMs : 0;
+    if (unchangedMs >= stallMs) throw new BaseSafeHeadStalledError(safeHead, unchangedMs);
+    previous = safeHead;
     options.onProgress?.({ safeHead, target: blockNumber, phase: "waiting_safe" });
     await sleep(pollMs, options.signal);
   }
