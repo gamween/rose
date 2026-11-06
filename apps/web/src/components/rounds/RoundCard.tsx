@@ -5,8 +5,8 @@ import Link from "next/link";
 import { Countdown } from "@/components/ui/Countdown";
 import { cn } from "@/lib/cn";
 import { ROUTES } from "@/lib/routes";
-import { cancelledOutcome, classShortLabel, clearingOf, formatDate, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, venueTokenAccount, type NextAction } from "./model";
-import { KindBadge, StatusBadge } from "./shared";
+import { cancelledOutcome, classShortLabel, clearingOf, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, venueTokenAccount, type NextAction } from "./model";
+import { DateTimeText, KindBadge, StatusBadge } from "./shared";
 import type { BookSummary } from "./useRoundsList";
 
 function collateral(round: Round, decimals: number): { label: string; value: string } {
@@ -66,9 +66,14 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
           <Link href={href} className="font-display text-[15px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline">
             Round #{round.roundId.toString()}
           </Link>
-          <p className="mt-0.5 truncate text-[12px] text-ink-400" title={cls ? `Token ${cls.token} on ${cls.chain} · class ${cls.classId}` : round.classId}>
+          <p className="mt-0.5 text-[12px] text-ink-400" title={cls ? `Token ${cls.token} on ${cls.chain} · class ${cls.classId}` : round.classId}>
             {cls ? classShortLabel(cls, symbol) : `Class ${round.classId.slice(0, 10)}…`}
-            {cls ? <span className="text-ink-400"> · unlocks until {formatDate(scheduleEndSecs(cls) * 1000)}</span> : null}
+            {cls ? (
+              <span className="text-ink-400">
+                {" "}
+                · unlocks until <DateTimeText ms={scheduleEndSecs(cls) * 1000} withTime={false} />
+              </span>
+            ) : null}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -77,23 +82,23 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
         </div>
       </header>
 
-      <dl className="grid grid-cols-3 gap-x-3 gap-y-2">
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
         <div className="min-w-0">
           <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{money.label}</dt>
-          <dd className="tabular truncate text-[13px] text-ink-100">{money.value}</dd>
+          <dd className="tabular text-[13px] text-ink-100 [overflow-wrap:anywhere]">{money.value}</dd>
         </div>
         <div className="min-w-0">
           <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Sealed orders</dt>
-          <dd className="tabular truncate text-[13px] text-ink-100">{String(round.bidCount)}</dd>
+          <dd className="tabular text-[13px] text-ink-100">{String(round.bidCount)}</dd>
         </div>
         <div className="min-w-0">
           <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Cancelled" ? "Outcome" : cleared ? "Cleared at" : "Locked at close"}</dt>
-          <dd className="tabular truncate text-[13px] text-ink-100">
+          <dd className="tabular text-[13px] text-ink-100 [overflow-wrap:anywhere]">
             {round.status === "Cancelled" ? cancelledOutcome(round) : cleared ? `${formatUsdc(cleared.price)} USDC` : lockedPercent(round.fTs)}
           </dd>
         </div>
         {sealed ? (
-          <div className="col-span-3 min-w-0" data-round-book>
+          <div className="col-span-2 min-w-0 sm:col-span-3" data-round-book>
             <dt className="sr-only">Public collateral</dt>
             <dd className="tabular text-[12px] text-ink-400 [overflow-wrap:anywhere]">{sealed}</dd>
           </div>

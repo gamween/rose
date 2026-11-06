@@ -95,7 +95,7 @@ export function Row({ label, value, mono = true }: { label: string; value: React
   return (
     <div className="flex min-w-0 items-baseline justify-between gap-3 text-[12px]">
       <dt className="shrink-0 text-ink-400">{label}</dt>
-      <dd className={cn("min-w-0 truncate text-right text-ink-100", mono && "tabular")} title={typeof value === "string" ? value : undefined}>
+      <dd className={cn("min-w-0 text-right text-ink-100 [overflow-wrap:anywhere]", mono && "tabular")} title={typeof value === "string" ? value : undefined}>
         {value}
       </dd>
     </div>

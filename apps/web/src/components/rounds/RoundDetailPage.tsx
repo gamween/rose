@@ -18,12 +18,12 @@ import { ClearingChart } from "./ClearingChart";
 import { buildBook, roundCurves } from "./curves";
 import { FillsTable } from "./FillsTable";
 import { FinalizePanel } from "./FinalizePanel";
-import { classLabel, clearingOf, formatDateTime, formatDuration, formatQty, formatUsdc, KIND_BLURB, lockedPercent, nsToMs, shortAccount, venueLabel, venueTokenAccount } from "./model";
+import { classLabel, clearingOf, formatDuration, formatQty, formatUsdc, KIND_BLURB, lockedPercent, nsToMs, shortAccount, venueLabel, venueTokenAccount } from "./model";
 import { MyOrders } from "./MyOrders";
 import { OrderForm } from "./OrderForm";
 import { SealedBook } from "./SealedBook";
 import { SettlementPanel } from "./SettlementPanel";
-import { ErrorState, KindBadge, NotDeployedState, Param, StatusBadge } from "./shared";
+import { DateTimeText, ErrorState, KindBadge, NotDeployedState, Param, StatusBadge } from "./shared";
 import { StatusTimeline } from "./StatusTimeline";
 import { useRoundDetail, type RoundDetail } from "./useRoundDetail";
 import { VerifyPanel } from "./VerifyPanel";
@@ -32,10 +32,12 @@ function Parameters({ detail }: { detail: RoundDetail }) {
   const { round, cls, symbol } = detail;
   return (
     <section aria-label="Public parameters" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-parameters>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-4 xl:grid-cols-6">
-        <Param label="Class" mono={false} className="col-span-2">
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-6">
+        <Param label="Class" mono={false} className="sm:col-span-2">
           <span title={`Token ${cls.token} on ${cls.chain}`}>{classLabel(cls, symbol)}</span>
-          <span className="tabular block truncate text-[11px] text-ink-400">{cls.classId}</span>
+          <span className="tabular block truncate text-[11px] text-ink-400" title={cls.classId}>
+            {cls.classId}
+          </span>
         </Param>
         <Param label="Cash venue" mono={false}>
           <span title={venueTokenAccount(round.venue)}>{venueLabel(round.venue)}</span>
@@ -73,8 +75,12 @@ function Parameters({ detail }: { detail: RoundDetail }) {
           </>
         ) : null}
         {round.kind !== "Tender" && round.maxBuyQuantity !== null && round.maxBuyQuantity !== undefined ? <Param label="Largest bid quantity">{formatQty(round.maxBuyQuantity, cls.decimals)}{round.kind === "Advance" ? " tokens" : ""}</Param> : null}
-        <Param label="Opens">{formatDateTime(nsToMs(round.opensAt))}</Param>
-        <Param label="Closes">{formatDateTime(nsToMs(round.closesAt))}</Param>
+        <Param label="Opens">
+          <DateTimeText ms={nsToMs(round.opensAt)} />
+        </Param>
+        <Param label="Closes">
+          <DateTimeText ms={nsToMs(round.closesAt)} />
+        </Param>
         <Param label="Identity (app_id)">
           <span title={round.appId}>{round.appId.slice(0, 16)}…</span>
         </Param>

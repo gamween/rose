@@ -73,7 +73,7 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
                       <p className="tabular text-[14px] text-ink-50">
                         {formatAmount(claim.source.amount, claim.info.decimals)} <span title={`Token ${claim.info.token}`}>{classLabel(claim.info, data.symbols)}</span>
                       </p>
-                      <p className="truncate text-[12px] text-ink-400">
+                      <p className="text-[12px] text-ink-400 [overflow-wrap:anywhere]">
                         {claim.source.label}
                         {claim.source.kind === "retired" ? ` · payable only to ${shortHex(claim.source.retireTo, 8, 6)}` : ""}
                       </p>

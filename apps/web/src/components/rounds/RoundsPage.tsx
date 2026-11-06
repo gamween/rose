@@ -103,26 +103,30 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
       ) : (
         <>
           <div className="flex flex-col gap-2 rounded-lg border border-ink-750 bg-ink-850 p-3" role="group" aria-label="Filters">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Type</span>
-              <Chip active={filter.kind === ""} onClick={() => setFilter((f) => ({ ...f, kind: "" }))}>
-                All
-              </Chip>
-              {KINDS.map((kind) => (
-                <Chip key={kind} active={filter.kind === kind} onClick={() => setFilter((f) => ({ ...f, kind: f.kind === kind ? "" : kind }))}>
-                  {KIND_LABEL[kind]}
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5" data-filter-group="type">
+                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Type</span>
+                <Chip active={filter.kind === ""} onClick={() => setFilter((f) => ({ ...f, kind: "" }))}>
+                  All
                 </Chip>
-              ))}
+                {KINDS.map((kind) => (
+                  <Chip key={kind} active={filter.kind === kind} onClick={() => setFilter((f) => ({ ...f, kind: f.kind === kind ? "" : kind }))}>
+                    {KIND_LABEL[kind]}
+                  </Chip>
+                ))}
+              </div>
               <span className="mx-1 hidden h-4 w-px bg-ink-700 sm:block" aria-hidden />
-              <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Status</span>
-              <Chip active={filter.status === ""} onClick={() => setFilter((f) => ({ ...f, status: "" }))}>
-                Any
-              </Chip>
-              {STATUSES.map((status) => (
-                <Chip key={status} active={filter.status === status} onClick={() => setFilter((f) => ({ ...f, status: f.status === status ? "" : status }))}>
-                  {STATUS_LABEL[status]}
+              <div className="flex flex-wrap items-center gap-1.5" data-filter-group="status">
+                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Status</span>
+                <Chip active={filter.status === ""} onClick={() => setFilter((f) => ({ ...f, status: "" }))}>
+                  Any
                 </Chip>
-              ))}
+                {STATUSES.map((status) => (
+                  <Chip key={status} active={filter.status === status} onClick={() => setFilter((f) => ({ ...f, status: f.status === status ? "" : status }))}>
+                    {STATUS_LABEL[status]}
+                  </Chip>
+                ))}
+              </div>
             </div>
             {data && data.classes.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5">

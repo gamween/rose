@@ -40,7 +40,9 @@ export function Tabs<T extends string>({
   };
 
   return (
-    <div role="tablist" aria-label={label} className={cn("flex items-center gap-1 border-b border-ink-750", className)}>
+    // The bottom rule is an inset shadow, not a border: the row scrolls sideways on a narrow screen
+    // (labels never wrap) and the selected tab's underline still paints over the rule.
+    <div role="tablist" aria-label={label} className={cn("flex items-center gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--color-ink-750)] [scrollbar-width:none]", className)}>
       {items.map((item, index) => {
         const selected = item.id === value;
         return (
@@ -58,7 +60,7 @@ export function Tabs<T extends string>({
             onClick={() => onChange(item.id)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              "relative -mb-px flex h-9 items-center gap-1.5 border-b-2 px-3 text-[13px] transition-colors",
+              "relative flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] transition-colors",
               selected ? "border-ember-500 text-ink-50" : "border-transparent text-ink-400 hover:text-ink-100",
             )}
           >

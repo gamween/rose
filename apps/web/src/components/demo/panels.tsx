@@ -11,8 +11,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ClearingChart } from "@/components/rounds/ClearingChart";
 import { buildBook, roundCurves } from "@/components/rounds/curves";
 import { ciphertextHash } from "@/components/rounds/ibe";
-import { classLabel, formatDateTime, formatDuration, formatQty, formatUsdc, lockedPercent, nsToMs, shortHex, venueLabel, venueTokenAccount } from "@/components/rounds/model";
-import { KindBadge, Param, StatusBadge } from "@/components/rounds/shared";
+import { classLabel, formatDuration, formatQty, formatUsdc, lockedPercent, nsToMs, shortHex, venueLabel, venueTokenAccount } from "@/components/rounds/model";
+import { DateTimeText, KindBadge, Param, StatusBadge } from "@/components/rounds/shared";
 import { verifyRound } from "@/components/rounds/verify";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { cn } from "@/lib/cn";
@@ -42,7 +42,7 @@ function Box({ label, children, note, data }: { label: string; children: ReactNo
 }
 
 function Grid({ children }: { children: ReactNode }) {
-  return <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 xl:grid-cols-4">{children}</dl>;
+  return <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-3 xl:grid-cols-4">{children}</dl>;
 }
 
 function nameOf(manifest: DemoManifest, account: string): string {
@@ -72,7 +72,7 @@ function ClassPanel(props: PanelProps) {
   return (
     <Box label="Class" data="class">
       <Grid>
-        <Param label="Class" mono={false} className="col-span-2">
+        <Param label="Class" mono={false} className="sm:col-span-2">
           <span title={`Token ${cls.token} on ${cls.chain}`}>{classLabel(cls, symbolOf(props))}</span>
           <span className="tabular block truncate text-[11px] text-ink-400">{cls.classId}</span>
         </Param>
@@ -175,10 +175,12 @@ function ParametersPanel(props: PanelProps) {
           </>
         ) : null}
         <Param label="Locked at close">{lockedPercent(round.fTs)}</Param>
-        <Param label="Closes">{formatDateTime(nsToMs(round.closesAt))}</Param>
+        <Param label="Closes">
+          <DateTimeText ms={nsToMs(round.closesAt)} />
+        </Param>
         <Param label="Key timeout">{formatDuration(Number(round.keyTimeout) / 1e9)}</Param>
         <Param label="Reveal window">{formatDuration(Number(round.revealWindow) / 1e9)}</Param>
-        <Param label="Identity (app_id)" className="col-span-2">
+        <Param label="Identity (app_id)" className="sm:col-span-2">
           <span title={round.appId}>{round.appId.slice(0, 24)}…</span>
         </Param>
       </Grid>
@@ -264,8 +266,8 @@ function KeyPanel(props: PanelProps) {
   return (
     <Box label="Key release" data="key">
       <Grid>
-        <Param label="Close requested">{round.closeRequestedAt !== null ? formatDateTime(nsToMs(round.closeRequestedAt)) : "—"}</Param>
-        <Param label="Key stored">{round.keyReceivedAt !== null ? formatDateTime(nsToMs(round.keyReceivedAt)) : "—"}</Param>
+        <Param label="Close requested">{round.closeRequestedAt !== null ? <DateTimeText ms={nsToMs(round.closeRequestedAt)} /> : "—"}</Param>
+        <Param label="Key stored">{round.keyReceivedAt !== null ? <DateTimeText ms={nsToMs(round.keyReceivedAt)} /> : "—"}</Param>
         <Param label="MPC latency">
           <span className="text-[15px] text-ember-200" data-demo-latency>
             {latency !== null ? `${latency.toFixed(2)} s` : "—"}
@@ -274,7 +276,7 @@ function KeyPanel(props: PanelProps) {
         <Param label="Delivered by" mono={false}>
           {round.keySource === "Submitted" ? "submit_key (anyone)" : round.keySource === "Callback" ? "MPC callback" : "—"}
         </Param>
-        <Param label="Round key (BLS12-381, G1)" className="col-span-2 sm:col-span-3 xl:col-span-4">
+        <Param label="Round key (BLS12-381, G1)" className="sm:col-span-3 xl:col-span-4">
           <span className="block truncate" title={round.key ?? undefined}>
             {round.key ?? "not released"}
           </span>
@@ -346,7 +348,7 @@ function CurvesPanel(props: PanelProps) {
     <Box label="Supply and demand" data="curves">
       <ClearingChart curves={curves} decimals={cls.decimals} kind={round.kind} clearing={result ? { price: result.price, volume: result.volume } : null} noCrossing={round.status === "Cancelled" && round.cancelReason === "NoCrossing"} />
       {result ? (
-        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-ink-750 pt-3 sm:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 border-t border-ink-750 pt-3 sm:grid-cols-4">
           <Param label="Clearing price">
             <span className="text-[15px] text-ember-200" data-demo-price>
               {formatUsdc(result.price)} USDC
