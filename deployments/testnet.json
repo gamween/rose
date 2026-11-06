@@ -415,7 +415,7 @@
       }
     },
     "engine.rose-app.testnet": {
-      "role": "final",
+      "role": "superseded",
       "base": {
         "chain_id": 84532,
         "deployer": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
@@ -496,6 +496,89 @@
       },
       "solana": {
         "demo_mint": "2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv"
+      },
+      "superseded_by": "engine-v2.rose-app.testnet",
+      "superseded_reason": "An Advance funder's lien share never left its account index, so funders' NEP-145 storage deposits stay locked (fixed in 46358b2); the engine is keyless and cannot be patched, so the fix ships as a new engine account."
+    },
+    "engine-v2.rose-app.testnet": {
+      "role": "final",
+      "base": {
+        "chain_id": 84532,
+        "deployer": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+        "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+        "test_usdc": {
+          "contract": "TestUSDC",
+          "address": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "tx": "0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9",
+          "block": 54195713
+        },
+        "demo_token": {
+          "contract": "DemoToken",
+          "address": "0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b",
+          "tx": "0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954",
+          "block": 54195713
+        },
+        "demo_stream_faucet": {
+          "contract": "DemoStreamFaucet",
+          "address": "0xf7b1302c20faab06ad5121981b3e949da24fd98d",
+          "tx": "0xb9c69f8c83640e28e40e9be9036e2afa9b2275fc5b7da90434663abc27b397e5",
+          "block": 54195713
+        },
+        "rose_vault": {
+          "contract": "RoseVault",
+          "address": "0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe",
+          "tx": "0x301ce5737f288a40df02e48ff3da1049bf2c3a5d4fa6f008020bf9512addf126",
+          "block": 55280887,
+          "signer": "0xc345e592c6db18c162c6225bfb6f6c92b425b7cb"
+        },
+        "accepted_cash_tokens": [
+          "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+          "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+        ]
+      },
+      "near": {
+        "engine": {
+          "create_tx": "AzUsL5BbbsG3C5s1rcfDqRPQK4YCMUMLVAMG15TRSD5R",
+          "init_args": {
+            "mpc_account": "v1.signer-prod.testnet",
+            "sign_secp256k1_domain": 0,
+            "sign_ed25519_domain": 1,
+            "ckd_domain": 2,
+            "foreign_tx_domain": 3,
+            "ckd_public_key": "bls12381g2:xeYho48G2Sr9oJz4gw9sLGZGspeeKpHZvMDAwWvoNTRnVMFJH96GxX98TT2MRhTtsot1wcGR1Ti2Xh8PCsbYJ2enbLNdJXDvTYSK8aTE3nJ5NZXU7Kt1F6mFtReWs5pR4kj",
+            "fee_recipient": "rose-app.testnet",
+            "near_cash_token": "tusdc.rose-app.testnet",
+            "base_cash_tokens": [
+              "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01",
+              "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+            ],
+            "rose_vault": "0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe",
+            "base_chain_id": 84532,
+            "sablier_lockup": "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e",
+            "streamflow_program": "HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ",
+            "default_key_timeout": null,
+            "default_reveal_window": null
+          },
+          "deploy_tx": "5y42Nnqcy58dypq5B6SqqVmfgtM1JsRXTjVeJVJX94Zp",
+          "bootstrap_tx": "CfnCUcRCXLHFLLtqhrmVmKBRKRvSnvuyobjW2eekmeaq",
+          "account": "engine-v2.rose-app.testnet",
+          "wasm": {
+            "sha256": "0a0a16ef9cec1916d59b963183eee9a20ded1206e4ec25bbaef759335ae8e46a",
+            "bytes": 1019188,
+            "reproducible": true,
+            "build_environment": "sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c8640a27172f83136a0f0aab2a9bf9d09f6ba0e6afd187addfaa9b92bae0",
+            "source_code_snapshot": "git+https://github.com/gamween/rose?rev=0524b3388f7bf512f39bf521e9af68736482ef9e"
+          },
+          "code_sha256": "0a0a16ef9cec1916d59b963183eee9a20ded1206e4ec25bbaef759335ae8e46a",
+          "delete_keys_tx": "2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3",
+          "keyless": true,
+          "access_keys_checked_at": "2026-11-06T15:17:53Z"
+        },
+        "derived": {
+          "vault_base": "0xc345e592c6db18c162c6225bfb6f6c92b425b7cb",
+          "vault_sol": "EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC",
+          "gas_sol": "HWx7jD36pAzB1Bo83bCvRYtnW5SHLcfdEZw4x4Zdn1Ng"
+        }
       }
     }
   }
