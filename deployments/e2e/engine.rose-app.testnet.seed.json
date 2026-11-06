@@ -1117,6 +1117,50 @@
         }
       },
       "done": true
+    },
+    "round:open": {
+      "at": "2026-11-06T13:16:30.585Z",
+      "txs": [
+        {
+          "label": "Halden Ventures: create_exit (Seed Round, NEAR tUSDC, open to every bidder)",
+          "chain": "near",
+          "hash": "CsKU3E2GDxGBQt8AHywRVNKrVN64XGfcP2YrvsQ9m5rC",
+          "link": "https://testnet.near.rocks/tx/CsKU3E2GDxGBQt8AHywRVNKrVN64XGfcP2YrvsQ9m5rC",
+          "gasTgas": 3.53
+        }
+      ],
+      "done": true,
+      "data": {
+        "roundId": "4",
+        "kind": "Exit",
+        "classId": "0d06a458ae0073d43d0cdc54d8a85d202250bcf33762a17658e84db3c9c3f894",
+        "creator": "halden-ventures.rose-app.testnet",
+        "closesAt": "1795180586355000000",
+        "revealWindow": "86400000000000"
+      }
+    },
+    "orders:open": {
+      "at": "2026-11-06T13:16:34.457Z",
+      "txs": [
+        {
+          "label": "Halden Ventures: place_ask",
+          "chain": "near",
+          "hash": "Aa4wLovaFQRsbc6FjaTurgA7PnWZxW1hoP6UWnzcPiBK",
+          "link": "https://testnet.near.rocks/tx/Aa4wLovaFQRsbc6FjaTurgA7PnWZxW1hoP6UWnzcPiBK",
+          "gasTgas": 4.65
+        }
+      ],
+      "done": true,
+      "data": {
+        "roundId": "4",
+        "bidId": 0,
+        "who": "halden",
+        "bidder": "halden-ventures.rose-app.testnet",
+        "side": "Sell",
+        "collateral": "50000000000000000000000",
+        "ciphertextSha256": "1571111b7cb457ab4e5847c83c483305c938fa0b71b50275d6f627a3ea66200e",
+        "malformed": false
+      }
     }
   }
 }
