@@ -113,9 +113,17 @@ describe("prices transforms", () => {
     expect(niceTicks(0, 0.83)).toEqual([0, 0.2, 0.4, 0.6, 0.8]);
     expect(niceTicks(0, 100, 6)).toEqual([0, 20, 40, 60, 80, 100]);
     expect(niceTicks(0, 0)).toEqual([0]);
-    expect(priceDomain([2, 8.5])[0]).toBe(0);
-    expect(priceDomain([2, 8.5])[1]).toBeCloseTo(9.35, 10);
+    expect(priceDomain([2, 8.5])).toEqual([0, 10]);
     expect(priceDomain([])).toEqual([0, 1]);
+    // The live demo's only Tender cleared at 0.036: the axis reaches a 0.04 gridline above it.
+    const [, top] = priceDomain([0.036]);
+    expect(top).toBe(0.04);
+    expect(niceTicks(0, top, 5).filter((tick) => tick <= top).at(-1)).toBe(0.04);
+    for (const max of [0.0027, 0.036, 0.0375, 1, 7.2, 9.6, 950, 1234]) {
+      const [, end] = priceDomain([max]);
+      const ticks = niceTicks(0, end, 5).filter((tick) => tick <= end);
+      expect(ticks.at(-1)!).toBeGreaterThanOrEqual(max);
+    }
     expect(compactNumber(1_250)).toBe("1.3K");
     expect(compactNumber(0.5)).toBe("0.5");
     expect(compactNumber(12)).toBe("12");
