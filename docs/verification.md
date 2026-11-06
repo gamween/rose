@@ -1422,3 +1422,92 @@ The engine and the RoseVault are deployed once, keyless and immutable, after the
 | Checks before the key deletion | same run | code hash equals the artifact; `get_config` equals every init argument (CKD key re-read from `v1.signer-prod.testnet`); `SIGNER()` and `LOCKUP()` read live |
 | Key deletion (one transaction) | same run | [47F3F4LA…](https://testnet.near.rocks/tx/47F3F4LAZwj5ByTcpFco3A75yCQmSKi2soBUT8LJP2e2) |
 | Keyless check | `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"engine.rose-app.testnet"}}' \| jq -c .result.keys` | `[]`; `view_account`: `code_hash` `FjBBS6dRJYuneJJXRx8e3YvFdKUCGxhWCA3bp3d4irSN`, storage 1,019,995 B, 16.99 NEAR |
+
+## Live end-to-end, final engine (2026-11-06)
+
+Every flow of the seeded story and of the Solana custody run again on the final keyless engine
+`engine.rose-app.testnet` and its RoseVault `0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f`, with the
+same scripts as on the staging engines. Full transaction tables: `deployments/e2e/engine.rose-app.testnet.{seed,live,solana,solana-ended}.json`
+(`node scripts/e2e-live.ts report --env deployments/engine.rose-app.testnet.env` prints the seed and live table).
+
+| Step | Command | Result |
+|---|---|---|
+| Seed | `node scripts/seed.ts all --env deployments/engine.rose-app.testnet.env --kol-wallet nadia-final` (a fresh KOL key: the DemoStreamFaucet allows one mint per address and class every 24 h) | exit 0, first run. Cast topped up from `rose-app.testnet` (e.g. [Fejcse3f…](https://testnet.near.rocks/tx/Fejcse3f8JQfZkGKCJV4cs1CSZvGjgbJi3bkFnmkGsm4)); Seed Round `createStreams` [0x4bfd967f…](https://sepolia.basescan.org/tx/0x4bfd967f6b53243cfa15515528637b389beb0ac183f76d53bf3ae0402bc22592), KOL Round [0xd308bcfe…](https://sepolia.basescan.org/tx/0xd308bcfe4f4e4c685524e01e9141ad7edbc941e5694bfd2a40ea81a5b2dff86b), Nadia's self-deposit [0x3314f46b…](https://sepolia.basescan.org/tx/0x3314f46bb5f32e81f4228da1ee8bbfa630e3daffb13d95c4c5402fb7eb60242b); streams 151 to 155 registered (151: [CbBF24Py…](https://testnet.near.rocks/tx/CbBF24Py8cJYQSWscHsokHdmagAv4E72TDggoXwC4KCb)); Strategic Round attributed [8oaGGxUp…](https://testnet.near.rocks/tx/8oaGGxUpddTz17KEcot19fszp9hLd9nZZLXe2VMt2pn2), moved [kdDmWnYc…](https://explorer.solana.com/tx/kdDmWnYcrgV9UaH9WKVeBijryYJHoCBxxvrJqFpG1iVKUQT1XdwXHYfFb3ESfXXqEnjPLZyJcZGfJmVCNo1a6ji?cluster=devnet), registered [D3Fsmj2m…](https://testnet.near.rocks/tx/D3Fsmj2mmRk4278zCoYabvxNwZFDHbqyJqwNBvRJfCGN); rounds 0 Tender [Gsbh4tow…](https://testnet.near.rocks/tx/Gsbh4towyptna6ycxJfz3He1EkjLLTL7kvc5E4Fc4jYc), 1 Exit [3F1XvCXU…](https://testnet.near.rocks/tx/3F1XvCXUSXZMBfD3S96w1wdGoSNMHXqvFS8LysczWTvj), 2 Advance [4C1J1L2m…](https://testnet.near.rocks/tx/4C1J1L2mEdt3CGKw3fSNrMEkctd432S8LEkynimcnqwL) with 10 sealed orders; demo mint `2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv` (the cast's, reused) |
+| No-key round | `node scripts/e2e-live.ts all --env deployments/engine.rose-app.testnet.env` | round 3: `close` refused after the 60 s timeout [CW1rCyXj…](https://testnet.near.rocks/tx/CW1rCyXjQhBsUhXVRkwzjYaJ1Jx5Xx1bbaL1M8eU5a1q) ("Key timeout reached"), `cancel_no_key` [EVpeZQkS…](https://testnet.near.rocks/tx/EVpeZQkSXQHQwKBET3Ew326CLic93dTfMs24p1fDCmGc), refund [8gct8dyP…](https://testnet.near.rocks/tx/8gct8dyPahKxZGGYEmKEnyBwZoz1US47RJnT4v38pWpi) |
+| Key release after close | same run | Tender [EGrrdJ4C…](https://testnet.near.rocks/tx/EGrrdJ4CBCfJwN3kCcb2TkGVEnYJN8cVKcaDP8Q8JNRJ) 4.26 s, Exit [GZCSThNV…](https://testnet.near.rocks/tx/GZCSThNVwD7tXKXhNt4tGCMS4bcJBTFWfLPqqvPJrJX7) 4.22 s, Advance [GWHwfLV4…](https://testnet.near.rocks/tx/GWHwfLV4NiyPtXzvh6bQRHYPvQuc4FKJZzNnL4ppGRKk) 5.44 s; 37.4 Tgas each; key by callback, each equal to the offline unwrap of the MPC response |
+| Openings | same run | 9 openings by `rose-app.testnet` at 132.09 to 132.13 Tgas (e.g. [6FPfUMAx…](https://testnet.near.rocks/tx/6FPfUMAxAgn214nnruSUs8CRFR5ChouEEFN5uZsK82nu)); the malformed bid cannot be decrypted and its author's own opening is refused [FLajwXe8…](https://testnet.near.rocks/tx/FLajwXe8XR32R7XwYy9vLYXkdD8MYkSUaNRKtsYTMXB8) ("Opening does not match the ciphertext", 131.3 Tgas) |
+| Clearing = reference | same run | Tender [G4qLarju…](https://testnet.near.rocks/tx/G4qLarjuophMP6DpKPwX8AhLbPczYfxrohCe4iQxt98R) 0.036 tUSDC, volume 41,666.67 CINDR; Exit (Strategic Round, Solana positions) [Ercjm3oL…](https://testnet.near.rocks/tx/Ercjm3oL6wyFmpPumZ1AGpbLuQoGzzjbXaxsw8bFx4Re) 0.027, volume 70,000; Advance (KOL Round, Base) [7xZ38Uuj…](https://testnet.near.rocks/tx/7xZ38Uujdkn7KRytDNiF7k3mnehuLU34zrHL21QonrGM) 0.0375, 3,000 claimed tokens; every price and fill equal to `@rose/sdk` on the opened orders |
+| Settlement | same run | 10 `settle_bid`; the malformed bid void (`Unopened`) and its 1 tUSDC bond slashed [Dh5i3YVQ…](https://testnet.near.rocks/tx/Dh5i3YVQsPVKsh7TKZZVWp6UxmkxtbNEM1L1qpMaFvUE) |
+| NEAR USDC payout | same run | `withdraw_near_cash` [HJRBUucb…](https://testnet.near.rocks/tx/HJRBUucbSTTaUirP4MFYFPo3peRW36WrKagyj4vedJav): 1,732.3875 tUSDC to Ines Marlow |
+| Base USDC payout | same run | `withdraw_base_cash` [CajaWK8z…](https://testnet.near.rocks/tx/CajaWK8zwZFUF9DQhxGn88Copq4S6yPmp6nonvrTm4HQ) + `executeTransfer` [0x23ac2dae…](https://sepolia.basescan.org/tx/0x23ac2dae8c7821af27df5ccb115ba362a41a584ee21a7ecb109d5c45f55d6a30): 1,460 tUSDC to Halden Ventures on Base |
+| Base token payout (Advance repaid from unlocks) | same run | `withdrawMax` of stream 153 [0xa85e66de…](https://sepolia.basescan.org/tx/0xa85e66de0315d7c0cdf8fadbe8abe60d110cca5f3d6415d27e0a290ccf3fd785), `claim_base_tokens` [6kNhZ2Vf…](https://testnet.near.rocks/tx/6kNhZ2VfQkJLreKRjTqfZdTpJbiHuYSMa8V8eBU6N9Af), `executeTransfer` [0x8a446868…](https://sepolia.basescan.org/tx/0x8a446868c428236b4a4dee344ab7032998c9e7f97b3c8c0c5ebade7efbf5f4ad): 0.3748 CINDR to Varick Partners |
+| In-kind redeem (Base) | same run | `redeem` of position 8 [318timqv…](https://testnet.near.rocks/tx/318timqvqX578vAbaSpWzqxKeS8j2Bj8n8mWfK2dFZ7y) + `executeRelease` [0xb5b1ebcb…](https://sepolia.basescan.org/tx/0xb5b1ebcbcf8f02f6b433130063a06d3c37177ad677165cabc1d127991c02b84a): Sablier stream 155 back to Nadia Solvik; `e2e-live.ts all` exit 0 on its first run |
+| Solana stream, main case | `node scripts/e2e-solana-stream.mjs engine.rose-app.testnet all --holder b1.rose-ckd-1793753433.testnet` | exit 1 at `claim` ("nothing claimable yet", by design: started 3 min after the stream); attribute [24ajYirq…](https://testnet.near.rocks/tx/24ajYirqVfaELgkC3h1yJuN4gFfyMCdoTnYePUX2zTso), move [J2Pw79cg…](https://testnet.near.rocks/tx/J2Pw79cgcHWTikYXB71GYoPTKJTNffd9Viiw1m4PdVGG) + [5NKGrYnx…](https://explorer.solana.com/tx/5NKGrYnxAxApN1VoQCaxd1GMxnjSpWENCqw7TGLar3xQK1FwpT2TAiSwvpzq5yLrcrXH52B3ZkPxafqG5yMKFbLa?cluster=devnet), register [9sGmh9mH…](https://testnet.near.rocks/tx/9sGmh9mHQxo1m3Qku51VwVYkwLUQeSMcaBGFcZ72FyZd) (position 3) |
+| | `… all` again | exit 1 at `transfer` (the step is not resumable and the stream already sat at the vault: Streamflow 103 in simulation, nothing sent) |
+| | `… claim`, `… confirm` | exit 0, exit 0: receipt-nonce payout 4, `claim_sol_tokens` [9fsQ267s…](https://testnet.near.rocks/tx/9fsQ267sZE1GteYkFn6U84DGXPdz4SDY6EoB86TrUBzY), broadcast [26JUFvVS…](https://explorer.solana.com/tx/26JUFvVSWryUumiSDjSAQQQKgB4oSGSt7PuGMX7HtBBnr7CSXdGYKVHtQXUDgUNjCi8fWzemVbSP7qd7sNmEXFNF?cluster=devnet) (299.999999 tokens), `confirm_sol_payout` [EtFQK9LT…](https://testnet.near.rocks/tx/EtFQK9LTrWnnYLdzBdvkkyQvtaBDMfzZMfZptwoGsVFP): `Landed` |
+| | `… redeem` | exit 1: [BvBEFW36…](https://testnet.near.rocks/tx/BvBEFW36WFKGq4ajFA38bqigauWvV8n4S8DtfsCRp5un) burned the units, but the MPC's `verify_foreign_transaction` receipt failed with "Request has timed out" and the engine refunded the burn in the same transaction (`mt_mint`, `payout_failed` "nonce or recipient attestation failed or mismatched"; position 3 `Held`, payout 5 failed). The engine behaved as specified; the script then read the null pending release as a payout id (fixed in `0ed1ea3`: it reports the refund) |
+| | `… redeem`, `… confirm-redeem` | exit 0, exit 0: `redeem` [DoX3E2tL…](https://testnet.near.rocks/tx/DoX3E2tLUck3FCabne2Bsdmg4ocHPSK5Dh5RNY7XEwcW), `transfer_recipient` to the holder [whm2FXLz…](https://explorer.solana.com/tx/whm2FXLzAx7Rzscdu9XQycD8ntpKzUbcNK7Zwcb9djR9RmNySzz8fWhmefRNAahmvXQCirg5wpK2gwR2obENtsm?cluster=devnet), `confirm_sol_redeem` [3XWr1LBn…](https://testnet.near.rocks/tx/3XWr1LBnQD6VtpPUAnod5w5TyMEZkk2K6txR8GLsFSuj): position 3 `Released` |
+| Solana stream, ended case | `node scripts/e2e-solana-stream.mjs engine.rose-app.testnet all --holder b1.rose-ckd-1793753433.testnet --case ended` (run first, the main case ran while it waited) | exit 0, first run, 65-minute stream `5wuxEdcs…`: attribute [9ZLsEBsJ…](https://testnet.near.rocks/tx/9ZLsEBsJwRtbuhHZnYHVtzXiPF3nkdoEEKqvdBUsCGBT), move [3WmNfTJB…](https://testnet.near.rocks/tx/3WmNfTJBFmNFyX77N6YFMji93uyZvEJjuK7rkBDc1x14) + [4nhbLJL2…](https://explorer.solana.com/tx/4nhbLJL2PBsscp2mfnF158Gs418csRYuo3UNtQR9WXTZqnv3kD5QZ6aFDEYs8KmrDdxC6FSS8GDpNTSknESRef9u?cluster=devnet), register [8zY1apBC…](https://testnet.near.rocks/tx/8zY1apBCnoWr5RdRdsFyUHrkJzhEfVxmCg1qposxUsZb) (position 1); Streamflow's auto-claim at the end [2mmp1Esu…](https://explorer.solana.com/tx/2mmp1Esurq6h3kFSrXokCPb2oDx1BojFbcoXdwgYmztTfVQsJ83a7hTqYbf12wHfq1ibpzUFLBXkRj2pfHZkcTFD?cluster=devnet) ("[10] Auto-Claim", 3,900 of 3,900 withdrawn); `sync_sol_stream` [Gcku9nnF…](https://testnet.near.rocks/tx/Gcku9nnFTbXCMNeLup42pmTz468u7MFwCfihqdrANLh1) booked 3,800 (the app's claim below drew 100 before the end), stream pruned; claim paid from the swept balance alone [Eb4v8qkp…](https://testnet.near.rocks/tx/Eb4v8qkp2g9WYaCcJvBQtLVnWniR2DhDPHH1Kh6gh2au) + [5shzwd1D…](https://explorer.solana.com/tx/5shzwd1DYxtjYbYJx5JqepcthD1Cz8Q4k3KbGNSv4ugrerq5ttFUweorxi5JoDBUNzx4bzUYU7KwRJqugbHHmcrc?cluster=devnet) (`TransferChecked`, 405 CU), `confirm_sol_payout` [CwqWxZZw…](https://testnet.near.rocks/tx/CwqWxZZwm1Prp9ffVYLBnpGBdBCR6dUgVXuoUZZkfTKt): payout 11 `Landed`, swept balance 0 |
+| Demo manifest | `node scripts/demo-manifest.ts --env deployments/engine.rose-app.testnet.env` | exit 0: 4 rounds (#0 tender, #1 exit, #2 advance, #3 no-key), 35 steps, 116 transactions; the views recorded into `apps/web/e2e/fixtures/demo-engine.json` (161 events) |
+| Round left open | `node scripts/seed.ts open-round --env deployments/engine.rose-app.testnet.env` | exit 0: Exit round 4 on the Seed Round, NEAR tUSDC, closes 2026-11-20T13:16:26Z, key timeout 7 d, reveal window 24 h [CsKU3E2G…](https://testnet.near.rocks/tx/CsKU3E2GDxGBQt8AHywRVNKrVN64XGfcP2YrvsQ9m5rC); Halden Ventures' sealed ask of 50,000 units [Aa4wLova…](https://testnet.near.rocks/tx/Aa4wLovaFQRsbc6FjaTurgA7PnWZxW1hoP6UWnzcPiBK) |
+| gas/sol | `node topup-gas2.mjs BE9yDmZ7QXDuwHxtThY527E9c5JSb7TMGdZx4crjFbAe 0.2` (scratch script: one SystemProgram transfer from the ops key up to the target) | 0.0955 SOL ("gas low" below 0.1) topped up to 0.2 SOL [2YfsDenK…](https://explorer.solana.com/tx/2YfsDenK6jxixShSk3CMuitaMCSzq5jbnfxgfHerTbreYTZDN1EAfBRfXBJwXNbeUf8ahipKvBfYaD7husJDbdWs?cluster=devnet) |
+
+### Production switch
+
+- `vercel env rm <name> production --yes` then `vercel env add <name> production` (value on stdin)
+  for the eight `NEXT_PUBLIC_*` of `deployments/engine.rose-app.testnet.env`: 16 commands, exit 0.
+  `vercel env pull --environment=production` then a sorted diff of the eight lines against the env
+  file: identical (the pulled file deleted).
+- `vercel deploy --prod` (repo root, `bd93419`): exit 0, `dpl_5bu2KBVEdkBTBYZJ65dQ7YfeG1NJ`,
+  aliased to https://rose-rounds.vercel.app. `/status` in a browser: "Keyless", account
+  `engine.rose-app.testnet`, keyless check "None", engine wasm `FjBBS6dRJYuneJJXRx8e3YvFdKUCGxhWCA3bp3d4irSN`,
+  MPC latency of rounds 0 to 2 (4.3, 4.2, 5.4 s), RoseVault signer matches the engine, gas/sol
+  "Gas funded"; 0 px horizontal overflow at 1470 and 375 px.
+- `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"engine.rose-app.testnet","method_name":"contract_source_metadata","args_base64":"e30="}}' | jq -r '.result.result | implode'`:
+  link `https://github.com/gamween/rose/tree/d5e1e0c2363d67aaa405c2d4324bc006a3992237`,
+  `build_environment` `sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c864…2bae0`.
+
+### Playwright against production
+
+`cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1`
+(the specs read the final engine's `NEXT_PUBLIC_*` from `apps/web/.env.local`):
+
+- Run 1 (`dpl_5bu2KBVE…`): exit 1, 143 passed, 2 failed, 25 skipped. Both failures were the mocked
+  Solana deposit spec on desktop and mobile: its RPC mock answered `getSignatureStatuses` (polled
+  over HTTP since the Fable pass 1 fixes) with the default balance shape, so the transfer step
+  errored instead of waiting. A test fixture bug, not an app bug: fixed in `4861f6a`; the spec
+  alone then exit 0 locally (12 passed).
+
+### Live click-through (real UI, demo wallets)
+
+- Get test funds with fresh demo wallets (`rose-demo-m3gr5f.testnet`, `0xa23A…db16`): account
+  created with 10 NEAR [9f4bzVkY…](https://testnet.near.rocks/tx/9f4bzVkYHvgDZMdJbxC6TmKDwhgmzjSJSmWdZ3UGsKv7),
+  1,000 tUSDC on NEAR [37BnveM1…](https://testnet.near.rocks/tx/37BnveM1Rj4pzbwGJY3H8yxmh2rrdVkqB5W81cXqx66Y),
+  0.002 ETH [0x562970e4…](https://sepolia.basescan.org/tx/0x562970e4b921f4c154e623a45776de83006c69f1f3283b4d98f38c9f5b37fa07),
+  1,000 tUSDC on Base [0xd18eb1f2…](https://sepolia.basescan.org/tx/0xd18eb1f2312d7343c2e1c3040c6a3478e65a411d249ded16b99aa09b681d5d2b),
+  demo vesting position, Sablier stream 156 [0x12b0e9ac…](https://sepolia.basescan.org/tx/0x12b0e9ace85523be74bc6393bb4c66e8a8debee564a57237490541e16b97daee).
+- Deposit of stream 156 from the deposit wizard, 4 min 10 s: approve
+  [0x33feeb25…](https://sepolia.basescan.org/tx/0x33feeb259d17253aaa79b82dbbe49911aedd6614850189613aa079752d923cf2),
+  `depositStream` [0xf43237d3…](https://sepolia.basescan.org/tx/0xf43237d3b88a454af46d6398ac3dbcc17e1e1bf6be5df53236e49ed74269c6e2)
+  (block 55,249,747), safe head wait, `register_base_deposit`
+  [J29S25oj…](https://testnet.near.rocks/tx/J29S25ojRXahq9d7cHnnS5Hp6JqJPvRM5SVnKHXSse5b):
+  100,000 units of the Seed Round class minted.
+- Sealed bid on round 4: "Deposit cash" `ft_transfer_call` of 41.12 tUSDC
+  [BCqqtphT…](https://testnet.near.rocks/tx/BCqqtphTRfSqqCAnLKXRGX9z6NqgnjtN5Sv4zjWhdkXL), then
+  "Seal and place bid" (1,000 units at 0.04, escrow 40.12, bond 1.00)
+  [3pJDN37m…](https://testnet.near.rocks/tx/3pJDN37mfqBEgK9Y9ivqU9CUc46GHSDPsypt4hSRkEke): bid #1,
+  shown sealed in the book with "My orders" keeping the plaintext in the browser.
+- Guided demo (`/app/demo`) live on the final engine: the Tender's openings at 132.1 Tgas, the Exit
+  to its last step, 0 px overflow at 375 px.
+- Solana claim with confirm, 100 tokens of the ended-case class with `b1`'s NEAR key and a fresh
+  Solana demo key `D9kyefum…otyY` funded 0.05 SOL
+  [63r1cZHd…](https://explorer.solana.com/tx/63r1cZHdZtSCT4dod84aPkwtNASRbCx2NdpRsMAcaCAcJy7gCQw2tJ3Sb6qgyJPA5xcvuqzBKFFbf4BkeNDCaTdd?cluster=devnet),
+  42 s: nonce and receipt accounts [5fsjTYzr…](https://explorer.solana.com/tx/5fsjTYzrEiRwXw76pgsFWhJvjcKBLDPpG7mDcVnXerBeZ6kDBvHjwcUfw8HtWFx1CN76wuPrSFhFzh4Ki7eakdPJ?cluster=devnet),
+  request [5hqQFA1T…](https://testnet.near.rocks/tx/5hqQFA1Ti1q5U1ffXyewixoUBQ5pbndW14K6WJLj2SWg),
+  broadcast [3GEz2p8p…](https://explorer.solana.com/tx/3GEz2p8pZAvaZbceb3zhtSBQP4FxGqC58pnFo5FMYofYXY9eWvakU2NdC4r9hCRQ3Sc9AZ2ZGwyrgq1EJ4P9V9mE?cluster=devnet),
+  `confirm_sol_payout` [77AggSPX…](https://testnet.near.rocks/tx/77AggSPXRYcqzN9Z5d6ETnwJqFrZpi6goDhD9hWM5HJz):
+  payout 10 `Landed`. A first attempt with the Solana demo key used on `engine-s5` stopped before
+  any transaction with "Nonce account in use": that wallet's payout nonce account has `engine-s5`'s
+  vault as its authority, and the seed does not name the engine, so a Solana wallet that claimed
+  on one engine needs another wallet on the next (no user wallet is affected: production ran only
+  staging engines before).
