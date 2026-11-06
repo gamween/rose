@@ -11,9 +11,9 @@ const DAY = 86_400n;
 const T0 = 1_762_200_000n;
 
 const SECOND = 1_000_000_000n;
-/** The engine's `get_limits` bounds (spec 5.6): key timeout 1 min to 7 d, reveal window 5 min to 7 d, horizon 30 d. */
 /** Illustrative RoseVault and derived keys of an engine (`get_config`). */
 const ENGINE = { rose_vault: "0x62358c4f00000000000000000000000000004d06", derived_addresses: { vault_base: "0x1111111111111111111111111111111111111111", vault_sol: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin", gas_sol: "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T" } };
+/** The engine's `get_limits` bounds (spec 5.6): key timeout 1 min to 7 d, reveal window 5 min to 7 d, horizon 30 d. */
 const BOUNDS = { minKeyTimeout: 60n * SECOND, maxKeyTimeout: 7n * 86_400n * SECOND, minRevealWindow: 300n * SECOND, maxRevealWindow: 7n * 86_400n * SECOND, maxRoundHorizon: 30n * 86_400n * SECOND };
 
 describe("class schedules", () => {
@@ -180,6 +180,8 @@ describe("DAO wrappers", () => {
     for (const name of placeholders) expect(names.has(name!), name).toBe(true);
     expect((manifest.args.params as { reference_price: string }).reference_price).toBe("{{reference_price}}");
     expect(manifest.fields.find((field) => field.name === "budget")?.default).toBe("950000000");
+    // Trezu `amount` fields carry base units as digit strings, unscaled (DSL field types).
+    for (const field of manifest.fields.filter((item) => item.type === "amount")) expect(String(field.default)).toMatch(/^\d+$/);
   });
 });
 
