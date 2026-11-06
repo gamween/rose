@@ -2,7 +2,7 @@
 
 import { erc20Abi, readStream, readStreamflowStream, ScheduleError, type Chain, type ClassInfo } from "@rose/sdk";
 import { PublicKey } from "@solana/web3.js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { UnlockChart } from "@/components/portfolio/UnlockChart";
 import { Badge } from "@/components/ui/Badge";
@@ -17,6 +17,7 @@ import type { EngineSchedule } from "@/lib/unlock-schedule";
 import { solanaConnection } from "@/lib/wallet/solana-demo";
 import { dateTimeToSeconds, linearInputOfStream, normalizeLinear, normalizeStepped, sablierScheduleArgs, secondsToDateTime, steppedInputOfMetadata, streamflowScheduleArgs, type LinearInput, type SteppedInput } from "./class-schedule";
 import { ClassSummary, FieldLabel, Hint, Preview, type IssuerBase, baseClient } from "./shared";
+import { scheduleTokenDecimals, solanaMintDecimals, UNKNOWN_TOKEN_DECIMALS } from "./token-decimals";
 
 type Source = "stream" | "schedule";
 
@@ -58,6 +59,26 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
   const [startUnlock, setStartUnlock] = useState("0");
   const [cliffUnlock, setCliffUnlock] = useState("0");
   const [state, setState] = useState<ComputeState>({ status: "idle" });
+  /** The schedule token's decimals once read, keyed by chain and token so a stale read never applies. */
+  const [tokenDecimals, setTokenDecimals] = useState<{ key: string; decimals: number | null } | null>(null);
+  const tokenKey = `${chain}:${token.trim()}`;
+  useEffect(() => {
+    let live = true;
+    const timer = window.setTimeout(() => {
+      void scheduleTokenDecimals(chain, token, {
+        evm: (address) => baseClient().readContract({ address, abi: erc20Abi, functionName: "decimals" }),
+        solana: (mint) => solanaMintDecimals(solanaConnection(), new PublicKey(mint)),
+      }).then((decimals) => {
+        if (live) setTokenDecimals({ key: `${chain}:${token.trim()}`, decimals });
+      });
+    }, 300);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [chain, token]);
+  const knownDecimals = tokenDecimals?.key === tokenKey ? tokenDecimals.decimals : null;
+  const amountDecimals = knownDecimals ?? UNKNOWN_TOKEN_DECIMALS;
 
   const finish = async (chainOf: Chain, tokenOf: string, decimals: number, symbol: string | null, schedule: EngineSchedule, classId: string, depositedAmount: bigint) => {
     const existing = await base.engine.views.getClass(classId);
@@ -79,10 +100,8 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
         if (!isSolanaAddress(streamRef.trim())) throw new Error("Enter the Streamflow metadata account (base58).");
         const connection = solanaConnection("finalized");
         const stream = await readStreamflowStream(connection, new PublicKey(streamRef.trim()));
-        const mintInfo = await connection.getParsedAccountInfo(stream.metadata.mint);
-        const parsed = mintInfo.value?.data as { parsed?: { info?: { decimals?: number } } } | undefined;
-        const decimals = parsed?.parsed?.info?.decimals;
-        if (decimals === undefined) throw new Error("The mint's decimals could not be read (classic SPL Token mints only).");
+        const decimals = await solanaMintDecimals(connection, stream.metadata.mint);
+        if (decimals === null) throw new Error("The mint's decimals could not be read (classic SPL Token mints only).");
         const input = steppedInputOfMetadata(stream.metadata);
         const schedule = normalizeStepped(input);
         const mint = stream.metadata.mint.toBase58();
@@ -118,10 +137,8 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
       } else {
         if (!isSolanaAddress(token.trim())) throw new Error("Enter the token mint (base58).");
         const mint = new PublicKey(token.trim());
-        const mintInfo = await solanaConnection().getParsedAccountInfo(mint);
-        const parsed = mintInfo.value?.data as { parsed?: { info?: { decimals?: number } } } | undefined;
-        const decimals = parsed?.parsed?.info?.decimals;
-        if (decimals === undefined) throw new Error("The mint's decimals could not be read (classic SPL Token mints only).");
+        const decimals = await solanaMintDecimals(solanaConnection(), mint);
+        if (decimals === null) throw new Error("The mint's decimals could not be read (classic SPL Token mints only).");
         const amount = parseAmount(deposited, decimals);
         const cliffAmount = parseAmount(cliffUnlock, decimals);
         if (amount === null || cliffAmount === null) throw new Error(`Amounts take at most ${String(decimals)} decimals.`);
@@ -179,6 +196,7 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
               <div className="flex flex-col gap-1.5">
                 <FieldLabel htmlFor="class-token">{chain === "Base" ? "Token address" : "Token mint"}</FieldLabel>
                 <Input id="class-token" value={token} onChange={(event) => setToken(event.target.value)} placeholder={chain === "Base" ? "0x…" : "base58 mint"} />
+                {knownDecimals !== null ? <Hint>{String(knownDecimals)} decimals, read from the token: the amounts below take at most that many.</Hint> : null}
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex flex-col gap-1.5">
@@ -197,17 +215,17 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="class-deposited">{chain === "Base" ? "Deposited amount" : "Net amount deposited"}</FieldLabel>
-                  <NumberInput id="class-deposited" value={deposited} onValueChange={setDeposited} decimals={18} />
+                  <NumberInput id="class-deposited" value={deposited} onValueChange={setDeposited} decimals={amountDecimals} />
                 </div>
                 {chain === "Base" ? (
                   <>
                     <div className="flex flex-col gap-1.5">
                       <FieldLabel htmlFor="class-start-unlock">Start unlock</FieldLabel>
-                      <NumberInput id="class-start-unlock" value={startUnlock} onValueChange={setStartUnlock} decimals={18} />
+                      <NumberInput id="class-start-unlock" value={startUnlock} onValueChange={setStartUnlock} decimals={amountDecimals} />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <FieldLabel htmlFor="class-cliff-unlock">Cliff unlock</FieldLabel>
-                      <NumberInput id="class-cliff-unlock" value={cliffUnlock} onValueChange={setCliffUnlock} decimals={18} />
+                      <NumberInput id="class-cliff-unlock" value={cliffUnlock} onValueChange={setCliffUnlock} decimals={amountDecimals} />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <FieldLabel htmlFor="class-granularity">Granularity (seconds)</FieldLabel>
@@ -218,7 +236,7 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
                   <>
                     <div className="flex flex-col gap-1.5">
                       <FieldLabel htmlFor="class-cliff-amount">Cliff amount</FieldLabel>
-                      <NumberInput id="class-cliff-amount" value={cliffUnlock} onValueChange={setCliffUnlock} decimals={18} />
+                      <NumberInput id="class-cliff-amount" value={cliffUnlock} onValueChange={setCliffUnlock} decimals={amountDecimals} />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <FieldLabel htmlFor="class-period">Period (seconds)</FieldLabel>
