@@ -131,7 +131,7 @@ this README says. Where to look for each:
 | Design | The app (`/app`, `/app/rounds/<id>`, `/app/issuer`, `/status`, `/docs`), reviewed at 1470 px and 375 px; the landing's scroll sequence |
 | Impact | The problem and its evidence in [spec section 1](./docs/spec.md#1-problem-evidence); users and jobs in [spec section 2](./docs/spec.md#2-users-and-jobs) |
 | Originality | No live sealed tender for locked tokens exists in crypto ([spec section 1](./docs/spec.md#1-problem-evidence)); sealed uniform-price rounds on positions that never leave their chain |
-| Sustainability | [Limits and roadmap](#limits-and-roadmap); the engine has no upgrade path, its final deployment `engine.rose-app.testnet` deleted every access key after init (see [Deployed contracts](#deployed-contracts)) and `@rose/sdk` reaches it without the app, so a keyless engine keeps running without its authors |
+| Sustainability | [Limits and roadmap](#limits-and-roadmap); the engine has no upgrade path, its final deployment `engine-v2.rose-app.testnet` deleted every access key after init (see [Deployed contracts](#deployed-contracts)) and `@rose/sdk` reaches it without the app, so a keyless engine keeps running without its authors |
 
 ## How it works
 
@@ -214,8 +214,9 @@ normative version):
   `deploy-engine.sh --role final` refuses to run without `--keyless`, checks the deployed code
   hash before deleting any key, and records the engine as keyless only once
   `view_access_key_list` at `final` returns `[]`. New versions deploy to new accounts.
-  The engine the app uses, `engine.rose-app.testnet` in [Deployed contracts](#deployed-contracts),
-  is that keyless deployment; the earlier staging engines kept a key and are history only.
+  The engine the app uses, `engine-v2.rose-app.testnet` in [Deployed contracts](#deployed-contracts),
+  is that keyless deployment; the first final engine `engine.rose-app.testnet` is superseded by it
+  and the earlier staging engines kept a key: both are history only.
 - **RoseVault:** immutable, no owner, no pause, no upgrade; Sablier Lockup and the signer fixed in
   the constructor. A stream sent with a plain `transferFrom` is unattributed and can only leave
   through a Release authorization.
@@ -237,30 +238,30 @@ normative version):
 Every row links the testnet transactions that show it; all of them, with the commands used, are in
 [`docs/verification.md`](./docs/verification.md).
 
-### The seeded story, live on the final engine `engine.rose-app.testnet`
+### The seeded story, live on the final engine `engine-v2.rose-app.testnet`
 
 | Claim | Evidence | Result |
 |---|---|---|
-| The MPC network releases a round's key only after close, in seconds | `close` of the Tender [EGrrdJ4C…](https://testnet.near.rocks/tx/EGrrdJ4CBCfJwN3kCcb2TkGVEnYJN8cVKcaDP8Q8JNRJ), the Exit [GZCSThNV…](https://testnet.near.rocks/tx/GZCSThNVwD7tXKXhNt4tGCMS4bcJBTFWfLPqqvPJrJX7), the Advance [GWHwfLV4…](https://testnet.near.rocks/tx/GWHwfLV4NiyPtXzvh6bQRHYPvQuc4FKJZzNnL4ppGRKk) | Key stored by the callback 4.3, 4.2 and 5.4 s after `close`, each equal to the offline unwrap of the MPC response |
-| Openings are fully verified on chain, by anyone | `open_bid` sent by `rose-app.testnet`, which placed no order and created no round (it deployed the engine), e.g. [6FPfUMAx…](https://testnet.near.rocks/tx/6FPfUMAxAgn214nnruSUs8CRFR5ChouEEFN5uZsK82nu) | 9 openings at 132.1 Tgas, each equal to what the bidder sealed |
-| A malformed bid can be opened by nobody and is slashed | its author's own opening refused [FLajwXe8…](https://testnet.near.rocks/tx/FLajwXe8XR32R7XwYy9vLYXkdD8MYkSUaNRKtsYTMXB8); settlement [Dh5i3YVQ…](https://testnet.near.rocks/tx/Dh5i3YVQsPVKsh7TKZZVWp6UxmkxtbNEM1L1qpMaFvUE) | "Opening does not match the ciphertext"; 1 tUSDC bond slashed |
-| On-chain clearing equals the reference implementation | `clear` of the Tender [G4qLarju…](https://testnet.near.rocks/tx/G4qLarjuophMP6DpKPwX8AhLbPczYfxrohCe4iQxt98R), the Exit [Ercjm3oL…](https://testnet.near.rocks/tx/Ercjm3oL6wyFmpPumZ1AGpbLuQoGzzjbXaxsw8bFx4Re), the Advance [7xZ38Uuj…](https://testnet.near.rocks/tx/7xZ38Uujdkn7KRytDNiF7k3mnehuLU34zrHL21QonrGM) | 0.036, 0.027 and 0.0375 tUSDC with every fill equal to `@rose/sdk` run on the opened orders |
-| A round without a key is cancelled and refunded | `close` refused after the timeout [CW1rCyXj…](https://testnet.near.rocks/tx/CW1rCyXjQhBsUhXVRkwzjYaJ1Jx5Xx1bbaL1M8eU5a1q), `cancel_no_key` [EVpeZQkS…](https://testnet.near.rocks/tx/EVpeZQkSXQHQwKBET3Ew326CLic93dTfMs24p1fDCmGc), refund [8gct8dyP…](https://testnet.near.rocks/tx/8gct8dyPahKxZGGYEmKEnyBwZoz1US47RJnT4v38pWpi) | Escrow and bond refunded |
-| A Base deposit is attested by the MPC network | `createStreams` [0x4bfd967f…](https://sepolia.basescan.org/tx/0x4bfd967f6b53243cfa15515528637b389beb0ac183f76d53bf3ae0402bc22592), `register_base_deposit` [CbBF24Py…](https://testnet.near.rocks/tx/CbBF24Py8cJYQSWscHsokHdmagAv4E72TDggoXwC4KCb) | Attested `StreamDeposited` log, units minted |
-| A Solana deposit is attributed, moved by the engine and registered | `attribute_sol_deposit` [8oaGGxUp…](https://testnet.near.rocks/tx/8oaGGxUpddTz17KEcot19fszp9hLd9nZZLXe2VMt2pn2), engine-signed move [kdDmWnYc…](https://explorer.solana.com/tx/kdDmWnYcrgV9UaH9WKVeBijryYJHoCBxxvrJqFpG1iVKUQT1XdwXHYfFb3ESfXXqEnjPLZyJcZGfJmVCNo1a6ji?cluster=devnet), `register_sol_deposit` [D3Fsmj2m…](https://testnet.near.rocks/tx/D3Fsmj2mmRk4278zCoYabvxNwZFDHbqyJqwNBvRJfCGN) | 300,000 CINDR position registered |
-| Base cash payout through RoseVault | `withdraw_base_cash` [CajaWK8z…](https://testnet.near.rocks/tx/CajaWK8zwZFUF9DQhxGn88Copq4S6yPmp6nonvrTm4HQ), `executeTransfer` [0x23ac2dae…](https://sepolia.basescan.org/tx/0x23ac2dae8c7821af27df5ccb115ba362a41a584ee21a7ecb109d5c45f55d6a30) | 1,460 tUSDC to the seller's Base address |
-| An Advance is repaid from unlocks, in tokens | `withdrawMax` [0xa85e66de…](https://sepolia.basescan.org/tx/0xa85e66de0315d7c0cdf8fadbe8abe60d110cca5f3d6415d27e0a290ccf3fd785), `claim_base_tokens` [6kNhZ2Vf…](https://testnet.near.rocks/tx/6kNhZ2VfQkJLreKRjTqfZdTpJbiHuYSMa8V8eBU6N9Af), `executeTransfer` [0x8a446868…](https://sepolia.basescan.org/tx/0x8a446868c428236b4a4dee344ab7032998c9e7f97b3c8c0c5ebade7efbf5f4ad) | CINDR to the funder |
-| A position leaves in kind | `redeem` [318timqv…](https://testnet.near.rocks/tx/318timqvqX578vAbaSpWzqxKeS8j2Bj8n8mWfK2dFZ7y), `executeRelease` [0xb5b1ebcb…](https://sepolia.basescan.org/tx/0xb5b1ebcbcf8f02f6b433130063a06d3c37177ad677165cabc1d127991c02b84a) | Sablier stream 155 back to its holder |
-| NEAR cash payout | `withdraw_near_cash` [HJRBUucb…](https://testnet.near.rocks/tx/HJRBUucbSTTaUirP4MFYFPo3peRW36WrKagyj4vedJav) | 1,732.39 tUSDC to the seller |
+| The MPC network releases a round's key only after close, in seconds | `close` of the Tender [82iWCcCj…](https://testnet.near.rocks/tx/82iWCcCjj1Jb9CBNiR4vtsv5Si9tkQRPsB8fv47Ck377), the Exit [9D31fRAL…](https://testnet.near.rocks/tx/9D31fRALyropD1cFjAVZduN8cSXrgWR5PHHHfkYM819Y), the Advance [EvYijsfB…](https://testnet.near.rocks/tx/EvYijsfBSK1rsCtAG3NQeqmRv1nFADSdTBJs8dkPTR7j) | Key stored by the callback 4.8, 4.2 and 4.9 s after `close`, each equal to the offline unwrap of the MPC response |
+| Openings are fully verified on chain, by anyone | `open_bid` sent by `rose-app.testnet`, which placed no order and created no round (it deployed the engine), e.g. [Eqq9Cwqy…](https://testnet.near.rocks/tx/Eqq9CwqytozdU8jv4G526aC3gNtPYTs8Sz9LhST8eJTD) | 9 openings at 132.1 Tgas, each equal to what the bidder sealed |
+| A malformed bid can be opened by nobody and is slashed | its author's own opening refused [CnvMqSd2…](https://testnet.near.rocks/tx/CnvMqSd25evQwrSRmHezWhQf3mXTX6ME2TSVe1JNFYwk); settlement [93F56CBa…](https://testnet.near.rocks/tx/93F56CBaDPUZrdcuUjvccnDb9qDVKKamMyDVz7nyfFJu) | "Opening does not match the ciphertext"; 1 tUSDC bond slashed |
+| On-chain clearing equals the reference implementation | `clear` of the Tender [2cvvExqG…](https://testnet.near.rocks/tx/2cvvExqGXGTMwunyC4xYN9YigCCxduytVDLNZxhetqDn), the Exit [GFhakKKW…](https://testnet.near.rocks/tx/GFhakKKWK2oZWR8xw3CiTetdZqxnhsr65aXmDDTXAAyu), the Advance [26xm8LXQ…](https://testnet.near.rocks/tx/26xm8LXQH4FAUBiMQ3hraYFgckuRzPUJ17RDKpbmRo6r) | 0.036, 0.027 and 0.0375 tUSDC with every fill equal to `@rose/sdk` run on the opened orders |
+| A round without a key is cancelled and refunded | `close` refused after the timeout [EYSv5djd…](https://testnet.near.rocks/tx/EYSv5djd3wmH72cC4TRxtJmywErjZEdGbGdeFU8Akb3T), `cancel_no_key` [GuA2xPAB…](https://testnet.near.rocks/tx/GuA2xPAB5ifbzwjAqv6LbfmHzSMnqPmvrQdvLaWsWj8e), refund [7w8kTEDA…](https://testnet.near.rocks/tx/7w8kTEDApo1rDY4jPBrWHrHqLYxVepdTsBrEV2Vdx8Bn) | Escrow and bond refunded |
+| A Base deposit is attested by the MPC network | `createStreams` [0xc2cf7629…](https://sepolia.basescan.org/tx/0xc2cf76299e247fabcc8f167f312203a278e43111acea652c7b5f99ece3e2fb45), `register_base_deposit` [3B4xGvii…](https://testnet.near.rocks/tx/3B4xGviiUP7aA4KKa9GRPeMJ519S8zWi7TvHeQcZMvvi) | Attested `StreamDeposited` log, units minted |
+| A Solana deposit is attributed, moved by the engine and registered | `attribute_sol_deposit` [149ZdeKg…](https://testnet.near.rocks/tx/149ZdeKgSz5wofm9fNWXKZ9fW6cNKPSuMNrg8WPTnoLG), engine-signed move [4xBFUiy1…](https://explorer.solana.com/tx/4xBFUiy1ARwnU4rZnWNjfMVHHR2guLPA1FAJkfAajVmxoQJqRDURS2bH9ssJaVfCSmR6Xjh3ooGXKuFhTFkreaAU?cluster=devnet), `register_sol_deposit` [FnTRaGhi…](https://testnet.near.rocks/tx/FnTRaGhixi42tKbYjGyJ3KhPqLke6vpBc9JTJ8dmhhik) | 300,000 CINDR position registered |
+| Base cash payout through RoseVault | `withdraw_base_cash` [9BESbgMJ…](https://testnet.near.rocks/tx/9BESbgMJ85ixAdGiY8XQ1R5rRRFX4wDimkrng9C5cWEu), `executeTransfer` [0xb403f62a…](https://sepolia.basescan.org/tx/0xb403f62afe5728f748cdbe80a630e3aab7b7d2705eb953e81d2d878117edd432) | 1,460 tUSDC to the seller's Base address |
+| An Advance is repaid from unlocks, in tokens | `withdrawMax` [0xcbe7b057…](https://sepolia.basescan.org/tx/0xcbe7b05790f81def67601e73de7ca7abd36504441485edac85514f63877aba28), `claim_base_tokens` [7SsvHCs3…](https://testnet.near.rocks/tx/7SsvHCs3gMQrNUmaKHc9BZK65B23EW4VtNpvNsHgnwB1), `executeTransfer` [0x578ccbcd…](https://sepolia.basescan.org/tx/0x578ccbcd74ddc1d806f386562dab8bbd02f1168f19a9f320b0a040ddfa1db571) | CINDR to the funder |
+| A position leaves in kind | `redeem` [3eTP42S7…](https://testnet.near.rocks/tx/3eTP42S7QcqX3yx5TSaPBAx1Hd9dahYqMzxpq4QWrz99), `executeRelease` [0x59e6facd…](https://sepolia.basescan.org/tx/0x59e6facd04330c6d15a9a11559eb2ccd76e1787976e0bee0ab79a1e88e02d2c6) | Sablier stream 161 back to its holder |
+| NEAR cash payout | `withdraw_near_cash` [FswYgYh7…](https://testnet.near.rocks/tx/FswYgYh7PC715bmwLNCmseUy9JA7o1g7gw5WqYjw3xfG) | 1,732.39 tUSDC to the seller |
 
 ### Solana payouts settle on proof of landing
 
 | Claim | Evidence | Result |
 |---|---|---|
-| A payout is final only once the chain proves it landed | `claim_sol_tokens` [9fsQ267s…](https://testnet.near.rocks/tx/9fsQ267sZE1GteYkFn6U84DGXPdz4SDY6EoB86TrUBzY), the engine-built transaction [26JUFvVS…](https://explorer.solana.com/tx/26JUFvVSWryUumiSDjSAQQQKgB4oSGSt7PuGMX7HtBBnr7CSXdGYKVHtQXUDgUNjCi8fWzemVbSP7qd7sNmEXFNF?cluster=devnet), `confirm_sol_payout` [EtFQK9LT…](https://testnet.near.rocks/tx/EtFQK9LTrWnnYLdzBdvkkyQvtaBDMfzZMfZptwoGsVFP) | `AdvanceNonceAccount` + Streamflow `withdraw` + `TransferChecked`; payout `Landed` |
-| An in-kind release is final only once proven | `redeem` [DoX3E2tL…](https://testnet.near.rocks/tx/DoX3E2tLUck3FCabne2Bsdmg4ocHPSK5Dh5RNY7XEwcW), `transfer_recipient` [whm2FXLz…](https://explorer.solana.com/tx/whm2FXLzAx7Rzscdu9XQycD8ntpKzUbcNK7Zwcb9djR9RmNySzz8fWhmefRNAahmvXQCirg5wpK2gwR2obENtsm?cluster=devnet), `confirm_sol_redeem` [3XWr1LBn…](https://testnet.near.rocks/tx/3XWr1LBnQD6VtpPUAnod5w5TyMEZkk2K6txR8GLsFSuj) | Position `Released` |
-| The same flow from the app, with a demo wallet | `claim_sol_tokens` [5hqQFA1T…](https://testnet.near.rocks/tx/5hqQFA1Ti1q5U1ffXyewixoUBQ5pbndW14K6WJLj2SWg), broadcast [3GEz2p8p…](https://explorer.solana.com/tx/3GEz2p8pZAvaZbceb3zhtSBQP4FxGqC58pnFo5FMYofYXY9eWvakU2NdC4r9hCRQ3Sc9AZ2ZGwyrgq1EJ4P9V9mE?cluster=devnet), `confirm_sol_payout` [77AggSPX…](https://testnet.near.rocks/tx/77AggSPXRYcqzN9Z5d6ETnwJqFrZpi6goDhD9hWM5HJz), all in one flow | Payout 10 `Landed` on its receipt, 42 s from click to confirmation |
-| An ended stream's auto-claim is booked, then paid out | Streamflow's auto-claim [2mmp1Esu…](https://explorer.solana.com/tx/2mmp1Esurq6h3kFSrXokCPb2oDx1BojFbcoXdwgYmztTfVQsJ83a7hTqYbf12wHfq1ibpzUFLBXkRj2pfHZkcTFD?cluster=devnet), `sync_sol_stream` [Gcku9nnF…](https://testnet.near.rocks/tx/Gcku9nnFTbXCMNeLup42pmTz468u7MFwCfihqdrANLh1), a claim paid from the swept balance alone [Eb4v8qkp…](https://testnet.near.rocks/tx/Eb4v8qkp2g9WYaCcJvBQtLVnWniR2DhDPHH1Kh6gh2au) + [5shzwd1D…](https://explorer.solana.com/tx/5shzwd1DYxtjYbYJx5JqepcthD1Cz8Q4k3KbGNSv4ugrerq5ttFUweorxi5JoDBUNzx4bzUYU7KwRJqugbHHmcrc?cluster=devnet), `confirm_sol_payout` [CwqWxZZw…](https://testnet.near.rocks/tx/CwqWxZZwm1Prp9ffVYLBnpGBdBCR6dUgVXuoUZZkfTKt) | 3,800 tokens booked in the class's swept balance (the app's claim drew the other 100 before the end); `TransferChecked` with no stream touched, `Landed` on its receipt |
+| A payout is final only once the chain proves it landed | `claim_sol_tokens` [86wtZg82…](https://testnet.near.rocks/tx/86wtZg822RMxqXMPGVUFHsEB6dqfzehq34g5eVkaE76V), the engine-built transaction [46ZF74WS…](https://explorer.solana.com/tx/46ZF74WSUihFctEX5YYQcTEiBbfUC6dxUXpq6eHFUbf9Hd5zj6ybgd9etxFWCsNqVhy4g18yeeS2LJZHNgxRV4U6?cluster=devnet), `confirm_sol_payout` [Bv9RZpax…](https://testnet.near.rocks/tx/Bv9RZpaxVzX2G9CZqAM8LvpRZoB9QXunYFpCoJ7yji4K) | `AdvanceNonceAccount` + Streamflow `withdraw` + `TransferChecked`; payout `Landed` |
+| An in-kind release is final only once proven | `redeem` [5erw3mkz…](https://testnet.near.rocks/tx/5erw3mkzPLi6GNoE3bNmmoD4xmg47ebpue3Hs3VRvdwq), `transfer_recipient` [4SjvN2x7…](https://explorer.solana.com/tx/4SjvN2x7MZH9yy3MCDCZiteBbDm7RiMKQVdTosUmHSu3Q7nKcB7zhuapm7MgNjE4Q2sGDooTKJRBLydeGYkSuecT?cluster=devnet), `confirm_sol_redeem` [4Vpy2Ywg…](https://testnet.near.rocks/tx/4Vpy2YwgSE6Nbr6gTzCt3HfBoFqpGQWNHtH4SsvsyXG2) | Position `Released` |
+| The same flow from the app, with a demo wallet | `claim_sol_tokens` [HWFtWrxi…](https://testnet.near.rocks/tx/HWFtWrxiiVQwgGE3o4BQYX16bKcjEMrRgcugnuqE8eJ), broadcast [5mfhsBW8…](https://explorer.solana.com/tx/5mfhsBW8CeBSmtwgqgDrZU5YMxvbhseqhwNJVnkr9c95uxLVqFubBtxARbS3wMgo2NEFSPTEF9y1PjPAwtVnNKvj?cluster=devnet), `confirm_sol_payout` [F8Yg1PxD…](https://testnet.near.rocks/tx/F8Yg1PxDohv5C8vQo42MgN2YKCwxEk4NpKtTTPGDvZTW), all in one flow | Payout 9 `Landed` on its receipt, 60 s from click to confirmation |
+| An ended stream's auto-claim is booked, then paid out | Streamflow's auto-claim [2j4ftDid…](https://explorer.solana.com/tx/2j4ftDidWY3NMZHm3dhdNx3rcz4tKb7PknvgtnSVd4jP8pNY4yarKHJkpeZu3X9diKt57VTguNhUYZeNGZeq244e?cluster=devnet), `sync_sol_stream` [GyDe3pdE…](https://testnet.near.rocks/tx/GyDe3pdEt6WntUJtZvgqxgEKNtXJuj8K4xVHM3en2DDN), a claim paid from the swept balance alone [3TPw2vCR…](https://testnet.near.rocks/tx/3TPw2vCRxKo4GTXDhEdP4jMpmeLfLwt9cPpG878qGCUm) + [38189Ckk…](https://explorer.solana.com/tx/38189CkkpiF9cbQVGubqAv3um6suGs5MxH5yJzvcfaeJpsHGJq2pqEstiHbfHffcvsNqyd6nhwx3T29EqNc56i5p?cluster=devnet), `confirm_sol_payout` [R4KvtgBH…](https://testnet.near.rocks/tx/R4KvtgBHzAvo2CnBLJefcGHpAjR3SFXf3mwtkoQvd7U) | 3,800 tokens booked in the class's swept balance (the app's claim drew the other 100 before the end); `TransferChecked` with no stream touched, `Landed` on its receipt |
 
 Every one of these transactions advances the claimant's receipt nonce account last, and the engine
 settles each Solana payout and redeem on that receipt, not on the streams, because Streamflow's
@@ -289,8 +290,8 @@ auto-claim empties an ended stream whether or not a payout drew on it
   transaction [LajMMx8z…](https://testnet.near.rocks/tx/LajMMx8zpF2HRvnYsDA4WMikPCnM75z52DBowXUSbTC),
   then `view_access_key_list` at `final` returned `[]` on
   `keyless-rehearsal-1793801863.rose-app.testnet`.
-- **Keyless final engine:** the same helpers deleted every key of `engine.rose-app.testnet` in
-  [47F3F4LA…](https://testnet.near.rocks/tx/47F3F4LAZwj5ByTcpFco3A75yCQmSKi2soBUT8LJP2e2);
+- **Keyless final engine:** the same helpers deleted every key of `engine-v2.rose-app.testnet` in
+  [2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3);
   `view_access_key_list` at `final` returns `[]`, read live by the app's `/status` page.
 - **Gas:** every user-facing call measured live and in the sandbox stays under 300 Tgas.
 
@@ -305,42 +306,48 @@ from [`deployments/testnet.json`](./deployments/testnet.json), which also record
 deployment; the engine row says whether the engine keeps an access key, and `/status` shows the
 same `view_access_key_list` result live.
 
-**Listed now: the final deployment, keyless.** `engine.rose-app.testnet` has no access key:
+**Listed now: the final deployment, keyless.** `engine-v2.rose-app.testnet` has no access key:
 `view_access_key_list` at `final` returns `[]` (the keys were deleted in
-[47F3F4LA…](https://testnet.near.rocks/tx/47F3F4LAZwj5ByTcpFco3A75yCQmSKi2soBUT8LJP2e2), after
-`deploy-engine.sh --role final --reproducible --keyless` checked the deployed code hash, every
-`get_config` value against its init arguments and the bound RoseVault's `SIGNER()` and `LOCKUP()`
-live). Nobody can upgrade, drain or stop it; a new version would be a new account. Its RoseVault
-was deployed for it with `deploy-base.sh --role final`, reusing the demo assets of the staging
-engines so positions minted from the app stay in the seeded classes. The staging deployments
-before it, `engine-s1` to `engine-s5`, kept a full-access key and are history only (`engine-s1`
-to `engine-s4` retired: code replaced by an empty module, balance reclaimed); their records stay
-in [`deployments/testnet.json`](./deployments/testnet.json) and
+[2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3), after
+`deploy-engine.sh --role final --keyless` checked the deployed code hash of the reproducible
+artifact, every `get_config` value against its init arguments and the bound RoseVault's
+`SIGNER()` and `LOCKUP()` live). Nobody can upgrade, drain or stop it; a new version would be a new
+account. Its RoseVault was deployed for it with `deploy-base.sh --role final`, reusing the demo
+assets of the earlier engines so positions minted from the app stay in the seeded classes.
+
+**Superseded: `engine.rose-app.testnet`** (RoseVault `0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f`),
+the first final engine, also keyless. The last review pass found that an Advance funder's share of
+a lien never left its account index, so every Advance funder's NEP-145 storage deposit stays locked
+on it (fixed in `46358b2`). A keyless engine cannot be patched, so the fix shipped as a new account
+with its own RoseVault, as the trust model says new versions do; the old engine still runs, and the
+app no longer uses it. The staging deployments before it, `engine-s1` to `engine-s5`, kept a
+full-access key and are retired (code replaced by an empty module, balance reclaimed). Every
+earlier record stays in [`deployments/testnet.json`](./deployments/testnet.json) and
 [`docs/verification.md`](./docs/verification.md).
 
 | Chain | Contract | Address | Deployment |
 |---|---|---|---|
-| NEAR testnet | rose-engine (final, keyless) | `engine.rose-app.testnet` | create [3Uk9ZnfN…](https://testnet.near.rocks/tx/3Uk9ZnfNnxMpsAgWCTp9m2LNkzcB78f5JsG19a4AcWh3), deploy and `new` [Hqhv1Xon…](https://testnet.near.rocks/tx/Hqhv1XonsuSq1c56arUinGQH5S2yQBmjoobCTsK4p2va), bootstrap [3834RY2f…](https://testnet.near.rocks/tx/3834RY2fT4SMF2TRTB8vPxKbGVwLazYBB9nvAGiitJNS), keys deleted [47F3F4LA…](https://testnet.near.rocks/tx/47F3F4LAZwj5ByTcpFco3A75yCQmSKi2soBUT8LJP2e2) |
+| NEAR testnet | rose-engine (final, keyless) | `engine-v2.rose-app.testnet` | create [AzUsL5Bb…](https://testnet.near.rocks/tx/AzUsL5BbbsG3C5s1rcfDqRPQK4YCMUMLVAMG15TRSD5R), deploy and `new` [5y42Nnqc…](https://testnet.near.rocks/tx/5y42Nnqcy58dypq5B6SqqVmfgtM1JsRXTjVeJVJX94Zp), bootstrap [CfnCUcRC…](https://testnet.near.rocks/tx/CfnCUcRCXLHFLLtqhrmVmKBRKRvSnvuyobjW2eekmeaq), keys deleted [2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3) |
 | NEAR testnet | Test USDC (NEP-141, keyless) | `tusdc.rose-app.testnet` | deploy [CekG17rC…](https://testnet.near.rocks/tx/CekG17rCG6MQ1djNH4pnbHaFj3EoXLq8b6hApCwXVsUN), keys deleted [EjiBFUNB…](https://testnet.near.rocks/tx/EjiBFUNB8CmiY8qTERPvaqYc8jFkBds51iTSAGShq1MG) |
 | NEAR testnet | MPC network (external) | `v1.signer-prod.testnet` | contract 3.18.0, domains 0 to 3 |
-| Base Sepolia | RoseVault | `0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f` | [0xb8703beb…](https://sepolia.basescan.org/tx/0xb8703beba725fd4b2ec3b6c56093467bed143373f04407271e882402eda20f68), signer = the engine's derived `vault/base` `0x7ba1dee0d020927e7a748349433b095de7899384` |
+| Base Sepolia | RoseVault | `0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe` | [0x301ce573…](https://sepolia.basescan.org/tx/0x301ce5737f288a40df02e48ff3da1049bf2c3a5d4fa6f008020bf9512addf126), signer = the engine's derived `vault/base` `0xc345e592c6db18c162c6225bfb6f6c92b425b7cb` |
 | Base Sepolia | TestUSDC | `0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01` | [0xb7dfe548…](https://sepolia.basescan.org/tx/0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9) |
 | Base Sepolia | DemoToken Cindral (CINDR) | `0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b` | [0x9f02fedb…](https://sepolia.basescan.org/tx/0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954) |
 | Base Sepolia | DemoStreamFaucet | `0xf7b1302c20faab06ad5121981b3e949da24fd98d` | [0xb9c69f8c…](https://sepolia.basescan.org/tx/0xb9c69f8c83640e28e40e9be9036e2afa9b2275fc5b7da90434663abc27b397e5) |
 | Base Sepolia | Sablier Lockup v4 (external) | `0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e` | `lockup@v4.0.1` |
 | Base Sepolia | Circle USDC (external, accepted cash token) | `0x036cbd53842c5426634e7929541ec2318f3dcf7e` | Circle |
-| Solana devnet | Vault (the engine's derived `vault/sol`) | `GKharZus34WhG182v715Yzf411Akhdnsxxjo5u5C2RRq` | MPC-derived |
-| Solana devnet | Fee payer (the engine's derived `gas/sol`) | `BE9yDmZ7QXDuwHxtThY527E9c5JSb7TMGdZx4crjFbAe` | MPC-derived |
+| Solana devnet | Vault (the engine's derived `vault/sol`) | `EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC` | MPC-derived |
+| Solana devnet | Fee payer (the engine's derived `gas/sol`) | `HWx7jD36pAzB1Bo83bCvRYtnW5SHLcfdEZw4x4Zdn1Ng` | MPC-derived |
 | Solana devnet | Streamflow program (external) | `HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ` | Streamflow |
 | Solana devnet | Demo CINDR mint (9 decimals, no freeze authority) | `2eWdSYbcryjZvA8UBmjTmEqjRqzY2LVUnHUby1gdDLNv` | [KvkQKDTh…](https://explorer.solana.com/tx/KvkQKDThFFTmU44NmjK4Zkfz4zWC9CfnDW7mWFoTwck3GEZ9DvZLrtsXewJNbi6yPMvspJzUHG6wLYy5neqp7Lb?cluster=devnet) |
 
 Engine wasm: the reproducible build of commit
-[`d5e1e0c`](https://github.com/gamween/rose/tree/d5e1e0c2363d67aaa405c2d4324bc006a3992237)
+[`0524b33`](https://github.com/gamween/rose/tree/0524b3388f7bf512f39bf521e9af68736482ef9e)
 (`cargo near build reproducible-wasm` in `sourcescan/cargo-near:0.22.0-rust-1.97.0`, pinned by
 digest in `contracts/engine/Cargo.toml`; the on-chain `contract_source_metadata` names the commit
-and the image), 1,018,652 bytes, sha256
-`dad185788b68aa1a01dbad0f14cee2a514daa53e1defe9cbc48481ed4c87a7bb`, equal to the on-chain code hash
-`FjBBS6dRJYuneJJXRx8e3YvFdKUCGxhWCA3bp3d4irSN`.
+and the image), 1,019,188 bytes, sha256
+`0a0a16ef9cec1916d59b963183eee9a20ded1206e4ec25bbaef759335ae8e46a`, equal to the on-chain code hash
+`gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`.
 The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 
 ## Limits and roadmap
@@ -421,7 +428,7 @@ ROSE_SANDBOX=1 cargo test -p rose-engine --test sandbox_lifecycle -- --test-thre
 Run the app locally against the final engine:
 
 ```sh
-cp deployments/engine.rose-app.testnet.env apps/web/.env.local
+cp deployments/engine-v2.rose-app.testnet.env apps/web/.env.local
 pnpm --filter @rose/web dev
 ```
 
@@ -449,7 +456,7 @@ From another account, `deploy-base.sh` deploys its own TestUSDC, DemoToken and D
 the seed's Cindral treasury on Base is your deployer key, which then holds the CINDR supply. The
 project's own final deployment instead keeps the deployed demo assets, so positions minted from
 the app stay in the seeded classes:
-`scripts/deploy-base.sh --engine <engine account> --role final --demo-assets-from engine.rose-app.testnet`.
+`scripts/deploy-base.sh --engine <engine account> --role final --demo-assets-from engine-v2.rose-app.testnet`.
 Each script records every transaction under `deployments/` and resumes where it stopped.
 
 ## Third-party code and AI assistance
