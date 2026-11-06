@@ -8,7 +8,7 @@
  */
 
 import type { Bid, Cash, ClassInfo, ConfigView, Holding, Limits, Round, StorageBalance } from "@rose/sdk";
-import { storageNeed, type StorageNeed } from "@/lib/engine-storage";
+import { readStorageContext, storageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveQuery, type QueryState } from "@/components/status/useLiveQuery";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -72,7 +72,8 @@ async function fetchDetail(roundId: bigint, viewerAccount: string | null, signal
         engine.views.getOrderId(roundId, viewerAccount, "Buy", { signal }),
         engine.views.getOrderId(roundId, viewerAccount, "Sell", { signal }),
       ]);
-      const bidStorage = round.kind === "Exit" ? storageNeed({ storage, minimum, portfolio, change: { classId: round.classId } }) : null;
+      const change = { classId: round.classId };
+      const bidStorage = round.kind === "Exit" ? storageNeed({ storage, minimum, portfolio, change, context: await readStorageContext(engine.views, portfolio, change, { signal, config, known: [round] }) }) : null;
       viewer = { account: viewerAccount, cash: portfolio.cash, storage, bidStorage, holding, buyOrderId, sellOrderId };
     }
     return { engine, round, bids, cls, symbol: symbolOf(symbols, cls), limits, config, viewer, blockTimeMs: Number(BigInt(block.header.timestamp_nanosec) / 1_000_000n) };
