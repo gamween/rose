@@ -5,7 +5,7 @@ import { DEMO_RECORDING, mockDemoEngine } from "./fixtures/demo-mock";
 /**
  * "Watch a full round" (spec 9). The demo exists only for an engine with a committed manifest,
  * so the suite needs a build configured with a seeded engine that has a recording
- * (`deployments/engine.rose-app.testnet.env`, or the staging `engine-s5`); the engine views are served from
+ * (`deployments/engine-v2.rose-app.testnet.env`, or the superseded `engine.rose-app.testnet`); the engine views are served from
  * that recording (`fixtures/demo-mock.ts`), the explorer links come from the manifest.
  */
 
@@ -106,7 +106,7 @@ test.describe("guided demo", () => {
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("End");
     await expect(step).toHaveAttribute("data-demo-step", "custody");
-    // On engine.rose-app.testnet and engine-s5, rounds #0 and #2 cleared at 36000 and 37500 base units: 0.036 and 0.0375, never "0.03".
+    // On engine-v2.rose-app.testnet and engine.rose-app.testnet, rounds #0 and #2 cleared at 36000 and 37500 base units: 0.036 and 0.0375, never "0.03".
     await expect(feed.locator("[data-activity-feed]")).toContainText("Round #0 cleared at 0.036 USDC", { timeout: 20_000 });
     await expect(feed.locator("[data-activity-feed]")).toContainText("Round #2 cleared at 0.0375 USDC");
     await page.keyboard.press("Escape");
