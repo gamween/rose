@@ -141,10 +141,7 @@ export function LandingSequence() {
       const onPointerMove = (event: PointerEvent) => {
         if (!scene || event.pointerType === "touch") return;
         const bounds = stage.getBoundingClientRect();
-        const x = event.clientX - bounds.left;
-        const y = event.clientY - bounds.top;
-        scene.setPointer((x / bounds.width) * 2 - 1, (y / bounds.height) * 2 - 1);
-        const hit: HitTarget = scene.hitTest(x, y);
+        const hit: HitTarget = scene.hitTest(event.clientX - bounds.left, event.clientY - bounds.top);
         const overButton = (event.target as Element | null)?.closest?.("[data-launch]") !== null;
         if (launchReady && (hit !== null || overButton)) {
           window.clearTimeout(hideTimer);

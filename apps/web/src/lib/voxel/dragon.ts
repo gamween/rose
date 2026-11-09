@@ -75,7 +75,10 @@ export type DragonModel = {
   positions: Float32Array;
   /** Linear RGB per voxel. */
   colors: Float32Array;
-  /** Per voxel: kind, bone coordinate (bone + blend fraction), random seed (0..1), kind-specific local value. */
+  /**
+   * Per voxel: kind, bone coordinate (bone + blend fraction), random seed (0..1), kind-specific
+   * local value (eye row, mouth depth, tail tip closeness).
+   */
   data: Float32Array;
   anchors: DragonAnchors;
 };
@@ -137,6 +140,8 @@ const TAIL_TIP: Vec3 = [-18, 10, 42];
 
 const SKULL: Vec3 = [-52, 40, 48];
 const MOUTH: Vec3 = [-31, 35.5, 48];
+/** Lower row of the eyes; the eye voxels carry their row above it (0 or 1), so the lids open from the slit up. */
+const EYE_ROW = 41;
 const NOSTRILS: readonly Vec3[] = [
   [-32, 41, 47],
   [-32, 41, 49],
@@ -262,8 +267,8 @@ function buildHead(grid: VoxelGrid): void {
   for (const [nx, ny, nz] of NOSTRILS) grid.set(nx, ny, nz, M.nostril, w);
   for (const side of [1, -1]) {
     const z = 48 + side * 6;
-    for (let x = -53; x <= -49; x += 1) grid.set(x, 41, z, M.eye, w);
-    for (let x = -52; x <= -50; x += 1) grid.set(x, 42, z, M.eye, w);
+    for (let x = -53; x <= -49; x += 1) grid.set(x, EYE_ROW, z, M.eye, w);
+    for (let x = -52; x <= -50; x += 1) grid.set(x, EYE_ROW + 1, z, M.eye, w);
     for (let x = -54; x <= -48; x += 1) grid.set(x, 43, z + side, M.brow, w);
     grid.set(-54, 42, z + side, M.brow, w);
     grid.set(-48, 42, z + side, M.brow, w);
@@ -383,7 +388,7 @@ function collect(grid: VoxelGrid): DragonModel {
     let local = 0;
     if (mat === M.eye) {
       kind = KIND.eye;
-      local = z > 48 ? 1 : 0;
+      local = y - EYE_ROW;
     } else if (mat === M.mouth) {
       kind = KIND.mouth;
       local = 1 - Math.min(1, (MOUTH[0] - x) / 12);

@@ -1,23 +1,33 @@
 import { Matrix4, Vector3 } from "three";
 import { BONE_COUNT, FAR_WING_BONE, FAR_WING_HIP, FAR_WING_SHOULDER, HEAD_BONE, JAW_BONE, JAW_HINGE, JOINTS } from "@/lib/voxel/dragon";
 import type { Vec3 } from "@/lib/voxel/grid";
+import { lerp } from "@/lib/landing/timeline";
 
 /** Share of the total neck pitch and yaw taken by each joint, from the neck base to the skull. */
 const PITCH_SHARE = [0.08, 0.14, 0.2, 0.24, 0.2, 0.14];
 const YAW_SHARE = [0.05, 0.1, 0.15, 0.2, 0.25, 0.25];
 /** Share of the head lift taken by each joint: the upper neck throws the head back. */
 const LIFT_SHARE = [0, 0, 0.1, 0.2, 0.3, 0.4];
+/** Total neck pitch asleep (head on the ground) and awake, in radians; positive lowers the head. */
+const SLEEP_PITCH = 1.05;
+const WAKE_PITCH = -0.1;
+/** Extra pitch per joint once awake: the base rears up and the upper neck bows forward, an S-curve. */
+const S_CURVE = [-0.2, -0.14, -0.04, 0.1, 0.16, 0.12];
+/** Total neck yaw asleep, in radians. */
+const SLEEP_YAW = -0.22;
 
 export type Pose = {
-  /** Total neck pitch in radians, positive lowers the head. */
-  pitch: number;
-  /** Total neck yaw in radians, positive turns the head away from the camera. */
+  /** Per neck joint, from the base: 0 lying down, 1 raised (`SequenceState.neck`). */
+  neck: readonly number[];
+  /** Time in seconds, for the slow idle sway that travels up the raised neck. */
+  time: number;
+  /** Total neck yaw once raised, in radians, positive turns the head away from the camera. */
   yaw: number;
   /** Total head lift in radians in the picture plane (about +z), positive turns the snout upward. */
   lift: number;
   /** Jaw opening, 0 closed to 1 wide open. */
   jaw: number;
-  /** Far wing, 0 raised to 1 folded along the body. */
+  /** Far wing, 0 raised to 1 folded along the body (slightly negative at the overshoot). */
   wingFold: number;
 };
 
@@ -33,7 +43,8 @@ const WING_AXIS = new Vector3(
 /**
  * Neck skeleton of the dragon: a chain of joints along the neck, each rotating about its own
  * lateral axis (pitch) and the vertical axis (yaw), the head at the end and the jaw hinged under
- * it, plus the far wing. `update` recomputes the world matrix of every bone, which the vertex
+ * it, plus the far wing. Each joint rises on its own schedule, so the neck lifts the head in an arc
+ * and settles into an S-curve. `update` recomputes the world matrix of every bone, which the vertex
  * shader blends per voxel.
  */
 export class DragonRig {
@@ -57,7 +68,11 @@ export class DragonRig {
     bones[0]!.identity();
     for (let i = 0; i < JOINTS.length; i += 1) {
       const parent = bones[i]!;
-      this.rotateAbout(JOINTS[i]!, this.lateral[i]!, pose.pitch * PITCH_SHARE[i]!, UP, pose.yaw * YAW_SHARE[i]!, pose.lift * LIFT_SHARE[i]!);
+      const raised = pose.neck[i] ?? 0;
+      const sway = Math.sin(pose.time * 0.5 - i * 0.45) * 0.012 * raised;
+      const pitch = lerp(SLEEP_PITCH * PITCH_SHARE[i]!, WAKE_PITCH * PITCH_SHARE[i]! + S_CURVE[i]!, raised) + sway;
+      const yaw = lerp(SLEEP_YAW, pose.yaw, raised) * YAW_SHARE[i]!;
+      this.rotateAbout(JOINTS[i]!, this.lateral[i]!, pitch, UP, yaw, pose.lift * LIFT_SHARE[i]!);
       bones[i + 1]!.multiplyMatrices(parent, this.scratch);
     }
     this.rotateAbout(JAW_HINGE, JAW_AXIS, -0.3 * pose.jaw, UP, 0);

@@ -39,8 +39,9 @@ attribute vec3 aOffset;
 attribute vec3 aColor;
 attribute vec4 aData;
 uniform mat4 uBones[${BONE_COUNT + 1}];
-uniform float uTime;
-uniform float uBreath;
+uniform float uBreathPhase;
+uniform float uBreathDepth;
+uniform float uSwell;
 uniform vec3 uChest;
 varying vec3 vColor;
 varying vec4 vData;
@@ -54,7 +55,7 @@ void main() {
   float blend = fract(aData.y);
   mat4 skin = uBones[bone] * (1.0 - blend) + uBones[bone + 1] * blend;
   float chest = exp(-dot(aOffset - uChest, aOffset - uChest) / 900.0);
-  local += (local - uChest) * (sin(uTime * uBreath) * 0.014 * chest) * step(aData.y, 0.5);
+  local += (local - uChest) * ((sin(uBreathPhase) * uBreathDepth + uSwell) * chest) * step(aData.y, 0.5);
   vec4 posed = skin * vec4(local, 1.0);
   vec4 world = modelMatrix * posed;
   vWorld = world.xyz;
@@ -101,9 +102,9 @@ void main() {
 
   if (kind < 0.5) {
   } else if (kind < 1.5) {
-    float open = mix(0.05, 1.0, uEyelid);
+    float open = smoothstep(local * 0.45, local * 0.45 + 0.55, uEyelid);
     emissive = vec3(1.0, 0.62, 0.18) * (1.2 * uEyes * open) * (0.92 + 0.08 * flicker);
-    lit *= mix(0.6, 1.0, uEyelid);
+    lit *= mix(0.6, 1.0, open);
   } else if (kind < 2.5) {
     emissive = vec3(1.0, 0.3, 0.06) * (uFire * 0.35 * (1.0 - local) + uSmoke * 0.06 * flicker);
   } else if (kind < 3.5) {
@@ -139,6 +140,7 @@ export const textVertex = /* glsl */ `
 attribute vec3 aOffset;
 attribute vec3 aLetter;
 attribute vec4 aCrack;
+attribute vec2 aEdge;
 uniform float uWidth;
 uniform vec2 uCracks;
 uniform float uShatter;
@@ -170,9 +172,13 @@ void main() {
   vec3 fly = vec3(drift.x * 7.0, 2.5 + drift.y * 3.0, 5.0 * (seed - 0.3)) * broken - vec3(0.0, 16.0 * broken * broken, 0.0);
   vec3 local = vec3(center, 0.0) + rel + fly + rotateAbout(position * size, axis, spin);
 
+  // The front face of a voxel on a stroke edge leans 45 degrees toward that edge, a one-voxel
+  // chamfer: flat voxel letters then catch a crisp glint along the edges that face a light.
+  vec3 bevelled = normal.z > 0.5 ? normalize(vec3(aEdge, 1.0)) : normal;
+
   vec4 world = modelMatrix * vec4(local, 1.0);
   vWorld = world.xyz;
-  vNormal = normalize(mat3(modelMatrix) * rotateAbout(normal, axis, spin));
+  vNormal = normalize(mat3(modelMatrix) * rotateAbout(bevelled, axis, spin));
   vLetter = aLetter;
   vAcross = across;
   vFissure = fissure * crack;
@@ -182,12 +188,54 @@ void main() {
 `;
 
 /**
- * The phrase: deep shadow until the first sweep of the fire passes a letter, then lit bone white,
- * with a hot flash under the flame (`uSweep` is the flame position across the phrase); "rose"
- * smolders from the start and grows to a blaze. Fissures glow ember and broken chunks burn out.
- * Alpha is the dither amount read by the final pass: 0 keeps the letters crisp (the dragon writes
- * 0.45 so its flat faces snap to the palette and only its gradients pattern; everything else
- * dithers fully).
+ * Glints on the phrase: GGX (Trowbridge-Reitz) specular with Schlick's Fresnel and the
+ * Smith-Schlick visibility term, lit by the four blazing letters of "rose" and the front of the
+ * fire jet as point lights with an inverse-square falloff measured in design pixels. The lobe is
+ * tight enough that only the chamfered stroke edges facing a light reach white while flat faces
+ * stay dark, and wide enough to hold over the few pixels a chamfer covers.
+ */
+const GLINTS = /* glsl */ `
+uniform vec4 uRoseLights[4];
+uniform vec4 uJetLight;
+uniform float uTextScale;
+const float GLINT_ALPHA = 0.25;
+const float GLINT_F0 = 0.2;
+
+float glint(vec3 n, vec3 v, vec3 l) {
+  vec3 h = normalize(l + v);
+  float nl = max(dot(n, l), 0.0);
+  float nv = max(dot(n, v), 0.0);
+  float nh = max(dot(n, h), 0.0);
+  float a2 = GLINT_ALPHA * GLINT_ALPHA;
+  float f = nh * nh * (a2 - 1.0) + 1.0;
+  float d = a2 / (3.14159265 * f * f);
+  float fresnel = GLINT_F0 + (1.0 - GLINT_F0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
+  float k = GLINT_ALPHA * 0.5;
+  float visibility = nl / (nl * (1.0 - k) + k) / (4.0 * (nv * (1.0 - k) + k));
+  return d * fresnel * visibility;
+}
+
+float pointGlint(vec4 light, float range, vec3 n, vec3 v, vec3 worldPos) {
+  vec3 toLight = light.xyz - worldPos;
+  float dist = length(toLight);
+  float pixels = dist / uTextScale;
+  return glint(n, v, toLight / max(dist, 1e-4)) * light.w / (1.0 + pixels * pixels / (range * range));
+}
+
+float glints(vec3 n, vec3 v, vec3 worldPos) {
+  float total = pointGlint(uJetLight, 8.0, n, v, worldPos);
+  for (int i = 0; i < 4; i++) total += pointGlint(uRoseLights[i], 9.0, n, v, worldPos);
+  return total;
+}
+`;
+
+/**
+ * The phrase: deep shadow until the first sweep of the fire passes a letter, then lit bone, with a
+ * hot flash under the flame (`uSweep` is the flame position across the phrase); "rose" smolders
+ * from the start and grows to a blaze, and its light leaves white glints on the edges of the other
+ * letters that face it. Fissures glow ember and broken chunks burn out. Alpha is the dither amount
+ * read by the final pass: 0 keeps the letters crisp (the dragon writes 0.45 so its flat faces snap
+ * to the palette and only its gradients pattern; everything else dithers fully).
  */
 export const textFragment = /* glsl */ `
 uniform float uTime;
@@ -202,6 +250,7 @@ varying float vAcross;
 varying float vFissure;
 varying float vBreak;
 ${LIGHTING}
+${GLINTS}
 
 void main() {
   float isRose = vLetter.y;
@@ -214,22 +263,25 @@ void main() {
   float flicker = 0.75 + 0.25 * sin(uTime * (3.0 + seed * 4.0) + seed * 40.0);
 
   vec3 shadow = vec3(0.028, 0.02, 0.018) * face;
-  vec3 litColor = vec3(1.1, 0.95, 0.78) * face;
+  vec3 litColor = vec3(0.5, 0.43, 0.36) * face;
   vec3 color = mix(shadow, litColor, reached) + pointLights(vWorld, n, 0.12) * 0.3 * face;
 
   if (isRose > 0.5) {
     float ember = 0.65 + 0.35 * sin(uTime * (2.3 + seed * 2.0) + seed * 31.0) * sin(uTime * 0.7 + seed * 9.0);
     float hot = pow(0.5 + 0.5 * sin(uTime * (1.2 + seed * 2.6) + seed * 47.0), 10.0);
     vec3 smolder = (vec3(0.42, 0.05, 0.03) * ember + vec3(1.6, 0.5, 0.1) * hot) * face;
-    vec3 blaze = vec3(3.2, 1.1, 0.3) * (0.88 + 0.12 * ember) * face;
+    vec3 blaze = (vec3(2.6, 0.4, 0.08) * (0.86 + 0.14 * ember) + vec3(0.8, 0.5, 0.12) * hot) * face;
     color = mix(smolder * (0.5 + uRose), blaze, smoothstep(0.4, 1.0, uRose));
+  } else {
+    vec3 view = normalize(cameraPosition - vWorld);
+    color += vec3(1.0, 0.94, 0.84) * glints(n, view, vWorld) * (1.0 - smoothstep(0.0, 0.3, vBreak));
   }
   color += vec3(2.4, 1.0, 0.3) * heat;
   vec3 fissure = mix(vec3(1.5, 0.2, 0.05), vec3(3.0, 1.1, 0.25), smoothstep(0.6, 1.0, vFissure)) * flicker;
   color = mix(color, fissure, smoothstep(0.0, 0.2, vFissure));
   vec3 burning = mix(vec3(3.0, 1.1, 0.25), vec3(0.5, 0.06, 0.03), smoothstep(0.2, 0.9, vBreak));
   color = mix(color, burning * face, smoothstep(0.0, 0.12, vBreak));
-  gl_FragColor = vec4(color, 0.0);
+  gl_FragColor = vec4(min(color, vec3(32.0)), 0.0);
 }
 `;
 
@@ -256,7 +308,10 @@ void main() {
 }
 `;
 
-/** Fire and sparks: additive voxels with a temperature ramp by normalized age. */
+/**
+ * Fire and sparks: additive voxels with a temperature ramp by normalized age. The jet writes alpha
+ * 1 (dithered, and it blooms); the sparks write 0, so they stay crisp embers without a halo.
+ */
 export const fireFragment = /* glsl */ `
 varying vec4 vInfo;
 varying vec3 vNormal;
@@ -278,7 +333,7 @@ void main() {
   float face = vNormal.z > 0.5 ? 1.0 : (vNormal.y > 0.5 ? 0.8 : 0.55);
   vec3 color = kind > 0.5 ? vec3(2.2, 0.8, 0.2) * (1.0 - age) : ramp(age);
   float alpha = kind > 0.5 ? (1.0 - age) : smoothstep(0.0, 0.06, age) * (1.0 - smoothstep(0.6, 1.0, age)) * vFade;
-  gl_FragColor = vec4(color * alpha * face, 1.0);
+  gl_FragColor = vec4(color * alpha * face, kind > 0.5 ? 0.0 : 1.0);
 }
 `;
 
@@ -296,37 +351,6 @@ void main() {
 }
 `;
 
-export const backdropVertex = /* glsl */ `
-varying vec3 vWorld;
-void main() {
-  vec4 world = modelMatrix * vec4(position, 1.0);
-  vWorld = world.xyz;
-  gl_Position = projectionMatrix * viewMatrix * world;
-}
-`;
-
-/**
- * Backdrop: a very dim ember haze on the ground under the dragon and soft glows, so the final dither
- * pattern has gradients to draw. `uHaze` is the haze center (xy), radius and strength.
- */
-export const backdropFragment = /* glsl */ `
-uniform vec4 uGlow[3];
-uniform vec3 uGlowColor[3];
-uniform vec4 uHaze;
-varying vec3 vWorld;
-
-void main() {
-  vec3 color = vec3(0.0);
-  for (int i = 0; i < 3; i++) {
-    vec2 d = (vWorld.xy - uGlow[i].xy) / max(uGlow[i].z, 1.0);
-    color += uGlowColor[i] * uGlow[i].w * exp(-dot(d, d));
-  }
-  vec2 ground = (vWorld.xy - uHaze.xy) / vec2(uHaze.z, uHaze.z * 0.4);
-  color += vec3(0.16, 0.07, 0.05) * uHaze.w * exp(-dot(ground, ground));
-  gl_FragColor = vec4(color, 1.0);
-}
-`;
-
 export const fullscreenVertex = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -335,13 +359,17 @@ void main() {
 }
 `;
 
+/**
+ * Bloom bright pass. The phrase (scene alpha 0) is left out, so its letters stay crisp without a
+ * halo; only the fire, the sparks, the eyes and the tail ember bloom.
+ */
 export const brightFragment = /* glsl */ `
 uniform sampler2D uScene;
 varying vec2 vUv;
 void main() {
-  vec3 c = texture2D(uScene, vUv).rgb;
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  gl_FragColor = vec4(c * smoothstep(0.7, 2.0, l), 1.0);
+  vec4 src = texture2D(uScene, vUv);
+  float l = dot(src.rgb, vec3(0.2126, 0.7152, 0.0722));
+  gl_FragColor = vec4(src.rgb * smoothstep(0.7, 2.0, l) * smoothstep(0.3, 0.42, src.a), 1.0);
 }
 `;
 

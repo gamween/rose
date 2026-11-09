@@ -20,6 +20,12 @@ export type VoxelText = {
   letters: Float32Array;
   /** Per voxel: on a fissure (0 or 1), chunk seed (0..1), chunk center xy (design pixels). */
   cracks: Float32Array;
+  /**
+   * Per voxel, which sides of its stroke it borders: x is +1 on the right edge of a stroke, -1 on
+   * its left edge, 0 inside or on both; y the same for the top (+1) and bottom (-1) edges. The
+   * shader chamfers the front faces along these edges so flat voxels still catch highlights.
+   */
+  edges: Float32Array;
   /** Bounds of the phrase in design pixels. */
   width: number;
   height: number;
@@ -75,6 +81,9 @@ export function buildVoxelText(fontFamily: string, lines: 1 | 2): VoxelText {
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
   const offsets: number[] = [];
   const letters: number[] = [];
+  const cells: number[] = [];
+  const filled = new Set<number>();
+  const cellKey = (gx: number, gy: number) => gy * 65536 + gx;
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
@@ -91,6 +100,10 @@ export function buildVoxelText(fontFamily: string, lines: 1 | 2): VoxelText {
           const vy = -(y + (sy + 0.5) / TEXT_SUBDIVISION - 0.5);
           offsets.push(vx, vy);
           letters.push(glyph.order, glyph.rose ? 1 : 0, hash(vx, vy));
+          const gx = x * TEXT_SUBDIVISION + sx;
+          const gy = y * TEXT_SUBDIVISION + sy;
+          cells.push(gx, gy);
+          filled.add(cellKey(gx, gy));
         }
       }
       minX = Math.min(minX, x);
@@ -103,15 +116,22 @@ export function buildVoxelText(fontFamily: string, lines: 1 | 2): VoxelText {
   const cy = (minY + maxY) / 2;
   const count = offsets.length / 2;
   const positions = new Float32Array(count * 3);
+  const edges = new Float32Array(count * 2);
+  const empty = (x: number, y: number) => (filled.has(cellKey(x, y)) ? 0 : 1);
   for (let i = 0; i < count; i += 1) {
     positions[i * 3] = offsets[i * 2]! - cx;
     positions[i * 3 + 1] = offsets[i * 2 + 1]! - cy;
+    const x = cells[i * 2]!;
+    const y = cells[i * 2 + 1]!;
+    edges[i * 2] = empty(x + 1, y) - empty(x - 1, y);
+    edges[i * 2 + 1] = empty(x, y - 1) - empty(x, y + 1);
   }
   return {
     count,
     offsets: positions,
     letters: Float32Array.from(letters),
     cracks: crackPattern(positions, count),
+    edges,
     width: maxX - minX + 1,
     height: maxY - minY + 1,
     letterCenters: centers.map(({ order, x, y }) => ({ order, x: x - cx, y: -y - cy })),
