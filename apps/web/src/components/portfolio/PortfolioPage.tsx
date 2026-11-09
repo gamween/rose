@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { deployed } from "@/lib/deployment";
@@ -101,7 +101,7 @@ export function PortfolioPage() {
   const wallets = useWallets();
   const account = wallets.near.accountId;
   const engine = deployed("engineAccount");
-  const [connect, setConnect] = useState<ChainId | null>(null);
+  const openConnect = useConnectModal();
   const [prompt, setPrompt] = useState<ClaimPrompt | null>(null);
   const [flow, setFlow] = useState<FlowRequest | null>(null);
 
@@ -139,12 +139,12 @@ export function PortfolioPage() {
               Refresh
             </Button>
           ) : null}
-          <Button size="sm" onClick={() => setConnect("near")}>
+          <Button size="sm" onClick={() => openConnect()}>
             {wallets.anyConnected ? "Connect another wallet" : "Connect a wallet"}
           </Button>
         </div>
       </header>
-      <WalletStrip onConnect={(chain) => setConnect(chain)} />
+      <WalletStrip onConnect={openConnect} />
 
       {!engine ? (
         <EmptyState illustration="ledger" title="Engine not deployed yet" description="The portfolio reads the engine's views (holdings, orders, liens, cash, payouts, events). It fills in as soon as NEXT_PUBLIC_ENGINE_ACCOUNT points to a deployed engine." />
@@ -158,7 +158,7 @@ export function PortfolioPage() {
           title="Connect a NEAR wallet"
           description="Units, cash and liens live on your NEAR account. Connect a testnet wallet, or create the in-app demo wallet, to see what you hold."
           action={
-            <Button onClick={() => setConnect("near")} data-portfolio-connect>
+            <Button onClick={() => openConnect("near")} data-portfolio-connect>
               Connect NEAR
             </Button>
           }
@@ -182,7 +182,6 @@ export function PortfolioPage() {
         <state.value.Account account={account} data={state.value.data} refreshAll={refreshAll} setPrompt={setPrompt} setFlow={setFlow} />
       ) : null}
       <Sections />
-      <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
       <ClaimDialog prompt={prompt} onClose={() => setPrompt(null)} />
       <FlowDialog request={flow} onClose={() => setFlow(null)} onDone={refreshAll} />
     </div>

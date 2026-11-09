@@ -13,7 +13,7 @@ import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatDate, formatFraction, secondsToMs, shortHex, venueLabel } from "@/lib/amounts";
 import { engineClient, requireEngine, type EngineClient } from "@/lib/engine-client";
@@ -279,16 +279,13 @@ export function useVenueOptions(base: IssuerBase | null): { id: string; label: s
   }, [base]);
 }
 
-/** Opens the connect modal on the NEAR tab: the issuer signs with a NEAR account. */
+/** Opens the connect modal on the NEAR wallets: the issuer signs with a NEAR account. */
 function IssuerConnectButton() {
-  const [open, setOpen] = useState(false);
+  const openConnect = useConnectModal();
   return (
-    <>
-      <Button onClick={() => setOpen(true)} data-issuer-connect>
-        Connect NEAR
-      </Button>
-      <ConnectModal open={open} onClose={() => setOpen(false)} initialChain="near" />
-    </>
+    <Button onClick={() => openConnect("near")} data-issuer-connect>
+      Connect NEAR
+    </Button>
   );
 }
 

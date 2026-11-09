@@ -71,15 +71,16 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    through a seeded Tender. You see the sealed book (how many asks, their locked units, their
    ciphertext hashes, no price), the key released by the MPC network a few seconds after the close,
    every ask opened and verified on chain, and the clearing price, each step with its explorer link.
-2. **Connect.** Click **Connect** and, in each of the NEAR, EVM and Solana tabs, **Create a demo
-   wallet**. You see three wallet pills with balances; the keys stay in this browser.
+2. **Connect.** Click **Connect**, choose a network (NEAR first, then Base and Solana), and under
+   **Try without a wallet** use its demo wallet. You see one header button with the connected
+   networks, and its menu lists each wallet with its balance; the keys stay in this browser.
 3. **Get test funds.** Open the testnet banner, then **Get test funds**: **Create the demo account
    with test NEAR**, **Mint 1,000 tUSDC on NEAR**, **Mint 1,000 tUSDC on Base**, **Mint me a demo
    vesting position**, **Create a demo Streamflow position**, and the two actions that send Base
    Sepolia ETH and Solana devnet SOL for gas. You see each action succeed with its explorer link and the balances update.
 4. **Deposit a position.** Open `/app/deposit`, choose Base, pick the demo Sablier stream and
    deposit it. You see the wait for Base's `safe` head (about 3 minutes), then the MPC network's
-   attestation of the deposit (6 to 9 seconds when measured), then your units minted. The Solana tab does the
+   attestation of the deposit (6 to 9 seconds when measured), then your units minted. Choosing Solana does the
    same for the Streamflow position in three engine calls.
 5. **Open a round and sell, sealed.** On `/app/rounds`, **Create Exit round** on the class of your
    position with a short window, then **Place ask**. You see your ask in the sealed book: its locked

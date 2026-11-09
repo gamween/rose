@@ -15,6 +15,7 @@ import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { readStorageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { formatUnits } from "@/lib/format";
@@ -42,6 +43,7 @@ function Row({ label, value, strong = false, hint }: { label: string; value: str
 export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; nowMs: number; onPlaced: () => void }) {
   const { round, cls, viewer, engine, limits, config } = detail;
   const { near, restoring } = useWallets();
+  const openConnect = useConnectModal();
   const { run, status } = useNearAction();
   const isCreator = viewer?.account === round.creator;
   const sides = useMemo<Side[]>(() => {
@@ -206,7 +208,14 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
       >
         {!open ? <Notice tone="info">{round.status === "Scheduled" ? "The round is not open yet." : "Bidding is closed for this round."}</Notice> : null}
         {open && restoring ? <Notice tone="info">Restoring your wallet…</Notice> : null}
-        {open && !restoring && near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or use the demo wallet) to place a sealed order.</Notice> : null}
+        {open && !restoring && near.status !== "connected" ? (
+          <Notice tone="warning" className="flex items-center justify-between gap-3">
+            <span>Connect a NEAR wallet (or use the demo wallet) to place a sealed order.</span>
+            <Button size="sm" variant="secondary" onClick={() => openConnect("near")} data-connect-prompt="near">
+              Connect NEAR
+            </Button>
+          </Notice>
+        ) : null}
         {open && viewer && existing !== null && existing !== undefined ? (
           <Notice tone="info">
             You already placed {side === "Buy" ? "a bid" : "an ask"} in this round (#{String(existing)}). One sealed order per side per account; see &quot;My orders&quot;.

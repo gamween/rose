@@ -27,7 +27,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Connect wallets or use demo keys",
-    body: "The Connect button opens one tab per chain. Each chain also offers an in-app demo wallet whose key stays in this browser, so you can try a full round without installing anything.",
+    body: "Connect asks for the network first, then the wallet. NEAR is the one you need to trade; Base or Solana only matter if your position lives there. Each network also offers a demo wallet whose key stays in this browser, so you can try a full round without installing anything.",
     illustration: "ledger",
     learn: "wallets",
   },

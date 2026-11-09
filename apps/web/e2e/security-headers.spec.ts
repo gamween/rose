@@ -30,6 +30,7 @@ test.describe("security headers", () => {
     await page.locator("[data-connect]").click();
     const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
     await expect(dialog).toBeVisible();
+    await dialog.locator("[data-network='near']").click();
     await dialog.getByRole("button", { name: /Create a demo wallet/ }).click();
     await expect(page.getByText("NEAR demo wallet ready")).toBeVisible();
     await page.goto("/docs");

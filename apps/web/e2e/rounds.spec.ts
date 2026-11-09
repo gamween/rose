@@ -227,6 +227,19 @@ test.describe("rounds with a mocked engine", () => {
     await expect(page.getByText("Not a round id")).toBeVisible();
   });
 
+  test("the order form asks a visitor without a wallet for NEAR, on the NEAR wallets", async ({ page }) => {
+    await mockRounds(page);
+    await page.goto("/app/rounds/1");
+    const form = page.locator("[data-order-form]");
+    await expect(form.locator("[data-connect-prompt='near']")).toBeVisible({ timeout: 20_000 });
+    await form.locator("[data-connect-prompt='near']").click();
+    const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
+    await expect(dialog.locator("[data-wallet-step='near']")).toBeVisible();
+    await dialog.locator("[data-demo-wallet]").click();
+    await expect(dialog).toBeHidden();
+    await expect(form.locator("[data-connect-prompt='near']")).toBeHidden();
+  });
+
   test("full round from a sealed bid to the claim with the demo wallet", async ({ page }) => {
     test.setTimeout(180_000);
     const errors = await collectErrors(page);

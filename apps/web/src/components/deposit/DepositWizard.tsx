@@ -4,10 +4,10 @@ import { useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { deployed } from "@/lib/deployment";
-import { nearAccountUrl, type ChainId } from "@/lib/explorer";
+import { nearAccountUrl } from "@/lib/explorer";
 import { BaseDeposit } from "./BaseDeposit";
 import { RefusedDeposits } from "./RefusedDeposits";
 import { ChainPicker, type DepositChain } from "./shared";
@@ -17,7 +17,7 @@ import { SolanaDeposit } from "./SolanaDeposit";
 export function DepositWizard() {
   const wallets = useWallets();
   const [chain, setChain] = useState<DepositChain | null>(null);
-  const [connect, setConnect] = useState<ChainId | null>(null);
+  const openConnect = useConnectModal();
   const engine = deployed("engineAccount");
   const nearAccount = wallets.near.accountId;
   const notDeployed: Record<DepositChain, string | null> = {
@@ -46,7 +46,7 @@ export function DepositWizard() {
           ) : (
             <>
               <span>Units are minted to a NEAR account.</span>
-              <Button size="sm" variant="secondary" onClick={() => setConnect("near")} data-connect-prompt="near">
+              <Button size="sm" variant="secondary" onClick={() => openConnect("near")} data-connect-prompt="near">
                 Connect NEAR
               </Button>
             </>
@@ -65,14 +65,13 @@ export function DepositWizard() {
           {notDeployed[chain] ? (
             <p className="rounded-md border border-warning-400/40 bg-warning-400/10 px-4 py-3 text-[13px] text-warning-400">{notDeployed[chain]} Deposits open as soon as the addresses are configured; everything else on this page already reads live.</p>
           ) : null}
-          {chain === "base" ? <BaseDeposit nearAccount={nearAccount} onConnect={setConnect} /> : <SolanaDeposit nearAccount={nearAccount} onConnect={setConnect} />}
+          {chain === "base" ? <BaseDeposit nearAccount={nearAccount} onConnect={openConnect} /> : <SolanaDeposit nearAccount={nearAccount} onConnect={openConnect} />}
         </section>
       ) : (
         <p className="text-[13px] text-ink-400">Choose a chain to list your streams. No stream yet? The Base list offers a demo vesting position of the demo token, minted on chain.</p>
       )}
 
       <RefusedDeposits />
-      <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
     </div>
   );
 }

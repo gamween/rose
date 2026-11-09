@@ -3,6 +3,7 @@ import { demoStreamFaucetAbi, roseVaultAbi, sablierLockupAbi } from "../../../pa
 import { erc20Abi, sablierLockupExtrasAbi } from "../../../packages/sdk/src/chains/base/sablier";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionResult, getAbiItem, multicall3Abi, type Abi, type Hex } from "viem";
 import { MOCK, mockChains, type MockOverrides } from "./fixtures/engine-mock";
+import { connectDemoWallet, type WalletNetwork } from "./fixtures/wallets";
 
 /**
  * The deposit wizard against mocked chains: a Base holder with three Sablier streams (one joins
@@ -319,14 +320,8 @@ test.describe("deposit wizard (mocked chains)", () => {
     if (mobile && viewport) await page.setViewportSize(viewport);
   }
 
-  async function connectDemoWallets(page: Page, chains: ("NEAR" | "Base" | "Solana")[]): Promise<void> {
-    for (const chain of chains) {
-      await page.locator("[data-connect]").click();
-      const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
-      await dialog.getByRole("tab", { name: chain }).click();
-      await dialog.getByRole("button", { name: /Create a demo wallet/ }).click();
-      await expect(dialog).toBeHidden();
-    }
+  async function connectDemoWallets(page: Page, chains: WalletNetwork[]): Promise<void> {
+    for (const chain of chains) await connectDemoWallet(page, chain);
     const stored = await page.evaluate(() => ({
       evm: JSON.parse(localStorage.getItem("rose.demo.evm") ?? "null") as { address?: string } | null,
       near: JSON.parse(localStorage.getItem("rose.demo.near") ?? "null") as { accountId?: string } | null,
@@ -358,13 +353,13 @@ test.describe("deposit wizard (mocked chains)", () => {
     await page.locator("[data-chain='solana']").click();
     await expect(page.locator("[data-connect-prompt='solana']")).toBeVisible();
     await page.locator("[data-connect-prompt='solana']").click();
-    await expect(page.getByRole("dialog", { name: /Connect a wallet/ })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: /Connect a wallet/ }).locator("[data-wallet-step='solana']")).toBeVisible();
     expect(errors).toEqual([]);
   });
 
   test("Base: lists the holder's streams with eligibility, class matching and runs the deposit flow to the minted units", async ({ page }) => {
     test.setTimeout(180_000);
-    await connectDemoWallets(page, ["NEAR", "Base"]);
+    await connectDemoWallets(page, ["near", "base"]);
     await page.goto("/app/deposit");
     await expect(page.locator("[data-near-recipient]")).toContainText(state.nearAccount, { timeout: 30_000 });
     await page.locator("[data-chain='base']").click();
@@ -403,7 +398,7 @@ test.describe("deposit wizard (mocked chains)", () => {
   });
 
   test("Solana: lists Streamflow streams with explanations and derives the MPC deposit address", async ({ page }) => {
-    await connectDemoWallets(page, ["NEAR", "Solana"]);
+    await connectDemoWallets(page, ["near", "solana"]);
     await page.goto("/app/deposit");
     await page.locator("[data-chain='solana']").click();
     const list = page.locator("[data-stream-list]");
@@ -427,7 +422,7 @@ test.describe("deposit wizard (mocked chains)", () => {
   });
 
   test("Solana: an interrupted deposit whose stream left the wallet is listed with its stage and resumes where it stopped", async ({ page }) => {
-    await connectDemoWallets(page, ["NEAR", "Solana"]);
+    await connectDemoWallets(page, ["near", "solana"]);
     await page.evaluate(
       ({ metadata, nearAccount, classId }) =>
         localStorage.setItem("rose.deposits.attempted", JSON.stringify([{ key: { SolStream: { metadata } }, chain: "solana", label: "Streamflow stream GH14um…WM1Fb", nearAccount, attemptedAt: Date.now(), solClassId: classId }])),
@@ -455,7 +450,7 @@ test.describe("deposit wizard (mocked chains)", () => {
       faucetBodies.push(route.request().postDataJSON());
       await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "This solana-demo-token faucet was already used by this address in the last 24 hours. Try again in about 24 hours." }) });
     });
-    await connectDemoWallets(page, ["NEAR", "Solana"]);
+    await connectDemoWallets(page, ["near", "solana"]);
     await page.goto("/app/deposit");
     await page.locator("[data-chain='solana']").click();
     const create = page.locator("[data-mint-demo]");
@@ -471,7 +466,7 @@ test.describe("deposit wizard (mocked chains)", () => {
   });
 
   test("Base: the empty list offers the demo vesting position", async ({ page }) => {
-    await connectDemoWallets(page, ["NEAR", "Base"]);
+    await connectDemoWallets(page, ["near", "base"]);
     state.owner = "0x000000000000000000000000000000000000dead";
     await page.goto("/app/deposit");
     await page.locator("[data-chain='base']").click();

@@ -15,7 +15,7 @@ import { Countdown } from "@/components/ui/Countdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { formatAmount, formatUsdc, formatDate, nsToMs, venueLabel } from "@/lib/amounts";
@@ -156,7 +156,7 @@ export function AdvancePage() {
   const account = wallets.near.accountId;
   const engine = deployed("engineAccount");
   const [tab, setTab] = useState<Tab>("browse");
-  const [connect, setConnect] = useState(false);
+  const openConnect = useConnectModal();
   const [flow, setFlow] = useState<FlowRequest | null>(null);
   const [created, setCreated] = useState<bigint | null>(null);
 
@@ -213,7 +213,7 @@ export function AdvancePage() {
           </p>
         </div>
         {!account ? (
-          <Button size="sm" onClick={() => setConnect(true)}>
+          <Button size="sm" onClick={() => openConnect("near")}>
             Connect NEAR
           </Button>
         ) : null}
@@ -297,7 +297,7 @@ export function AdvancePage() {
                     title="Connect a NEAR wallet"
                     description="The Advance encumbers units of your NEAR account."
                     action={
-                      <Button onClick={() => setConnect(true)} data-advance-connect>
+                      <Button onClick={() => openConnect("near")} data-advance-connect>
                         Connect NEAR
                       </Button>
                     }
@@ -312,12 +312,11 @@ export function AdvancePage() {
             ) : wallets.restoring || wallets.walletsStatus === "failed" ? (
               <WalletsStatusRow what="Restoring your wallet…" />
             ) : (
-              <EmptyState illustration="vault" title="Connect a NEAR wallet" description="Liens are attached to your NEAR account." action={<Button onClick={() => setConnect(true)}>Connect NEAR</Button>} />
+              <EmptyState illustration="vault" title="Connect a NEAR wallet" description="Liens are attached to your NEAR account." action={<Button onClick={() => openConnect("near")}>Connect NEAR</Button>} />
             )
           ) : null}
         </>
       ) : null}
-      <ConnectModal open={connect} onClose={() => setConnect(false)} initialChain="near" />
       <FlowDialog request={flow} onClose={() => setFlow(null)} onDone={() => void refresh()} />
     </div>
   );

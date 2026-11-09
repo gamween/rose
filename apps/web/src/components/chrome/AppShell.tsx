@@ -6,11 +6,10 @@ import { TopNav, type MenuAction } from "@/components/chrome/TopNav";
 import { Footer } from "@/components/chrome/Footer";
 import { WalletPills } from "@/components/wallet/WalletPills";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { ConnectModalProvider, useConnectModal } from "@/components/wallet/ConnectModal";
 import { Drawer } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
-import type { ChainId } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { ActivityFeedDrawer } from "./ActivityFeed";
 import { CommandPalette, usePaletteShortcut, type PaletteCommand } from "./CommandPalette";
@@ -44,12 +43,22 @@ function FundsLoading({ open, failed, onClose, onRetry }: { open: boolean; faile
 }
 
 /**
- * Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour.
+ * Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour,
+ * around the app's single connect modal (any page opens it with `useConnectModal()`).
  * `demo`: the configured engine has a guided demo ("Watch a full round"); the first-visit tour
  * stays closed on the demo itself, which explains itself and is used for screen recordings.
  */
 export function AppShell({ children, demo }: { children: ReactNode; demo: boolean }) {
+  return (
+    <ConnectModalProvider>
+      <AppChrome demo={demo}>{children}</AppChrome>
+    </ConnectModalProvider>
+  );
+}
+
+function AppChrome({ children, demo }: { children: ReactNode; demo: boolean }) {
   const wallets = useWallets();
+  const openConnect = useConnectModal();
   const router = useRouter();
   const onDemo = (usePathname() ?? "") === ROUTES.demo;
   const [fundsOpen, setFundsOpenState] = useState(false);
@@ -75,7 +84,6 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tour, setTour] = useState<TourState>("closed");
   const [tourDecided, setTourDecided] = useState(false);
-  const [connect, setConnect] = useState<ChainId | null>(null);
 
   useEffect(() => {
     if (tourDecided) return;
@@ -90,14 +98,14 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
 
   const commands = useMemo<PaletteCommand[]>(
     () => [
-      { id: "act-connect", label: wallets.anyConnected ? "Connect another wallet" : "Connect a wallet", group: "Actions", keywords: "near evm solana demo", run: () => setConnect("near") },
+      { id: "act-connect", label: wallets.anyConnected ? "Connect another wallet" : "Connect a wallet", group: "Actions", keywords: "near evm solana demo", run: () => openConnect() },
       { id: "act-funds", label: "Get test funds", group: "Actions", keywords: "faucet tusdc eth sol mint", run: () => setFundsOpen(true) },
       { id: "act-activity", label: "Open the activity feed", group: "Actions", keywords: "events history", run: () => setActivityOpen(true) },
       { id: "act-tour", label: "Replay the guided tour", group: "Help", keywords: "onboarding help", run: () => setTour("requested") },
       { id: "act-refresh", label: "Refresh balances", group: "Actions", run: () => void wallets.refreshBalances() },
       ...(demo ? [{ id: "help-demo", label: "Watch a full round (guided demo)", group: "Help" as const, keywords: "demo walkthrough seeded tour video", run: () => router.push(ROUTES.demo) }] : []),
     ],
-    [demo, router, setFundsOpen, wallets],
+    [demo, openConnect, router, setFundsOpen, wallets],
   );
   /** The activity and palette buttons hide below `sm` / `lg`; the mobile menu carries both (a phone has no Cmd+K). */
   const menuActions = useMemo<MenuAction[]>(
@@ -155,7 +163,7 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
           onClose={() => setFundsOpen(false)}
           onConnect={(chain) => {
             setFundsOpen(false);
-            setConnect(chain);
+            openConnect(chain);
           }}
         />
       ) : (
@@ -164,7 +172,6 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
       <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} deciding={!tourDecided} />
-      <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
     </div>
   );
 }

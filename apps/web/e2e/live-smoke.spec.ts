@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { collectErrors } from "./fixtures/console";
+import { connectDemoWallet, openWalletDrawer } from "./fixtures/wallets";
 
 /**
  * Live smoke test of a deployed build against NEAR testnet, Base Sepolia and Solana devnet: no
@@ -88,15 +89,8 @@ test.describe("live smoke", () => {
     await skipTour(page);
     const errors = collectErrors(page);
     await page.goto("/app");
-    for (const tab of [null, "Base", "Solana"] as const) {
-      await page.locator("[data-connect]").click();
-      const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
-      if (tab) await dialog.getByRole("tab", { name: tab }).click();
-      await dialog.getByRole("button", { name: /Create a demo wallet/ }).click();
-      await expect(dialog).toBeHidden();
-    }
-    await page.locator("[aria-label='Open wallets']:visible").first().click();
-    const drawer = page.getByRole("dialog", { name: "Wallets" });
+    for (const network of ["near", "base", "solana"] as const) await connectDemoWallet(page, network);
+    const drawer = await openWalletDrawer(page);
     await expect(drawer.getByText("Demo", { exact: true })).toHaveCount(3);
     await expect(drawer).toContainText("rose-demo-");
     expect(errors).toEqual([]);
