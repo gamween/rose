@@ -6,6 +6,7 @@
  */
 
 import type { BidOutcome, Round } from "@rose/sdk";
+import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { nearAccountUrl } from "@/lib/explorer";
@@ -47,10 +48,10 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
   };
 
   return (
-    <section aria-label="Fills" className="rounded-lg border border-ink-750 bg-ink-850" data-fills>
+    <section aria-label="Fills" className="ui-surface rounded-lg" data-fills>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div>
-          <h3 className="text-[13px] text-ink-100 font-semibold">{cleared ? "Fills" : "Refunds"}</h3>
+          <CardTitle>{cleared ? "Fills" : "Refunds"}</CardTitle>
           {cleared ? (
             <p className="mt-0.5 text-[12px] text-ink-400" data-fills-summary="cleared">
               Cleared at <span className="tabular text-ink-100">{formatUsdc(cleared.price)} USDC</span> per {round.kind === "Advance" ? "claimed token" : "locked token"} · volume <span className="tabular text-ink-100">{formatQty(cleared.volume, cls.decimals)}</span> · notional{" "}

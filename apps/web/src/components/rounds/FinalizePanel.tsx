@@ -10,6 +10,7 @@
 
 import type { Bid } from "@rose/sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -134,10 +135,10 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
   const cost = (remaining * Number(OPENING_COST_NEAR)).toFixed(4);
 
   return (
-    <section aria-label="Opening progress" className="rounded-lg border border-ink-750 bg-ink-850" data-finalize>
+    <section aria-label="Opening progress" className="ui-surface rounded-lg" data-finalize>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div>
-          <h3 className="text-[13px] text-ink-100 font-semibold">Opening progress</h3>
+          <CardTitle>Opening progress</CardTitle>
           <p className="mt-0.5 text-[12px] text-ink-400">
             <span className="tabular text-ink-100">
               {String(done)} / {String(total)}

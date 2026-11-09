@@ -4,13 +4,14 @@ import { useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Term } from "@/components/ui/Term";
 import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { deployed } from "@/lib/deployment";
 import { nearAccountUrl } from "@/lib/explorer";
 import { BaseDeposit } from "./BaseDeposit";
 import { RefusedDeposits } from "./RefusedDeposits";
-import { ChainPicker, type DepositChain } from "./shared";
+import { ChainPicker, WizardStep, type DepositChain } from "./shared";
 import { SolanaDeposit } from "./SolanaDeposit";
 
 /** `/app/deposit`: chain, wallets, eligible streams, and the deposit flow with live proof progress (spec 8.3). */
@@ -31,7 +32,7 @@ export function DepositWizard() {
         <div>
           <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Deposit a position</h1>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
-            Move a locked position into rose custody once. The stream stays on its chain; the engine proves it through the MPC network and mints units of its class to your NEAR account. <LearnMore topic="custody" />
+            Move a locked <Term term="position">position</Term> into rose custody once. The stream stays on its chain; the engine proves it through the MPC network and mints <Term term="unit">units</Term> of its <Term term="class">class</Term> to your NEAR account. <LearnMore topic="custody" />
           </p>
         </div>
         <div className="flex items-center gap-2 text-[12px] text-ink-300" data-near-recipient>
@@ -55,20 +56,23 @@ export function DepositWizard() {
       </header>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-[12px] text-ink-400 font-medium">1. Where does the position live?</h2>
+        <WizardStep index={1} title="Where does the position live?" state={chain ? "done" : "current"} />
         <ChainPicker value={chain} onChange={setChain} deployed={notDeployed} />
       </section>
 
       {chain ? (
         <section className="flex flex-col gap-3" data-chain-section={chain}>
-          <h2 className="text-[12px] text-ink-400 font-medium">2. Pick an eligible stream and deposit it</h2>
+          <WizardStep index={2} title="Pick an eligible stream and deposit it" state="current" />
           {notDeployed[chain] ? (
             <p className="rounded-md border border-warning-400/40 bg-warning-400/10 px-4 py-3 text-[13px] text-warning-400">{notDeployed[chain]} Deposits open as soon as the addresses are configured; everything else on this page already reads live.</p>
           ) : null}
           {chain === "base" ? <BaseDeposit nearAccount={nearAccount} onConnect={openConnect} /> : <SolanaDeposit nearAccount={nearAccount} onConnect={openConnect} />}
         </section>
       ) : (
-        <p className="text-[13px] text-ink-400">Choose a chain to list your streams. No stream yet? The Base list offers a demo vesting position of the demo token, minted on chain.</p>
+        <section className="flex flex-col gap-2">
+          <WizardStep index={2} title="Pick an eligible stream and deposit it" state="upcoming" />
+          <p className="text-[13px] text-ink-400">Choose a chain to list your streams. No stream yet? The Base list offers a demo vesting position of the demo token, minted on chain.</p>
+        </section>
       )}
 
       <RefusedDeposits />

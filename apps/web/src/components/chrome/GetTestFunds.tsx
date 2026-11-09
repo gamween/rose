@@ -2,6 +2,7 @@
 
 import { DemoClass, decodePositionMinted, mintDemoPosition, mintTestUsdc, mintTestUsdcCall } from "@rose/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Segmented } from "@/components/ui/Segmented";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Modal";
@@ -308,24 +309,17 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                 })
               }
             >
-              <div className="flex items-center gap-2 text-[12px]">
+              <div className="flex flex-wrap items-center gap-2 text-[12px]">
                 <span className="text-ink-400">Class</span>
-                {(
-                  [
-                    [DemoClass.SEED, "Seed cohort"],
-                    [DemoClass.KOL, "KOL cohort"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setDemoClass(value)}
-                    aria-pressed={demoClass === value}
-                    className={demoClass === value ? "rounded-sm border border-ember-500 bg-ember-700/25 px-2 py-0.5 text-ink-50" : "rounded-sm border border-ink-700 px-2 py-0.5 text-ink-300 hover:border-ink-500"}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <Segmented
+                  label="Demo class"
+                  options={[
+                    { value: DemoClass.SEED, label: "Seed cohort" },
+                    { value: DemoClass.KOL, label: "KOL cohort" },
+                  ]}
+                  value={demoClass}
+                  onChange={setDemoClass}
+                />
               </div>
             </ActionRow>
           </ul>

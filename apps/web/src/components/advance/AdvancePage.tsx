@@ -14,7 +14,9 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Countdown } from "@/components/ui/Countdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { HowItWorks } from "@/components/ui/HowItWorks";
 import { Tabs } from "@/components/ui/Tabs";
+import { Term } from "@/components/ui/Term";
 import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
@@ -41,7 +43,7 @@ function AdvanceCard({ round, data }: { round: Round; data: AdvanceData }) {
   const symbol = info ? classLabel(info, data.symbols) : round.classId.slice(0, 8);
   const closesMs = nsToMs(round.closesAt);
   return (
-    <li className="flex flex-col gap-3 rounded-lg border border-ink-750 bg-ink-850 p-4" data-advance-round={round.roundId.toString()}>
+    <li className="flex flex-col gap-3 ui-surface rounded-lg p-4" data-advance-round={round.roundId.toString()}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[14px] text-ink-50 font-semibold">
@@ -51,7 +53,7 @@ function AdvanceCard({ round, data }: { round: Round; data: AdvanceData }) {
             by {round.creator} · {venueLabel(round.venue, data.symbols)}
           </p>
         </div>
-        <Badge tone={round.status === "Open" ? "success" : "neutral"}>{round.status}</Badge>
+        <Badge tone={round.status === "Open" ? "ember" : "neutral"} live={round.status === "Open"}>{round.status}</Badge>
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
         <div>
@@ -218,6 +220,14 @@ export function AdvancePage() {
           </Button>
         ) : null}
       </header>
+      <HowItWorks
+        label="How an Advance works"
+        steps={[
+          { title: "The holder pledges", body: <>X of their <Term term="unit">units</Term> back a claim on the first K tokens they will unlock.</> },
+          { title: "Funders bid sealed", body: <>Each bid is a price per claimed token; the round clears at one <Term term="clearingPrice">clearing price</Term>.</> },
+          { title: "Unlocks repay the lien", body: <>The pledged units&apos; unlocks flow to the <Term term="lien">lien</Term> holders until K tokens are delivered.</> },
+        ]}
+      />
       <Tabs items={TABS} value={tab} onChange={setTab} label="Advance sections" />
       {!engine ? (
         <EmptyState illustration="ledger" title="Engine not deployed yet" description="Advances are rounds of the engine. They appear here once NEXT_PUBLIC_ENGINE_ACCOUNT points to a deployed engine." />

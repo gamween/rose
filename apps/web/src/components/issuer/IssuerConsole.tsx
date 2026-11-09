@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Tabs } from "@/components/ui/Tabs";
+import { Term } from "@/components/ui/Term";
 import { CohortTab } from "./CohortTab";
 import { CreateClassTab } from "./CreateClassTab";
 import { DistributeTab } from "./DistributeTab";
@@ -13,7 +14,7 @@ import { TenderTab } from "./TenderTab";
 
 export type IssuerTab = "class" | "cohort" | "distribute" | "fund" | "tender" | "dao" | "results";
 
-const TABS = [
+const STEPS = [
   { id: "class", label: "Create a class" },
   { id: "cohort", label: "Cohort streams" },
   { id: "distribute", label: "Distribute units" },
@@ -23,7 +24,20 @@ const TABS = [
   { id: "results", label: "Results" },
 ] as const;
 
-const TAB_IDS = new Set<string>(TABS.map((tab) => tab.id));
+/** Each tab is a step of the issuer's path: its number shows the order (decorative, the name stays the label). */
+const TABS = STEPS.map((step, index) => ({
+  id: step.id,
+  label: (
+    <>
+      <span aria-hidden className="tabular text-[11px] text-ink-500">
+        {String(index + 1).padStart(2, "0")}
+      </span>
+      {step.label}
+    </>
+  ),
+}));
+
+const TAB_IDS = new Set<string>(STEPS.map((step) => step.id));
 
 function tabFromHash(hash: string): IssuerTab {
   const id = hash.replace(/^#/, "");
@@ -51,8 +65,8 @@ export function IssuerConsole() {
     <div className="flex flex-col gap-5" data-issuer-console>
       <header>
         <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Issuer console</h1>
-        <p className="mt-1 max-w-3xl text-[14px] text-ink-300">
-          Buy back locked allocations at one fair price. Create the class, put the cohort&apos;s streams in custody, distribute units, then launch and fund a Tender: a public budget and max price, sealed asks, one uniform clearing price and a public report. <LearnMore topic="issuer" />
+        <p className="mt-1 max-w-3xl text-[13px] text-ink-400">
+          Buy back locked allocations at one fair price. Create the <Term term="class">class</Term>, put the cohort&apos;s streams in custody, distribute <Term term="unit">units</Term>, then launch and fund a <Term term="tender">Tender</Term>: a public budget and max price, sealed asks, one <Term term="uniformPrice">uniform clearing price</Term> and a public report. <LearnMore topic="issuer" />
         </p>
       </header>
       <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">

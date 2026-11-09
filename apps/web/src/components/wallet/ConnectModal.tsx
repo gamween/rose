@@ -67,7 +67,7 @@ function NetworkStep({ onPick }: { onPick: (chain: ChainId) => void }) {
             type="button"
             onClick={() => onPick(network.chain)}
             data-network={network.chain}
-            className="flex w-full items-center gap-3 rounded-md border border-ink-700 bg-ink-900 px-3 py-3 text-left transition-colors hover:border-ink-500 hover:bg-ink-800"
+            className="ui-surface group flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition-colors hover:border-ink-600 hover:bg-ink-800"
           >
             <ChainLogo chain={network.chain} size={32} />
             <span className="min-w-0 flex-1">
@@ -79,7 +79,7 @@ function NetworkStep({ onPick }: { onPick: (chain: ChainId) => void }) {
               <span className="mt-0.5 block text-[12px] leading-snug text-ink-400">{network.purpose}</span>
               {address ? (
                 <span className="mt-1 flex items-center gap-1.5 text-[12px] text-success-400">
-                  <span aria-hidden className="size-1.5 rounded-full bg-success-400" />
+                  <span aria-hidden className="size-[5px] bg-success-400" />
                   Connected <span className="font-mono text-ink-200">{shortAddress(network.chain, address)}</span>
                 </span>
               ) : null}
@@ -102,7 +102,7 @@ function WalletRow({ name, icon, hint, onClick, busy }: { name: string; icon?: s
       type="button"
       onClick={onClick}
       disabled={busy}
-      className="flex w-full items-center gap-3 rounded-md border border-ink-700 bg-ink-900 px-3 py-2.5 text-left transition-colors hover:border-ink-500 hover:bg-ink-800 disabled:opacity-60"
+      className="ui-surface flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:border-ink-600 hover:bg-ink-800 disabled:opacity-60"
     >
       {icon && !iconFailed ? (
         // eslint-disable-next-line @next/next/no-img-element -- wallet icons are data URIs or remote and unknown at build time
@@ -234,7 +234,7 @@ function WalletStep({ chain, onBack, run, busy }: { chain: ChainId; onBack: () =
                 busy={busy}
               />
             ))}
-            {wallets.walletsStatus === "ready" && wallets.evmConnectors.length === 0 ? <p className="rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px] text-ink-400">No browser wallet found. Install MetaMask or Rabby, or use the demo wallet.</p> : null}
+            {wallets.walletsStatus === "ready" && wallets.evmConnectors.length === 0 ? <p className="rounded-md border border-ink-750 bg-(--surface-inset) px-3 py-2 text-[12px] text-ink-400">No browser wallet found. Install MetaMask or Rabby, or use the demo wallet.</p> : null}
           </Group>
           <Group label="Try without a wallet">
             <DemoRow

@@ -27,24 +27,24 @@ export function TopNav({ action, overlay = false, menuActions = [] }: { action?:
         "z-40 w-full",
         overlay
           ? "fixed inset-x-0 top-0 border-b border-ink-850 bg-ink-950/80 backdrop-blur-md"
-          : "sticky top-0 border-b border-ink-750 bg-ink-950/90 backdrop-blur-md",
+          : "sticky top-0 border-b border-ink-750 bg-ink-950/85 backdrop-blur-md",
       )}
     >
       <nav aria-label="Primary" className="mx-auto flex h-14 max-w-[1440px] items-center gap-6 px-4 md:px-6">
         <Link href={ROUTES.home} aria-label="rose home" className="shrink-0 rounded-sm">
           <Logo />
         </Link>
-        <ul className="hidden items-center gap-1 md:flex">
+        <ul className="hidden h-full items-stretch gap-1 md:flex">
           {PRIMARY_NAV.map((item) => {
             const active = item.match(pathname);
             return (
-              <li key={item.label}>
+              <li key={item.label} className="flex">
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
-                    active ? "bg-ink-800 text-ink-50" : "text-ink-300 hover:bg-ink-850 hover:text-ink-50",
+                    "relative flex items-center px-2.5 text-[13px] font-medium transition-colors after:absolute after:inset-x-2.5 after:-bottom-px after:h-[2px] after:transition-colors",
+                    active ? "text-ink-50 after:bg-ember-500" : "text-ink-400 hover:text-ink-100 hover:after:bg-ink-600",
                   )}
                 >
                   {item.label}
@@ -58,7 +58,7 @@ export function TopNav({ action, overlay = false, menuActions = [] }: { action?:
           {action}
           <button
             type="button"
-            className="flex size-9 items-center justify-center rounded-md text-ink-200 hover:bg-ink-800 md:hidden"
+            className="flex size-9 items-center justify-center rounded-md text-ink-200 transition-colors hover:bg-ink-800 md:hidden"
             aria-label="Open menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
@@ -77,7 +77,7 @@ export function TopNav({ action, overlay = false, menuActions = [] }: { action?:
                 href={item.href}
                 onClick={() => setMenuOpen(false)}
                 aria-current={item.match(pathname) ? "page" : undefined}
-                className="flex h-11 items-center rounded-md px-3 text-[15px] text-ink-100 hover:bg-ink-800"
+                className="flex h-11 items-center gap-3 rounded-md px-3 text-[15px] text-ink-100 hover:bg-ink-800 aria-[current=page]:bg-ink-800 aria-[current=page]:text-ink-50 aria-[current=page]:before:size-[5px] aria-[current=page]:before:bg-ember-500 aria-[current=page]:before:content-['']"
               >
                 {item.label}
               </Link>

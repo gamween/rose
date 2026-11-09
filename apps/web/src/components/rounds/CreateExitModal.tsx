@@ -11,8 +11,9 @@ import { ONE, outcomeValue, ROUND_STORAGE_DEPOSIT, type ClassInfo, type ConfigVi
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
-import { Field, Input, NumberInput } from "@/components/ui/Input";
+import { Field, Input, NumberInput, selectClasses } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatUnits } from "@/lib/format";
@@ -41,7 +42,10 @@ function venueOptions(config: ConfigView): { id: string; label: string; venue: V
   ];
 }
 
-const selectClass = "h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 hover:border-ink-600 focus:border-ember-500 focus:outline-none";
+const selectClass = selectClasses();
+
+/** The "Custom" segment of the window presets (no preset lasts 0 s). */
+const CUSTOM_WINDOW = 0;
 
 export function CreateExitModal({
   open,
@@ -189,26 +193,16 @@ export function CreateExitModal({
         <Field label="Bidding window" hint="Bids and asks are accepted until the close; settlement prices are taken at that time." error={errors.closes}>
           {({ inputId, describedBy, invalid }) => (
             <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Bidding window presets">
-                {WINDOWS.map((preset) => (
-                  <Button
-                    key={preset.seconds}
-                    type="button"
-                    size="sm"
-                    variant={!useCustom && windowSeconds === preset.seconds ? "primary" : "secondary"}
-                    aria-pressed={!useCustom && windowSeconds === preset.seconds}
-                    onClick={() => {
-                      setUseCustom(false);
-                      setWindowSeconds(preset.seconds);
-                    }}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
-                <Button type="button" size="sm" variant={useCustom ? "primary" : "secondary"} aria-pressed={useCustom} onClick={() => setUseCustom(true)}>
-                  Custom
-                </Button>
-              </div>
+              <Segmented
+                label="Bidding window presets"
+                options={[...WINDOWS.map((preset) => ({ value: preset.seconds, label: preset.label })), { value: CUSTOM_WINDOW, label: "Custom" }]}
+                value={useCustom ? CUSTOM_WINDOW : windowSeconds}
+                onChange={(value) => {
+                  setUseCustom(value === CUSTOM_WINDOW);
+                  if (value !== CUSTOM_WINDOW) setWindowSeconds(value);
+                }}
+                className="flex-wrap"
+              />
               {useCustom ? <Input id={inputId} aria-describedby={describedBy} invalid={invalid} type="datetime-local" value={customCloses} onChange={(event) => setCustomCloses(event.target.value)} /> : null}
             </div>
           )}

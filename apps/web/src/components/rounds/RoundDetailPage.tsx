@@ -9,9 +9,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { CardTitle } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Term } from "@/components/ui/Term";
 import { cn } from "@/lib/cn";
 import { nearAccountUrl } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
@@ -32,19 +35,20 @@ import { VerifyPanel } from "./VerifyPanel";
 function Parameters({ detail }: { detail: RoundDetail }) {
   const { round, cls, symbol } = detail;
   return (
-    <section aria-label="Public parameters" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-parameters>
+    <section aria-label="Public parameters" className="ui-surface rounded-lg px-4 py-3" data-parameters>
       <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-6">
-        <Param label="Class" mono={false} className="sm:col-span-2">
+        <Param label={<Term term="class" align="start">Class</Term>} mono={false} className="sm:col-span-2">
           <span title={`Token ${cls.token} on ${cls.chain}`}>{classLabel(cls, symbol)}</span>
-          <span className="tabular block truncate text-[11px] text-ink-400" title={cls.classId}>
-            {cls.classId}
+          <span className="flex items-center gap-1 font-mono text-[11px] text-ink-400" title={cls.classId}>
+            <span className="min-w-0 truncate">{cls.classId}</span>
+            <CopyButton value={cls.classId} label="Copy the class id" />
           </span>
         </Param>
-        <Param label="Cash venue" mono={false}>
+        <Param label={<Term term="cashVenue">Cash venue</Term>} mono={false}>
           <span title={venueTokenAccount(round.venue)}>{venueLabel(round.venue)}</span>
         </Param>
-        <Param label="Max price">{formatUsdc(round.maxPrice)} USDC</Param>
-        <Param label="Locked at close" >
+        <Param label={<Term term="maxPrice">Max price</Term>}>{formatUsdc(round.maxPrice)} USDC</Param>
+        <Param label={<Term term="lockedFraction">Locked at close</Term>}>
           {lockedPercent(round.fTs)}
           <span className="block text-[11px] text-ink-400">f(ts) per unit · {formatDuration(Number(round.remainingLockSecs))} left</span>
         </Param>
@@ -103,10 +107,10 @@ function Curves({ detail }: { detail: RoundDetail }) {
   const clearing = result ? { price: result.price, volume: result.volume } : null;
   const noCrossing = round.status === "Cancelled" && round.cancelReason === "NoCrossing";
   return (
-    <section aria-label="Supply and demand" className="rounded-lg border border-ink-750 bg-ink-850" data-curves>
+    <section aria-label="Supply and demand" className="ui-surface rounded-lg" data-curves>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="text-[13px] text-ink-100 font-semibold">Supply and demand</h3>
-        <p className="mt-0.5 text-[12px] text-ink-400">
+        <CardTitle>Supply and demand</CardTitle>
+        <p className="mt-1 text-[12px] leading-snug text-ink-400">
           {clearing ? `Cleared where the curves meet, at ${formatUsdc(clearing.price)} USDC.` : noCrossing ? "The curves never meet: no price trades a positive volume." : `${String(opened)} of ${String(bids.length)} orders are open; the curves firm up as the book opens.`}
         </p>
       </div>
@@ -154,11 +158,11 @@ export function RoundDetailPage({ roundId, configured }: { roundId: string; conf
 
 function Crumbs({ roundId }: { roundId: string }) {
   return (
-    <nav aria-label="Breadcrumb" className="text-[12px] text-ink-400">
-      <Link href={ROUTES.rounds} className="underline-offset-2 hover:underline">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[12px] text-ink-400">
+      <Link href={ROUTES.rounds} className="transition-colors hover:text-ink-100">
         Rounds
       </Link>
-      <span aria-hidden> / </span>
+      <span aria-hidden className="text-ink-600">/</span>
       <span className="text-ink-200">#{roundId}</span>
     </nav>
   );

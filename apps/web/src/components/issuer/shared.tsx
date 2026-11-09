@@ -10,8 +10,10 @@ import { baseSepoliaChain, ONE, type ClassInfo, type ConfigView, type Limits } f
 import { createPublicClient, http, type PublicClient } from "viem";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { selectClasses } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { NextStep } from "@/components/ui/NextStep";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -114,7 +116,7 @@ export function ClassPicker({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 hover:border-ink-600 focus:border-ember-500 focus:outline-none disabled:opacity-50"
+      className={selectClasses()}
       data-class-picker
     >
       <option value="">Choose a class</option>
@@ -327,8 +329,7 @@ export function IssuerGate({ state, onRetry, children }: { state: EngineQuerySta
   if (!wallets.near.accountId && wallets.hydrated) {
     return (
       <div className="flex flex-col gap-4">
-        <EmptyState
-          illustration="ledger"
+        <NextStep
           title="Connect a NEAR wallet to act as the issuer"
           description="Every issuer action (registering cohort deposits, distributing units, creating and funding a Tender) is signed by your NEAR account. Previews below work without a wallet."
           action={<IssuerConnectButton />}

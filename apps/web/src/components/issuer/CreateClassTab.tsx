@@ -5,6 +5,7 @@ import { PublicKey } from "@solana/web3.js";
 import { useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { UnlockChart } from "@/components/portfolio/UnlockChart";
+import { Segmented } from "@/components/ui/Segmented";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -159,19 +160,18 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
   };
 
   const chainButtons = (
-    <div className="flex items-center gap-2 text-[12px]">
+    <div className="flex flex-wrap items-center gap-2 text-[12px]">
       <span className="text-ink-400">Chain</span>
-      {(["Base", "Solana"] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          onClick={() => setChain(value)}
-          aria-pressed={chain === value}
-          className={chain === value ? "rounded-sm border border-ember-500 bg-ember-700/25 px-2 py-0.5 text-ink-50" : "rounded-sm border border-ink-700 px-2 py-0.5 text-ink-300 hover:border-ink-500"}
-        >
-          {value === "Base" ? "Base Sepolia (Sablier)" : "Solana devnet (Streamflow)"}
-        </button>
-      ))}
+      <Segmented
+        className="flex-wrap"
+        label="Chain"
+        options={[
+          { value: "Base", label: "Base Sepolia (Sablier)" },
+          { value: "Solana", label: "Solana devnet (Streamflow)" },
+        ]}
+        value={chain}
+        onChange={setChain}
+      />
     </div>
   );
 

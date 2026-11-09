@@ -72,14 +72,14 @@ export function DocsSearch({ index, onNavigate, className }: { index: SearchEntr
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 placeholder:text-ink-400 hover:border-ink-600 focus:border-ember-500 focus:outline-none"
+        className="ui-field h-9 w-full px-3 text-[13px] placeholder:text-ink-500"
       />
       {showList ? (
         <ul
           id={`${listId}-list`}
           role="listbox"
           aria-label="Search results"
-          className="absolute inset-x-0 top-full z-30 mt-1 max-h-80 overflow-y-auto rounded-md border border-ink-700 bg-ink-850 p-1 shadow-2xl"
+          className="absolute inset-x-0 top-full z-30 mt-1 max-h-80 animate-rise-in overflow-y-auto rounded-md border border-ink-700 bg-ink-850 p-1 shadow-(--shadow-overlay)"
         >
           {hits.length === 0 ? (
             <li className="px-2 py-2 text-[12px] text-ink-400" role="option" aria-selected={false} aria-disabled>

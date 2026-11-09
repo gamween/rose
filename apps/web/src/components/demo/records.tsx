@@ -31,7 +31,7 @@ function cost(tx: DemoTx): string | null {
 
 export function TxList({ txs }: { txs: readonly DemoTx[] }) {
   return (
-    <section aria-label="Transactions" className="rounded-lg border border-ink-750 bg-ink-850" data-demo-txs>
+    <section aria-label="Transactions" className="ui-surface rounded-lg" data-demo-txs>
       <h3 className="border-b border-ink-750 px-4 py-2.5 text-[12px] text-ink-300 font-medium">
         {txs.length === 1 ? "1 transaction" : `${String(txs.length)} transactions`}
       </h3>
@@ -77,7 +77,7 @@ export function EventList({ events, decimals, classId, emptyHint }: { events: re
   const units = eventAmountFormat((id) => (id === classId ? decimals : null));
   const format: EventAmountFormat = { units: units.units, cash: (amount) => (/^\d+$/.test(amount) ? `${formatUsdc(BigInt(amount))} USDC` : amount) };
   return (
-    <section aria-label="On-chain history" className="rounded-lg border border-ink-750 bg-ink-850" data-demo-events>
+    <section aria-label="On-chain history" className="ui-surface rounded-lg" data-demo-events>
       <h3 className="flex flex-wrap items-baseline justify-between gap-2 border-b border-ink-750 px-4 py-2.5">
         <span className="text-[12px] text-ink-300 font-medium">Engine history</span>
         <span className="text-[11px] text-ink-400">get_events, read live</span>

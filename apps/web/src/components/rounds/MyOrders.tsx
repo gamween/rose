@@ -8,6 +8,7 @@
 
 import type { Bid } from "@rose/sdk";
 import { useMemo, useSyncExternalStore } from "react";
+import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useNearAction } from "./actions";
 import { orderKey, rawSnapshot, subscribeLocal, type LocalOrder } from "./localOrders";
@@ -62,7 +63,7 @@ export function MyOrders({ detail, onChanged }: { detail: RoundDetail; onChanged
   return (
     <section aria-label="My orders" className="rounded-lg border border-ember-700/60 bg-ink-850" data-my-orders>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="text-[13px] text-ink-100 font-semibold">My orders</h3>
+        <CardTitle>My orders</CardTitle>
         <p className="mt-0.5 text-[12px] text-ink-400">What you sealed (kept in this browser) next to the public row on chain.</p>
       </div>
       <ul className="divide-y divide-ink-800">

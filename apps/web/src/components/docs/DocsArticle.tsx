@@ -77,7 +77,7 @@ const components: Partial<Components> = {
   h2: (props) => <Heading level={2} {...props} />,
   h3: (props) => <Heading level={3} {...props} />,
   h4: (props) => <Heading level={4} {...props} />,
-  p: (props) => <p className="my-4 text-[14px] leading-relaxed text-ink-200" {...props} />,
+  p: ({ id, ...props }) => <p id={id} className={cn("my-4 text-[14px] leading-relaxed text-ink-200", id && "scroll-mt-20 target:-mx-3 target:rounded-md target:bg-ember-700/15 target:px-3 target:py-2")} {...props} />,
   a: Anchor,
   ul: (props) => <ul className="my-4 list-disc space-y-1.5 pl-5 text-[14px] leading-relaxed text-ink-200 marker:text-ink-400" {...props} />,
   ol: (props) => <ol className="my-4 list-decimal space-y-1.5 pl-5 text-[14px] leading-relaxed text-ink-200 marker:text-ink-400" {...props} />,

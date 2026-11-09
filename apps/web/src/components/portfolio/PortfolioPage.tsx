@@ -18,6 +18,7 @@ import { useEngineQuery } from "@/lib/use-engine-query";
 import { ClaimDialog, type ClaimPrompt } from "./ClaimDialog";
 import type { PortfolioData } from "./data";
 import { FlowDialog, type FlowRequest } from "./FlowDialog";
+import { GettingStarted } from "./GettingStarted";
 import type { PortfolioAccountProps } from "./PortfolioAccount";
 
 const SECTIONS = [
@@ -38,7 +39,7 @@ function WalletStrip({ onConnect }: { onConnect: (chain: ChainId) => void }) {
   return (
     <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3" data-wallet-summary>
       {entries.map((entry) => (
-        <li key={entry.chain} className="flex items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-850 px-3 py-2">
+        <li key={entry.chain} className="ui-surface flex items-center justify-between gap-3 rounded-md px-3 py-2">
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-[12px] text-ink-300 font-medium">
               {CHAIN_LABEL[entry.chain]}
@@ -72,7 +73,7 @@ function Sections() {
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {SECTIONS.map((section) => (
           <li key={section.href}>
-            <Link href={section.href} className="flex h-full flex-col gap-1 rounded-lg border border-ink-750 bg-ink-850 px-4 py-3 transition-colors hover:border-ink-500 hover:bg-ink-800">
+            <Link href={section.href} className="flex h-full flex-col gap-1 ui-surface rounded-lg px-4 py-3 transition-colors hover:border-ink-500 hover:bg-ink-800">
               <span className="text-[13px] text-ink-50 font-semibold">{section.title}</span>
               <span className="text-[12px] text-ink-400">{section.body}</span>
             </Link>
@@ -139,7 +140,7 @@ export function PortfolioPage() {
               Refresh
             </Button>
           ) : null}
-          <Button size="sm" onClick={() => openConnect()}>
+          <Button size="sm" variant={account ? "primary" : "secondary"} onClick={() => openConnect()}>
             {wallets.anyConnected ? "Connect another wallet" : "Connect a wallet"}
           </Button>
         </div>
@@ -153,16 +154,7 @@ export function PortfolioPage() {
       ) : !account && wallets.walletsStatus === "failed" ? (
         <WalletsStatusRow what="Restoring your wallet…" />
       ) : !account ? (
-        <EmptyState
-          illustration="vault"
-          title="Connect a NEAR wallet"
-          description="Units, cash and liens live on your NEAR account. Connect a testnet wallet, or create the in-app demo wallet, to see what you hold."
-          action={
-            <Button onClick={() => openConnect("near")} data-portfolio-connect>
-              Connect NEAR
-            </Button>
-          }
-        />
+        <GettingStarted onConnect={() => openConnect("near")} />
       ) : state.status === "loading" ? (
         <LoadingPortfolio />
       ) : state.status === "not_deployed" ? (

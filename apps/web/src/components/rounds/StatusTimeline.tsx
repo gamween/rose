@@ -11,6 +11,7 @@ import { GAS, TGAS, type Round } from "@rose/sdk";
 import { useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { Countdown } from "@/components/ui/Countdown";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { cn } from "@/lib/cn";
@@ -26,14 +27,14 @@ function StepDot({ state }: { state: "done" | "active" | "upcoming" | "failed" }
     <span
       aria-hidden
       className={cn(
-        "relative z-10 flex size-3 items-center justify-center rounded-sm border",
-        state === "done" && "border-success-500 bg-success-500",
-        state === "active" && "border-ember-400 bg-ember-500 shadow-[0_0_0_3px_rgb(242_98_46/0.25)]",
-        state === "upcoming" && "border-ink-600 bg-ink-850",
+        "relative z-10 flex size-3 items-center justify-center rounded-[1px] border",
+        state === "done" && "border-success-500 bg-success-500 shadow-[0_2px_0_0_rgb(0_0_0/0.6)]",
+        state === "active" && "border-ember-400 bg-ember-500 shadow-[0_0_0_3px_rgb(242_98_46/0.2),0_2px_0_0_var(--color-ember-700)]",
+        state === "upcoming" && "border-ink-600 bg-(--surface-inset)",
         state === "failed" && "border-danger-500 bg-danger-500",
       )}
     >
-      {state === "active" ? <span className="size-1 animate-pulse bg-ink-950" /> : null}
+      {state === "active" ? <span className="size-1 animate-pixel-blink bg-ink-950" /> : null}
     </span>
   );
 }
@@ -75,6 +76,7 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
   const action = nextAction(round, nowMs);
   const steps = timeline(round, nowMs, detail.cls.decimals);
   const text = describe(action, round, viewer?.account ?? null);
+  const reached = steps.reduce((last, step, index) => (step.state === "done" || step.state === "active" ? index : last), -1);
   const { run, status } = useNearAction();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const busy = status.status === "busy";
@@ -118,9 +120,11 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
   const retryVisible = action.kind === "waiting_key" && nowMs - action.since > 30_000 && canClose(round, nowMs);
 
   return (
-    <section aria-label="Status" className="rounded-lg border border-ink-750 bg-ink-850" data-timeline>
+    <section aria-label="Status" className="ui-surface rounded-lg" data-timeline>
       <ol className="relative grid grid-cols-5 gap-2 border-b border-ink-750 px-4 pb-3 pt-4">
-        <span aria-hidden className="absolute left-[calc(10%+2px)] right-[calc(10%+2px)] top-[21.5px] h-px bg-ink-700" />
+        {/* The rail: dithered ahead, solid behind the current step. */}
+        <span aria-hidden className="absolute left-[10%] right-[10%] top-[21.5px] h-px bg-ink-600 [mask-image:var(--dither-50)] [mask-size:2px_2px]" />
+        <span aria-hidden className="absolute left-[10%] top-[21.5px] h-px bg-success-500/60 transition-[width] duration-500" style={{ width: `${String((Math.max(0, reached) / (steps.length - 1)) * 80)}%` }} />
         {steps.map((step) => (
           <li key={step.id} className="flex min-w-0 flex-col items-center gap-1.5 text-center" data-step={step.id} data-state={step.state}>
             <StepDot state={step.state} />
@@ -137,7 +141,7 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
           </p>
           <p className="mt-1 max-w-2xl text-[12px] text-ink-400">{text.body}</p>
           {round.key ? (
-            <div className="mt-3 rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px]" data-key-release>
+            <div className="mt-3 rounded-md border border-ink-750 bg-(--surface-inset) px-3 py-2 text-[12px]" data-key-release>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="text-[11px] text-success-400 font-medium">Key released</span>
                 <span className="text-ink-300">
@@ -146,8 +150,9 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
                   {round.keyReceivedAt !== null ? <span> · {formatDateTime(nsToMs(round.keyReceivedAt))}</span> : null}
                 </span>
               </div>
-              <p className="tabular mt-1 truncate text-ink-400" title={round.key}>
-                {round.key}
+              <p className="mt-1 flex items-center gap-1 font-mono text-[11px] text-ink-400" title={round.key}>
+                <span className="min-w-0 truncate">{round.key}</span>
+                <CopyButton value={round.key} label="Copy the round key" />
               </p>
             </div>
           ) : null}

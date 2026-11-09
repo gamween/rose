@@ -17,7 +17,8 @@ export function DocsMobileNav({ sections, index, current }: { sections: DocSecti
         onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-label="Open the docs navigation"
-        className="flex h-9 items-center gap-2 rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-100 hover:border-ink-600"
+        data-variant="secondary"
+        className="ui-block flex h-9 items-center gap-2 rounded-md px-3 text-[13px]"
       >
         <svg viewBox="0 0 8 7" width="12" height="10" shapeRendering="crispEdges" aria-hidden>
           <path d="M0 0h8v1H0zM0 3h8v1H0zM0 6h8v1H0z" fill="currentColor" />

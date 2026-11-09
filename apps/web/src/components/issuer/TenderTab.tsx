@@ -3,9 +3,10 @@
 import { outcomeValue, type Cash, type ClassInfo, type FunctionCall, type TenderArgs } from "@rose/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { Input, NumberInput } from "@/components/ui/Input";
+import { Input, NumberInput, selectClasses } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatUsdc, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
 import { txLinks } from "@/lib/explorer";
@@ -129,7 +130,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="tender-venue">Cash venue</FieldLabel>
-              <select id="tender-venue" value={venueId} onChange={(event) => setVenueId(event.target.value)} className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 focus:border-ember-500 focus:outline-none">
+              <select id="tender-venue" value={venueId} onChange={(event) => setVenueId(event.target.value)} className={selectClasses()}>
                 {venues.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
@@ -143,18 +144,18 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-[12px]">
+            <div className="flex flex-wrap items-center gap-2 text-[12px]">
               <span className="text-ink-400">Price cap</span>
-              {(
-                [
-                  ["price", "Max price per locked token"],
-                  ["discount", "Max discount to a declared reference"],
-                ] as const
-              ).map(([value, label]) => (
-                <button key={value} type="button" onClick={() => setMode(value)} aria-pressed={mode === value} className={mode === value ? "rounded-sm border border-ember-500 bg-ember-700/25 px-2 py-0.5 text-ink-50" : "rounded-sm border border-ink-700 px-2 py-0.5 text-ink-300 hover:border-ink-500"}>
-                  {label}
-                </button>
-              ))}
+              <Segmented
+                className="flex-wrap"
+                label="Price cap"
+                options={[
+                  { value: "price", label: "Max price per locked token" },
+                  { value: "discount", label: "Max discount to a declared reference" },
+                ]}
+                value={mode}
+                onChange={setMode}
+              />
             </div>
             {mode === "price" ? (
               <div className="grid gap-3 sm:grid-cols-2">

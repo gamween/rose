@@ -3,6 +3,7 @@
 import type { ClassInfo, Round } from "@rose/sdk";
 import Link from "next/link";
 import { Countdown } from "@/components/ui/Countdown";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { cn } from "@/lib/cn";
 import { ROUTES } from "@/lib/routes";
 import { cancelledOutcome, classShortLabel, clearingOf, formatDateTime, formatQty, formatUsdc, lockedPercent, NEXT_ACTION_LABEL, nextAction, nsToMs, roundProgress, scheduleEndSecs, venueLabel, venueTokenAccount, type NextAction } from "./model";
@@ -60,10 +61,16 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
   const cleared = clearingOf(round);
 
   return (
-    <article className="group relative flex flex-col gap-3 rounded-lg border border-ink-750 bg-ink-850 p-4 transition-colors hover:border-ink-600" data-round-card={round.roundId.toString()}>
+    <article
+      className={cn(
+        "ui-surface group relative flex flex-col gap-3 rounded-lg p-4 transition-colors hover:border-ink-600 hover:bg-ink-800/60",
+        action.kind === "bid" && "before:absolute before:inset-x-0 before:-top-px before:h-[2px] before:rounded-t-lg before:bg-ember-500",
+      )}
+      data-round-card={round.roundId.toString()}
+    >
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <Link href={href} className="text-[15px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline font-semibold">
+          <Link href={href} className="text-[15px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline font-semibold tracking-tight">
             Round #{round.roundId.toString()}
           </Link>
           <p className="mt-0.5 text-[12px] text-ink-400" title={cls ? `Token ${cls.token} on ${cls.chain} · class ${cls.classId}` : round.classId}>
@@ -105,9 +112,7 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
         ) : null}
       </dl>
 
-      <div className="h-1 w-full overflow-hidden rounded-sm bg-ink-800" aria-hidden>
-        <div className={cn("h-full transition-[width] duration-700", terminal ? (round.status === "Settled" ? "bg-success-500" : "bg-danger-500") : "bg-ember-500")} style={{ width: `${String(Math.round(progress * 100))}%` }} />
-      </div>
+      <ProgressBar value={progress} tone={terminal ? (round.status === "Settled" ? "success" : "danger") : "ember"} />
 
       <footer className="flex items-center justify-between gap-3 text-[12px]">
         <span className="truncate text-ink-400" title={venueTokenAccount(round.venue)}>

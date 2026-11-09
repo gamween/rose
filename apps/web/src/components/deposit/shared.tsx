@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useWallets } from "@/components/wallet/WalletProvider";
+import { ChainLogo } from "@/components/wallet/ChainLogo";
 import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { cn } from "@/lib/cn";
 import { shortHex } from "@/lib/amounts";
@@ -12,6 +13,27 @@ import { ROUTES } from "@/lib/routes";
 import type { Verdict } from "./eligibility";
 
 export type DepositChain = "base" | "solana";
+
+/** A numbered step heading of a wizard: the current step's number is an ember block, a finished one a tick. */
+export function WizardStep({ index, title, state }: { index: number; title: ReactNode; state: "done" | "current" | "upcoming" }) {
+  return (
+    <h2 className={cn("flex items-center gap-2.5 text-[13px] font-semibold", state === "upcoming" ? "text-ink-400" : "text-ink-50")} data-wizard-step={index} data-state={state}>
+      <span
+        aria-hidden
+        className={cn(
+          "tabular flex size-5 shrink-0 items-center justify-center rounded-[2px] border text-[11px]",
+          state === "current" && "border-ember-500 bg-ember-500 text-ink-950 shadow-[0_2px_0_0_var(--color-ember-700)]",
+          state === "done" && "border-success-500/60 bg-success-500/15 text-success-400",
+          state === "upcoming" && "border-ink-700 bg-ink-900 text-ink-400",
+        )}
+      >
+        {state === "done" ? "✓" : index}
+      </span>
+      <span className="sr-only">Step {index}: </span>
+      {title}
+    </h2>
+  );
+}
 
 export function ChainPicker({ value, onChange, deployed }: { value: DepositChain | null; onChange: (chain: DepositChain) => void; deployed: Record<DepositChain, string | null> }) {
   const options: { id: DepositChain; title: string; body: string }[] = [
@@ -32,16 +54,20 @@ export function ChainPicker({ value, onChange, deployed }: { value: DepositChain
             data-chain={option.id}
             onClick={() => onChange(option.id)}
             className={cn(
-              "flex flex-col gap-1 rounded-lg border px-4 py-3 text-left transition-colors",
-              selected ? "border-ember-500 bg-ember-700/15" : "border-ink-750 bg-ink-850 hover:border-ink-500 hover:bg-ink-800",
+              "ui-surface relative flex flex-col gap-1 rounded-lg px-4 py-3 text-left transition-colors",
+              selected ? "border-ember-500 bg-ember-700/10 before:absolute before:inset-x-0 before:-top-px before:h-[2px] before:rounded-t-lg before:bg-ember-500" : "hover:border-ink-600 hover:bg-ink-800/60",
             )}
           >
-            <span className="flex items-center gap-2 text-[13px] text-ink-50 font-semibold">
+            <span className="flex items-center gap-2.5 text-[13px] text-ink-50 font-semibold">
+              <span aria-hidden className={cn("flex size-3.5 shrink-0 items-center justify-center rounded-[2px] border", selected ? "border-ember-400 bg-(--surface-inset)" : "border-ink-600 bg-(--surface-inset)")}>
+                {selected ? <span className="size-1.5 bg-ember-400" /> : null}
+              </span>
+              <ChainLogo chain={option.id} size={16} />
               {option.title}
               {missing ? <Badge tone="warning">Not deployed</Badge> : null}
             </span>
-            <span className="text-[12px] text-ink-400">{option.body}</span>
-            {missing ? <span className="text-[11px] text-warning-400">{missing}</span> : null}
+            <span className="pl-6 text-[12px] leading-snug text-ink-400">{option.body}</span>
+            {missing ? <span className="pl-6 text-[11px] text-warning-400">{missing}</span> : null}
           </button>
         );
       })}
@@ -53,7 +79,7 @@ export function WalletPrompt({ chain, onConnect, children }: { chain: ChainId; o
   const { restoring } = useWallets();
   if (restoring) return <WalletsStatusRow what="Restoring your wallet…" />;
   return (
-    <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-ink-600 bg-ink-900 px-4 py-3">
+    <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-ink-600 bg-(--surface-inset) px-4 py-3">
       <p className="text-[13px] text-ink-100">{children ?? `A ${CHAIN_LABEL[chain]} wallet is needed for this step.`}</p>
       <Button size="sm" variant="secondary" onClick={() => onConnect(chain)} data-connect-prompt={chain}>
         Connect a {CHAIN_LABEL[chain]} wallet

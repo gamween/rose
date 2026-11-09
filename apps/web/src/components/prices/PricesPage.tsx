@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Deployment } from "@/components/docs/deployment";
 import { useLiveQuery } from "@/components/status/useLiveQuery";
+import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -58,7 +59,7 @@ function LoadingGrid() {
   return (
     <div className="grid gap-4 md:grid-cols-2" aria-label="Loading prices">
       {[0, 1].map((index) => (
-        <div key={index} className="rounded-lg border border-ink-750 bg-ink-850 p-4">
+        <div key={index} className="ui-surface rounded-lg p-4">
           <Skeleton className="mb-3 h-4 w-2/3" />
           <Skeleton className="h-56 w-full" />
         </div>
@@ -69,21 +70,22 @@ function LoadingGrid() {
 
 function TokenFilter({ groups, value, onChange }: { groups: TokenGroup[]; value: string; onChange: (key: string) => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Token">
+    <div className="flex flex-wrap items-center gap-2">
       <span className="text-[12px] text-ink-400 font-medium">Token</span>
-      {groups.map((group) => (
-        <button
-          key={group.tokenKey}
-          type="button"
-          aria-pressed={group.tokenKey === value}
-          onClick={() => onChange(group.tokenKey)}
-          className={`h-8 rounded-md border px-3 text-[13px] transition-colors ${
-            group.tokenKey === value ? "border-ember-600 bg-ember-700/25 text-ember-200" : "border-ink-700 bg-ink-900 text-ink-300 hover:border-ink-600 hover:text-ink-50"
-          }`}
-        >
-          {group.symbol} <span className="text-ink-400">· {group.chain}</span>
-        </button>
-      ))}
+      <Segmented
+        label="Token"
+        size="md"
+        options={groups.map((group) => ({
+          value: group.tokenKey,
+          label: (
+            <>
+              {group.symbol} <span className="text-ink-400">· {group.chain}</span>
+            </>
+          ),
+        }))}
+        value={value}
+        onChange={onChange}
+      />
     </div>
   );
 }
@@ -140,7 +142,7 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
           {plotted.map((series) => {
             const index = group.series.indexOf(series);
             return (
-              <div key={series.key} className="rounded-lg border border-ink-750 bg-ink-850 p-4" data-price-series={series.unit}>
+              <div key={series.key} className="ui-surface rounded-lg p-4" data-price-series={series.unit}>
                 <PriceHistoryChart series={series} color={seriesColor(index)} shape={seriesShape(index)} symbol={group.symbol} />
               </div>
             );
@@ -151,7 +153,7 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
         <h2 id="lock-scatter" className="text-[16px] text-ink-50 font-semibold">
           Price versus remaining lock
         </h2>
-        <div className="rounded-lg border border-ink-750 bg-ink-850 p-4" data-lock-scatter>
+        <div className="ui-surface rounded-lg p-4" data-lock-scatter>
           {perLocked.length > 0 ? (
             <LockScatterChart group={{ ...group, series: perLocked }} />
           ) : (

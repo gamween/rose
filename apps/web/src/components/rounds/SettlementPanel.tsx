@@ -10,6 +10,7 @@
 
 import Link from "next/link";
 import { useMemo, useSyncExternalStore } from "react";
+import { CardTitle } from "@/components/ui/Card";
 import { addressUrl, nearAccountUrl, txUrl } from "@/lib/explorer";
 import { deployed } from "@/lib/deployment";
 import { ROUTES } from "@/lib/routes";
@@ -39,9 +40,9 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
   }, [detail.bids]);
 
   return (
-    <section aria-label="Settlement and payouts" className="rounded-lg border border-ink-750 bg-ink-850" data-settlement>
+    <section aria-label="Settlement and payouts" className="ui-surface rounded-lg" data-settlement>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="text-[13px] text-ink-100 font-semibold">Settlement and payouts</h3>
+        <CardTitle>Settlement and payouts</CardTitle>
         <p className="mt-0.5 text-[12px] text-ink-400">Cash and units settle inside the NEAR ledger; tokens are pulled to Base or Solana from the Portfolio.</p>
       </div>
       <dl className="grid gap-3 px-4 py-3 text-[12px] sm:grid-cols-3">

@@ -9,10 +9,11 @@ import { ROUTES } from "@/lib/routes";
 export function TestnetBanner({ onGetFunds, demo }: { onGetFunds: () => void; demo: boolean }) {
   const missing = missingDeployments();
   return (
-    <div className="border-b border-ember-700/40 bg-ember-700/10" data-testnet-banner>
+    <div className="relative border-b border-ink-750 bg-ink-900" data-testnet-banner>
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-ember-600/60 [mask-image:var(--dither-50)] [mask-size:2px_2px]" />
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1.5 text-[12px] text-ink-200 md:px-6">
         <span className="flex items-center gap-2">
-          <span aria-hidden className="size-[5px] animate-pulse bg-ember-400" />
+          <span aria-hidden className="size-[5px] shrink-0 animate-pixel-blink bg-ember-400" />
           Testnet only: NEAR testnet, Base Sepolia, Solana devnet. Nothing here has value.
         </span>
         {missing.length > 0 ? <span className="text-ink-400">{missing.length === 8 ? "Contracts not deployed yet." : `${String(missing.length)} contracts not deployed yet.`}</span> : null}
@@ -25,7 +26,8 @@ export function TestnetBanner({ onGetFunds, demo }: { onGetFunds: () => void; de
           type="button"
           onClick={onGetFunds}
           data-get-funds
-          className={cn("rounded-sm border border-ember-600 bg-ember-700/30 px-2 py-0.5 text-[12px] text-ember-200 transition-colors hover:bg-ember-700/50 font-medium", !demo && "ml-auto")}
+          data-variant="secondary"
+          className={cn("ui-block h-6 rounded-sm px-2 text-[12px] text-ember-200 font-medium [--face:1px]", !demo && "ml-auto")}
         >
           Get test funds
         </button>

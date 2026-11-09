@@ -30,7 +30,7 @@ export interface PanelProps {
 
 function Box({ label, children, note, data }: { label: string; children: ReactNode; note?: ReactNode; data?: string }) {
   return (
-    <section aria-label={label} className="rounded-lg border border-ink-750 bg-ink-850" data-demo-panel={data}>
+    <section aria-label={label} className="ui-surface rounded-lg" data-demo-panel={data}>
       <h3 className="flex flex-wrap items-baseline justify-between gap-2 border-b border-ink-750 px-4 py-2.5">
         <span className="text-[12px] text-ink-300 font-medium">{label}</span>
         <span className="text-[11px] text-ink-400">read live from the engine</span>

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { Input, NumberInput } from "@/components/ui/Input";
+import { Input, NumberInput, selectClasses } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { cashDecimalsOf, formatUsdc, formatVenueCash, parseAmount, venueLabel } from "@/lib/amounts";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
@@ -85,7 +85,7 @@ export function FundTab({ base }: { base: IssuerBase }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="fund-venue">Venue</FieldLabel>
-              <select id="fund-venue" value={venueId} onChange={(event) => setVenueId(event.target.value)} className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 focus:border-ember-500 focus:outline-none" data-fund-venue>
+              <select id="fund-venue" value={venueId} onChange={(event) => setVenueId(event.target.value)} className={selectClasses()} data-fund-venue>
                 {venues.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.label}

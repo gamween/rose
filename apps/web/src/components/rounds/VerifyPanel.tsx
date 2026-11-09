@@ -7,6 +7,7 @@
 
 import { useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { formatQty, formatUsdc } from "./model";
@@ -31,18 +32,18 @@ export function VerifyPanel({ detail }: { detail: RoundDetail }) {
   const copy = verification ? STATUS_COPY[verification.status] : null;
   if (neverOpened) {
     return (
-      <section aria-label="Verify" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-verify="cancelled">
-        <h3 className="text-[13px] text-ink-100 font-semibold">Verify</h3>
+      <section aria-label="Verify" className="ui-surface rounded-lg px-4 py-3" data-verify="cancelled">
+        <CardTitle>Verify</CardTitle>
         <p className="mt-0.5 text-[12px] text-ink-400">Nothing to verify: the round was cancelled before any order was opened, so no clearing price exists. Every order settles as a refund.</p>
       </section>
     );
   }
 
   return (
-    <section aria-label="Verify" className="rounded-lg border border-ink-750 bg-ink-850" data-verify>
+    <section aria-label="Verify" className="ui-surface rounded-lg" data-verify>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div>
-          <h3 className="text-[13px] text-ink-100 font-semibold">Verify</h3>
+          <CardTitle>Verify</CardTitle>
           <p className="mt-0.5 text-[12px] text-ink-400">Recompute the clearing price and every fill in this browser from the public book, with the same integer rules the contract runs.</p>
         </div>
         <Button size="sm" variant={ran ? "secondary" : "primary"} onClick={() => setRan(true)} disabled={!cleared} data-verify-run>

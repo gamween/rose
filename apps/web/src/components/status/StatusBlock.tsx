@@ -41,7 +41,7 @@ export function StatusBlock<T>({
     <section
       aria-labelledby={`status-${slug(title)}`}
       aria-busy={state.status === "loading" || refreshing}
-      className={cn("flex min-w-0 flex-col rounded-lg border border-ink-750 bg-ink-850", className)}
+      className={cn("flex min-w-0 flex-col ui-surface rounded-lg", className)}
       data-status={state.status}
     >
       <header className="flex items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">

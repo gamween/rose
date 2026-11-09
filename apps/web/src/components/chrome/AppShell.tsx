@@ -9,6 +9,7 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { ConnectModalProvider, useConnectModal } from "@/components/wallet/ConnectModal";
 import { Drawer } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { Kbd } from "@/components/ui/Kbd";
 import { Spinner } from "@/components/ui/Spinner";
 import { ROUTES } from "@/lib/routes";
 import { ActivityFeedDrawer } from "./ActivityFeed";
@@ -128,7 +129,8 @@ function AppChrome({ children, demo }: { children: ReactNode; demo: boolean }) {
               aria-label="Open activity feed"
               title="Activity"
               data-activity
-              className="hidden size-8 items-center justify-center rounded-md border border-ink-700 bg-ink-850 text-ink-200 transition-colors hover:border-ink-500 hover:text-ink-50 sm:flex"
+              data-variant="secondary"
+              className="ui-block hidden size-8 items-center justify-center rounded-md sm:flex"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M12 7v5l3 2" />
@@ -141,14 +143,14 @@ function AppChrome({ children, demo }: { children: ReactNode; demo: boolean }) {
               title="Command palette (⌘K)"
               aria-label="Open the command palette"
               data-palette
-              className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 md:flex"
+              className="ui-field hidden h-8 items-center gap-2 px-2 text-[12px] text-ink-400 transition-colors hover:text-ink-100 md:flex lg:w-48"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                 <circle cx="11" cy="11" r="7" />
                 <path d="m20 20-3.5-3.5" />
               </svg>
               <span className="hidden lg:inline">Search</span>
-              <kbd className="text-[11px] text-ink-400 font-medium">⌘K</kbd>
+              <Kbd className="lg:ml-auto">⌘K</Kbd>
             </button>
             <WalletPills />
           </div>

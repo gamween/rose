@@ -161,15 +161,13 @@ export function WalletPills({ className }: { className?: string }) {
           aria-label="Open wallets"
           aria-expanded={menuOpen}
           aria-controls={menuOpen ? menuId : undefined}
-          className={cn(
-            "flex h-8 items-center gap-2 rounded-md border bg-ink-850 pl-1.5 pr-2 text-[12px] text-ink-100 transition-colors hover:border-ink-500",
-            menuOpen ? "border-ink-500" : "border-ink-700",
-          )}
+          data-variant="secondary"
+          className={cn("ui-block flex h-8 items-center gap-2 rounded-md pl-1.5 pr-2 text-[12px]", menuOpen && "border-ink-500 bg-ink-750")}
         >
           <LogoStack wallets={connected} />
           <span className="font-mono hidden max-w-[180px] truncate sm:inline">{shortAddress(primary.chain, primary.address)}</span>
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={cn("text-ink-400 transition-transform", menuOpen && "rotate-180")} aria-hidden>
-            <path d="m4 6 4 4 4-4" />
+          <svg viewBox="0 0 10 6" width="10" height="6" shapeRendering="crispEdges" className={cn("text-ink-400 transition-transform", menuOpen && "rotate-180")} aria-hidden>
+            <path d="M0 0h2v2H0zM2 2h2v2H2zM4 4h2v2H4zM6 2h2v2H6zM8 0h2v2H8z" fill="currentColor" />
           </svg>
         </button>
       ) : (
@@ -211,7 +209,7 @@ function WalletMenu({ id, connected, onConnect, onDetails }: { id: string; conne
       role="group"
       aria-label="Your wallets"
       data-wallet-menu
-      className="absolute right-0 top-[calc(100%+8px)] z-50 w-[360px] overflow-hidden rounded-lg border border-ink-700 bg-ink-850 shadow-2xl"
+      className="absolute right-0 top-[calc(100%+8px)] z-50 w-[360px] animate-rise-in overflow-hidden rounded-lg border border-ink-700 bg-ink-850 shadow-(--shadow-overlay)"
     >
       <ul className="divide-y divide-ink-750">
         {connected.map(({ chain, address }) => {
@@ -379,7 +377,7 @@ function ChainSection({
 }) {
   const copy = useCopyAddress();
   return (
-    <section className="rounded-md border border-ink-750 bg-ink-850">
+    <section className="ui-surface rounded-md">
       <header className="flex items-center justify-between gap-3 border-b border-ink-750 px-3 py-2">
         <span className="flex items-center gap-2">
           <ChainLogo chain={chain} size={18} />

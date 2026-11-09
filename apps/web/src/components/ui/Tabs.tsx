@@ -60,12 +60,14 @@ export function Tabs<T extends string>({
             onClick={() => onChange(item.id)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              "relative flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] transition-colors",
-              selected ? "border-ember-500 text-ink-50" : "border-transparent text-ink-400 hover:text-ink-100",
+              "relative flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] font-medium transition-colors",
+              selected ? "border-ember-500 text-ink-50" : "border-transparent text-ink-400 hover:border-ink-600 hover:text-ink-100",
             )}
           >
             {item.label}
-            {item.count !== undefined ? <span className="tabular text-[11px] text-ink-400">{item.count}</span> : null}
+            {item.count !== undefined ? (
+              <span className={cn("tabular rounded-sm px-1 text-[11px] leading-4", selected ? "bg-ember-700/40 text-ember-200" : "bg-ink-800 text-ink-300")}>{item.count}</span>
+            ) : null}
           </button>
         );
       })}

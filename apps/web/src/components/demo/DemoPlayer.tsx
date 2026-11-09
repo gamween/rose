@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { ErrorState, NotDeployedState } from "@/components/rounds/shared";
+import { Kbd } from "@/components/ui/Kbd";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
@@ -221,8 +222,9 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
           <span className="tabular ml-1 text-[12px] text-ink-300" aria-live="polite" data-demo-counter>
             {String(index + 1)} / {String(steps.length)}
           </span>
-          <span className="ml-auto hidden text-[11px] text-ink-400 md:inline">
-            ← → to move · Space to play · {String(steps.length)} steps, about {String(Math.round(totalDuration(steps) / 60_000))} min on autoplay
+          <span className="ml-auto hidden items-center gap-1 text-[11px] text-ink-400 md:flex">
+            <Kbd>←</Kbd>
+            <Kbd>→</Kbd> to move · <Kbd>Space</Kbd> to play · {String(steps.length)} steps, about {String(Math.round(totalDuration(steps) / 60_000))} min on autoplay
           </span>
           <ButtonLink href={`${ROUTES.rounds}/${scenario.roundId}`} variant="ghost" size="sm" className="ml-auto md:ml-2">
             Round #{scenario.roundId} live
@@ -274,7 +276,7 @@ function LiveSection({ manifest, scenario, step, live }: { manifest: DemoManifes
   if (state.status === "not_deployed") return <NotDeployedState detail={state.detail} />;
   if (state.status === "error") {
     return (
-      <div className="rounded-lg border border-ink-750 bg-ink-850" data-demo-live="error">
+      <div className="ui-surface rounded-lg" data-demo-live="error">
         <ErrorState message={`${state.message} The transactions below stay verifiable on their explorers.`} onRetry={retry} />
       </div>
     );
