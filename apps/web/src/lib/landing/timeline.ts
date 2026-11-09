@@ -6,10 +6,12 @@ import { JOINTS } from "@/lib/voxel/dragon";
  * quantity, so the scene stays a pure function of progress plus a time-based idle layer.
  *
  * The story: the dragon sleeps, small, under the phrase; the camera closes in until it fills its
- * final size; it wakes slowly (eyes, breath, the neck rising in an arc, the wings unfolding in two
- * beats), draws a breath and breathes fire upward in two left-to-right sweeps across the phrase,
- * which grows, rises, cracks and shatters; then it falls back asleep and the camera pulls back
- * until it is small in the dark again.
+ * final size; it wakes slowly (eyes, breath, the neck rising in an arc), rears up on its hind legs
+ * while its wings unfold in two beats into a full spread, draws a breath and breathes one long,
+ * hard jet of fire upward, sweeping twice from left to right across the phrase, which cracks and
+ * rises until it has left the screen through the top. Then the fire stops, the dragon calms down,
+ * folds its wings in stages, lowers itself onto all fours, curls up and falls back asleep, and the
+ * camera pulls back until it is small in the dark again.
  */
 
 export function clamp01(value: number): number {
@@ -32,6 +34,7 @@ export const EASE = {
   linear: (t: number) => t,
   inOutSine: (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * t),
   inOutCubic: (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2),
+  inQuad: (t: number) => t * t,
   outCubic: (t: number) => 1 - (1 - t) ** 3,
   /** Smootherstep: zero velocity and acceleration at both ends, for the weightiest moves. */
   inOutQuint: (t: number) => t * t * t * (t * (6 * t - 15) + 10),
@@ -54,79 +57,155 @@ export function keyframes(keys: readonly Key[], progress: number): number {
   return keys[keys.length - 1]![1];
 }
 
-/** One left-to-right pass of the fire across the phrase. */
+/** One left-to-right pass of the jet across the phrase, inside the one sustained breath. */
 export type Sweep = { start: number; end: number };
 
 export const SWEEPS: readonly Sweep[] = [
-  { start: 0.45, end: 0.58 },
-  { start: 0.61, end: 0.74 },
+  { start: 0.48, end: 0.565 },
+  { start: 0.595, end: 0.68 },
 ];
 
 export const PHASES = {
   /** The camera closes in from the small sleeping dragon to its full size. */
-  dolly: [0.02, 0.24],
+  dolly: [0.02, 0.2],
   /** Overall wake (light, breath, smoke); the body parts follow their own staged keys. */
-  wake: [0.19, 0.4],
+  wake: [0.17, 0.32],
   /** The neck rises joint by joint, from the first joint of its base starting to its last one done. */
-  rise: [0.22, 0.365],
-  /** The held breath before the first sweep. */
-  inhale: [0.37, 0.48],
-  phrase: [0.3, 0.86],
-  shatter: [0.66, 0.86],
-  sleep: [0.76, 0.9],
+  rise: [0.19, 0.3],
+  /** The dragon rears up onto its hind legs, the camera easing back to keep it whole. */
+  stand: [0.28, 0.415],
+  /** The held breath before the fire. */
+  inhale: [0.395, 0.488],
+  /** The one sustained breath of fire, from its first flame to its last. */
+  breath: [0.46, 0.72],
+  /** The phrase rises with the dragon, then the fire pushes it up and out through the top. */
+  phrase: [0.22, 0.69],
+  /** The dragon lowers itself back onto all fours. */
+  lower: [0.785, 0.875],
+  sleep: [0.82, 0.92],
   /** The neck sinks joint by joint, the head first and the base last. */
-  lower: [0.77, 0.9],
-  smoke: [0.8, 0.94],
-  retreat: [0.8, 0.98],
-  launchReady: 0.96,
+  sink: [0.795, 0.91],
+  smoke: [0.82, 0.95],
+  retreat: [0.865, 0.985],
+  launchReady: 0.97,
 } as const;
 
 /** Delay (in progress) between the first and the last neck joint to move as the neck rises or sinks. */
-const NECK_STAGGER = 0.065;
+const NECK_STAGGER = 0.06;
 
 const EYELID: readonly Key[] = [
-  [0.19, 0],
-  [0.225, 0.4, EASE.inOutSine],
-  [0.245, 0.28, EASE.inOutSine],
-  [0.3, 1, EASE.inOutCubic],
-  [0.8, 1],
-  [0.835, 0.3, EASE.inOutSine],
-  [0.85, 0.48, EASE.inOutSine],
-  [0.895, 0, EASE.inOutCubic],
+  [0.17, 0],
+  [0.205, 0.4, EASE.inOutSine],
+  [0.225, 0.28, EASE.inOutSine],
+  [0.28, 1, EASE.inOutCubic],
+  [0.86, 1],
+  [0.89, 0.3, EASE.inOutSine],
+  [0.902, 0.48, EASE.inOutSine],
+  [0.93, 0, EASE.inOutSine],
 ];
 
-/** Far wing: a first lift, a held beat, the full spread with a slight overshoot, then the same folding in two beats. */
+const STAND: readonly Key[] = [
+  [PHASES.stand[0], 0],
+  [PHASES.stand[1], 1, EASE.inOutQuint],
+  [PHASES.lower[0], 1],
+  [PHASES.lower[1], 0, EASE.inOutQuint],
+];
+
+/**
+ * The camera eases from the close-up on the lying dragon to the frame that holds it whole once
+ * standing, wings spread, slightly ahead of the body so the head and wings never leave the frame;
+ * it stays there while the dragon lies back down, then pulls back from there.
+ */
+const FRAME: readonly Key[] = [
+  [0.25, 0],
+  [0.4, 1, EASE.inOutQuint],
+];
+
+/**
+ * Wings: they lift off the flanks, hold a beat, then rise to their full height with a slight
+ * overshoot; after the fire they lower in two beats as the dragon settles.
+ */
 const WING_FOLD: readonly Key[] = [
-  [0.24, 1],
-  [0.29, 0.7, EASE.outCubic],
-  [0.31, 0.67, EASE.linear],
-  [0.37, -0.07, EASE.inOutCubic],
-  [0.405, 0, EASE.inOutSine],
-  [0.775, 0],
-  [0.815, 0.45, EASE.inOutCubic],
-  [0.83, 0.42, EASE.inOutSine],
-  [0.885, 1.04, EASE.inOutCubic],
-  [0.905, 1, EASE.inOutSine],
+  [0.29, 1],
+  [0.325, 0.62, EASE.outCubic],
+  [0.345, 0.6, EASE.linear],
+  [0.4, -0.06, EASE.inOutCubic],
+  [0.43, 0, EASE.inOutSine],
+  [0.725, 0],
+  [0.755, 0.22, EASE.inOutCubic],
+  [0.765, 0.24, EASE.linear],
+  [0.8, 0.62, EASE.inOutCubic],
+  [0.812, 0.6, EASE.inOutSine],
+  [0.86, 1.03, EASE.inOutCubic],
+  [0.88, 1, EASE.inOutSine],
+];
+
+/** Membranes: they open a little with the first lift, then spread wide; they furl in stages after the fire. */
+const WING_SPREAD: readonly Key[] = [
+  [0.31, 0],
+  [0.33, 0.15, EASE.outCubic],
+  [0.35, 0.16, EASE.linear],
+  [0.415, 1.06, EASE.inOutSine],
+  [0.44, 1, EASE.inOutSine],
+  [0.72, 1],
+  [0.755, 0.55, EASE.inOutCubic],
+  [0.768, 0.5, EASE.linear],
+  [0.8, 0.12, EASE.inOutCubic],
+  [0.84, 0, EASE.inOutCubic],
 ];
 
 const INHALE: readonly Key[] = [
   [PHASES.inhale[0], 0],
-  [0.42, 1, EASE.inOutSine],
-  [0.44, 1, EASE.linear],
+  [0.44, 1, EASE.inOutSine],
+  [0.447, 1, EASE.linear],
   [PHASES.inhale[1], 0, EASE.inOutSine],
 ];
 
-/** How much the head turns toward the jet target, from the inhale to the start of the sleep. */
+/**
+ * Fire intensity: it bursts out, holds hard (only easing a little while the head swings back to
+ * the left between the two sweeps) until the phrase has left the screen, then dies down.
+ */
+const BREATH: readonly Key[] = [
+  [PHASES.breath[0], 0],
+  [0.477, 1, EASE.inOutSine],
+  [0.565, 1],
+  [0.58, 0.82, EASE.inOutSine],
+  [0.595, 1, EASE.inOutSine],
+  [0.695, 1],
+  [PHASES.breath[1], 0, EASE.inOutSine],
+];
+
+/**
+ * The phrase's rise, 0 at rest and 1 once its lowest pixel has passed the top of the screen: it
+ * lifts a little as the dragon rears, then the jet drives it up, faster and faster.
+ */
+const PHRASE: readonly Key[] = [
+  [PHASES.phrase[0], 0],
+  [0.39, 0.3, EASE.inOutSine],
+  [0.475, 0.34, EASE.linear],
+  [PHASES.phrase[1], 1, EASE.inQuad],
+];
+
+/** How much the head turns toward the jet target: from before the breath until the fire has died. */
 const FOCUS: readonly Key[] = [
-  [0.36, 0],
-  [0.43, 1, EASE.inOutSine],
-  [0.76, 1],
-  [0.8, 0, EASE.inOutSine],
+  [0.39, 0],
+  [0.44, 1, EASE.inOutSine],
+  [0.705, 1],
+  [0.75, 0, EASE.inOutSine],
+];
+
+/** Deep, slow breaths after the fire, settling as the dragon lies down. */
+const HEAVE: readonly Key[] = [
+  [0.695, 0],
+  [0.74, 1, EASE.inOutSine],
+  [0.85, 0, EASE.inOutSine],
 ];
 
 export type SequenceState = {
   /** Camera move from the opening frame (0) to the dragon at full size (1). */
   dolly: number;
+  /** Camera move from the full size (0) to the frame of the standing dragon (1). */
+  frame: number;
   /** Camera move from the full size (0) to the final wide frame, the dragon small (1). */
   retreat: number;
   /** Overall wakefulness: 0 asleep, 1 awake (the final sleep is `sleep`). */
@@ -135,10 +214,16 @@ export type SequenceState = {
   sleep: number;
   /** Per neck joint, from the base: 0 lying down, 1 raised. */
   neck: readonly number[];
-  /** Far wing, 0 spread (slightly below 0 at the overshoot) to 1 folded. */
+  /** 0 lying on all fours, 1 rearing on the hind legs. */
+  stand: number;
+  /** Wings, 0 raised to 1 folded on the flanks (slightly below 0 at the overshoot). */
   wingFold: number;
+  /** Wing membranes, 0 furled to 1 spread (slightly above 1 at the overshoot). */
+  wingSpread: number;
   /** The held breath before the fire: chest swollen, head drawn back. */
   inhale: number;
+  /** Deep breaths after the fire. */
+  heave: number;
   /** How much the head turns toward the jet target. */
   focus: number;
   /** Light level on the dragon: dim asleep, full awake. */
@@ -147,7 +232,7 @@ export type SequenceState = {
   eyes: number;
   /** Eyelid opening, 1 open, 0 closed (asleep). */
   eyelid: number;
-  /** Fire emission intensity, 0 between and outside the sweeps. */
+  /** Fire emission intensity. */
   fire: number;
   /** Aim of the jet across the phrase: 0 its left end, 1 its right end. */
   aim: number;
@@ -155,10 +240,8 @@ export type SequenceState = {
   sweep: number;
   /** How far each sweep has travelled across the phrase (0..1, monotonic). */
   cracks: readonly [number, number];
-  /** The phrase grows and rises (0..1). */
+  /** Rise of the phrase: 0 at rest, 1 once it has left the screen through the top. */
   phrase: number;
-  /** The cracked phrase breaks into falling, burning chunks (0..1, gone at 1). */
-  shatter: number;
   /** Glow of the letters of "rose", from smoldering to blazing. */
   rose: number;
   /** Smoke drifting from the nostrils. */
@@ -179,21 +262,16 @@ function sweepAim(t: number): number {
   return 0.5 - 0.5 * Math.cos(Math.PI * u);
 }
 
-function sweepEnvelope(t: number): number {
-  if (t <= 0 || t >= 1) return 0;
-  return smoothstep(0, 0.1, t) * (1 - smoothstep(0.9, 1, t));
-}
-
 /** Raised share of each neck joint: the base leads on the way up, the head leads on the way down. */
 function neckAt(progress: number): number[] {
   const last = JOINTS.length - 1;
   const [riseStart, riseEnd] = PHASES.rise;
-  const [lowerStart, lowerEnd] = PHASES.lower;
+  const [sinkStart, sinkEnd] = PHASES.sink;
   return JOINTS.map((_, i) => {
     const up = riseStart + (NECK_STAGGER * i) / last;
-    const down = lowerStart + (NECK_STAGGER * (last - i)) / last;
+    const down = sinkStart + (NECK_STAGGER * (last - i)) / last;
     const raised = EASE.inOutQuint(clamp01((progress - up) / (riseEnd - riseStart - NECK_STAGGER)));
-    const lowered = EASE.inOutQuint(clamp01((progress - down) / (lowerEnd - lowerStart - NECK_STAGGER)));
+    const lowered = EASE.inOutQuint(clamp01((progress - down) / (sinkEnd - sinkStart - NECK_STAGGER)));
     return raised * (1 - lowered);
   });
 }
@@ -202,22 +280,15 @@ export function sequenceAt(rawProgress: number): SequenceState {
   const progress = clamp01(rawProgress);
   const [first, second] = [SWEEPS[0]!, SWEEPS[1]!];
 
-  let fire = 0;
-  let sweep = -1;
-  SWEEPS.forEach((candidate, index) => {
-    const envelope = sweepEnvelope(sweepTime(candidate, progress));
-    if (envelope > 0) {
-      fire = envelope;
-      sweep = index;
-    }
-  });
+  const sweep = SWEEPS.findIndex((candidate) => progress > candidate.start && progress < candidate.end);
   const cracks: [number, number] = [sweepAim(sweepTime(first, progress)), sweepAim(sweepTime(second, progress))];
 
-  // The head waits on the left before each pass, then swings back between the two passes.
-  let aim = 0;
-  if (progress >= second.start) aim = cracks[1];
+  // The head waits on the left before each pass and swings back between them, the fire still
+  // pouring; after the second pass it comes back to the middle as the last letters leave.
+  let aim = cracks[0];
+  if (progress >= second.end) aim = 1 - 0.5 * EASE.inOutSine(clamp01((progress - second.end) / 0.02));
+  else if (progress >= second.start) aim = cracks[1];
   else if (progress >= first.end) aim = 1 - EASE.inOutSine(clamp01((progress - first.end) / (second.start - first.end)));
-  else aim = cracks[0];
 
   const wake = EASE.inOutQuint(clamp01((progress - PHASES.wake[0]) / (PHASES.wake[1] - PHASES.wake[0])));
   const sleep = EASE.inOutQuint(clamp01((progress - PHASES.sleep[0]) / (PHASES.sleep[1] - PHASES.sleep[0])));
@@ -226,22 +297,25 @@ export function sequenceAt(rawProgress: number): SequenceState {
 
   return {
     dolly: EASE.inOutQuint(clamp01((progress - PHASES.dolly[0]) / (PHASES.dolly[1] - PHASES.dolly[0]))),
+    frame: keyframes(FRAME, progress),
     retreat: EASE.inOutQuint(clamp01((progress - PHASES.retreat[0]) / (PHASES.retreat[1] - PHASES.retreat[0]))),
     wake,
     sleep,
     neck: neckAt(progress),
+    stand: keyframes(STAND, progress),
     wingFold: keyframes(WING_FOLD, progress),
+    wingSpread: keyframes(WING_SPREAD, progress),
     inhale: keyframes(INHALE, progress),
+    heave: keyframes(HEAVE, progress),
     focus: keyframes(FOCUS, progress),
     light: lerp(lerp(0.4, 1, wake), 0.75, sleep),
-    eyes: smoothstep(0.19, 0.31, progress),
+    eyes: smoothstep(0.17, 0.29, progress),
     eyelid: keyframes(EYELID, progress),
-    fire,
+    fire: keyframes(BREATH, progress),
     aim,
     sweep,
     cracks,
-    phrase: smoothstep(PHASES.phrase[0], PHASES.phrase[1], progress),
-    shatter: clamp01((progress - PHASES.shatter[0]) / (PHASES.shatter[1] - PHASES.shatter[0])),
+    phrase: keyframes(PHRASE, progress),
     rose,
     smoke: lerp(lerp(0.35, 0, wake), 1, smokePhase),
     tail: lerp(lerp(0.45, 0.25, wake), 1, sleep),

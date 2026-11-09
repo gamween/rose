@@ -249,9 +249,9 @@ A pinned scroll sequence (~400 vh), rendered in WebGL with a final ordered-dithe
 
 1. Black screen. A voxel dragon sleeps curled at the bottom of the frame. Above it the phrase "What was locked, rose." sits in deep shadow, barely legible; only the letters of "rose" smolder like embers.
 2. Scrolling zooms the camera in on the sleeping dragon.
-3. It wakes and breathes fire upward, the jet sweeping from left to right twice.
-4. At the same time the whole phrase grows and rises toward the top, cracks (glowing fissures, then voxel chunks breaking off as embers) and disappears, "rose" included.
-5. The dragon stops, falls back asleep (smoke drifting from its nostrils, the tip of its tail still glowing) and the camera pulls back until it is small in the background.
+3. It wakes slowly, then rears up to its prime: standing on its hind legs, both wings spread high, neck arched. After a held breath it breathes one hard, sustained jet of fire upward, sweeping from left to right twice.
+4. The fire drives the whole phrase, "rose" included, up and out through the top of the screen; the letters crack and shed embers as they rise but stay whole until they are off screen.
+5. The fire stops, the dragon calms down, folds its wings, lowers itself back onto all fours and falls back asleep (smoke drifting from its nostrils, the tip of its tail still glowing) and the camera pulls back until it is small in the background.
 6. The landing ends on that screen alone. Hovering the dragon or the glowing tail reveals a "Launch app" button (also reachable by keyboard focus, always visible on touch devices). A thin top bar (logo, navigation, Docs, "Launch app") stays visible throughout; the explanations live in the app and the docs.
 
 Requirements: 60 fps on an M-series MacBook, adaptive quality on weaker GPUs, `prefers-reduced-motion` shows a static final frame with the button, the voxel dragon is authored by us (procedural or hand-authored voxel data, no third-party model licensing issue), total landing payload kept small and lazy-loaded.

@@ -74,7 +74,10 @@ export class VoxelGrid {
     });
   }
 
-  /** Rasterizes a thin triangle. `keep` can carve the triangle (for scalloped wing edges). */
+  /**
+   * Rasterizes a thin triangle. `keep` can carve the triangle (for scalloped wing edges); `weight`
+   * is either one value for every cell or a function of the cell.
+   */
   triangle(
     a: Vec3,
     b: Vec3,
@@ -82,7 +85,7 @@ export class VoxelGrid {
     material: number,
     keep: (u: number, v: number) => boolean = () => true,
     overwrite = false,
-    weight = 0,
+    weight: number | ((cell: Vec3) => number) = 0,
   ): void {
     const edge = Math.max(distance(a, b), distance(b, c), distance(c, a));
     const steps = Math.ceil(edge * 2.2);
@@ -95,7 +98,8 @@ export class VoxelGrid {
         const x = Math.round(a[0] * w + b[0] * u + c[0] * v);
         const y = Math.round(a[1] * w + b[1] * u + c[1] * v);
         const z = Math.round(a[2] * w + b[2] * u + c[2] * v);
-        this.set(x, y, z, material, weight, overwrite);
+        if (!overwrite && this.get(x, y, z) !== 0) continue;
+        this.set(x, y, z, material, typeof weight === "number" ? weight : weight([x, y, z]), overwrite);
       }
     }
   }
@@ -128,6 +132,37 @@ export class VoxelGrid {
 
 export function distance(a: Vec3, b: Vec3): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+export function add(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+export function sub(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+export function scale(a: Vec3, factor: number): Vec3 {
+  return [a[0] * factor, a[1] * factor, a[2] * factor];
+}
+
+export function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+export function cross(a: Vec3, b: Vec3): Vec3 {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+export function normalize(a: Vec3): Vec3 {
+  return scale(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
+}
+
+/** Distance from `point` to the segment from `a` to `b`. */
+export function segmentDistance(point: Vec3, a: Vec3, b: Vec3): number {
+  const ab = sub(b, a);
+  const t = Math.min(1, Math.max(0, dot(sub(point, a), ab) / (dot(ab, ab) || 1)));
+  return distance(point, add(a, scale(ab, t)));
 }
 
 /** Uniform Catmull-Rom spline through `points`, `perUnit` samples per unit of chord length. */

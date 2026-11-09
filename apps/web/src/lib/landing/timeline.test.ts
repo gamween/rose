@@ -12,6 +12,11 @@ function maxStep(channel: (p: number) => number): number {
   return largest;
 }
 
+/** First sample at which `condition` holds. */
+function firstWhere(condition: (p: number) => boolean): number {
+  return samples.find(condition)!;
+}
+
 describe("easing and keyframes", () => {
   it("eases every curve from 0 to 1 with a flat start", () => {
     for (const ease of Object.values(EASE)) {
@@ -36,102 +41,105 @@ describe("easing and keyframes", () => {
 });
 
 describe("landing sequence timeline", () => {
-  it("opens on the dragon asleep under the phrase, with only the rose smoldering", () => {
+  it("opens on the dragon asleep and lying under the phrase, with only the rose smoldering", () => {
     const start = sequenceAt(0);
     expect(start.dolly).toBe(0);
+    expect(start.frame).toBe(0);
     expect(start.retreat).toBe(0);
     expect(start.wake).toBe(0);
+    expect(start.stand).toBe(0);
     expect(start.neck.every((joint) => joint === 0)).toBe(true);
     expect(start.wingFold).toBe(1);
+    expect(start.wingSpread).toBe(0);
     expect(start.eyelid).toBe(0);
     expect(start.fire).toBe(0);
     expect(start.cracks).toEqual([0, 0]);
     expect(start.phrase).toBe(0);
-    expect(start.shatter).toBe(0);
     expect(start.rose).toBeGreaterThan(0);
     expect(start.smoke).toBeGreaterThan(0);
     expect(start.tail).toBeGreaterThan(0);
     expect(start.launchReady).toBe(false);
   });
 
-  it("brings the dragon to its full size before it wakes, and keeps it there until after the fire", () => {
-    const awake = samples.find((p) => sequenceAt(p).wake > 0.5)!;
+  it("closes in to the full size before the dragon wakes, and pulls back only once it lies asleep again", () => {
+    const awake = firstWhere((p) => sequenceAt(p).wake > 0.5);
     expect(sequenceAt(PHASES.dolly[1]).dolly).toBe(1);
     expect(PHASES.dolly[1]).toBeLessThan(awake);
-    expect(PHASES.retreat[0]).toBeGreaterThanOrEqual(second.end);
-    for (const p of samples.filter((q) => q >= PHASES.dolly[1] && q <= second.end)) {
+    const lying = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).stand === 0);
+    expect(PHASES.retreat[0]).toBeGreaterThanOrEqual(lying - 0.011);
+    for (const p of samples.filter((q) => q >= PHASES.dolly[1] && q <= PHASES.retreat[0])) {
       expect(sequenceAt(p).dolly).toBe(1);
       expect(sequenceAt(p).retreat).toBe(0);
     }
   });
 
-  it("wakes in stages: eyes first, then the neck from its base, then the wing spreads", () => {
-    const eyesOpen = samples.find((p) => sequenceAt(p).eyelid > 0.1)!;
-    const neckBase = samples.find((p) => sequenceAt(p).neck[0]! > 0.1)!;
-    const head = samples.find((p) => sequenceAt(p).neck.at(-1)! > 0.1)!;
-    const wing = samples.find((p) => sequenceAt(p).wingFold < 0.5)!;
+  it("eases the camera to the standing frame as the dragon rears up", () => {
+    expect(sequenceAt(PHASES.stand[0]).frame).toBeLessThan(0.3);
+    expect(sequenceAt(PHASES.stand[1]).frame).toBe(1);
+    expect(sequenceAt(1).frame).toBe(1);
+  });
+
+  it("wakes in stages: eyes, then the neck from its base, then it rears up as its wings unfold", () => {
+    const eyesOpen = firstWhere((p) => sequenceAt(p).eyelid > 0.1);
+    const neckBase = firstWhere((p) => sequenceAt(p).neck[0]! > 0.1);
+    const head = firstWhere((p) => sequenceAt(p).neck.at(-1)! > 0.1);
+    const rearing = firstWhere((p) => sequenceAt(p).stand > 0.1);
+    const lifted = firstWhere((p) => sequenceAt(p).wingFold < 0.7);
+    const spread = firstWhere((p) => sequenceAt(p).wingSpread > 0.9);
     expect(eyesOpen).toBeLessThan(neckBase);
     expect(neckBase).toBeLessThan(head);
-    expect(head).toBeLessThan(wing);
-    // The wing lifts, holds a beat, then spreads past its rest pose before it settles.
-    expect(sequenceAt(0.3).wingFold).toBeGreaterThan(0.6);
+    expect(head).toBeLessThan(rearing);
+    expect(lifted).toBeGreaterThan(PHASES.stand[0]);
+    expect(lifted).toBeLessThan(spread);
+    expect(sequenceAt(spread).stand).toBeGreaterThan(0.9);
+    // The wings lift, hold a beat, then rise past their full spread before they settle.
+    expect(sequenceAt(0.335).wingFold).toBeGreaterThan(0.55);
     expect(Math.min(...samples.map((p) => sequenceAt(p).wingFold))).toBeLessThan(0);
-    expect(sequenceAt(first.start).wingFold).toBe(0);
+    expect(Math.max(...samples.map((p) => sequenceAt(p).wingSpread))).toBeGreaterThan(1);
   });
 
-  it("is fully awake and holds its breath before the first sweep", () => {
-    const beforeFire = sequenceAt(first.start - 0.012);
+  it("stands at its prime, wings spread, holding its breath before the fire", () => {
+    const beforeFire = sequenceAt(PHASES.breath[0] - 0.008);
     expect(beforeFire.wake).toBe(1);
+    expect(beforeFire.stand).toBe(1);
     expect(beforeFire.neck.every((joint) => joint === 1)).toBe(true);
+    expect(beforeFire.wingFold).toBe(0);
+    expect(beforeFire.wingSpread).toBe(1);
     expect(beforeFire.eyelid).toBe(1);
     expect(beforeFire.focus).toBe(1);
-    expect(beforeFire.inhale).toBe(1);
-    expect(sequenceAt(first.start + 0.01).inhale).toBeLessThan(0.7);
-    expect(sequenceAt(first.start + 0.03).inhale).toBe(0);
+    expect(beforeFire.inhale).toBeGreaterThan(0.5);
+    expect(beforeFire.fire).toBe(0);
     expect(sequenceAt(PHASES.inhale[0] - 0.01).inhale).toBe(0);
+    expect(sequenceAt(PHASES.inhale[1]).inhale).toBe(0);
   });
 
-  it("moves every body channel without jumps", () => {
-    const limit = 0.02;
-    expect(maxStep((p) => sequenceAt(p).dolly)).toBeLessThan(limit);
-    expect(maxStep((p) => sequenceAt(p).retreat)).toBeLessThan(limit);
-    expect(maxStep((p) => sequenceAt(p).wake)).toBeLessThan(limit);
-    expect(maxStep((p) => sequenceAt(p).wingFold)).toBeLessThan(limit);
-    expect(maxStep((p) => sequenceAt(p).inhale)).toBeLessThan(limit);
-    expect(maxStep((p) => sequenceAt(p).eyelid)).toBeLessThan(limit);
-    for (let joint = 0; joint < sequenceAt(0).neck.length; joint += 1) {
-      expect(maxStep((p) => sequenceAt(p).neck[joint]!)).toBeLessThan(limit);
-    }
-  });
-
-  it("breathes fire in exactly two sweeps, each travelling left to right across the phrase", () => {
-    let previous: number | null = null;
-    const sweepsSeen = new Set<number>();
+  it("breathes one hard, sustained jet until the phrase has left the screen through the top", () => {
+    const blazing = firstWhere((p) => sequenceAt(p).fire >= 1);
+    const gone = firstWhere((p) => sequenceAt(p).phrase >= 1);
+    expect(blazing).toBeLessThan(first.start);
+    expect(gone).toBeGreaterThan(second.end);
     for (const p of samples) {
       const state = sequenceAt(p);
-      const inSweep = SWEEPS.some((sweep) => p > sweep.start && p < sweep.end);
-      if (!inSweep) expect(state.fire).toBe(0);
-      if (state.fire > 0.5) sweepsSeen.add(state.sweep);
-      if (state.sweep >= 0 && previous !== null && sequenceAt(p - 1 / 2000).sweep === state.sweep) expect(state.aim).toBeGreaterThanOrEqual(previous - 1e-9);
-      previous = state.sweep >= 0 ? state.aim : null;
+      if (p <= PHASES.breath[0] || p >= PHASES.breath[1]) expect(state.fire).toBe(0);
+      if (p >= blazing && p <= gone) expect(state.fire).toBeGreaterThan(0.8);
+      if (p >= gone) expect(state.phrase).toBe(1);
     }
-    expect([...sweepsSeen]).toEqual([0, 1]);
-    const peak = (sweep: (typeof SWEEPS)[number]) => {
-      const inside = samples.filter((p) => p > sweep.start && p < sweep.end).map((p) => sequenceAt(p));
-      const hot = inside.filter((state) => state.fire > 0.9);
-      return { from: Math.min(...hot.map((s) => s.aim)), to: Math.max(...hot.map((s) => s.aim)) };
-    };
-    for (const sweep of [first, second]) {
-      const { from, to } = peak(sweep);
-      expect(from).toBeLessThan(0.1);
-      expect(to).toBeGreaterThan(0.9);
-    }
+    expect(sequenceAt(gone).fire).toBe(1);
+    expect(sequenceAt(PHASES.breath[1]).fire).toBe(0);
   });
 
-  it("swings the head back to the left between the two sweeps", () => {
+  it("sweeps the jet twice from left to right across the phrase, swinging back between the sweeps", () => {
+    for (const sweep of SWEEPS) {
+      const inside = samples.filter((p) => p > sweep.start && p < sweep.end);
+      for (let i = 1; i < inside.length; i += 1) expect(sequenceAt(inside[i]!).aim).toBeGreaterThanOrEqual(sequenceAt(inside[i - 1]!).aim - 1e-9);
+      expect(Math.min(...inside.map((p) => sequenceAt(p).aim))).toBeLessThan(0.05);
+      expect(Math.max(...inside.map((p) => sequenceAt(p).aim))).toBeGreaterThan(0.95);
+      expect(inside.every((p) => sequenceAt(p).fire > 0.95)).toBe(true);
+    }
+    expect([...new Set(samples.map((p) => sequenceAt(p).sweep))].filter((index) => index >= 0)).toEqual([0, 1]);
     expect(sequenceAt(first.end).aim).toBeCloseTo(1, 5);
     expect(sequenceAt(second.start).aim).toBeCloseTo(0, 5);
-    expect(sequenceAt((first.end + second.start) / 2).fire).toBe(0);
+    expect(sequenceAt((first.end + second.start) / 2).fire).toBeGreaterThan(0.8);
   });
 
   it("cracks the phrase with each sweep, monotonically", () => {
@@ -150,31 +158,65 @@ describe("landing sequence timeline", () => {
     expect(sequenceAt(first.end).rose).toBeGreaterThan(sequenceAt(first.start).rose + 0.6);
   });
 
-  it("grows, raises and shatters the phrase while the fire burns, gone before the end", () => {
-    expect(sequenceAt(first.start).phrase).toBeGreaterThan(0);
-    expect(sequenceAt(second.end).phrase).toBeGreaterThan(sequenceAt(first.end).phrase);
-    expect(PHASES.shatter[0]).toBeGreaterThan(second.start);
-    expect(PHASES.shatter[0]).toBeLessThan(second.end);
-    expect(sequenceAt(PHASES.shatter[1]).shatter).toBe(1);
-    expect(PHASES.shatter[1]).toBeLessThan(1);
+  it("raises the phrase with the dragon, then drives it up faster and faster, never back down", () => {
+    let previous = 0;
+    for (const p of samples) {
+      const { phrase } = sequenceAt(p);
+      expect(phrase).toBeGreaterThanOrEqual(previous - 1e-9);
+      previous = phrase;
+    }
+    expect(sequenceAt(PHASES.stand[1]).phrase).toBeGreaterThan(0.2);
+    const early = sequenceAt(first.end).phrase - sequenceAt(first.start).phrase;
+    const late = sequenceAt(second.end).phrase - sequenceAt(second.start).phrase;
+    expect(late).toBeGreaterThan(early * 1.5);
   });
 
-  it("falls back asleep after the fire, the head sinking before the neck base, then pulls back", () => {
-    expect(PHASES.sleep[0]).toBeGreaterThanOrEqual(second.end);
-    const headDown = samples.find((p) => p > second.end && sequenceAt(p).neck.at(-1)! < 0.9)!;
-    const baseDown = samples.find((p) => p > second.end && sequenceAt(p).neck[0]! < 0.9)!;
+  it("calms down after the fire: wings fold in stages, then it lowers onto all fours and falls asleep", () => {
+    const furled = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).wingSpread < 0.6);
+    const lowering = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).stand < 0.95);
+    const down = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).stand === 0);
+    const asleep = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).eyelid === 0);
+    expect(furled).toBeLessThan(lowering);
+    expect(lowering).toBeLessThan(down);
+    expect(down).toBeLessThanOrEqual(asleep);
+    expect(sequenceAt(PHASES.breath[1] + 0.01).heave).toBeGreaterThan(0.5);
+    const headDown = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).neck.at(-1)! < 0.9);
+    const baseDown = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).neck[0]! < 0.9);
     expect(headDown).toBeLessThan(baseDown);
     const end = sequenceAt(1);
     expect(end.neck.every((joint) => joint === 0)).toBe(true);
+    expect(end.stand).toBe(0);
     expect(end.wingFold).toBe(1);
+    expect(end.wingSpread).toBe(0);
     expect(end.eyelid).toBe(0);
     expect(end.sleep).toBe(1);
     expect(end.smoke).toBe(1);
     expect(end.tail).toBe(1);
     expect(end.fire).toBe(0);
     expect(end.retreat).toBe(1);
-    expect(end.shatter).toBe(1);
+    expect(end.phrase).toBe(1);
     expect(end.launchReady).toBe(true);
+  });
+
+  it("moves every body and camera channel without jumps", () => {
+    const limit = 0.02;
+    const channels: ((p: number) => number)[] = [
+      (p) => sequenceAt(p).dolly,
+      (p) => sequenceAt(p).frame,
+      (p) => sequenceAt(p).retreat,
+      (p) => sequenceAt(p).wake,
+      (p) => sequenceAt(p).stand,
+      (p) => sequenceAt(p).wingFold,
+      (p) => sequenceAt(p).wingSpread,
+      (p) => sequenceAt(p).inhale,
+      (p) => sequenceAt(p).heave,
+      (p) => sequenceAt(p).eyelid,
+      (p) => sequenceAt(p).phrase,
+    ];
+    for (const channel of channels) expect(maxStep(channel)).toBeLessThan(limit);
+    for (let joint = 0; joint < sequenceAt(0).neck.length; joint += 1) {
+      expect(maxStep((p) => sequenceAt(p).neck[joint]!)).toBeLessThan(limit);
+    }
   });
 
   it("clamps out-of-range progress", () => {

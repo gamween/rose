@@ -38,7 +38,9 @@ export const dragonVertex = /* glsl */ `
 attribute vec3 aOffset;
 attribute vec3 aColor;
 attribute vec4 aData;
-uniform mat4 uBones[${BONE_COUNT + 1}];
+attribute vec4 aSkinBones;
+attribute vec4 aSkinWeights;
+uniform mat4 uBones[${BONE_COUNT}];
 uniform float uBreathPhase;
 uniform float uBreathDepth;
 uniform float uSwell;
@@ -51,11 +53,12 @@ varying vec2 vNdc;
 
 void main() {
   vec3 local = position + aOffset;
-  int bone = int(floor(aData.y));
-  float blend = fract(aData.y);
-  mat4 skin = uBones[bone] * (1.0 - blend) + uBones[bone + 1] * blend;
-  float chest = exp(-dot(aOffset - uChest, aOffset - uChest) / 900.0);
-  local += (local - uChest) * ((sin(uBreathPhase) * uBreathDepth + uSwell) * chest) * step(aData.y, 0.5);
+  mat4 skin = uBones[int(aSkinBones.x)] * aSkinWeights.x
+    + uBones[int(aSkinBones.y)] * aSkinWeights.y
+    + uBones[int(aSkinBones.z)] * aSkinWeights.z
+    + uBones[int(aSkinBones.w)] * aSkinWeights.w;
+  float chest = exp(-dot(aOffset - uChest, aOffset - uChest) / 900.0) * aData.y;
+  local += (local - uChest) * ((sin(uBreathPhase) * uBreathDepth + uSwell) * chest);
   vec4 posed = skin * vec4(local, 1.0);
   vec4 world = modelMatrix * posed;
   vWorld = world.xyz;
@@ -133,8 +136,8 @@ vec3 rotateAbout(vec3 v, vec3 axis, float angle) {
 /**
  * The phrase voxels. Each sweep of the fire opens fissures where it has passed (`uCracks`, the
  * fronts of the two sweeps across the phrase, 0 left to 1 right); the fissure voxels sink and the
- * chunks between them drift apart. Then each chunk breaks off in turn, from left to right
- * (`uShatter`): it tumbles about its center, flies out and falls while it shrinks to nothing.
+ * chunks between them drift apart. As the jet drives the phrase up (`uPush`), each cracked chunk
+ * lifts, leans and spreads a little on its own while the words stay whole and legible.
  */
 export const textVertex = /* glsl */ `
 attribute vec3 aOffset;
@@ -143,13 +146,13 @@ attribute vec4 aCrack;
 attribute vec2 aEdge;
 uniform float uWidth;
 uniform vec2 uCracks;
-uniform float uShatter;
+uniform float uPush;
 varying vec3 vLetter;
 varying vec3 vNormal;
 varying vec3 vWorld;
 varying float vAcross;
 varying float vFissure;
-varying float vBreak;
+varying float vPush;
 ${ROTATE}
 
 void main() {
@@ -158,19 +161,18 @@ void main() {
   float fissure = aCrack.x;
   float seed = aCrack.y;
   vec2 center = aCrack.zw;
-  float delay = (center.x / uWidth + 0.5) * 0.55 + seed * 0.3;
-  float broken = clamp((uShatter - delay) / 0.25, 0.0, 1.0);
 
   float heading = seed * 6.2831853;
   vec2 drift = vec2(cos(heading), sin(heading));
-  vec3 axis = normalize(vec3(sin(seed * 17.0), cos(seed * 23.0), 0.6));
-  float spin = broken * (2.0 + 5.0 * seed);
-  float size = (1.0 - smoothstep(0.4, 1.0, broken)) * (1.0 - 0.3 * crack * fissure);
+  float push = uPush * crack * (0.45 + 0.55 * seed);
+  vec3 axis = vec3(0.0, 0.0, 1.0);
+  float lean = (seed - 0.5) * 0.35 * push;
+  float size = 1.0 - 0.3 * crack * fissure;
 
   vec3 voxel = aOffset + vec3(drift * crack * 0.16 * (1.0 - fissure), -0.9 * crack * fissure);
-  vec3 rel = rotateAbout(voxel - vec3(center, 0.0), axis, spin);
-  vec3 fly = vec3(drift.x * 7.0, 2.5 + drift.y * 3.0, 5.0 * (seed - 0.3)) * broken - vec3(0.0, 16.0 * broken * broken, 0.0);
-  vec3 local = vec3(center, 0.0) + rel + fly + rotateAbout(position * size, axis, spin);
+  vec3 rel = rotateAbout(voxel - vec3(center, 0.0), axis, lean);
+  vec3 lift = vec3(drift.x * 0.9, 0.8 + 1.8 * seed, 0.0) * push;
+  vec3 local = vec3(center, 0.0) + rel + lift + rotateAbout(position * size, axis, lean);
 
   // The front face of a voxel on a stroke edge leans 45 degrees toward that edge, a one-voxel
   // chamfer: flat voxel letters then catch a crisp glint along the edges that face a light.
@@ -178,11 +180,11 @@ void main() {
 
   vec4 world = modelMatrix * vec4(local, 1.0);
   vWorld = world.xyz;
-  vNormal = normalize(mat3(modelMatrix) * rotateAbout(bevelled, axis, spin));
+  vNormal = normalize(mat3(modelMatrix) * rotateAbout(bevelled, axis, lean));
   vLetter = aLetter;
   vAcross = across;
   vFissure = fissure * crack;
-  vBreak = broken;
+  vPush = push;
   gl_Position = projectionMatrix * viewMatrix * world;
 }
 `;
@@ -233,9 +235,9 @@ float glints(vec3 n, vec3 v, vec3 worldPos) {
  * The phrase: deep shadow until the first sweep of the fire passes a letter, then lit bone, with a
  * hot flash under the flame (`uSweep` is the flame position across the phrase); "rose" smolders
  * from the start and grows to a blaze, and its light leaves white glints on the edges of the other
- * letters that face it. Fissures glow ember and broken chunks burn out. Alpha is the dither amount
- * read by the final pass: 0 keeps the letters crisp (the dragon writes 0.45 so its flat faces snap
- * to the palette and only its gradients pattern; everything else dithers fully).
+ * letters that face it. Fissures glow ember, and the chunks the jet drives up glow hotter. Alpha is
+ * the dither amount read by the final pass: 0 keeps the letters crisp (the dragon writes 0.45 so its
+ * flat faces snap to the palette and only its gradients pattern; everything else dithers fully).
  */
 export const textFragment = /* glsl */ `
 uniform float uTime;
@@ -248,7 +250,7 @@ varying vec3 vNormal;
 varying vec3 vWorld;
 varying float vAcross;
 varying float vFissure;
-varying float vBreak;
+varying float vPush;
 ${LIGHTING}
 ${GLINTS}
 
@@ -274,13 +276,12 @@ void main() {
     color = mix(smolder * (0.5 + uRose), blaze, smoothstep(0.4, 1.0, uRose));
   } else {
     vec3 view = normalize(cameraPosition - vWorld);
-    color += vec3(1.0, 0.94, 0.84) * glints(n, view, vWorld) * (1.0 - smoothstep(0.0, 0.3, vBreak));
+    color += vec3(1.0, 0.94, 0.84) * glints(n, view, vWorld);
+    color += vec3(0.9, 0.3, 0.06) * vPush * 0.35 * flicker * face;
   }
   color += vec3(2.4, 1.0, 0.3) * heat;
   vec3 fissure = mix(vec3(1.5, 0.2, 0.05), vec3(3.0, 1.1, 0.25), smoothstep(0.6, 1.0, vFissure)) * flicker;
   color = mix(color, fissure, smoothstep(0.0, 0.2, vFissure));
-  vec3 burning = mix(vec3(3.0, 1.1, 0.25), vec3(0.5, 0.06, 0.03), smoothstep(0.2, 0.9, vBreak));
-  color = mix(color, burning * face, smoothstep(0.0, 0.12, vBreak));
   gl_FragColor = vec4(min(color, vec3(32.0)), 0.0);
 }
 `;
