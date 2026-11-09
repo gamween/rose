@@ -20,11 +20,9 @@ async function open(page: Page, query: string): Promise<void> {
 test.describe("guided demo", () => {
   test.skip(!DEMO_BUILD, `NEXT_PUBLIC_ENGINE_ACCOUNT must be ${DEMO_RECORDING.engine} for this suite`);
 
-  test("is reachable from the landing, the testnet banner and the rounds list", async ({ page }) => {
+  test("is reachable from the testnet banner and the rounds list", async ({ page }) => {
     const errors = collectErrors(page);
     await mockDemoEngine(page);
-    await page.goto("/");
-    await expect(page.locator("[data-watch-demo]")).toHaveAttribute("href", "/app/demo");
     await page.goto("/app/rounds");
     await expect(page.locator("[data-testnet-banner] [data-watch-demo]")).toHaveAttribute("href", "/app/demo");
     // The first-visit tour is open over the list; a DOM click follows the link client-side while the

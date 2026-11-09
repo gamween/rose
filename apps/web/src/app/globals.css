@@ -178,8 +178,9 @@ body {
   animation-fill-mode: forwards;
 }
 
-/* Landing "Launch app" button: hidden until the sleeping dragon is hovered, always visible on
-   keyboard focus, on touch screens, with reduced motion and without WebGL. */
+/* Landing "Launch app" button, just under the sleeping dragon: hidden until the dragon is hovered,
+   shown once the sequence ends on touch screens (the top bar keeps its own Launch app button),
+   always visible on keyboard focus, with reduced motion and without WebGL. */
 .launch-app {
   position: absolute;
   z-index: 20;
@@ -194,10 +195,9 @@ body {
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--color-ink-950) 80%, transparent);
   color: var(--color-ember-200);
-  font-family: var(--font-display);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
   box-shadow:
     0 0 0 1px rgb(0 0 0 / 0.6),
     0 0 32px -6px var(--color-ember-500);
@@ -223,11 +223,9 @@ body {
   transform: translateX(3px);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  [data-mode="live"] .launch-app {
-    left: clamp(110px, var(--tail-x, 50%), calc(100% - 110px));
-    top: clamp(80px, calc(var(--tail-y, 80%) + 34px), calc(100% - 64px));
-  }
+[data-mode="live"] .launch-app {
+  left: clamp(90px, var(--launch-x, 50%), calc(100% - 90px));
+  top: clamp(80px, calc(var(--launch-y, 80%) + 20px), calc(100% - 64px));
 }
 
 [data-reveal="true"] .launch-app,
@@ -251,10 +249,8 @@ body {
   display: none;
   transform: translateX(-50%);
   color: var(--color-ember-300);
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: 13px;
   white-space: nowrap;
   pointer-events: none;
 }
@@ -284,7 +280,7 @@ body {
 }
 
 @media (hover: none) {
-  .launch-app {
+  [data-ready="true"] .launch-app {
     opacity: 1;
     pointer-events: auto;
     transform: translate(-50%, 0);

@@ -5,22 +5,32 @@ const ROSE_END = ROSE_START + 4;
 /** Native size of Departure Mono: one design pixel per canvas pixel. */
 const FONT_PX = 11;
 const LINE_ADVANCE = 14;
+/** Voxels per design pixel along each axis, so a crack can run through a one-pixel stroke. */
+export const TEXT_SUBDIVISION = 2;
+/** Size of the chunks the letters break into, in design pixels. */
+const CHUNK_CELL = 3.2;
+/** Width of the fissures between chunks, in design pixels. */
+const FISSURE_WIDTH = 0.6;
 
 export type VoxelText = {
   count: number;
-  /** xy per voxel in voxel units, centered on the phrase, y up. */
+  /** xyz per voxel in design pixels, centered on the phrase, y up. */
   offsets: Float32Array;
   /** Per voxel: letter order in reading order (0..1), is part of "rose", random seed. */
   letters: Float32Array;
+  /** Per voxel: on a fissure (0 or 1), chunk seed (0..1), chunk center xy (design pixels). */
+  cracks: Float32Array;
+  /** Bounds of the phrase in design pixels. */
   width: number;
   height: number;
-  /** Center of each letter in the same space, in reading order, for aiming the fire. */
+  /** Center of each letter in the same space, in reading order. */
   letterCenters: { order: number; x: number; y: number }[];
 };
 
 /**
- * Rasterizes the phrase with the pixel display face and turns each lit pixel into a voxel.
- * `lines` splits the phrase in two on narrow screens.
+ * Rasterizes the phrase with the pixel display face and turns each lit pixel into
+ * `TEXT_SUBDIVISION`² voxels, grouped into Voronoi chunks whose borders are the fissures that
+ * glow when the fire cracks the letters. `lines` splits the phrase in two on narrow screens.
  */
 export function buildVoxelText(fontFamily: string, lines: 1 | 2): VoxelText {
   const rows = lines === 1 ? [PHRASE] : [PHRASE.slice(0, ROSE_START - 1), PHRASE.slice(ROSE_START)];
@@ -75,8 +85,14 @@ export function buildVoxelText(fontFamily: string, lines: 1 | 2): VoxelText {
       if ((pixels[p + 3] ?? 0) < 128) continue;
       const glyph = glyphOrder.get(pixels[p] ?? 0) ?? nearestGlyph(pixels[p] ?? 0, glyphOrder);
       if (!glyph) continue;
-      offsets.push(x, -y);
-      letters.push(glyph.order, glyph.rose ? 1 : 0, fract(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453));
+      for (let sy = 0; sy < TEXT_SUBDIVISION; sy += 1) {
+        for (let sx = 0; sx < TEXT_SUBDIVISION; sx += 1) {
+          const vx = x + (sx + 0.5) / TEXT_SUBDIVISION - 0.5;
+          const vy = -(y + (sy + 0.5) / TEXT_SUBDIVISION - 0.5);
+          offsets.push(vx, vy);
+          letters.push(glyph.order, glyph.rose ? 1 : 0, hash(vx, vy));
+        }
+      }
       minX = Math.min(minX, x);
       maxX = Math.max(maxX, x);
       minY = Math.min(minY, -y);
@@ -95,10 +111,59 @@ export function buildVoxelText(fontFamily: string, lines: 1 | 2): VoxelText {
     count,
     offsets: positions,
     letters: Float32Array.from(letters),
+    cracks: crackPattern(positions, count),
     width: maxX - minX + 1,
     height: maxY - minY + 1,
     letterCenters: centers.map(({ order, x, y }) => ({ order, x: x - cx, y: -y - cy })),
   };
+}
+
+/**
+ * Voronoi chunks over the phrase: one jittered seed per `CHUNK_CELL` square, each voxel belongs
+ * to its nearest seed, and voxels almost as close to a second seed sit on a fissure.
+ */
+function crackPattern(positions: Float32Array, count: number): Float32Array {
+  const cracks = new Float32Array(count * 4);
+  const seedOf = (i: number, j: number): [number, number] => [(i + 0.15 + 0.7 * hash(i, j)) * CHUNK_CELL, (j + 0.15 + 0.7 * hash(j + 31.7, i - 11.3)) * CHUNK_CELL];
+  const chunkOf = new Int32Array(count);
+  const sums = new Map<number, { x: number; y: number; n: number }>();
+  for (let v = 0; v < count; v += 1) {
+    const x = positions[v * 3]!;
+    const y = positions[v * 3 + 1]!;
+    const ci = Math.floor(x / CHUNK_CELL);
+    const cj = Math.floor(y / CHUNK_CELL);
+    let nearest = Infinity;
+    let second = Infinity;
+    let chunk = 0;
+    for (let i = ci - 1; i <= ci + 1; i += 1) {
+      for (let j = cj - 1; j <= cj + 1; j += 1) {
+        const [sx, sy] = seedOf(i, j);
+        const distance = Math.hypot(x - sx, y - sy);
+        if (distance < nearest) {
+          second = nearest;
+          nearest = distance;
+          chunk = (i + 4096) * 8192 + (j + 4096);
+        } else if (distance < second) {
+          second = distance;
+        }
+      }
+    }
+    chunkOf[v] = chunk;
+    cracks[v * 4] = second - nearest < FISSURE_WIDTH ? 1 : 0;
+    const sum = sums.get(chunk) ?? { x: 0, y: 0, n: 0 };
+    sum.x += x;
+    sum.y += y;
+    sum.n += 1;
+    sums.set(chunk, sum);
+  }
+  for (let v = 0; v < count; v += 1) {
+    const chunk = chunkOf[v]!;
+    const sum = sums.get(chunk)!;
+    cracks[v * 4 + 1] = hash(chunk * 0.013, chunk * 0.007);
+    cracks[v * 4 + 2] = sum.x / sum.n;
+    cracks[v * 4 + 3] = sum.y / sum.n;
+  }
+  return cracks;
 }
 
 function nearestGlyph(red: number, glyphs: Map<number, { order: number; rose: boolean }>) {
@@ -115,6 +180,7 @@ function nearestGlyph(red: number, glyphs: Map<number, { order: number; rose: bo
   return best;
 }
 
-function fract(value: number): number {
+function hash(x: number, y: number): number {
+  const value = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
   return value - Math.floor(value);
 }

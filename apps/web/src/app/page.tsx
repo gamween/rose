@@ -1,10 +1,6 @@
-import { Footer } from "@/components/chrome/Footer";
 import { TopNav } from "@/components/chrome/TopNav";
-import { HowItWorks } from "@/components/landing/HowItWorks";
 import { LandingSequence } from "@/components/landing/LandingSequence";
-import { ProtocolStats } from "@/components/landing/ProtocolStats";
 import { ButtonLink } from "@/components/ui/Button";
-import { demoAvailable } from "@/lib/demo/registry";
 import { ROUTES } from "@/lib/routes";
 
 export default function LandingPage() {
@@ -13,10 +9,7 @@ export default function LandingPage() {
       <TopNav overlay action={<ButtonLink href={ROUTES.app} size="sm">Launch app</ButtonLink>} />
       <main>
         <LandingSequence />
-        <HowItWorks demo={demoAvailable()} />
-        <ProtocolStats />
       </main>
-      <Footer />
     </>
   );
 }

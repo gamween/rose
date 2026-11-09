@@ -42,12 +42,11 @@ test.describe("live smoke", () => {
     }
   });
 
-  test("landing: the phrase, the launch button and live protocol stats", async ({ page }) => {
+  test("landing: the phrase and the launch button", async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto("/");
     await expect(page).toHaveTitle(/rose/);
     await expect(page.locator("[data-launch]").first()).toHaveAttribute("href", "/app");
-    await expect(page.getByRole("link", { name: "Status" }).last()).toHaveAttribute("href", "/status");
     expect(errors).toEqual([]);
   });
 

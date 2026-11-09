@@ -90,11 +90,11 @@ export function LandingSequence() {
             saveData: Boolean((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData),
           }),
           onStats: wantsFps ? setStats : undefined,
-          onFrame: ({ tail, launchReady: ready }) => {
+          onFrame: ({ launch, launchReady: ready }) => {
             launchReady = ready;
             stage.dataset.ready = ready ? "true" : "false";
-            stage.style.setProperty("--tail-x", `${tail.x.toFixed(1)}px`);
-            stage.style.setProperty("--tail-y", `${tail.y.toFixed(1)}px`);
+            stage.style.setProperty("--launch-x", `${launch.x.toFixed(1)}px`);
+            stage.style.setProperty("--launch-y", `${launch.y.toFixed(1)}px`);
           },
           onContextLost: () => setMode("fallback"),
         });
@@ -172,7 +172,7 @@ export function LandingSequence() {
   const phraseVisible = mode !== "live";
 
   return (
-    <section ref={sectionRef} aria-labelledby="landing-phrase" className="relative h-[400vh] motion-reduce:h-svh" data-landing>
+    <section ref={sectionRef} aria-labelledby="landing-phrase" className="relative h-[500vh] motion-reduce:h-svh" data-landing>
       <div
         ref={stageRef}
         data-mode={mode}
@@ -188,7 +188,7 @@ export function LandingSequence() {
           id="landing-phrase"
           className={
             phraseVisible
-              ? `landing-phrase pointer-events-none absolute inset-x-4 text-center font-display leading-none tracking-tight ${mode === "static" ? "top-[20%] text-ink-100" : "top-1/2 -translate-y-1/2 text-ink-800"} text-[clamp(28px,6vw,72px)]`
+              ? `landing-phrase pointer-events-none absolute inset-x-4 text-center font-display leading-none tracking-tight ${mode === "static" ? "top-[20%] text-ink-100" : "top-[42%] -translate-y-1/2 text-ink-800"} text-[clamp(28px,6vw,72px)]`
               : "sr-only"
           }
         >
@@ -198,7 +198,7 @@ export function LandingSequence() {
         {mode === "live" ? (
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-8 flex flex-col items-center gap-2 font-display text-[11px] uppercase tracking-[0.2em] text-ink-400"
+            className="pointer-events-none absolute inset-x-0 bottom-8 flex flex-col items-center gap-2 font-sans text-[13px] text-ink-400"
             style={{ opacity: "calc(1 - var(--progress, 0) * 25)" }}
           >
             Scroll

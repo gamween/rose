@@ -59,8 +59,6 @@ export type DragonAnchors = {
   mouth: Vec3;
   /** Nostrils, where smoke rises from (head bone space). */
   nostrils: readonly Vec3[];
-  /** Near-side eye center (head bone space). */
-  eye: Vec3;
   chest: Vec3;
   tailTip: Vec3;
   /** Points along the torso for hover hit regions, with their radius. */
@@ -139,7 +137,6 @@ const TAIL_TIP: Vec3 = [-18, 10, 42];
 
 const SKULL: Vec3 = [-52, 40, 48];
 const MOUTH: Vec3 = [-31, 35.5, 48];
-const EYE: Vec3 = [-51, 41.5, 54];
 const NOSTRILS: readonly Vec3[] = [
   [-32, 41, 47],
   [-32, 41, 49],
@@ -415,7 +412,6 @@ function collect(grid: VoxelGrid): DragonModel {
       head: SKULL,
       mouth: MOUTH,
       nostrils: NOSTRILS,
-      eye: EYE,
       chest: pointOnCurve(TORSO, 0.3),
       tailTip: TAIL_TIP,
       body,

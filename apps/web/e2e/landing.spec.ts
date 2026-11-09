@@ -28,21 +28,16 @@ test.describe("landing", () => {
     await page.waitForURL("**/app");
   });
 
-  test("shows the How rose works strip, the protocol block and the footer", async ({ page }) => {
+  test("ends with the sequence, the top bar and its Launch app button staying on screen", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "How rose works" })).toBeVisible();
-    for (const name of ["Tender", "Exit", "Advance"]) {
-      await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-    }
-    await expect(page.getByText(/Protocol not deployed yet|Settled volume/).first()).toBeVisible();
-    const footer = page.getByRole("navigation", { name: "Footer" });
-    for (const name of ["Docs", "Contracts", "Status"]) {
-      await expect(footer.getByRole("link", { name })).toBeVisible();
-    }
-    // GitHub answers 404 while the repository is private: the link appears once NEXT_PUBLIC_REPOSITORY_URL is set.
-    const repository = process.env.NEXT_PUBLIC_REPOSITORY_URL?.trim();
-    if (repository) await expect(footer.getByRole("link", { name: "GitHub" })).toHaveAttribute("href", repository);
-    else await expect(footer.getByRole("link", { name: "GitHub" })).toHaveCount(0);
+    await expect(page.locator("[data-mode]")).not.toHaveAttribute("data-mode", "poster");
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const sectionBottom = await page.locator("[data-landing]").evaluate((element) => element.getBoundingClientRect().bottom);
+    expect(Math.abs(sectionBottom - page.viewportSize()!.height)).toBeLessThanOrEqual(1);
+    await expect(page.getByRole("contentinfo")).toHaveCount(0);
+    const topBar = page.getByRole("banner");
+    await expect(topBar.getByRole("link", { name: "rose home" })).toBeInViewport();
+    await expect(topBar.getByRole("link", { name: "Launch app" })).toBeInViewport();
   });
 
   test("scrolls through the sequence without console errors", async ({ page }) => {

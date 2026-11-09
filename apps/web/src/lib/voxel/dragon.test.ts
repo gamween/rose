@@ -56,8 +56,8 @@ describe("procedural voxel dragon", () => {
     expect(wing).toBeGreaterThan(500);
   });
 
-  it("places the mouth in front of the eye and the tail tip in the foreground", () => {
-    expect(model.anchors.mouth[0]).toBeGreaterThan(model.anchors.eye[0]);
+  it("places the mouth in front of the skull and the tail tip in the foreground", () => {
+    expect(model.anchors.mouth[0]).toBeGreaterThan(model.anchors.head[0]);
     expect(model.anchors.tailTip[2]).toBeGreaterThan(model.anchors.chest[2] + 60);
   });
 });
