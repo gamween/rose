@@ -1,17 +1,20 @@
-import { JOINTS } from "@/lib/voxel/dragon";
-
 /**
  * Scroll timeline of the landing sequence (spec 8.2). `sequenceAt(progress)` maps the progress of
  * the pinned section (0 at the top, 1 at the end, already smoothed by a spring) to every animated
  * quantity, so the scene stays a pure function of progress plus a time-based idle layer.
  *
- * The story: the dragon sleeps, small, under the phrase; the camera closes in until it fills its
- * final size; it wakes slowly (eyes, breath, the neck rising in an arc), rears up on its hind legs
- * while its wings unfold in two beats into a full spread, draws a breath and breathes one long,
- * hard jet of fire upward, sweeping twice from left to right across the phrase, which cracks and
- * rises until it has left the screen through the top. Then the fire stops, the dragon calms down,
- * folds its wings in stages, lowers itself onto all fours, curls up and falls back asleep, and the
- * camera pulls back until it is small in the dark again.
+ * The story: the dragon sleeps, small, curled into a ball under the phrase; the camera closes in
+ * until it fills its final size; it wakes slowly (eyes, breath, the neck uncurling and rising),
+ * rears up on its hind legs while its wings unfold in two beats into a full spread, coils back
+ * drawing its breath and drives one long, hard jet of fire upward with its whole body, sweeping
+ * twice from left to right across the phrase, which cracks and rises until it has left the screen
+ * through the top. Then the fire stops, the dragon calms down, folds its wings in stages, lowers
+ * itself onto all fours, curls back into its ball and falls asleep, and the camera pulls back
+ * until it is small in the dark again.
+ *
+ * The body channels (`bodyAt`) are sampled by the scene a little later for each bone further from
+ * the hips, so every move travels along the spine as a wave, from the hips up the neck to the head
+ * and down the tail, and overshoots settle bone after bone.
  */
 
 export function clamp01(value: number): number {
@@ -70,28 +73,28 @@ export const PHASES = {
   dolly: [0.02, 0.2],
   /** Overall wake (light, breath, smoke); the body parts follow their own staged keys. */
   wake: [0.17, 0.32],
-  /** The neck rises joint by joint, from the first joint of its base starting to its last one done. */
+  /** The dragon uncurls and raises its neck, still lying. */
   rise: [0.19, 0.3],
   /** The dragon rears up onto its hind legs, the camera easing back to keep it whole. */
-  stand: [0.28, 0.415],
+  stand: [0.26, 0.385],
   /** The held breath before the fire. */
   inhale: [0.395, 0.488],
   /** The one sustained breath of fire, from its first flame to its last. */
   breath: [0.46, 0.72],
   /** The phrase rises with the dragon, then the fire pushes it up and out through the top. */
-  phrase: [0.22, 0.69],
+  phrase: [0.2, 0.69],
   /** The dragon lowers itself back onto all fours. */
   lower: [0.785, 0.875],
   sleep: [0.82, 0.92],
-  /** The neck sinks joint by joint, the head first and the base last. */
-  sink: [0.795, 0.91],
+  /** The neck lowers and the dragon curls back into its ball. */
+  curl: [0.795, 0.905],
   smoke: [0.82, 0.95],
-  retreat: [0.865, 0.985],
+  retreat: [0.88, 0.985],
   launchReady: 0.97,
 } as const;
 
-/** Delay (in progress) between the first and the last neck joint to move as the neck rises or sinks. */
-const NECK_STAGGER = 0.06;
+/** Delay (in progress) of each bone of the spine behind the previous one, counting from the hips. */
+export const SPINE_LAG = 0.0045;
 
 const EYELID: readonly Key[] = [
   [0.17, 0],
@@ -104,21 +107,46 @@ const EYELID: readonly Key[] = [
   [0.93, 0, EASE.inOutSine],
 ];
 
+const RISE: readonly Key[] = [
+  [PHASES.rise[0], 0],
+  [PHASES.rise[1], 1, EASE.inOutQuint],
+  [PHASES.curl[0], 1],
+  [PHASES.curl[1], 0, EASE.inOutQuint],
+];
+
+/** Rearing up, past the full height and settling back (the follow-through travels up the neck). */
 const STAND: readonly Key[] = [
   [PHASES.stand[0], 0],
-  [PHASES.stand[1], 1, EASE.inOutQuint],
+  [PHASES.stand[1], 1.05, EASE.inOutQuint],
+  [0.415, 1, EASE.inOutSine],
   [PHASES.lower[0], 1],
   [PHASES.lower[1], 0, EASE.inOutQuint],
 ];
 
+/** Drawing the breath: the body coils back, chest out, neck drawn into an S, head up. */
+const COIL: readonly Key[] = [
+  [0.395, 0],
+  [0.44, 1, EASE.inOutSine],
+  [0.45, 1, EASE.linear],
+  [0.49, 0, EASE.inOutSine],
+];
+
+/** The fire comes out: the whole body recoils forward into the jet, shoulders, neck and head driving it, and holds there. */
+const THRUST: readonly Key[] = [
+  [0.445, 0],
+  [0.49, 1.1, EASE.inOutSine],
+  [0.51, 1, EASE.inOutSine],
+  [0.69, 1],
+  [0.745, 0, EASE.inOutSine],
+];
+
 /**
- * The camera eases from the close-up on the lying dragon to the frame that holds it whole once
- * standing, wings spread, slightly ahead of the body so the head and wings never leave the frame;
- * it stays there while the dragon lies back down, then pulls back from there.
+ * As the dragon uncurls, the camera eases from the close-up on the sleeping ball to the frame that
+ * holds it whole standing, wings spread, and lying back down; it pulls back from there.
  */
 const FRAME: readonly Key[] = [
-  [0.25, 0],
-  [0.4, 1, EASE.inOutQuint],
+  [0.2, 0],
+  [0.36, 1, EASE.inOutQuint],
 ];
 
 /**
@@ -181,7 +209,7 @@ const BREATH: readonly Key[] = [
  */
 const PHRASE: readonly Key[] = [
   [PHASES.phrase[0], 0],
-  [0.39, 0.3, EASE.inOutSine],
+  [0.37, 0.3, EASE.inOutSine],
   [0.475, 0.34, EASE.linear],
   [PHASES.phrase[1], 1, EASE.inQuad],
 ];
@@ -201,7 +229,24 @@ const HEAVE: readonly Key[] = [
   [0.85, 0, EASE.inOutSine],
 ];
 
-export type SequenceState = {
+/** The channels of the body, sampled per bone with a lag (see `SPINE_LAG`). */
+export type BodyState = {
+  /** 0 curled asleep, 1 uncurled with the neck raised. */
+  rise: number;
+  /** 0 lying, 1 rearing on the hind legs (slightly above 1 at the overshoot). */
+  stand: number;
+  /** The coil back before the breath. */
+  coil: number;
+  /** The push forward into the jet. */
+  thrust: number;
+};
+
+export function bodyAt(rawProgress: number): BodyState {
+  const progress = clamp01(rawProgress);
+  return { rise: keyframes(RISE, progress), stand: keyframes(STAND, progress), coil: keyframes(COIL, progress), thrust: keyframes(THRUST, progress) };
+}
+
+export type SequenceState = BodyState & {
   /** Camera move from the opening frame (0) to the dragon at full size (1). */
   dolly: number;
   /** Camera move from the full size (0) to the frame of the standing dragon (1). */
@@ -212,10 +257,6 @@ export type SequenceState = {
   wake: number;
   /** Overall return to sleep. */
   sleep: number;
-  /** Per neck joint, from the base: 0 lying down, 1 raised. */
-  neck: readonly number[];
-  /** 0 lying on all fours, 1 rearing on the hind legs. */
-  stand: number;
   /** Wings, 0 raised to 1 folded on the flanks (slightly below 0 at the overshoot). */
   wingFold: number;
   /** Wing membranes, 0 furled to 1 spread (slightly above 1 at the overshoot). */
@@ -262,20 +303,6 @@ function sweepAim(t: number): number {
   return 0.5 - 0.5 * Math.cos(Math.PI * u);
 }
 
-/** Raised share of each neck joint: the base leads on the way up, the head leads on the way down. */
-function neckAt(progress: number): number[] {
-  const last = JOINTS.length - 1;
-  const [riseStart, riseEnd] = PHASES.rise;
-  const [sinkStart, sinkEnd] = PHASES.sink;
-  return JOINTS.map((_, i) => {
-    const up = riseStart + (NECK_STAGGER * i) / last;
-    const down = sinkStart + (NECK_STAGGER * (last - i)) / last;
-    const raised = EASE.inOutQuint(clamp01((progress - up) / (riseEnd - riseStart - NECK_STAGGER)));
-    const lowered = EASE.inOutQuint(clamp01((progress - down) / (sinkEnd - sinkStart - NECK_STAGGER)));
-    return raised * (1 - lowered);
-  });
-}
-
 export function sequenceAt(rawProgress: number): SequenceState {
   const progress = clamp01(rawProgress);
   const [first, second] = [SWEEPS[0]!, SWEEPS[1]!];
@@ -301,8 +328,7 @@ export function sequenceAt(rawProgress: number): SequenceState {
     retreat: EASE.inOutQuint(clamp01((progress - PHASES.retreat[0]) / (PHASES.retreat[1] - PHASES.retreat[0]))),
     wake,
     sleep,
-    neck: neckAt(progress),
-    stand: keyframes(STAND, progress),
+    ...bodyAt(progress),
     wingFold: keyframes(WING_FOLD, progress),
     wingSpread: keyframes(WING_SPREAD, progress),
     inhale: keyframes(INHALE, progress),

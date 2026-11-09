@@ -107,7 +107,8 @@ void main() {
   } else if (kind < 1.5) {
     float open = smoothstep(local * 0.45, local * 0.45 + 0.55, uEyelid);
     emissive = vec3(1.0, 0.62, 0.18) * (1.2 * uEyes * open) * (0.92 + 0.08 * flicker);
-    lit *= mix(0.6, 1.0, open);
+    // A closed lid is dark scale over the eye, so the sleeping face reads with its eyes shut.
+    lit = mix(vec3(0.05, 0.012, 0.014) * shade(vWorld, n), lit, open);
   } else if (kind < 2.5) {
     emissive = vec3(1.0, 0.3, 0.06) * (uFire * 0.35 * (1.0 - local) + uSmoke * 0.06 * flicker);
   } else if (kind < 3.5) {

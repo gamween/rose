@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BODY_BONE, BONE_COUNT, HEAD_BONE, JAW_BONE, KIND, ROOT_BONE, WINGS, buildDragon, buildDragonInSteps } from "./dragon";
+import { BONE_COUNT, CHEST_BONE, FRONT_LEGS, HEAD_BONE, HIND_LEGS, JAW_BONE, KIND, PELVIS_BONE, SPINE, WINGS, buildDragon, buildDragonInSteps } from "./dragon";
 
 describe("procedural voxel dragon", () => {
   const model = buildDragon();
@@ -13,6 +13,19 @@ describe("procedural voxel dragon", () => {
     let count = 0;
     for (let i = 0; i < model.count; i += 1) if (model.skinBones[i * 4] === bone && model.skinWeights[i * 4]! > 0.5) count += 1;
     return count;
+  };
+  /** Extent of the voxels following `bone`, along each axis. */
+  const extent = (bone: number) => {
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < model.count; i += 1) {
+      if (model.skinBones[i * 4] !== bone || model.skinWeights[i * 4]! < 0.5) continue;
+      for (let k = 0; k < 3; k += 1) {
+        min[k] = Math.min(min[k]!, model.positions[i * 3 + k]!);
+        max[k] = Math.max(max[k]!, model.positions[i * 3 + k]!);
+      }
+    }
+    return max.map((value, k) => value - min[k]!);
   };
 
   it("builds the same model in steps, pausing between them", async () => {
@@ -31,8 +44,8 @@ describe("procedural voxel dragon", () => {
 
   it("is deterministic and sized for instanced rendering", () => {
     expect(buildDragon().positions).toEqual(model.positions);
-    expect(model.count).toBeGreaterThan(6000);
-    expect(model.count).toBeLessThan(30000);
+    expect(model.count).toBeGreaterThan(20000);
+    expect(model.count).toBeLessThan(50000);
     expect(model.positions).toHaveLength(model.count * 3);
     expect(model.colors).toHaveLength(model.count * 3);
     expect(model.data).toHaveLength(model.count * 4);
@@ -43,7 +56,7 @@ describe("procedural voxel dragon", () => {
   it("has slit eyes, a mouth, nostrils, a tail tip and wing membranes", () => {
     expect(kinds.get(KIND.eye)).toBeGreaterThanOrEqual(6);
     expect(kinds.get(KIND.mouth)).toBeGreaterThan(0);
-    expect(kinds.get(KIND.nostril)).toBe(2);
+    expect(kinds.get(KIND.nostril)).toBeGreaterThanOrEqual(2);
     expect(kinds.get(KIND.tail)).toBeGreaterThan(0);
     expect(kinds.get(KIND.membrane)).toBeGreaterThan(2000);
   });
@@ -62,23 +75,38 @@ describe("procedural voxel dragon", () => {
     }
   });
 
-  it("gives the head, jaw, torso, ground and both wings their own voxels", () => {
-    expect(ledBy(HEAD_BONE)).toBeGreaterThan(400);
+  it("gives every bone of the spine, the legs and the wings its own voxels", () => {
+    for (const spine of SPINE) expect(ledBy(spine.bone)).toBeGreaterThan(100);
     expect(ledBy(JAW_BONE)).toBeGreaterThan(40);
-    expect(ledBy(BODY_BONE)).toBeGreaterThan(1500);
-    expect(ledBy(ROOT_BONE)).toBeGreaterThan(400);
+    for (const leg of [...FRONT_LEGS, ...HIND_LEGS]) for (const bone of leg.bones) expect(ledBy(bone)).toBeGreaterThan(30);
     for (const wing of WINGS) {
       const wingVoxels = [wing.arm, wing.forearm, ...wing.fingers].reduce((sum, bone) => sum + ledBy(bone), 0);
       expect(wingVoxels).toBeGreaterThan(1000);
     }
   });
 
+  it("has a heavy body: a deep torso, a thick neck tapering to the head and strong thighs", () => {
+    const torso = Math.min(...extent(CHEST_BONE));
+    expect(torso).toBeGreaterThan(30);
+    const neckBase = SPINE.find((spine) => spine.parent === CHEST_BONE)!.bone;
+    const neckTop = SPINE.find((spine) => spine.bone === HEAD_BONE)!.parent;
+    const [, baseHeight] = extent(neckBase) as [number, number, number];
+    const [, topHeight] = extent(neckTop) as [number, number, number];
+    expect(baseHeight).toBeGreaterThan(topHeight);
+    expect(baseHeight).toBeGreaterThan(20);
+    for (const leg of HIND_LEGS) expect(Math.max(...extent(leg.bones[0]!))).toBeGreaterThan(20);
+    expect(ledBy(PELVIS_BONE) + ledBy(CHEST_BONE)).toBeGreaterThan(5000);
+  });
+
   it("marks how much each voxel follows the torso, so only the chest swells with the breath", () => {
+    let torso = 0;
     for (let i = 0; i < model.count; i += 1) {
-      const torso = model.data[i * 4 + 1]!;
-      expect(torso).toBeGreaterThanOrEqual(0);
-      expect(torso).toBeLessThanOrEqual(1);
+      const weight = model.data[i * 4 + 1]!;
+      expect(weight).toBeGreaterThanOrEqual(0);
+      expect(weight).toBeLessThanOrEqual(1);
+      torso += weight;
     }
+    expect(torso).toBeGreaterThan(5000);
   });
 
   it("models the wings spread, one on each flank, and places the mouth ahead of the skull", () => {
@@ -89,6 +117,11 @@ describe("procedural voxel dragon", () => {
     expect(far!.tips[0]![2]).toBeLessThan(far!.shoulder[2] - 20);
     for (const wing of WINGS) expect(wing.tips[0]![1]).toBeGreaterThan(wing.shoulder[1] + 40);
     expect(model.anchors.mouth[0]).toBeGreaterThan(model.anchors.head[0]);
-    expect(model.anchors.tailTip[2]).toBeGreaterThan(model.anchors.chest[2] + 60);
+  });
+
+  it("is authored curled into a ball: the tail wraps around to the snout, the head lies in front of the body", () => {
+    const tip = model.anchors.tailTip;
+    expect(Math.hypot(tip[0] - model.anchors.mouth[0], tip[2] - model.anchors.mouth[2])).toBeLessThan(25);
+    expect(model.anchors.head[2]).toBeGreaterThan(model.anchors.chest[2] + 15);
   });
 });

@@ -11,13 +11,13 @@ import {
   Vector4,
   WebGLRenderer,
 } from "three";
-import { BODY_BONE, HEAD_BONE, JOINTS, ROOT_BONE, WINGS, buildDragonInSteps, type DragonModel } from "@/lib/voxel/dragon";
+import { HEAD_BONE, buildDragonInSteps, type DragonModel } from "@/lib/voxel/dragon";
 import { PHASES, sequenceAt, lerp, clamp01, smoothstep, type SequenceState } from "@/lib/landing/timeline";
 import { QUALITY_TIERS, createQualityState, sampleFrame, type QualityState, type QualityTier } from "@/lib/landing/quality";
 import { stepSpring, type Spring } from "@/lib/landing/spring";
 import { ParticlePool, instancedBox } from "./particles";
 import { DitherPipeline } from "./post";
-import { DragonRig, type Pose } from "./rig";
+import { DragonRig, bodyPose, type Pose } from "./rig";
 import {
   dragonFragment,
   dragonVertex,
@@ -92,15 +92,18 @@ const PARTICLE_UNIT_DISTANCE = 200;
  */
 type Shot = { share: number; x: number; y: number; elevation: number };
 
-/** A screen box (normalized device coordinates) the standing dragon must fit in, and the camera elevation. */
+/** A screen box (normalized device coordinates) the dragon must fit in, and the camera elevation. */
 type Fit = { left: number; right: number; bottom: number; top: number; elevation: number };
 
 /** Composition per orientation. */
 type Layout = {
   /** The opening frame: the dragon asleep, small, under the phrase. */
   open: Shot;
-  /** The dragon at its full size, the largest it ever appears: the camera closes in to it as it wakes. */
-  full: Shot;
+  /**
+   * The dragon at its full size, the largest it ever appears: the camera closes in to it asleep
+   * and is there as it wakes, whole in this box, under the phrase.
+   */
+  full: Fit;
   /**
    * Where the standing dragon, wings spread, fits whole: the camera eases there as it rears, so
    * it breathes fire never cropped, under the phrase it drives off the top of the screen.
@@ -121,7 +124,7 @@ type Layout = {
 
 const LANDSCAPE: Layout = {
   open: { share: 0.16, x: 0, y: -0.3, elevation: 0.16 },
-  full: { share: 0.46, x: 0.04, y: -0.46, elevation: 0.12 },
+  full: { left: -0.6, right: 0.6, bottom: -0.86, top: 0, elevation: 0.12 },
   stand: { left: -0.84, right: 0.84, bottom: -0.95, top: 0.34, elevation: 0.04 },
   far: { share: 0.14, x: 0, y: -0.14, elevation: 0.2 },
   textShare: 0.54,
@@ -133,7 +136,7 @@ const LANDSCAPE: Layout = {
 
 const PORTRAIT: Layout = {
   open: { share: 0.3, x: 0, y: -0.3, elevation: 0.16 },
-  full: { share: 0.8, x: -0.04, y: -0.5, elevation: 0.12 },
+  full: { left: -0.9, right: 0.9, bottom: -0.86, top: -0.05, elevation: 0.12 },
   stand: { left: -0.92, right: 0.92, bottom: -0.92, top: 0.3, elevation: 0.04 },
   far: { share: 0.28, x: 0, y: -0.12, elevation: 0.2 },
   textShare: 0.8,
@@ -187,10 +190,27 @@ function nextTask(): Promise<void> {
 
 type Bounds = { min: Vector3; max: Vector3 };
 
-/** Pose of the rig at a point of the sequence, the head aiming at `aim` as far as the sequence turns it. */
+function emptyPose(): Pose {
+  return { time: 0, rise: [], stand: [], coil: [], thrust: [], awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1, wingSpread: 0 };
+}
+
+/** Fills `pose` for a point of the sequence (the body channels travelling along the spine), the head aiming at `aim` as far as the sequence turns it. */
+function fillPose(pose: Pose, progress: number, state: SequenceState, aim: Vector3): Pose {
+  bodyPose(pose, progress);
+  pose.awake = state.wake * (1 - state.sleep);
+  pose.fire = state.fire;
+  pose.heave = state.heave;
+  pose.aim.copy(aim);
+  pose.aimWeight = Math.max(state.focus, Math.min(1, state.stand));
+  pose.jaw = Math.min(1, state.fire * 1.4);
+  pose.wingFold = state.wingFold;
+  pose.wingSpread = state.wingSpread;
+  return pose;
+}
+
+/** Pose of the rig at a point of the sequence, still in time, the head aiming at `aim` as far as the sequence turns it. */
 function poseAt(rig: DragonRig, progress: number, aim: Vector3): void {
-  const state = sequenceAt(progress);
-  rig.update({ neck: state.neck, time: 0, stand: state.stand, yaw: 0, aim, aimWeight: Math.max(state.focus, state.stand), jaw: 0, wingFold: state.wingFold, wingSpread: state.wingSpread });
+  rig.update(fillPose(emptyPose(), progress, sequenceAt(progress), aim));
 }
 
 /** Bounds of the dragon asleep: the width the shots frame and the point they center. */
@@ -203,32 +223,43 @@ function sleepingFrame(model: DragonModel, rig: DragonRig): { width: number; foc
 }
 
 /**
- * Bounds of the dragon over the whole time the camera holds the standing frame: rising, wings
- * spreading (overshoot included), its head turned anywhere between its resting gaze and the far
- * ends of the phrase, then lying back down until the camera pulls back.
+ * Bounds of the dragon over the parts of the sequence in `ranges` (sampled every 0.015 of
+ * progress), its head turned anywhere between its resting gaze and the far ends of the phrase.
+ * It yields to the browser every few samples, so no single task blocks input.
  */
-function standingBounds(model: DragonModel, rig: DragonRig): Bounds {
+async function posedBounds(model: DragonModel, rig: DragonRig, ranges: readonly (readonly [number, number])[]): Promise<Bounds> {
   const total: Bounds = { min: new Vector3(Infinity, Infinity, Infinity), max: new Vector3(-Infinity, -Infinity, -Infinity) };
   const min = new Vector3();
   const max = new Vector3();
   const aim = new Vector3();
   const head = new Vector3();
-  for (let progress = PHASES.stand[0] + 0.04; progress <= PHASES.retreat[0]; progress += 0.025) {
-    for (const [dx, dy] of [
-      [0, 0],
-      [-200, 200],
-      [200, 200],
-    ] as const) {
-      poseAt(rig, progress, rig.gaze(aim));
-      rig.transform(model.anchors.head, HEAD_BONE, head);
-      poseAt(rig, progress, aim.set(head.x + dx, head.y + dy, head.z));
-      rig.bounds(model, min, max);
-      total.min.min(min);
-      total.max.max(max);
+  for (const [from, to] of ranges) {
+    for (let progress = from, step = 0; progress <= to + 1e-9; progress += 0.015, step += 1) {
+      if (step % 6 === 5) await nextTask();
+      for (const [dx, dy] of [
+        [0, 0],
+        [-150, 160],
+        [150, 160],
+      ] as const) {
+        poseAt(rig, progress, rig.gaze(aim));
+        rig.transform(model.anchors.head, HEAD_BONE, head);
+        poseAt(rig, progress, aim.set(head.x + dx, head.y + dy, head.z));
+        rig.bounds(model, min, max, BOUNDS_STRIDE);
+        total.min.min(min);
+        total.max.max(max);
+      }
     }
   }
   return total;
 }
+
+/** The framing bounds skin one voxel in this many: the shots fit with margins far larger than the gaps. */
+const BOUNDS_STRIDE = 3;
+
+/** While the camera holds the full-size frame: asleep, waking and starting to uncurl. */
+const LYING_RANGES = [[PHASES.dolly[1], 0.23]] as const;
+/** While the camera moves to the standing frame and holds it: lifting the neck, rearing, breathing fire, lying back down and curling up. */
+const STANDING_RANGES = [[0.25, PHASES.retreat[0]]] as const;
 
 /**
  * Builds the scene in short tasks: the voxel dragon first (pure CPU, one task per body part), then
@@ -241,7 +272,8 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   const rig = new DragonRig(anchors);
   const frame = sleepingFrame(model, rig);
   await nextTask();
-  const standing = standingBounds(model, rig);
+  const lying = await posedBounds(model, rig, LYING_RANGES);
+  const standing = await posedBounds(model, rig, STANDING_RANGES);
   await nextTask();
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
   // Clear alpha 0: the empty background is crisp black for the dither pass and never blooms.
@@ -324,11 +356,12 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   let state: SequenceState = sequenceAt(0);
   let breathPhase = 0;
   const aim = new Vector3();
-  const pose: Pose = { neck: state.neck, time: 0, stand: 0, yaw: 0, aim, aimWeight: 0, jaw: 0, wingFold: 1, wingSpread: 0 };
+  const pose = emptyPose();
   let aimReady = false;
   const shot: Shot = { ...LANDSCAPE.open };
   const shotScratch: Shot = { ...LANDSCAPE.open };
-  const standShot: Shot = { ...LANDSCAPE.full };
+  const fullShot: Shot = { ...LANDSCAPE.open };
+  const standShot: Shot = { ...LANDSCAPE.open };
   let fireAccumulator = 0;
   let smokeAccumulator = 0;
   let sparkAccumulator = 0;
@@ -399,17 +432,17 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   }
 
   /**
-   * The shot that holds the standing dragon whole inside `fit`: the closest camera (at the fit's
-   * elevation) for which every corner of its standing bounds projects inside the box.
+   * The shot that holds `bounds` whole inside `fit`: the closest camera (at the fit's elevation)
+   * for which every corner of the bounds projects inside the box.
    */
-  function fitStandingShot(fit: Fit, out: Shot): Shot {
+  function fitShot(bounds: Bounds, fit: Fit, out: Shot): Shot {
     const aspect = width / height;
     const cos = Math.cos(fit.elevation);
     const sin = Math.sin(fit.elevation);
     const corners: [number, number, number][] = [];
-    for (const x of [standing.min.x, standing.max.x]) {
-      for (const y of [standing.min.y, standing.max.y]) {
-        for (const z of [standing.min.z, standing.max.z]) {
+    for (const x of [bounds.min.x, bounds.max.x]) {
+      for (const y of [bounds.min.y, bounds.max.y]) {
+        for (const z of [bounds.min.z, bounds.max.z]) {
           const dx = x - frame.focus.x;
           const dy = y - frame.focus.y;
           const dz = z - frame.focus.z;
@@ -449,7 +482,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   /** The camera is a pure function of the (spring-smoothed) progress: nothing else moves it. */
   function updateCamera(): void {
     layout = width / height < 1 ? PORTRAIT : LANDSCAPE;
-    mixShot(layout.open, layout.full, state.dolly, shotScratch);
+    mixShot(layout.open, fullShot, state.dolly, shotScratch);
     mixShot(shotScratch, standShot, state.frame, shotScratch);
     mixShot(shotScratch, layout.far, state.retreat, shot);
     const aspect = width / height;
@@ -567,14 +600,8 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     if (aimReady && dt > 0) aim.lerp(aimGoal, 1 - Math.exp(-AIM_RATE * dt));
     else aim.copy(aimGoal);
     aimReady = true;
-    pose.neck = state.neck;
+    fillPose(pose, progressSpring?.value ?? target, state, aim);
     pose.time = time.value;
-    pose.stand = state.stand;
-    pose.yaw = Math.sin(time.value * 0.33) * 0.04;
-    pose.aimWeight = Math.max(state.focus, state.stand);
-    pose.jaw = Math.min(1, state.fire * 1.4);
-    pose.wingFold = state.wingFold;
-    pose.wingSpread = state.wingSpread;
     rig.update(pose);
     rig.transform(anchors.mouth, HEAD_BONE, mouth);
     jetDirection.copy(jetTarget).sub(mouth).normalize();
@@ -678,7 +705,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     const [fireColor, tailColor, roseColor, fillColor] = lightUniforms.uLightColor.value;
     firePos!.copy(flameMid);
     fireColor!.set(1.3, 0.5, 0.14).multiplyScalar(state.fire * 1.7);
-    rig.transform(anchors.tailTip, ROOT_BONE, tailPos!).add(scratch.set(0, 4, 3));
+    rig.transform(anchors.tailTip, anchors.tailTipBone, tailPos!).add(scratch.set(0, 4, 3));
     tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * (0.7 + 0.5 * state.sleep));
     // Light 2 glows from "rose" while the phrase is whole, then becomes a low warm light just above
     // the sleeping head so its silhouette (snout, horns, closed eye) stays readable.
@@ -821,16 +848,10 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
       target = clamp01(value);
     },
     hitTest(x, y) {
-      const tip = rig.transform(anchors.tailTip, ROOT_BONE, new Vector3());
+      const tip = rig.transform(anchors.tailTip, anchors.tailTipBone, new Vector3());
       const tail = project(tip);
       if (Math.hypot(x - tail.x, y - tail.y) < Math.max(24, projectedRadius(tip, 7))) return "tail";
-      const regions: [Vector3, number][] = [
-        [rig.transform(anchors.head, HEAD_BONE, new Vector3()), 13],
-        ...JOINTS.map((joint, i): [Vector3, number] => [rig.transform(joint, BODY_BONE + i, new Vector3()), 8]),
-        ...WINGS.map((wing): [Vector3, number] => [rig.transform(wing.elbow, wing.arm, new Vector3()), 14]),
-        ...anchors.body.map(({ point, radius }): [Vector3, number] => [rig.transform(point, BODY_BONE, new Vector3()), radius]),
-        ...anchors.tail.map(({ point, radius }): [Vector3, number] => [rig.transform(point, ROOT_BONE, new Vector3()), radius]),
-      ];
+      const regions = anchors.regions.map(({ point, bone, radius }): [Vector3, number] => [rig.transform(point, bone, new Vector3()), radius]);
       for (const [point, radius] of regions) {
         const center = project(point);
         if (Math.hypot(x - center.x, y - center.y) < projectedRadius(point, radius)) return "dragon";
@@ -841,7 +862,8 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
       width = Math.max(1, Math.round(nextWidth));
       height = Math.max(1, Math.round(nextHeight));
       layout = width / height < 1 ? PORTRAIT : LANDSCAPE;
-      fitStandingShot(layout.stand, standShot);
+      fitShot(lying, layout.full, fullShot);
+      fitShot(standing, layout.stand, standShot);
       rebuildText();
       updateCamera();
       applyTier(tierIndex);

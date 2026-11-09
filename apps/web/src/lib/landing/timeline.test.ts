@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EASE, PHASES, SWEEPS, keyframes, sequenceAt } from "./timeline";
+import { EASE, PHASES, SPINE_LAG, SWEEPS, bodyAt, keyframes, sequenceAt } from "./timeline";
 
 const samples = Array.from({ length: 2001 }, (_, i) => i / 2000);
 const first = SWEEPS[0]!;
@@ -48,7 +48,9 @@ describe("landing sequence timeline", () => {
     expect(start.retreat).toBe(0);
     expect(start.wake).toBe(0);
     expect(start.stand).toBe(0);
-    expect(start.neck.every((joint) => joint === 0)).toBe(true);
+    expect(start.rise).toBe(0);
+    expect(start.coil).toBe(0);
+    expect(start.thrust).toBe(0);
     expect(start.wingFold).toBe(1);
     expect(start.wingSpread).toBe(0);
     expect(start.eyelid).toBe(0);
@@ -79,19 +81,22 @@ describe("landing sequence timeline", () => {
     expect(sequenceAt(1).frame).toBe(1);
   });
 
-  it("wakes in stages: eyes, then the neck from its base, then it rears up as its wings unfold", () => {
+  it("wakes in stages: eyes, then it uncurls and lifts its neck, then it rears up as its wings unfold", () => {
     const eyesOpen = firstWhere((p) => sequenceAt(p).eyelid > 0.1);
-    const neckBase = firstWhere((p) => sequenceAt(p).neck[0]! > 0.1);
-    const head = firstWhere((p) => sequenceAt(p).neck.at(-1)! > 0.1);
+    const uncurling = firstWhere((p) => sequenceAt(p).rise > 0.1);
+    const risen = firstWhere((p) => sequenceAt(p).rise > 0.9);
     const rearing = firstWhere((p) => sequenceAt(p).stand > 0.1);
     const lifted = firstWhere((p) => sequenceAt(p).wingFold < 0.7);
     const spread = firstWhere((p) => sequenceAt(p).wingSpread > 0.9);
-    expect(eyesOpen).toBeLessThan(neckBase);
-    expect(neckBase).toBeLessThan(head);
-    expect(head).toBeLessThan(rearing);
+    expect(eyesOpen).toBeLessThan(uncurling);
+    expect(uncurling).toBeLessThan(risen);
+    expect(risen).toBeLessThan(rearing);
     expect(lifted).toBeGreaterThan(PHASES.stand[0]);
     expect(lifted).toBeLessThan(spread);
     expect(sequenceAt(spread).stand).toBeGreaterThan(0.9);
+    // It rears past its full height and settles back: the follow-through.
+    expect(Math.max(...samples.map((p) => sequenceAt(p).stand))).toBeGreaterThan(1.02);
+    expect(sequenceAt(0.42).stand).toBe(1);
     // The wings lift, hold a beat, then rise past their full spread before they settle.
     expect(sequenceAt(0.335).wingFold).toBeGreaterThan(0.55);
     expect(Math.min(...samples.map((p) => sequenceAt(p).wingFold))).toBeLessThan(0);
@@ -102,7 +107,8 @@ describe("landing sequence timeline", () => {
     const beforeFire = sequenceAt(PHASES.breath[0] - 0.008);
     expect(beforeFire.wake).toBe(1);
     expect(beforeFire.stand).toBe(1);
-    expect(beforeFire.neck.every((joint) => joint === 1)).toBe(true);
+    expect(beforeFire.rise).toBe(1);
+    expect(beforeFire.coil).toBeGreaterThan(0.95);
     expect(beforeFire.wingFold).toBe(0);
     expect(beforeFire.wingSpread).toBe(1);
     expect(beforeFire.eyelid).toBe(1);
@@ -180,11 +186,10 @@ describe("landing sequence timeline", () => {
     expect(lowering).toBeLessThan(down);
     expect(down).toBeLessThanOrEqual(asleep);
     expect(sequenceAt(PHASES.breath[1] + 0.01).heave).toBeGreaterThan(0.5);
-    const headDown = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).neck.at(-1)! < 0.9);
-    const baseDown = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).neck[0]! < 0.9);
-    expect(headDown).toBeLessThan(baseDown);
+    const curling = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).rise < 0.9);
+    expect(lowering).toBeLessThan(curling);
     const end = sequenceAt(1);
-    expect(end.neck.every((joint) => joint === 0)).toBe(true);
+    expect(end.rise).toBe(0);
     expect(end.stand).toBe(0);
     expect(end.wingFold).toBe(1);
     expect(end.wingSpread).toBe(0);
@@ -206,6 +211,9 @@ describe("landing sequence timeline", () => {
       (p) => sequenceAt(p).retreat,
       (p) => sequenceAt(p).wake,
       (p) => sequenceAt(p).stand,
+      (p) => sequenceAt(p).rise,
+      (p) => sequenceAt(p).coil,
+      (p) => sequenceAt(p).thrust,
       (p) => sequenceAt(p).wingFold,
       (p) => sequenceAt(p).wingSpread,
       (p) => sequenceAt(p).inhale,
@@ -214,9 +222,24 @@ describe("landing sequence timeline", () => {
       (p) => sequenceAt(p).phrase,
     ];
     for (const channel of channels) expect(maxStep(channel)).toBeLessThan(limit);
-    for (let joint = 0; joint < sequenceAt(0).neck.length; joint += 1) {
-      expect(maxStep((p) => sequenceAt(p).neck[joint]!)).toBeLessThan(limit);
+  });
+
+  it("coils back drawing its breath, then pushes forward into the jet and holds there until the fire dies", () => {
+    expect(sequenceAt(PHASES.breath[0] - 0.02).coil).toBe(1);
+    expect(sequenceAt(PHASES.breath[0] - 0.02).thrust).toBeLessThan(0.3);
+    expect(sequenceAt(first.start).thrust).toBeGreaterThan(0.6);
+    expect(Math.max(...samples.map((p) => sequenceAt(p).thrust))).toBeGreaterThan(1.05);
+    for (const p of samples.filter((q) => q > first.start && q < second.end)) expect(sequenceAt(p).thrust).toBeGreaterThan(0.95);
+    expect(sequenceAt(PHASES.breath[1] + 0.03).thrust).toBe(0);
+  });
+
+  it("gives the body channels on their own, for the bones that sample them a little later", () => {
+    for (const p of [0.1, 0.3, 0.45, 0.6, 0.85]) {
+      const { rise, stand, coil, thrust } = sequenceAt(p);
+      expect(bodyAt(p)).toEqual({ rise, stand, coil, thrust });
     }
+    expect(SPINE_LAG).toBeGreaterThan(0);
+    expect(SPINE_LAG * 12).toBeLessThan(PHASES.breath[0] - PHASES.stand[1]);
   });
 
   it("clamps out-of-range progress", () => {
