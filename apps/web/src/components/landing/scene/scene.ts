@@ -68,8 +68,10 @@ const TAN_HALF_FOV = Math.tan((FOV * Math.PI) / 360);
 /** The phrase lives in a plane in front of the dragon, the fire just behind it so it never covers the letters. */
 const TEXT_Z = 60;
 const FIRE_Z = 50;
-/** While the dragon draws its breath, its snout tips this far (in units of the distance to the target) above the target. */
-const INHALE_REAR = 0.45;
+/** How far the light spreading from the open eye reaches once the whole dragon shows (world units). */
+const REVEAL_REACH = 170;
+/** Camera shake while the second, stronger pass of the jet pours (share of the frame height). */
+const SHAKE = 0.0045;
 /** Rate (1/s) at which the point the head aims at follows its goal. */
 const AIM_RATE = 9;
 /** Natural frequency of the spring the scene follows the scroll with (1/s): a step settles in about a second. */
@@ -191,7 +193,7 @@ function nextTask(): Promise<void> {
 type Bounds = { min: Vector3; max: Vector3 };
 
 function emptyPose(): Pose {
-  return { time: 0, rise: [], stand: [], coil: [], thrust: [], awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1, wingSpread: 0 };
+  return { time: 0, rise: [], stand: [], thrust: [], awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1, wingSpread: 0 };
 }
 
 /** Fills `pose` for a point of the sequence (the body channels travelling along the spine), the head aiming at `aim` as far as the sequence turns it. */
@@ -301,8 +303,8 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     uTime: time,
     uBreathPhase: { value: 0 },
     uBreathDepth: { value: 0.01 },
-    uSwell: { value: 0 },
     uEyes: { value: 0 },
+    uReveal: { value: new Vector4() },
     uEyelid: { value: 0 },
     uFire: { value: 0 },
     uTail: { value: 0 },
@@ -382,7 +384,6 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   const headLight = new Vector3();
   const headLightColor = new Vector3(0.75, 0.42, 0.3);
   const aimGoal = new Vector3();
-  const skull = new Vector3();
 
   /** CSS pixels per design pixel of the phrase at rest (before it grows). */
   function cssPixelsPerTextPixel(): number {
@@ -479,7 +480,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     return out;
   }
 
-  /** The camera is a pure function of the (spring-smoothed) progress: nothing else moves it. */
+  /** The camera is a pure function of the (spring-smoothed) progress, plus the shake of the second pass of the jet. */
   function updateCamera(): void {
     layout = width / height < 1 ? PORTRAIT : LANDSCAPE;
     mixShot(layout.open, fullShot, state.dolly, shotScratch);
@@ -501,6 +502,10 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
       .addScaledVector(forward, -distance)
       .addScaledVector(right, -shot.x * halfHeight * aspect)
       .addScaledVector(up, -shot.y * halfHeight);
+    // The second pass of the jet shakes the frame a little.
+    const shake = SHAKE * halfHeight * state.fire * Math.max(0, state.power - 1);
+    const t = time.value;
+    camera.position.addScaledVector(right, shake * (Math.sin(t * 37) + Math.sin(t * 23.3)) * 0.5).addScaledVector(up, shake * (Math.sin(t * 41.7) + Math.sin(t * 19.1)) * 0.5);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
   }
@@ -564,7 +569,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     });
     const front = (acrossPhrase(state.aim) - 0.5) * text.width;
     textGroup.localToWorld(scratch.set(front, 0, GLINT_LIGHT_Z));
-    textUniforms.uJetLight.value.set(scratch.x, scratch.y, scratch.z, JET_GLINT * state.fire * whole);
+    textUniforms.uJetLight.value.set(scratch.x, scratch.y, scratch.z, JET_GLINT * state.fire * state.power * whole);
     textUniforms.uTextScale.value = textGroup.scale.x;
   }
 
@@ -590,13 +595,11 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   /**
    * The body follows the timeline's staged, eased channels directly. Once the dragon stands, its
    * head turns toward a point that glides with a short exponential smoothing: its resting gaze
-   * ahead, then the jet target on the phrase (above it while it draws its breath).
+   * ahead, then the jet target on the phrase.
    */
   function updatePose(dt: number): void {
     rig.gaze(aimGoal);
-    rig.transform(anchors.head, HEAD_BONE, skull);
-    scratch.copy(jetTarget).addScaledVector(up, INHALE_REAR * state.inhale * jetTarget.distanceTo(skull));
-    aimGoal.lerp(scratch, state.focus);
+    aimGoal.lerp(jetTarget, state.focus);
     if (aimReady && dt > 0) aim.lerp(aimGoal, 1 - Math.exp(-AIM_RATE * dt));
     else aim.copy(aimGoal);
     aimReady = true;
@@ -611,11 +614,13 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     const tier = QUALITY_TIERS[tierIndex]!;
     const unit = depthOf(mouth) / PARTICLE_UNIT_DISTANCE;
     const jetLength = jetTarget.distanceTo(mouth);
-    fireAccumulator += state.fire * 640 * layout.fireScale * dt * (tier.particles / maxParticles + 0.3);
+    // The second pass pours more, wider, further and bigger flames.
+    const power = state.power;
+    fireAccumulator += state.fire * 640 * power * layout.fireScale * dt * (tier.particles / maxParticles + 0.3);
     while (fireAccumulator >= 1) {
       fireAccumulator -= 1;
-      const speed = jetLength * random(1.2, 1.55);
-      const spread = 0.09;
+      const speed = jetLength * random(1.2, 1.55) * (0.88 + 0.12 * power);
+      const spread = 0.09 * (0.7 + 0.3 * power);
       const along = Math.random() ** 2 * 0.7;
       fire.spawn({
         x: mouth.x + jetDirection.x * speed * along + random(-0.8, 0.8) * unit,
@@ -625,7 +630,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
         vy: (jetDirection.y + random(-spread, spread)) * speed,
         vz: (jetDirection.z + random(-spread * 0.5, spread * 0.5)) * speed,
         life: random(1.1, 1.5),
-        size: random(0.8, 1.4) * unit * (0.5 + 0.5 * layout.fireScale),
+        size: random(0.8, 1.4) * unit * (0.5 + 0.5 * layout.fireScale) * (0.8 + 0.2 * power),
         growth: random(1, 1.9),
         kind: 0,
         age: along,
@@ -654,7 +659,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
         }
       }
       // The cracked letters shed embers from their fissures while the jet drives them up.
-      emberAccumulator += 140 * state.fire * layout.fireScale * dt;
+      emberAccumulator += 140 * state.fire * power * power * layout.fireScale * dt;
       const front = Math.max(textUniforms.uCracks.value.x, textUniforms.uCracks.value.y);
       while (emberAccumulator >= 1) {
         emberAccumulator -= 1;
@@ -704,9 +709,9 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     const [firePos, tailPos, rosePos] = lightUniforms.uLightPos.value;
     const [fireColor, tailColor, roseColor, fillColor] = lightUniforms.uLightColor.value;
     firePos!.copy(flameMid);
-    fireColor!.set(1.3, 0.5, 0.14).multiplyScalar(state.fire * 1.7);
+    fireColor!.set(1.3, 0.5, 0.14).multiplyScalar(state.fire * 1.7 * (0.6 + 0.4 * power));
     rig.transform(anchors.tailTip, anchors.tailTipBone, tailPos!).add(scratch.set(0, 4, 3));
-    tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * (0.7 + 0.5 * state.sleep));
+    tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * state.reveal * (0.7 + 0.5 * state.sleep));
     // Light 2 glows from "rose" while the phrase is whole, then becomes a low warm light just above
     // the sleeping head so its silhouette (snout, horns, closed eye) stays readable.
     const whole = 1 - smoothstep(0.75, 1, state.phrase);
@@ -721,19 +726,21 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     lightUniforms.uKeyColor.value.set(0.95, 0.62, 0.5).multiplyScalar(state.light * (1 - 0.35 * state.sleep) * (0.85 + 0.15 * Math.sin(time.value * 0.8)));
     lightUniforms.uRimColor.value.set(1.6, 0.7, 0.9).lerp(scratch.set(1.3, 0.95, 1.2), state.sleep).multiplyScalar(state.light * (1 + 0.25 * state.sleep));
 
-    dragonUniforms.uEyes.value = state.eyes;
+    // Alone in the dark, the opening eye glows hotter; the light then spreads from it over the body.
+    dragonUniforms.uEyes.value = state.eyes * (1 + 1.6 * (1 - state.reveal));
+    rig.transform(anchors.eye, HEAD_BONE, scratch);
+    dragonUniforms.uReveal.value.set(scratch.x, scratch.y, scratch.z, REVEAL_REACH * state.reveal ** 2);
     dragonUniforms.uEyelid.value = state.eyelid;
-    dragonUniforms.uFire.value = state.fire;
+    dragonUniforms.uFire.value = state.fire * (0.7 + 0.3 * power);
     dragonUniforms.uTail.value = state.tail;
     dragonUniforms.uSmoke.value = state.smoke;
-    dragonUniforms.uBackGlow.value = 0.05 * state.light * state.wake * (1 - state.sleep) + 0.4 * state.fire;
+    dragonUniforms.uBackGlow.value = 0.05 * state.light * state.wake * (1 - state.sleep) + 0.3 * state.fire * power;
     // Slow, shallow breaths asleep, deeper and quicker awake; held, chest swollen, before the fire;
     // deep and slow after it, settling as the dragon lies down.
     const awake = state.wake * (1 - state.sleep);
-    breathPhase += dt * lerp(0.9, 1.5, awake) * (1 - 0.8 * state.inhale) * (1 - 0.35 * state.heave);
+    breathPhase += dt * lerp(0.9, 1.5, awake) * (1 - 0.35 * state.heave);
     dragonUniforms.uBreathPhase.value = breathPhase;
-    dragonUniforms.uBreathDepth.value = (0.014 * lerp(0.7, 1, awake) + 0.024 * state.heave) * (1 - state.inhale);
-    dragonUniforms.uSwell.value = 0.045 * state.inhale;
+    dragonUniforms.uBreathDepth.value = 0.014 * lerp(0.7, 1, awake) + 0.024 * state.heave;
   }
 
   /** World position of the letters of "rose". */
@@ -763,7 +770,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     const mid = project(scratch.copy(mouth).lerp(jetTarget, 0.6));
     const extent = project(jetTarget);
     const radius = Math.max(0.12, Math.hypot(mid.x - extent.x, mid.y - extent.y) / height + 0.1);
-    pipeline.setHeat(mid.x / width, 1 - mid.y / height, radius * (0.4 + 0.6 * layout.fireScale), state.fire * 0.9 * layout.fireScale, time.value);
+    pipeline.setHeat(mid.x / width, 1 - mid.y / height, radius * (0.4 + 0.6 * layout.fireScale), state.fire * 0.9 * (0.75 + 0.25 * state.power) * layout.fireScale, time.value);
   }
 
   /** Just under the front of the sleeping dragon, where the Launch app button appears. */

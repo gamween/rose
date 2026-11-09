@@ -247,12 +247,12 @@ Dark, ember accent, dithered voxel aesthetic ("dither / cubism, Minecraft-like")
 
 A pinned scroll sequence (~400 vh), rendered in WebGL with a final ordered-dither pass; the phrase is rendered in the scene so it receives the same lighting and dithering (accessible DOM copy for screen readers and SEO).
 
-1. Black screen. A voxel dragon sleeps curled at the bottom of the frame. Above it the phrase "What was locked, rose." sits in deep shadow, barely legible; only the letters of "rose" smolder like embers.
+1. Black screen. A voxel dragon sleeps curled into a ball at the bottom of the frame, invisible in the dark: the first thing the visitor sees on scrolling is its eye opening, then the light spreads from it over the body. Above it the phrase "What was locked, rose." sits in deep shadow, barely legible; only the letters of "rose" smolder like embers.
 2. Scrolling zooms the camera in on the sleeping dragon.
-3. It wakes slowly, then rears up to its prime: standing on its hind legs, both wings spread high, neck arched. After a held breath it breathes one hard, sustained jet of fire upward, sweeping from left to right twice.
+3. It wakes slowly, then rears up to its prime: standing on its hind legs, both wings spread high, neck arched. The fire starts as it reaches the top of its rear: one hard, sustained jet upward that sweeps from left to right twice, the second pass much stronger than the first.
 4. The fire drives the whole phrase, "rose" included, up and out through the top of the screen; the letters crack and shed embers as they rise but stay whole until they are off screen.
 5. The fire stops, the dragon calms down, folds its wings, lowers itself back onto all fours and falls back asleep (smoke drifting from its nostrils, the tip of its tail still glowing) and the camera pulls back until it is small in the background.
-6. The landing ends on that screen alone. Hovering the dragon or the glowing tail reveals a "Launch app" button (also reachable by keyboard focus, always visible on touch devices). A thin top bar (logo, navigation, Docs, "Launch app") stays visible throughout; the explanations live in the app and the docs.
+6. The sequence ends on that screen. Hovering the dragon or the glowing tail reveals a "Launch app" button (also reachable by keyboard focus, always visible on touch devices). The landing has one goal: its top bar holds only the logo and "Launch app". Below the sequence, a reference footer links to the docs (overview, guides, glossary, contracts, SDK, security, status, and GitHub once the repository is public); it holds no app action.
 
 Requirements: 60 fps on an M-series MacBook, adaptive quality on weaker GPUs, `prefers-reduced-motion` shows a static final frame with the button, the voxel dragon is authored by us (procedural or hand-authored voxel data, no third-party model licensing issue), total landing payload kept small and lazy-loaded.
 

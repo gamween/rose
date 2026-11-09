@@ -43,7 +43,6 @@ attribute vec4 aSkinWeights;
 uniform mat4 uBones[${BONE_COUNT}];
 uniform float uBreathPhase;
 uniform float uBreathDepth;
-uniform float uSwell;
 uniform vec3 uChest;
 varying vec3 vColor;
 varying vec4 vData;
@@ -58,7 +57,7 @@ void main() {
     + uBones[int(aSkinBones.z)] * aSkinWeights.z
     + uBones[int(aSkinBones.w)] * aSkinWeights.w;
   float chest = exp(-dot(aOffset - uChest, aOffset - uChest) / 900.0) * aData.y;
-  local += (local - uChest) * ((sin(uBreathPhase) * uBreathDepth + uSwell) * chest);
+  local += (local - uChest) * (sin(uBreathPhase) * uBreathDepth * chest);
   vec4 posed = skin * vec4(local, 1.0);
   vec4 world = modelMatrix * posed;
   vWorld = world.xyz;
@@ -81,6 +80,7 @@ uniform float uBackGlow;
 uniform vec4 uVeilBox;
 uniform vec2 uVeilSoft;
 uniform float uVeil;
+uniform vec4 uReveal;
 varying vec3 vColor;
 varying vec4 vData;
 varying vec3 vWorld;
@@ -102,10 +102,11 @@ void main() {
   vec3 lit = vColor * shade(vWorld, n);
   vec3 emissive = vec3(0.0);
   float flicker = 0.75 + 0.25 * sin(uTime * (2.0 + seed * 3.0) + seed * 40.0);
+  float open = 0.0;
 
   if (kind < 0.5) {
   } else if (kind < 1.5) {
-    float open = smoothstep(local * 0.45, local * 0.45 + 0.55, uEyelid);
+    open = smoothstep(local * 0.45, local * 0.45 + 0.55, uEyelid);
     emissive = vec3(1.0, 0.62, 0.18) * (1.2 * uEyes * open) * (0.92 + 0.08 * flicker);
     // A closed lid is dark scale over the eye, so the sleeping face reads with its eyes shut.
     lit = mix(vec3(0.05, 0.012, 0.014) * shade(vWorld, n), lit, open);
@@ -122,7 +123,13 @@ void main() {
   }
   float shadowed = 1.0 - uVeil * veilMask();
   if (kind < 0.5 || kind > 4.5) emissive *= shadowed;
-  gl_FragColor = vec4(lit * shadowed + emissive, 0.45);
+  // The dragon shows only within uReveal.w of the open eye (uReveal.xyz), an ember glow running
+  // along the edge of the light as it spreads; an open eye shows wherever it is.
+  float dist = length(vWorld - uReveal.xyz);
+  float shown = max(1.0 - smoothstep(uReveal.w - 14.0, uReveal.w, dist), open);
+  float edge = (dist - uReveal.w + 7.0) / 5.0;
+  vec3 ember = vec3(0.55, 0.13, 0.03) * exp(-edge * edge) * step(0.5, uReveal.w);
+  gl_FragColor = vec4((lit * shadowed + emissive) * shown + ember, 0.45);
 }
 `;
 

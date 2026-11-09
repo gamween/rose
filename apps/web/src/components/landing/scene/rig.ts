@@ -51,10 +51,8 @@ const TURN = 1.05;
 
 /**
  * Bends added along the spine (radians, positive arches the bone back), indexed by distance from
- * the hips: coiling back before the breath (chest out, neck drawn into an S, head up) and pushing
- * forward into the jet (shoulders and neck reaching after the head).
+ * the hips, as the dragon pushes forward into the jet (shoulders and neck reaching after the head).
  */
-const COIL_BEND = [0.1, 0.14, 0.12, -0.1, -0.18, -0.12, 0.08, 0.2, 0.24, 0.22, 0.25];
 const THRUST_BEND = [-0.08, -0.12, -0.14, -0.08, -0.02, 0.04, 0.06, 0.04, 0, -0.04, -0.06];
 /** How far each neck bone arches up halfway through uncurling or curling, so the head travels in an arc over the body. */
 const NECK_ARC = 0.1;
@@ -118,7 +116,6 @@ export type Pose = {
   /** Per spine bone (in `SPINE` order), its body channels, each sampled a little later further from the hips. */
   rise: number[];
   stand: number[];
-  coil: number[];
   thrust: number[];
   /** Overall wakefulness, fire intensity and the deep breaths after it, for the waves. */
   awake: number;
@@ -142,12 +139,11 @@ const STAND_LAG = 0.6;
  * Fills the body channels of `pose` for a point of the sequence: each spine bone samples the
  * timeline `SPINE_LAG` later per bone away from the hips, so every move travels along the body.
  */
-export function bodyPose(pose: Pick<Pose, "rise" | "stand" | "coil" | "thrust">, progress: number): void {
+export function bodyPose(pose: Pick<Pose, "rise" | "stand" | "thrust">, progress: number): void {
   SPINE.forEach((spine, i) => {
     const body = bodyAt(progress - spine.chain * SPINE_LAG);
     pose.rise[i] = body.rise;
     pose.stand[i] = bodyAt(progress - spine.chain * SPINE_LAG * STAND_LAG).stand;
-    pose.coil[i] = body.coil;
     pose.thrust[i] = body.thrust;
   });
 }
@@ -199,7 +195,7 @@ type HindRig = { stance: Vector3; lengths: number[] };
 /**
  * Skeleton of the dragon. The spine (torso, neck, head and tail) is a chain of rigid bones, each
  * turned relative to its parent: its pose blends from curled asleep to lying awake to rearing,
- * with bends added for the coil and the thrust of the breath and waves that travel along it, and
+ * with bends added for the thrust of the breath and waves that travel along it, and
  * the upper body turns toward the aim from the chest to the head. The front legs follow the chest,
  * the hind legs plant their paws on the ground under the raised hips (two-bone inverse kinematics
  * to the hock), and each wing folds onto the back, its forearm closing and its fingers furling the
@@ -298,11 +294,11 @@ export class DragonRig {
       const i = spine.index;
       const standing = pose.stand[i] ?? 0;
       const local = this.blend.slerpQuaternions(IDENTITY, spine.sphinx, pose.rise[i] ?? 0).slerp(spine.stand, Math.min(1, standing));
-      const chain = Math.min(spine.chain, COIL_BEND.length - 1);
+      const chain = Math.min(spine.chain, THRUST_BEND.length - 1);
       const tail = spine.bone > HEAD_BONE;
       let bend = tail ? 0 : Math.max(0, standing - 1) * OVERSHOOT_BEND;
       if (spine.bone > CHEST_BONE && !tail) bend += NECK_ARC * Math.sin(Math.PI * Math.min(1, Math.max(0, pose.rise[i] ?? 0)));
-      if (!tail) bend += COIL_BEND[chain]! * (pose.coil[i] ?? 0) + THRUST_BEND[chain]! * (pose.thrust[i] ?? 0);
+      if (!tail) bend += THRUST_BEND[chain]! * (pose.thrust[i] ?? 0);
       bend += Math.sin(pose.time * PULSE.speed - spine.chain * PULSE.step) * PULSE.amplitude * pose.fire * (tail ? 0.3 : 1);
       bend += Math.sin(pose.time * IDLE.speed - spine.chain * IDLE.step) * IDLE.amplitude * (pose.awake + pose.heave * 2);
       local.multiply(this.extra.setFromAxisAngle(spine.lateral, bend));
@@ -359,7 +355,7 @@ export class DragonRig {
   private restPose(stand: number): Pose {
     const channel = this.spine.map(() => stand);
     const none = this.spine.map(() => 0);
-    return { time: 0, rise: channel, stand: channel, coil: none, thrust: none, awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1 - stand, wingSpread: stand };
+    return { time: 0, rise: channel, stand: channel, thrust: none, awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1 - stand, wingSpread: stand };
   }
 
   /**
@@ -408,7 +404,7 @@ export class DragonRig {
     const ankle = rig.stance.clone().applyMatrix4(bones[ROOT_BONE]!);
     const forward = vector(PELVIS_AXES.forward).setY(0).normalize().applyQuaternion(this.world[ROOT_BONE]!);
     const hockAt = ankle.clone().addScaledVector(UP, hockLength * Math.sqrt(1 - HOCK_LEAN * HOCK_LEAN)).addScaledVector(forward, -hockLength * HOCK_LEAN);
-    // When the hip rides higher (coiling back, thrusting), the hock swings up toward it so the paw stays planted.
+    // When the hip rides higher (thrusting), the hock swings up toward it so the paw stays planted.
     if (hockAt.distanceTo(hip) > upper + lower - 0.5) hockAt.copy(ankle).addScaledVector(hip.clone().sub(ankle).normalize(), hockLength);
     const reach = hockAt.clone().sub(hip);
     const span = Math.min(upper + lower - 1e-3, Math.max(Math.abs(upper - lower) + 1e-3, reach.length()));

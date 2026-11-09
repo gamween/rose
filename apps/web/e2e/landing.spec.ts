@@ -10,7 +10,7 @@ test.describe("landing", () => {
   test("exposes the phrase as the page heading and has the expected metadata", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(PHRASE);
-    await expect(page).toHaveTitle("rose: What was locked, rose.");
+    await expect(page).toHaveTitle("What was locked, rose.");
     await expect(page.locator('meta[property="og:image"]')).toHaveAttribute("content", /opengraph-image/);
   });
 
@@ -28,14 +28,17 @@ test.describe("landing", () => {
     await page.waitForURL("**/app");
   });
 
-  test("ends with the sequence, the top bar and its Launch app button staying on screen", async ({ page }) => {
+  test("has one goal: a minimal top bar with Launch app, and reference links only in the footer", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("[data-mode]")).not.toHaveAttribute("data-mode", "poster");
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    const sectionBottom = await page.locator("[data-landing]").evaluate((element) => element.getBoundingClientRect().bottom);
-    expect(Math.abs(sectionBottom - page.viewportSize()!.height)).toBeLessThanOrEqual(1);
-    await expect(page.getByRole("contentinfo")).toHaveCount(0);
     const topBar = page.getByRole("banner");
+    await expect(topBar.getByRole("link")).toHaveCount(2);
+    await expect(topBar.getByText("Testnet")).toHaveCount(0);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const footer = page.getByRole("contentinfo");
+    await expect(footer).toBeInViewport();
+    await expect(footer.getByRole("link", { name: "How a sealed round works" })).toHaveAttribute("href", "/docs/sealed-rounds");
+    await expect(footer.getByRole("link", { name: "Contracts and addresses" })).toHaveAttribute("href", "/docs/contracts");
     await expect(topBar.getByRole("link", { name: "rose home" })).toBeInViewport();
     await expect(topBar.getByRole("link", { name: "Launch app" })).toBeInViewport();
   });

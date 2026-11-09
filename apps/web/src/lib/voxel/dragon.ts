@@ -201,6 +201,8 @@ const TORSO_BONES: readonly number[] = [PELVIS_BONE, CHEST_BONE];
 export type DragonAnchors = {
   /** Center of the skull in the rest pose. */
   head: Vec3;
+  /** The near eye, the first thing to show in the dark (head bone space). */
+  eye: Vec3;
   /** Front of the mouth, where fire is emitted (head bone space). */
   mouth: Vec3;
   /** Nostrils, where smoke rises from (head bone space). */
@@ -614,6 +616,7 @@ function collect({ grid, skins }: Builder): DragonModel {
     skinWeights: Float32Array.from(skinWeights),
     anchors: {
       head: SKULL,
+      eye: headPoint(-51, 41.5, 54),
       mouth: MOUTH,
       nostrils: NOSTRILS,
       chest: scale(add(WAIST, CHEST), 0.5),

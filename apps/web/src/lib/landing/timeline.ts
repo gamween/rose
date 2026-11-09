@@ -3,14 +3,15 @@
  * the pinned section (0 at the top, 1 at the end, already smoothed by a spring) to every animated
  * quantity, so the scene stays a pure function of progress plus a time-based idle layer.
  *
- * The story: the dragon sleeps, small, curled into a ball under the phrase; the camera closes in
- * until it fills its final size; it wakes slowly (eyes, breath, the neck uncurling and rising),
- * rears up on its hind legs while its wings unfold in two beats into a full spread, coils back
- * drawing its breath and drives one long, hard jet of fire upward with its whole body, sweeping
- * twice from left to right across the phrase, which cracks and rises until it has left the screen
- * through the top. Then the fire stops, the dragon calms down, folds its wings in stages, lowers
- * itself onto all fours, curls back into its ball and falls asleep, and the camera pulls back
- * until it is small in the dark again.
+ * The story: the screen is dark under the phrase; the first scroll opens a single eye in the dark
+ * while the camera already closes in, and the light spreads from that eye over the dragon, asleep,
+ * curled into a ball; it wakes (breath, the neck uncurling and rising) and rears up on its hind
+ * legs while its wings unfold in two beats into a full spread; as it reaches the top it drives one
+ * long jet of fire upward with its whole body, swings to the left and sweeps twice from left to
+ * right across the phrase, the second pass far stronger than the first, so the phrase cracks and
+ * rises until it has left the screen through the top. Then the fire stops, the dragon calms down,
+ * folds its wings in stages, lowers itself onto all fours, curls back into its ball and falls
+ * asleep, and the camera pulls back until it is small in the dark again.
  *
  * The body channels (`bodyAt`) are sampled by the scene a little later for each bone further from
  * the hips, so every move travels along the spine as a wave, from the hips up the neck to the head
@@ -39,6 +40,8 @@ export const EASE = {
   inOutCubic: (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2),
   inQuad: (t: number) => t * t,
   outCubic: (t: number) => 1 - (1 - t) ** 3,
+  /** Moves from the first instant (no dead start) and settles at the end. */
+  outSine: (t: number) => Math.sin((Math.PI / 2) * t),
   /** Smootherstep: zero velocity and acceleration at both ends, for the weightiest moves. */
   inOutQuint: (t: number) => t * t * t * (t * (6 * t - 15) + 10),
 } satisfies Record<string, Ease>;
@@ -64,25 +67,25 @@ export function keyframes(keys: readonly Key[], progress: number): number {
 export type Sweep = { start: number; end: number };
 
 export const SWEEPS: readonly Sweep[] = [
-  { start: 0.48, end: 0.565 },
-  { start: 0.595, end: 0.68 },
+  { start: 0.43, end: 0.52 },
+  { start: 0.55, end: 0.65 },
 ];
 
 export const PHASES = {
-  /** The camera closes in from the small sleeping dragon to its full size. */
-  dolly: [0.02, 0.2],
+  /** The camera closes in from the opening frame to the dragon at its full size, from the very first scroll. */
+  dolly: [0, 0.2],
+  /** The light spreads from the open eye until the whole dragon shows. */
+  reveal: [0.02, 0.17],
   /** Overall wake (light, breath, smoke); the body parts follow their own staged keys. */
   wake: [0.17, 0.32],
   /** The dragon uncurls and raises its neck, still lying. */
   rise: [0.19, 0.3],
   /** The dragon rears up onto its hind legs, the camera easing back to keep it whole. */
   stand: [0.26, 0.385],
-  /** The held breath before the fire. */
-  inhale: [0.395, 0.488],
-  /** The one sustained breath of fire, from its first flame to its last. */
-  breath: [0.46, 0.72],
+  /** The one sustained breath of fire, from its first flame (as the dragon reaches its full height) to its last. */
+  breath: [0.37, 0.695],
   /** The phrase rises with the dragon, then the fire pushes it up and out through the top. */
-  phrase: [0.2, 0.69],
+  phrase: [0.2, 0.655],
   /** The dragon lowers itself back onto all fours. */
   lower: [0.785, 0.875],
   sleep: [0.82, 0.92],
@@ -96,11 +99,12 @@ export const PHASES = {
 /** Delay (in progress) of each bone of the spine behind the previous one, counting from the hips. */
 export const SPINE_LAG = 0.0045;
 
+/** One eye opens in the dark from the first scroll: a slit, a blink, then wide. */
 const EYELID: readonly Key[] = [
-  [0.17, 0],
-  [0.205, 0.4, EASE.inOutSine],
-  [0.225, 0.28, EASE.inOutSine],
-  [0.28, 1, EASE.inOutCubic],
+  [0, 0],
+  [0.018, 0.42, EASE.outSine],
+  [0.028, 0.3, EASE.inOutSine],
+  [0.06, 1, EASE.inOutSine],
   [0.86, 1],
   [0.89, 0.3, EASE.inOutSine],
   [0.902, 0.48, EASE.inOutSine],
@@ -123,21 +127,24 @@ const STAND: readonly Key[] = [
   [PHASES.lower[1], 0, EASE.inOutQuint],
 ];
 
-/** Drawing the breath: the body coils back, chest out, neck drawn into an S, head up. */
-const COIL: readonly Key[] = [
-  [0.395, 0],
-  [0.44, 1, EASE.inOutSine],
-  [0.45, 1, EASE.linear],
-  [0.49, 0, EASE.inOutSine],
+/**
+ * The fire comes out as the dragon reaches its full height: the whole body pushes forward into the
+ * jet, shoulders, neck and head driving it, holds, and pushes harder for the second pass.
+ */
+const THRUST: readonly Key[] = [
+  [0.345, 0],
+  [0.39, 1.1, EASE.inOutSine],
+  [0.415, 1, EASE.inOutSine],
+  [0.53, 1],
+  [0.565, 1.25, EASE.inOutSine],
+  [0.665, 1.25],
+  [0.72, 0, EASE.inOutSine],
 ];
 
-/** The fire comes out: the whole body recoils forward into the jet, shoulders, neck and head driving it, and holds there. */
-const THRUST: readonly Key[] = [
-  [0.445, 0],
-  [0.49, 1.1, EASE.inOutSine],
-  [0.51, 1, EASE.inOutSine],
-  [0.69, 1],
-  [0.745, 0, EASE.inOutSine],
+/** Strength of the jet: the second pass comes out far denser, wider, longer and brighter. */
+const POWER: readonly Key[] = [
+  [0.52, 1],
+  [0.56, 1.8, EASE.inOutSine],
 ];
 
 /**
@@ -182,24 +189,17 @@ const WING_SPREAD: readonly Key[] = [
   [0.84, 0, EASE.inOutCubic],
 ];
 
-const INHALE: readonly Key[] = [
-  [PHASES.inhale[0], 0],
-  [0.44, 1, EASE.inOutSine],
-  [0.447, 1, EASE.linear],
-  [PHASES.inhale[1], 0, EASE.inOutSine],
-];
-
 /**
  * Fire intensity: it bursts out, holds hard (only easing a little while the head swings back to
  * the left between the two sweeps) until the phrase has left the screen, then dies down.
  */
 const BREATH: readonly Key[] = [
   [PHASES.breath[0], 0],
-  [0.477, 1, EASE.inOutSine],
-  [0.565, 1],
-  [0.58, 0.82, EASE.inOutSine],
-  [0.595, 1, EASE.inOutSine],
-  [0.695, 1],
+  [0.39, 1, EASE.inOutSine],
+  [0.52, 1],
+  [0.535, 0.85, EASE.inOutSine],
+  [0.55, 1, EASE.inOutSine],
+  [0.665, 1],
   [PHASES.breath[1], 0, EASE.inOutSine],
 ];
 
@@ -210,22 +210,22 @@ const BREATH: readonly Key[] = [
 const PHRASE: readonly Key[] = [
   [PHASES.phrase[0], 0],
   [0.37, 0.3, EASE.inOutSine],
-  [0.475, 0.34, EASE.linear],
+  [0.42, 0.34, EASE.linear],
   [PHASES.phrase[1], 1, EASE.inQuad],
 ];
 
-/** How much the head turns toward the jet target: from before the breath until the fire has died. */
+/** How much the body turns toward the jet target: from the first flame until the fire has died. */
 const FOCUS: readonly Key[] = [
-  [0.39, 0],
-  [0.44, 1, EASE.inOutSine],
-  [0.705, 1],
-  [0.75, 0, EASE.inOutSine],
+  [0.35, 0],
+  [0.39, 1, EASE.inOutSine],
+  [0.68, 1],
+  [0.725, 0, EASE.inOutSine],
 ];
 
 /** Deep, slow breaths after the fire, settling as the dragon lies down. */
 const HEAVE: readonly Key[] = [
-  [0.695, 0],
-  [0.74, 1, EASE.inOutSine],
+  [0.67, 0],
+  [0.715, 1, EASE.inOutSine],
   [0.85, 0, EASE.inOutSine],
 ];
 
@@ -235,15 +235,13 @@ export type BodyState = {
   rise: number;
   /** 0 lying, 1 rearing on the hind legs (slightly above 1 at the overshoot). */
   stand: number;
-  /** The coil back before the breath. */
-  coil: number;
   /** The push forward into the jet. */
   thrust: number;
 };
 
 export function bodyAt(rawProgress: number): BodyState {
   const progress = clamp01(rawProgress);
-  return { rise: keyframes(RISE, progress), stand: keyframes(STAND, progress), coil: keyframes(COIL, progress), thrust: keyframes(THRUST, progress) };
+  return { rise: keyframes(RISE, progress), stand: keyframes(STAND, progress), thrust: keyframes(THRUST, progress) };
 }
 
 export type SequenceState = BodyState & {
@@ -261,20 +259,22 @@ export type SequenceState = BodyState & {
   wingFold: number;
   /** Wing membranes, 0 furled to 1 spread (slightly above 1 at the overshoot). */
   wingSpread: number;
-  /** The held breath before the fire: chest swollen, head drawn back. */
-  inhale: number;
   /** Deep breaths after the fire. */
   heave: number;
   /** How much the head turns toward the jet target. */
   focus: number;
   /** Light level on the dragon: dim asleep, full awake. */
   light: number;
+  /** How far the light has spread from the open eye over the dragon: 0 only the eye shows, 1 all of it. */
+  reveal: number;
   /** Eye glow. */
   eyes: number;
   /** Eyelid opening, 1 open, 0 closed (asleep). */
   eyelid: number;
   /** Fire emission intensity. */
   fire: number;
+  /** Strength of the jet: 1 for the first pass, higher for the second. */
+  power: number;
   /** Aim of the jet across the phrase: 0 its left end, 1 its right end. */
   aim: number;
   /** Index of the sweep in progress, or -1. */
@@ -310,9 +310,10 @@ export function sequenceAt(rawProgress: number): SequenceState {
   const sweep = SWEEPS.findIndex((candidate) => progress > candidate.start && progress < candidate.end);
   const cracks: [number, number] = [sweepAim(sweepTime(first, progress)), sweepAim(sweepTime(second, progress))];
 
-  // The head waits on the left before each pass and swings back between them, the fire still
-  // pouring; after the second pass it comes back to the middle as the last letters leave.
-  let aim = cracks[0];
+  // The first flame goes straight up into the middle of the phrase, then the head swings to the
+  // left; it sweeps right, swings back left between the passes with the fire still pouring, and
+  // after the second pass it comes back to the middle as the last letters leave.
+  let aim = progress < first.start ? 0.5 - 0.5 * EASE.inOutSine(clamp01((progress - PHASES.breath[0] - 0.02) / (first.start - PHASES.breath[0] - 0.02))) : cracks[0];
   if (progress >= second.end) aim = 1 - 0.5 * EASE.inOutSine(clamp01((progress - second.end) / 0.02));
   else if (progress >= second.start) aim = cracks[1];
   else if (progress >= first.end) aim = 1 - EASE.inOutSine(clamp01((progress - first.end) / (second.start - first.end)));
@@ -323,7 +324,7 @@ export function sequenceAt(rawProgress: number): SequenceState {
   const rose = clamp01(0.25 + 0.75 * smoothstep(0.7, 1, cracks[0]));
 
   return {
-    dolly: EASE.inOutQuint(clamp01((progress - PHASES.dolly[0]) / (PHASES.dolly[1] - PHASES.dolly[0]))),
+    dolly: EASE.outSine(clamp01((progress - PHASES.dolly[0]) / (PHASES.dolly[1] - PHASES.dolly[0]))),
     frame: keyframes(FRAME, progress),
     retreat: EASE.inOutQuint(clamp01((progress - PHASES.retreat[0]) / (PHASES.retreat[1] - PHASES.retreat[0]))),
     wake,
@@ -331,19 +332,20 @@ export function sequenceAt(rawProgress: number): SequenceState {
     ...bodyAt(progress),
     wingFold: keyframes(WING_FOLD, progress),
     wingSpread: keyframes(WING_SPREAD, progress),
-    inhale: keyframes(INHALE, progress),
     heave: keyframes(HEAVE, progress),
     focus: keyframes(FOCUS, progress),
     light: lerp(lerp(0.4, 1, wake), 0.75, sleep),
-    eyes: smoothstep(0.17, 0.29, progress),
+    reveal: EASE.inOutSine(clamp01((progress - PHASES.reveal[0]) / (PHASES.reveal[1] - PHASES.reveal[0]))),
+    eyes: smoothstep(0, 0.012, progress),
     eyelid: keyframes(EYELID, progress),
     fire: keyframes(BREATH, progress),
+    power: keyframes(POWER, progress),
     aim,
     sweep,
     cracks,
     phrase: keyframes(PHRASE, progress),
     rose,
-    smoke: lerp(lerp(0.35, 0, wake), 1, smokePhase),
+    smoke: lerp(lerp(0.35 * smoothstep(PHASES.reveal[0], PHASES.reveal[1], progress), 0, wake), 1, smokePhase),
     tail: lerp(lerp(0.45, 0.25, wake), 1, sleep),
     launchReady: progress >= PHASES.launchReady,
   };

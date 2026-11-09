@@ -8,7 +8,7 @@ const model = buildDragon();
 
 function poseAt(progress: number, aim = new Vector3(), aimWeight = 0, time = 0): Pose {
   const state = sequenceAt(progress);
-  const pose: Pose = { time, rise: [], stand: [], coil: [], thrust: [], awake: state.wake * (1 - state.sleep), fire: state.fire, heave: state.heave, aim, aimWeight, jaw: 0, wingFold: state.wingFold, wingSpread: state.wingSpread };
+  const pose: Pose = { time, rise: [], stand: [], thrust: [], awake: state.wake * (1 - state.sleep), fire: state.fire, heave: state.heave, aim, aimWeight, jaw: 0, wingFold: state.wingFold, wingSpread: state.wingSpread };
   bodyPose(pose, progress);
   return pose;
 }
