@@ -50,10 +50,9 @@ export function IssuerConsole() {
   return (
     <div className="flex flex-col gap-5" data-issuer-console>
       <header>
-        <p className="text-[12px] text-ember-400 font-medium">Issuer console</p>
-        <h1 className="mt-1 text-[22px] text-ink-50 font-semibold tracking-tight">Buy back locked allocations at one fair price</h1>
-        <p className="mt-1 max-w-3xl text-[13px] text-ink-400">
-          Create the class, put the cohort&apos;s streams in custody, distribute units, then launch and fund a Tender: a public budget and max price, sealed asks, one uniform clearing price and a public report. <LearnMore topic="issuer" />
+        <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Issuer console</h1>
+        <p className="mt-1 max-w-3xl text-[14px] text-ink-300">
+          Buy back locked allocations at one fair price. Create the class, put the cohort&apos;s streams in custody, distribute units, then launch and fund a Tender: a public budget and max price, sealed asks, one uniform clearing price and a public report. <LearnMore topic="issuer" />
         </p>
       </header>
       <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">

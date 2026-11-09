@@ -241,19 +241,18 @@ The deposit is three engine calls: attribute, move, register. A deposit address 
 
 ### 8.1 Visual direction
 
-Dark, ember accent, dithered voxel aesthetic ("dither / cubism, Minecraft-like"). Palette: near-black background, warm greys, ember orange and rose red accents; ordered (Bayer) dithering for gradients, glows and illustrations; voxel iconography. Typography: a pixel or bitmap display face for headings (open license, e.g. Departure Mono or Pixelify Sans, pick after testing legibility), a clean sans for body, a mono face for numbers. The app itself is clean and data-dense (reference quality: Hyperliquid, Linear, Nasdaq Private Market); the dither and voxel language is used for accents, empty states, illustrations and loading states, never at the cost of legibility. Target viewport: 1470 px wide MacBook; fully responsive down to 375 px.
+Dark, ember accent, dithered voxel aesthetic ("dither / cubism, Minecraft-like"). Palette: near-black background, warm greys, ember orange and rose red accents; ordered (Bayer) dithering for gradients, glows and illustrations; voxel iconography. Typography: the pixel face (Departure Mono, open license) is a visual only: the wordmark and the landing scene. Every piece of interface text (headings, labels, buttons, badges, tables, body) uses one clean sans (Geist Sans) in sentence case, numbers use its tabular figures, and addresses and hashes use Geist Mono. Layout and controls follow the conventions of the large apps users already know (Aave, Uniswap, Stripe): page title and description on the left with actions on the right, one Connect button top right, segmented controls and dropdowns for filters, the action panel beside the content. The app itself is clean and data-dense (reference quality: Hyperliquid, Linear, Nasdaq Private Market); the dither and voxel language is used for accents, empty states, illustrations and loading states, never at the cost of legibility. Target viewport: 1470 px wide MacBook; fully responsive down to 375 px.
 
 ### 8.2 Landing (scroll-driven, three.js + post-processing dither)
 
 A pinned scroll sequence (~400 vh), rendered in WebGL with a final ordered-dither pass; the phrase is rendered in the scene so it receives the same lighting and dithering (accessible DOM copy for screen readers and SEO).
 
-1. Black screen. The phrase "What was locked, rose." sits in deep shadow, barely legible. Only the letters of "rose" smolder like embers.
-2. Scrolling, a voxel dragon slowly emerges behind the phrase, eyes first.
-3. The dragon breathes fire in pulses driven by scroll. The fire washes over the phrase; each letter lights up as the flame reaches it, and "rose" glows brighter and brighter.
-4. The phrase grows and leaves through the top of the screen.
-5. The dragon falls back asleep: only smoke drifting from its mouth and the tip of its tail still glowing.
-6. Hovering the dragon or the glowing tail reveals a "Launch app" button (also reachable by keyboard focus, always visible on touch devices, and in the top navigation).
-7. Below the sequence: a short "How rose works" strip (Tender, Exit, Advance in one line each), live protocol stats read from the contract, and a footer with Docs, GitHub, Contracts, Status.
+1. Black screen. A voxel dragon sleeps curled at the bottom of the frame. Above it the phrase "What was locked, rose." sits in deep shadow, barely legible; only the letters of "rose" smolder like embers.
+2. Scrolling zooms the camera in on the sleeping dragon.
+3. It wakes and breathes fire upward, the jet sweeping from left to right twice.
+4. At the same time the whole phrase grows and rises toward the top, cracks (glowing fissures, then voxel chunks breaking off as embers) and disappears, "rose" included.
+5. The dragon stops, falls back asleep (smoke drifting from its nostrils, the tip of its tail still glowing) and the camera pulls back until it is small in the background.
+6. The landing ends on that screen alone. Hovering the dragon or the glowing tail reveals a "Launch app" button (also reachable by keyboard focus, always visible on touch devices). A thin top bar (logo, navigation, Docs, "Launch app") stays visible throughout; the explanations live in the app and the docs.
 
 Requirements: 60 fps on an M-series MacBook, adaptive quality on weaker GPUs, `prefers-reduced-motion` shows a static final frame with the button, the voxel dragon is authored by us (procedural or hand-authored voxel data, no third-party model licensing issue), total landing payload kept small and lazy-loaded.
 

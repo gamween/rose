@@ -91,7 +91,7 @@ export function WalletSummary() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Portfolio</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Portfolio</h1>
           <p className="mt-1 text-[13px] text-ink-400">
             Your wallets on the three testnets and what they hold. {engine ? `Engine: ${engine}.` : "The engine is not deployed yet; units and rounds appear here once it is."}{" "}
             <LearnMore topic="concepts" />

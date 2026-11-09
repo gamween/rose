@@ -29,7 +29,7 @@ export function DepositWizard() {
     <div className="flex flex-col gap-6" data-deposit-wizard>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Deposit a position</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Deposit a position</h1>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
             Move a locked position into rose custody once. The stream stays on its chain; the engine proves it through the MPC network and mints units of its class to your NEAR account. <LearnMore topic="custody" />
           </p>

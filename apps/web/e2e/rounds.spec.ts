@@ -61,7 +61,7 @@ test.describe("rounds with a mocked engine", () => {
     await page.getByRole("button", { name: "Tender", exact: true }).click();
     await expect(cards).toHaveCount(2, { timeout: 20_000 });
     await expect(cards.first()).toContainText("Budget");
-    await page.getByRole("button", { name: "Settled", exact: true }).click();
+    await page.getByRole("combobox", { name: "Status" }).selectOption("Settled");
     await expect(cards).toHaveCount(1);
     await page.getByRole("button", { name: "Advance", exact: true }).click();
     await expect(page.getByText("No round matches these filters")).toBeVisible();

@@ -188,10 +188,9 @@ export function PricesPage({ deployment }: { deployment: Deployment }) {
 
   return (
     <div className="py-2 lg:py-4" aria-busy={state.status === "loading"} data-prices>
-      <header className="mb-8">
-        <p className="text-[12px] text-ember-400 font-medium">Clearing prices</p>
-        <h1 className="mt-2 text-[28px] leading-tight text-ink-50 md:text-[34px] font-semibold tracking-tight">Prices</h1>
-        <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-300">
+      <header className="mb-6">
+        <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Prices</h1>
+        <p className="mt-1 max-w-3xl text-[14px] text-ink-300">
           What locked tokens actually cleared at, per class and against the lock left at settlement. Every point is a settled sealed round.
         </p>
       </header>

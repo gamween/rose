@@ -207,7 +207,7 @@ export function AdvancePage() {
     <div className="flex flex-col gap-6" data-advance>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Advance</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Advance</h1>
           <p className="mt-1 text-[13px] text-ink-400">
             A holder sells a senior claim on the first K tokens that will unlock from X of their units; funders bid sealed per claimed token. No oracle, no liquidation: the claim is repaid by the schedule. <LearnMore topic="concepts" anchor="advance" />
           </p>

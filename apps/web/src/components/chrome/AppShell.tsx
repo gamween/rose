@@ -122,8 +122,9 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
               data-activity
               className="hidden size-8 items-center justify-center rounded-md border border-ink-700 bg-ink-850 text-ink-200 transition-colors hover:border-ink-500 hover:text-ink-50 sm:flex"
             >
-              <svg viewBox="0 0 8 8" width="12" height="12" shapeRendering="crispEdges" aria-hidden>
-                <path d="M0 4h2v1H0zM2 2h1v3H2zM3 1h1v6H3zM4 3h1v3H4zM5 0h1v7H5zM6 4h2v1H6z" fill="currentColor" />
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 7v5l3 2" />
+                <circle cx="12" cy="12" r="9" />
               </svg>
             </button>
             <button
@@ -134,6 +135,10 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
               data-palette
               className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 md:flex"
             >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
               <span className="hidden lg:inline">Search</span>
               <kbd className="text-[11px] text-ink-400 font-medium">⌘K</kbd>
             </button>

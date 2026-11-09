@@ -12,6 +12,7 @@ import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { cn } from "@/lib/cn";
 import { nearAccountUrl } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { ClearingChart } from "./ClearingChart";
@@ -214,7 +215,7 @@ function LoadedRound({ id }: { id: bigint }) {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Round #{round.roundId.toString()}</h1>
+            <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Round #{round.roundId.toString()}</h1>
             <KindBadge kind={round.kind} />
             <StatusBadge status={round.status} />
             {round.cancelReason ? <span className="text-[11px] text-danger-400 font-medium">{round.cancelReason === "NoCrossing" ? "no crossing" : round.cancelReason === "NoKey" ? "no key" : round.cancelReason === "Empty" ? "no orders" : "withdrawn"}</span> : null}
@@ -242,12 +243,14 @@ function LoadedRound({ id }: { id: bigint }) {
           <Curves detail={detail} />
           <FillsTable detail={detail} onChanged={changed} />
           <SealedBook detail={detail} />
+          {bidding ? <SettlementPanel detail={detail} /> : null}
         </div>
-        <div className="flex min-w-0 flex-col gap-4">
+        {/* While bidding is open the order form stays in view; afterwards the side column holds the verification and payouts. */}
+        <div className={cn("flex min-w-0 flex-col gap-4", bidding && "lg:sticky lg:top-[72px]")}>
           <MyOrders detail={detail} onChanged={changed} />
           {bidding ? <OrderForm detail={detail} nowMs={clockMs} onPlaced={changed} /> : null}
           {terminal || round.status === "Clearing" || round.status === "Revealing" ? <VerifyPanel detail={detail} /> : null}
-          <SettlementPanel detail={detail} />
+          {bidding ? null : <SettlementPanel detail={detail} />}
         </div>
       </div>
     </div>

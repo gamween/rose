@@ -275,7 +275,7 @@ export function TenderResults({ roundId, printable }: { roundId: string; printab
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <p className="text-[12px] text-ember-400 font-medium">Tender report</p>
-        <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Round #{roundId}</h1>
+        <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Round #{roundId}</h1>
         {state.status === "ok" ? (
           <p className="mt-1 text-[13px] text-ink-400">
             {state.value.symbol} · {state.value.cls.chain} · {venueLabel(state.value.round.venue, state.value.symbols)} · {state.value.round.status}

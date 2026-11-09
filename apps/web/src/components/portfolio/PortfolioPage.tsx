@@ -119,7 +119,7 @@ export function PortfolioPage() {
     <div className="flex flex-col gap-6" data-portfolio>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Portfolio</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Portfolio</h1>
           <p className="mt-1 text-[13px] text-ink-400">
             Units per class, unlock timelines, open orders, liens, claims and history of{" "}
             {account ? (

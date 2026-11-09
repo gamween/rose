@@ -23,19 +23,17 @@ import { EMPTY_FILTER, useRoundsList, type RoundsFilterState } from "./useRounds
 const KINDS: RoundKind[] = ["Tender", "Exit", "Advance"];
 const STATUSES: RoundStatus[] = ["Open", "KeyRequested", "Revealing", "Clearing", "Settled", "Cancelled", "Scheduled"];
 
-function Chip({ active, onClick, children, count }: { active: boolean; onClick: () => void; children: React.ReactNode; count?: number }) {
+const selectClass = "h-8 rounded-md border border-ink-700 bg-ink-900 pl-2.5 pr-8 text-[13px] text-ink-100 hover:border-ink-600 focus:border-ember-500 focus:outline-none";
+
+function Segment({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={cn(
-        "flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition-colors",
-        active ? "border-ember-500 bg-ember-700/25 text-ember-200" : "border-ink-700 bg-ink-850 text-ink-300 hover:border-ink-500 hover:text-ink-100",
-      )}
+      className={cn("h-7 rounded-md px-3 text-[13px] font-medium transition-colors", active ? "bg-ink-750 text-ink-50" : "text-ink-400 hover:text-ink-100")}
     >
       {children}
-      {count !== undefined ? <span className="tabular text-[11px] text-ink-400">{count}</span> : null}
     </button>
   );
 }
@@ -81,7 +79,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
     <div className="flex flex-col gap-5" data-rounds-page>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Rounds</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Rounds</h1>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
             Sealed, uniform-price auctions over locked token classes. Every transition is a public method: whoever cares about the outcome advances the round. <LearnMore topic="sealedRounds" />
           </p>
@@ -102,46 +100,49 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
         <NotDeployedState />
       ) : (
         <>
-          <div className="flex flex-col gap-2 rounded-lg border border-ink-750 bg-ink-850 p-3" role="group" aria-label="Filters">
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
-              <div className="flex flex-wrap items-center gap-1.5" data-filter-group="type">
-                <span className="mr-1 text-[11px] text-ink-400 font-medium">Type</span>
-                <Chip active={filter.kind === ""} onClick={() => setFilter((f) => ({ ...f, kind: "" }))}>
-                  All
-                </Chip>
-                {KINDS.map((kind) => (
-                  <Chip key={kind} active={filter.kind === kind} onClick={() => setFilter((f) => ({ ...f, kind: f.kind === kind ? "" : kind }))}>
-                    {KIND_LABEL[kind]}
-                  </Chip>
-                ))}
-              </div>
-              <span className="mx-1 hidden h-4 w-px bg-ink-700 sm:block" aria-hidden />
-              <div className="flex flex-wrap items-center gap-1.5" data-filter-group="status">
-                <span className="mr-1 text-[11px] text-ink-400 font-medium">Status</span>
-                <Chip active={filter.status === ""} onClick={() => setFilter((f) => ({ ...f, status: "" }))}>
-                  Any
-                </Chip>
-                {STATUSES.map((status) => (
-                  <Chip key={status} active={filter.status === status} onClick={() => setFilter((f) => ({ ...f, status: f.status === status ? "" : status }))}>
-                    {STATUS_LABEL[status]}
-                  </Chip>
-                ))}
-              </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between" role="group" aria-label="Filters">
+            <div className="flex w-fit items-center gap-0.5 rounded-lg border border-ink-750 bg-ink-900 p-0.5" data-filter-group="type">
+              <Segment active={filter.kind === ""} onClick={() => setFilter((f) => ({ ...f, kind: "" }))}>
+                All
+              </Segment>
+              {KINDS.map((kind) => (
+                <Segment key={kind} active={filter.kind === kind} onClick={() => setFilter((f) => ({ ...f, kind: f.kind === kind ? "" : kind }))}>
+                  {KIND_LABEL[kind]}
+                </Segment>
+              ))}
             </div>
-            {data && data.classes.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-1 text-[11px] text-ink-400 font-medium">Class</span>
-                <Chip active={filter.classId === ""} onClick={() => setFilter((f) => ({ ...f, classId: "" }))}>
-                  All
-                </Chip>
-                {data.classes.map((cls) => (
-                  <Chip key={cls.classId} active={filter.classId === cls.classId} onClick={() => setFilter((f) => ({ ...f, classId: f.classId === cls.classId ? "" : cls.classId }))}>
-                    {classShortLabel(cls, symbolOf(data.symbols, cls))}
-                    <span className="text-ink-400"> · until {formatDate(scheduleEndSecs(cls) * 1000)}</span>
-                  </Chip>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="Status"
+                value={filter.status}
+                onChange={(event) => setFilter((f) => ({ ...f, status: event.target.value as RoundStatus | "" }))}
+                className={selectClass}
+                data-filter-group="status"
+              >
+                <option value="">All statuses</option>
+                {STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {STATUS_LABEL[status]}
+                  </option>
                 ))}
-              </div>
-            ) : null}
+              </select>
+              {data && data.classes.length > 0 ? (
+                <select
+                  aria-label="Class"
+                  value={filter.classId}
+                  onChange={(event) => setFilter((f) => ({ ...f, classId: event.target.value }))}
+                  className={cn(selectClass, "max-w-[320px]")}
+                  data-filter-group="class"
+                >
+                  <option value="">All classes</option>
+                  {data.classes.map((cls) => (
+                    <option key={cls.classId} value={cls.classId}>
+                      {classShortLabel(cls, symbolOf(data.symbols, cls))} · until {formatDate(scheduleEndSecs(cls) * 1000)}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
           </div>
 
           {list.state.status === "loading" ? <LoadingCards /> : null}
