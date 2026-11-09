@@ -68,8 +68,8 @@ const TAN_HALF_FOV = Math.tan((FOV * Math.PI) / 360);
 /** The phrase lives in a plane in front of the dragon, the fire just behind it so it never covers the letters. */
 const TEXT_Z = 60;
 const FIRE_Z = 50;
-/** How far the light spreading from the open eye reaches once the whole dragon shows (world units). */
-const REVEAL_REACH = 170;
+/** The fire lights the dragon from this share of the way from the mouth to the jet target: the head, neck and chest, not the legs and tail. */
+const FIRE_LIGHT_AT = 0.2;
 /** Camera shake while the second, stronger pass of the jet pours (share of the frame height). */
 const SHAKE = 0.0045;
 /** Rate (1/s) at which the point the head aims at follows its goal. */
@@ -99,11 +99,9 @@ type Fit = { left: number; right: number; bottom: number; top: number; elevation
 
 /** Composition per orientation. */
 type Layout = {
-  /** The opening frame: the dragon asleep, small, under the phrase. */
-  open: Shot;
   /**
-   * The dragon at its full size, the largest it ever appears: the camera closes in to it asleep
-   * and is there as it wakes, whole in this box, under the phrase.
+   * The dragon at its full size, the largest it ever appears: the camera is there from the start,
+   * close on the sleeping ball, and as it wakes, whole in this box, under the phrase.
    */
   full: Fit;
   /**
@@ -125,7 +123,6 @@ type Layout = {
 };
 
 const LANDSCAPE: Layout = {
-  open: { share: 0.16, x: 0, y: -0.3, elevation: 0.16 },
   full: { left: -0.6, right: 0.6, bottom: -0.86, top: 0, elevation: 0.12 },
   stand: { left: -0.84, right: 0.84, bottom: -0.95, top: 0.34, elevation: 0.04 },
   far: { share: 0.14, x: 0, y: -0.14, elevation: 0.2 },
@@ -137,7 +134,6 @@ const LANDSCAPE: Layout = {
 };
 
 const PORTRAIT: Layout = {
-  open: { share: 0.3, x: 0, y: -0.3, elevation: 0.16 },
   full: { left: -0.9, right: 0.9, bottom: -0.86, top: -0.05, elevation: 0.12 },
   stand: { left: -0.92, right: 0.92, bottom: -0.92, top: 0.3, elevation: 0.04 },
   far: { share: 0.28, x: 0, y: -0.12, elevation: 0.2 },
@@ -259,7 +255,7 @@ async function posedBounds(model: DragonModel, rig: DragonRig, ranges: readonly 
 const BOUNDS_STRIDE = 3;
 
 /** While the camera holds the full-size frame: asleep, waking and starting to uncurl. */
-const LYING_RANGES = [[PHASES.dolly[1], 0.23]] as const;
+const LYING_RANGES = [[0, 0.23]] as const;
 /** While the camera moves to the standing frame and holds it: lifting the neck, rearing, breathing fire, lying back down and curling up. */
 const STANDING_RANGES = [[0.25, PHASES.retreat[0]]] as const;
 
@@ -304,7 +300,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     uBreathPhase: { value: 0 },
     uBreathDepth: { value: 0.01 },
     uEyes: { value: 0 },
-    uReveal: { value: new Vector4() },
+    uShown: { value: 0 },
     uEyelid: { value: 0 },
     uFire: { value: 0 },
     uTail: { value: 0 },
@@ -360,10 +356,10 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   const aim = new Vector3();
   const pose = emptyPose();
   let aimReady = false;
-  const shot: Shot = { ...LANDSCAPE.open };
-  const shotScratch: Shot = { ...LANDSCAPE.open };
-  const fullShot: Shot = { ...LANDSCAPE.open };
-  const standShot: Shot = { ...LANDSCAPE.open };
+  const shot: Shot = { ...LANDSCAPE.far };
+  const shotScratch: Shot = { ...LANDSCAPE.far };
+  const fullShot: Shot = { ...LANDSCAPE.far };
+  const standShot: Shot = { ...LANDSCAPE.far };
   let fireAccumulator = 0;
   let smokeAccumulator = 0;
   let sparkAccumulator = 0;
@@ -380,7 +376,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   const mouth = new Vector3();
   const jetDirection = new Vector3(1, 0, 0);
   const jetTarget = new Vector3();
-  const flameMid = new Vector3();
+  const firePoint = new Vector3();
   const headLight = new Vector3();
   const headLightColor = new Vector3(0.75, 0.42, 0.3);
   const aimGoal = new Vector3();
@@ -483,8 +479,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   /** The camera is a pure function of the (spring-smoothed) progress, plus the shake of the second pass of the jet. */
   function updateCamera(): void {
     layout = width / height < 1 ? PORTRAIT : LANDSCAPE;
-    mixShot(layout.open, fullShot, state.dolly, shotScratch);
-    mixShot(shotScratch, standShot, state.frame, shotScratch);
+    mixShot(fullShot, standShot, state.frame, shotScratch);
     mixShot(shotScratch, layout.far, state.retreat, shot);
     const aspect = width / height;
     const distance = frame.width / (shot.share * 2 * TAN_HALF_FOV * aspect);
@@ -705,10 +700,10 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     fire.update(dt, time.value, 0.45, 5 * unit, 9 * unit, { z: FIRE_Z, y: jetTarget.y, stiffness: 14 });
     smoke.update(dt, time.value, 0.3, 0.35, 1.4);
 
-    flameMid.copy(mouth).lerp(jetTarget, 0.6);
+    firePoint.copy(mouth).lerp(jetTarget, FIRE_LIGHT_AT);
     const [firePos, tailPos, rosePos] = lightUniforms.uLightPos.value;
     const [fireColor, tailColor, roseColor, fillColor] = lightUniforms.uLightColor.value;
-    firePos!.copy(flameMid);
+    firePos!.copy(firePoint);
     fireColor!.set(1.3, 0.5, 0.14).multiplyScalar(state.fire * 1.7 * (0.6 + 0.4 * power));
     rig.transform(anchors.tailTip, anchors.tailTipBone, tailPos!).add(scratch.set(0, 4, 3));
     tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * state.reveal * (0.7 + 0.5 * state.sleep));
@@ -726,10 +721,9 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     lightUniforms.uKeyColor.value.set(0.95, 0.62, 0.5).multiplyScalar(state.light * (1 - 0.35 * state.sleep) * (0.85 + 0.15 * Math.sin(time.value * 0.8)));
     lightUniforms.uRimColor.value.set(1.6, 0.7, 0.9).lerp(scratch.set(1.3, 0.95, 1.2), state.sleep).multiplyScalar(state.light * (1 + 0.25 * state.sleep));
 
-    // Alone in the dark, the opening eye glows hotter; the light then spreads from it over the body.
+    // Alone in the dark, the opening eye glows hotter; then the light comes up on the whole body.
     dragonUniforms.uEyes.value = state.eyes * (1 + 1.6 * (1 - state.reveal));
-    rig.transform(anchors.eye, HEAD_BONE, scratch);
-    dragonUniforms.uReveal.value.set(scratch.x, scratch.y, scratch.z, REVEAL_REACH * state.reveal ** 2);
+    dragonUniforms.uShown.value = state.reveal;
     dragonUniforms.uEyelid.value = state.eyelid;
     dragonUniforms.uFire.value = state.fire * (0.7 + 0.3 * power);
     dragonUniforms.uTail.value = state.tail;

@@ -80,7 +80,7 @@ uniform float uBackGlow;
 uniform vec4 uVeilBox;
 uniform vec2 uVeilSoft;
 uniform float uVeil;
-uniform vec4 uReveal;
+uniform float uShown;
 varying vec3 vColor;
 varying vec4 vData;
 varying vec3 vWorld;
@@ -115,7 +115,9 @@ void main() {
   } else if (kind < 3.5) {
     emissive = vColor * uTail * (0.25 + 1.3 * local) * (0.82 + 0.18 * sin(uTime * 1.7 + local * 3.0));
   } else if (kind < 4.5) {
-    emissive = vColor * (0.08 + uFire * 1.2 + uTail * 0.15) * flicker;
+    // Scale cracks flare with the fire only near it (head, neck and chest), never down the legs and tail.
+    vec3 toFire = vWorld - uLightPos[0];
+    emissive = vColor * (0.08 + uFire * 1.2 * exp(-dot(toFire, toFire) / 2500.0) + uTail * 0.15) * flicker;
   } else if (kind < 5.5) {
     emissive = vColor * uBackGlow;
   } else {
@@ -123,13 +125,8 @@ void main() {
   }
   float shadowed = 1.0 - uVeil * veilMask();
   if (kind < 0.5 || kind > 4.5) emissive *= shadowed;
-  // The dragon shows only within uReveal.w of the open eye (uReveal.xyz), an ember glow running
-  // along the edge of the light as it spreads; an open eye shows wherever it is.
-  float dist = length(vWorld - uReveal.xyz);
-  float shown = max(1.0 - smoothstep(uReveal.w - 14.0, uReveal.w, dist), open);
-  float edge = (dist - uReveal.w + 7.0) / 5.0;
-  vec3 ember = vec3(0.55, 0.13, 0.03) * exp(-edge * edge) * step(0.5, uReveal.w);
-  gl_FragColor = vec4((lit * shadowed + emissive) * shown + ember, 0.45);
+  // The light comes up on the dragon by uShown; an open eye shows from the start.
+  gl_FragColor = vec4((lit * shadowed + emissive) * max(uShown, open), 0.45);
 }
 `;
 

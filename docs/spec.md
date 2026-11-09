@@ -245,13 +245,13 @@ Dark, ember accent, dithered voxel aesthetic ("dither / cubism, Minecraft-like")
 
 ### 8.2 Landing (scroll-driven, three.js + post-processing dither)
 
-A pinned scroll sequence (~400 vh), rendered in WebGL with a final ordered-dither pass; the phrase is rendered in the scene so it receives the same lighting and dithering (accessible DOM copy for screen readers and SEO).
+A pinned scroll sequence (~500 vh), rendered in WebGL with a final ordered-dither pass; the phrase is rendered in the scene so it receives the same lighting and dithering (accessible DOM copy for screen readers and SEO).
 
-1. Black screen. A voxel dragon sleeps curled into a ball at the bottom of the frame, invisible in the dark: the first thing the visitor sees on scrolling is its eye opening, then the light spreads from it over the body. Above it the phrase "What was locked, rose." sits in deep shadow, barely legible; only the letters of "rose" smolder like embers.
-2. Scrolling zooms the camera in on the sleeping dragon.
+1. Black screen. A voxel dragon sleeps curled into a ball in close-up, invisible in the dark: the first thing the visitor sees on scrolling is its eye opening, then its body fades in. Above it the phrase "What was locked, rose." sits in deep shadow, barely legible; only the letters of "rose" smolder like embers.
+2. The camera does not zoom in; it only widens to frame the dragon as it rises, and pulls back at the end.
 3. It wakes slowly, then rears up to its prime: standing on its hind legs, both wings spread high, neck arched. The fire starts as it reaches the top of its rear: one hard, sustained jet upward that sweeps from left to right twice, the second pass much stronger than the first.
 4. The fire drives the whole phrase, "rose" included, up and out through the top of the screen; the letters crack and shed embers as they rise but stay whole until they are off screen.
-5. The fire stops, the dragon calms down, folds its wings, lowers itself back onto all fours and falls back asleep (smoke drifting from its nostrils, the tip of its tail still glowing) and the camera pulls back until it is small in the background.
+5. The fire stops at the right end of the second pass and, in the same motion, the dragon lowers itself back onto all fours, folding its wings, curls up and falls back asleep (smoke drifting from its nostrils, the tip of its tail still glowing) and the camera pulls back until it is small in the background.
 6. The sequence ends on that screen. Hovering the dragon or the glowing tail reveals a "Launch app" button (also reachable by keyboard focus, always visible on touch devices). The landing has one goal: its top bar holds only the logo and "Launch app". Below the sequence, a reference footer links to the docs (overview, guides, glossary, contracts, SDK, security, status, and GitHub once the repository is public); it holds no app action.
 
 Requirements: 60 fps on an M-series MacBook, adaptive quality on weaker GPUs, `prefers-reduced-motion` shows a static final frame with the button, the voxel dragon is authored by us (procedural or hand-authored voxel data, no third-party model licensing issue), total landing payload kept small and lazy-loaded.
