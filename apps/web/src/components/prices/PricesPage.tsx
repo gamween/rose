@@ -70,7 +70,7 @@ function LoadingGrid() {
 function TokenFilter({ groups, value, onChange }: { groups: TokenGroup[]; value: string; onChange: (key: string) => void }) {
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Token">
-      <span className="font-display text-[11px] uppercase tracking-wide text-ink-400">Token</span>
+      <span className="text-[12px] text-ink-400 font-medium">Token</span>
       {groups.map((group) => (
         <button
           key={group.tokenKey}
@@ -133,7 +133,7 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
         />
       </dl>
       <section aria-labelledby="price-history" className="flex flex-col gap-4">
-        <h2 id="price-history" className="font-display text-[16px] text-ink-50">
+        <h2 id="price-history" className="text-[16px] text-ink-50 font-semibold">
           Clearing price history per class
         </h2>
         <div className="grid gap-4 md:grid-cols-2">
@@ -148,7 +148,7 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
         </div>
       </section>
       <section aria-labelledby="lock-scatter" className="flex flex-col gap-4">
-        <h2 id="lock-scatter" className="font-display text-[16px] text-ink-50">
+        <h2 id="lock-scatter" className="text-[16px] text-ink-50 font-semibold">
           Price versus remaining lock
         </h2>
         <div className="rounded-lg border border-ink-750 bg-ink-850 p-4" data-lock-scatter>
@@ -189,8 +189,8 @@ export function PricesPage({ deployment }: { deployment: Deployment }) {
   return (
     <div className="py-2 lg:py-4" aria-busy={state.status === "loading"} data-prices>
       <header className="mb-8">
-        <p className="font-display text-[11px] uppercase tracking-wide text-ember-400">Clearing prices</p>
-        <h1 className="mt-2 font-display text-[28px] leading-tight text-ink-50 md:text-[34px]">Prices</h1>
+        <p className="text-[12px] text-ember-400 font-medium">Clearing prices</p>
+        <h1 className="mt-2 text-[28px] leading-tight text-ink-50 md:text-[34px] font-semibold tracking-tight">Prices</h1>
         <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-300">
           What locked tokens actually cleared at, per class and against the lock left at settlement. Every point is a settled sealed round.
         </p>

@@ -29,7 +29,7 @@ export function DepositWizard() {
     <div className="flex flex-col gap-6" data-deposit-wizard>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[22px] text-ink-50">Deposit a position</h1>
+          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Deposit a position</h1>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
             Move a locked position into rose custody once. The stream stays on its chain; the engine proves it through the MPC network and mints units of its class to your NEAR account. <LearnMore topic="custody" />
           </p>
@@ -38,7 +38,7 @@ export function DepositWizard() {
           {nearAccount ? (
             <>
               <span>Units go to</span>
-              <a href={nearAccountUrl(nearAccount)} target="_blank" rel="noreferrer" className="tabular text-ink-50 underline-offset-2 hover:underline">
+              <a href={nearAccountUrl(nearAccount)} target="_blank" rel="noreferrer" className="font-mono text-ink-50 underline-offset-2 hover:underline">
                 {nearAccount}
               </a>
               {wallets.near.kind === "demo" ? <Badge tone="ember">Demo</Badge> : null}
@@ -55,13 +55,13 @@ export function DepositWizard() {
       </header>
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-display text-[11px] uppercase tracking-wide text-ink-400">1. Where does the position live?</h2>
+        <h2 className="text-[12px] text-ink-400 font-medium">1. Where does the position live?</h2>
         <ChainPicker value={chain} onChange={setChain} deployed={notDeployed} />
       </section>
 
       {chain ? (
         <section className="flex flex-col gap-3" data-chain-section={chain}>
-          <h2 className="font-display text-[11px] uppercase tracking-wide text-ink-400">2. Pick an eligible stream and deposit it</h2>
+          <h2 className="text-[12px] text-ink-400 font-medium">2. Pick an eligible stream and deposit it</h2>
           {notDeployed[chain] ? (
             <p className="rounded-md border border-warning-400/40 bg-warning-400/10 px-4 py-3 text-[13px] text-warning-400">{notDeployed[chain]} Deposits open as soon as the addresses are configured; everything else on this page already reads live.</p>
           ) : null}

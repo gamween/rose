@@ -104,7 +104,7 @@ function Curves({ detail }: { detail: RoundDetail }) {
   return (
     <section aria-label="Supply and demand" className="rounded-lg border border-ink-750 bg-ink-850" data-curves>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Supply and demand</h3>
+        <h3 className="text-[13px] text-ink-100 font-semibold">Supply and demand</h3>
         <p className="mt-0.5 text-[12px] text-ink-400">
           {clearing ? `Cleared where the curves meet, at ${formatUsdc(clearing.price)} USDC.` : noCrossing ? "The curves never meet: no price trades a positive volume." : `${String(opened)} of ${String(bids.length)} orders are open; the curves firm up as the book opens.`}
         </p>
@@ -214,10 +214,10 @@ function LoadedRound({ id }: { id: bigint }) {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-[22px] text-ink-50">Round #{round.roundId.toString()}</h1>
+            <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Round #{round.roundId.toString()}</h1>
             <KindBadge kind={round.kind} />
             <StatusBadge status={round.status} />
-            {round.cancelReason ? <span className="font-display text-[10px] uppercase tracking-wide text-danger-400">{round.cancelReason === "NoCrossing" ? "no crossing" : round.cancelReason === "NoKey" ? "no key" : round.cancelReason === "Empty" ? "no orders" : "withdrawn"}</span> : null}
+            {round.cancelReason ? <span className="text-[11px] text-danger-400 font-medium">{round.cancelReason === "NoCrossing" ? "no crossing" : round.cancelReason === "NoKey" ? "no key" : round.cancelReason === "Empty" ? "no orders" : "withdrawn"}</span> : null}
           </div>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
             {KIND_BLURB[round.kind]} {symbol ? `Class ${symbol} on ${cls.chain}.` : ""} <LearnMore topic="sealedRounds" />

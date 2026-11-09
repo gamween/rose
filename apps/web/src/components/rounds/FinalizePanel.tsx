@@ -137,7 +137,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
     <section aria-label="Opening progress" className="rounded-lg border border-ink-750 bg-ink-850" data-finalize>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div>
-          <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Opening progress</h3>
+          <h3 className="text-[13px] text-ink-100 font-semibold">Opening progress</h3>
           <p className="mt-0.5 text-[12px] text-ink-400">
             <span className="tabular text-ink-100">
               {String(done)} / {String(total)}
@@ -207,13 +207,13 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {step.status === "opened" ? (
-                      <a href={txLinks("near", step.hash)[0]?.href} target="_blank" rel="noreferrer" className="font-display text-[10px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+                      <a href={txLinks("near", step.hash)[0]?.href} target="_blank" rel="noreferrer" className="text-[11px] text-ember-300 underline-offset-2 hover:underline font-medium">
                         tx ↗
                       </a>
                     ) : null}
                     <span
                       className={cn(
-                        "font-display text-[10px] uppercase tracking-wide",
+                        "text-[11px] font-medium",
                         step.status === "opened" && "text-success-400",
                         step.status === "failed" && "text-danger-400",
                         step.status === "unopenable" && "text-danger-400",

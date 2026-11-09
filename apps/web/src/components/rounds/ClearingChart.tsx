@@ -138,7 +138,7 @@ export function ClearingChart({ curves, decimals, kind, clearing, noCrossing, cl
           ) : null}
           <li className="text-ink-400">quantities in tokens</li>
         </ul>
-        <button type="button" className="font-display uppercase tracking-wide text-ink-400 underline-offset-2 hover:text-ink-100 hover:underline" onClick={() => setView((v) => (v === "chart" ? "table" : "chart"))} aria-pressed={view === "table"}>
+        <button type="button" className="text-ink-400 underline-offset-2 hover:text-ink-100 hover:underline font-medium" onClick={() => setView((v) => (v === "chart" ? "table" : "chart"))} aria-pressed={view === "table"}>
           {view === "chart" ? "Table view" : "Chart view"}
         </button>
       </div>
@@ -160,7 +160,7 @@ export function ClearingChart({ curves, decimals, kind, clearing, noCrossing, cl
                 <TR key={index} className={holds ? "bg-ember-700/10" : undefined}>
                   <TD className="tabular">
                     {formatUsdc(step.from)} – {index === curves.steps.length - 1 ? "∞" : formatUsdc(step.to - 1n)}
-                    {holds ? <span className="ml-2 font-display text-[10px] uppercase tracking-wide text-ember-300">P* here</span> : null}
+                    {holds ? <span className="ml-2 text-[11px] text-ember-300 font-medium">P* here</span> : null}
                   </TD>
                   <TD numeric>{formatQty(step.demand, decimals)}</TD>
                   <TD numeric>{formatQty(step.supply, decimals)}</TD>

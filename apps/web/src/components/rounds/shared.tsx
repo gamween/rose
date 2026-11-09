@@ -89,7 +89,7 @@ export function LoadingCards({ count = 6 }: { count?: number }) {
 export function Param({ label, children, className, mono = true }: { label: ReactNode; children: ReactNode; className?: string; mono?: boolean }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
-      <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{label}</dt>
+      <dt className="text-[11px] text-ink-400 font-medium">{label}</dt>
       <dd className={cn("text-[13px] text-ink-100 [overflow-wrap:anywhere]", mono && "tabular")}>{children}</dd>
     </div>
   );

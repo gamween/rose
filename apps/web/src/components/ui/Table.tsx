@@ -26,7 +26,7 @@ export function TH({ className, numeric, ...rest }: ThHTMLAttributes<HTMLTableCe
     <th
       scope="col"
       className={cn(
-        "h-8 px-3 font-display text-[11px] font-normal uppercase tracking-wide text-ink-400",
+        "h-8 px-3 text-[12px] text-ink-400 font-medium",
         numeric ? "text-right" : "text-left",
         className,
       )}

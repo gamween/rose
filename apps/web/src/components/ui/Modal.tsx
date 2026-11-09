@@ -84,7 +84,7 @@ export function Modal({ id, open, onClose, title, description, children, footer,
     >
       <div className="flex items-start justify-between gap-4 border-b border-ink-750 px-5 py-4">
         <div>
-          <h2 className="font-display text-[15px] text-ink-50">{title}</h2>
+          <h2 className="text-[15px] text-ink-50 font-semibold">{title}</h2>
           {description ? <p className="mt-1 text-[13px] text-ink-400">{description}</p> : null}
         </div>
         <CloseButton onClose={onClose} />
@@ -112,7 +112,7 @@ export function Drawer({ open, onClose, title, description, children, footer, cl
       <div className="flex h-full flex-col">
         <div className="flex items-start justify-between gap-4 border-b border-ink-750 px-5 py-4">
           <div>
-            <h2 className="font-display text-[15px] text-ink-50">{title}</h2>
+            <h2 className="text-[15px] text-ink-50 font-semibold">{title}</h2>
             {description ? <p className="mt-1 text-[13px] text-ink-400">{description}</p> : null}
           </div>
           <CloseButton onClose={onClose} />

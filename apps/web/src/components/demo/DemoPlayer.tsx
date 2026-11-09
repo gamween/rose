@@ -137,8 +137,8 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
     <div className="-mb-6 flex flex-col gap-5" data-demo={scenario.key}>
       <header className="flex flex-col gap-4">
         <div>
-          <p className="font-display text-[11px] uppercase tracking-wide text-ember-300">Guided demo · no wallet needed</p>
-          <h1 className="mt-1 font-display text-[22px] text-ink-50 md:text-[26px]">Watch a full round</h1>
+          <p className="text-[12px] text-ember-300 font-medium">Guided demo · no wallet needed</p>
+          <h1 className="mt-1 text-[22px] text-ink-50 md:text-[26px] font-semibold tracking-tight">Watch a full round</h1>
           <p className="mt-1.5 max-w-3xl text-[13px] text-ink-400">
             Seeded rounds of the fictional {manifest.issuer} ({manifest.token.symbol}) on{" "}
             <a href={nearAccountUrl(manifest.engine)} target="_blank" rel="noreferrer" className="text-ink-200 underline decoration-ink-400 underline-offset-2 hover:decoration-ink-200">
@@ -163,7 +163,7 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
                   active ? "border-ember-500 bg-ember-700/20" : "border-ink-700 bg-ink-850 hover:border-ink-500",
                 )}
               >
-                <span className={cn("font-display text-[12px] uppercase tracking-wide", active ? "text-ember-200" : "text-ink-100")}>{SCENARIO_LABEL[candidate.key]}</span>
+                <span className={cn("text-[12px] font-medium", active ? "text-ember-200" : "text-ink-100")}>{SCENARIO_LABEL[candidate.key]}</span>
                 <span className="text-[11px] text-ink-400">{scenarioTitle(manifest, candidate).split(" · ").slice(1).join(" · ")}</span>
               </button>
             );
@@ -241,7 +241,7 @@ function StepView({ animate, manifest, scenario, step, position, total, playing,
     <article className={cn("flex flex-col gap-4", animate && "demo-step")} aria-labelledby="demo-step-title" data-demo-step={step.id} data-demo-playing={playing ? "true" : "false"}>
       <div className="rounded-lg border border-ink-750 bg-ink-900 px-4 py-4 md:px-5">
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
-          <span className="tabular font-display uppercase tracking-wide text-ember-300">
+          <span className="tabular text-ember-300 font-medium">
             Step {String(position + 1)} of {String(total)}
           </span>
           {chainsOf(step).map((chain) => (
@@ -249,7 +249,7 @@ function StepView({ animate, manifest, scenario, step, position, total, playing,
           ))}
           {step.at ? <span className="tabular ml-auto">{new Date(step.at).toISOString().replace("T", " ").slice(0, 16)} UTC</span> : <span className="ml-auto">computed in this browser</span>}
         </div>
-        <h2 id="demo-step-title" className="mt-2 font-display text-[18px] text-ink-50 md:text-[20px]">
+        <h2 id="demo-step-title" className="mt-2 text-[18px] text-ink-50 md:text-[20px] font-semibold">
           {step.title}
         </h2>
         <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-ink-200">{step.body}</p>

@@ -209,7 +209,7 @@ function ChainSection({
       <header className="flex items-center justify-between gap-3 border-b border-ink-750 px-3 py-2">
         <span className="flex items-center gap-2">
           <span aria-hidden className={cn("size-[6px]", CHAIN_DOT[chain])} />
-          <span className="font-display text-[11px] uppercase tracking-wide text-ink-200">{CHAIN_LABEL[chain]}</span>
+          <span className="text-[12px] text-ink-200 font-medium">{CHAIN_LABEL[chain]}</span>
           {kind === "demo" ? <Badge tone="ember">Demo</Badge> : null}
         </span>
         {address ? (
@@ -225,7 +225,7 @@ function ChainSection({
       <div className="px-3 py-2.5">
         {address ? (
           <>
-            <a href={addressUrl(chain, address)} target="_blank" rel="noreferrer" className="tabular block truncate text-[12px] text-ink-100 underline-offset-2 hover:underline">
+            <a href={addressUrl(chain, address)} target="_blank" rel="noreferrer" className="font-mono block truncate text-[12px] text-ink-100 underline-offset-2 hover:underline">
               {address}
             </a>
             <p className="mt-0.5 text-[11px] text-ink-400">{walletName}</p>

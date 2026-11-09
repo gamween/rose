@@ -20,7 +20,7 @@ const CHAIN_TONE: Record<DemoTx["chain"], string> = {
 };
 
 export function ChainTag({ chain, className }: { chain: DemoTx["chain"]; className?: string }) {
-  return <span className={cn("inline-flex h-5 shrink-0 items-center rounded-sm border px-1.5 font-display text-[10px] uppercase tracking-wide", CHAIN_TONE[chain], className)}>{CHAIN_LABEL[chain]}</span>;
+  return <span className={cn("inline-flex h-5 shrink-0 items-center rounded-sm border px-1.5 text-[11px] font-medium", CHAIN_TONE[chain], className)}>{CHAIN_LABEL[chain]}</span>;
 }
 
 function cost(tx: DemoTx): string | null {
@@ -32,7 +32,7 @@ function cost(tx: DemoTx): string | null {
 export function TxList({ txs }: { txs: readonly DemoTx[] }) {
   return (
     <section aria-label="Transactions" className="rounded-lg border border-ink-750 bg-ink-850" data-demo-txs>
-      <h3 className="border-b border-ink-750 px-4 py-2.5 font-display text-[11px] uppercase tracking-wide text-ink-300">
+      <h3 className="border-b border-ink-750 px-4 py-2.5 text-[12px] text-ink-300 font-medium">
         {txs.length === 1 ? "1 transaction" : `${String(txs.length)} transactions`}
       </h3>
       <ol className="flex flex-col divide-y divide-ink-800">
@@ -46,7 +46,7 @@ export function TxList({ txs }: { txs: readonly DemoTx[] }) {
                 <span className="min-w-0 text-[13px] leading-snug text-ink-100 [overflow-wrap:anywhere]">
                   {tx.label}
                   {tx.failed ? (
-                    <span className="ml-2 inline-flex items-center rounded-sm border border-warning-400/40 bg-warning-400/10 px-1.5 font-display text-[10px] uppercase tracking-wide text-warning-400" title={tx.note ?? undefined}>
+                    <span className="ml-2 inline-flex items-center rounded-sm border border-warning-400/40 bg-warning-400/10 px-1.5 text-[11px] text-warning-400 font-medium" title={tx.note ?? undefined}>
                       refused on chain, as intended
                     </span>
                   ) : null}
@@ -55,7 +55,7 @@ export function TxList({ txs }: { txs: readonly DemoTx[] }) {
               <div className="flex shrink-0 items-center gap-3">
                 {spent && !tx.failed ? <span className="tabular text-[11px] text-ink-400">{spent}</span> : null}
                 {primary ? (
-                  <a href={primary.href} target="_blank" rel="noreferrer" className="tabular text-[12px] text-ember-300 underline-offset-2 hover:underline" title={tx.hash}>
+                  <a href={primary.href} target="_blank" rel="noreferrer" className="font-mono text-[12px] text-ember-300 underline-offset-2 hover:underline" title={tx.hash}>
                     {tx.hash.slice(0, 8)}… ↗
                   </a>
                 ) : null}
@@ -79,7 +79,7 @@ export function EventList({ events, decimals, classId, emptyHint }: { events: re
   return (
     <section aria-label="On-chain history" className="rounded-lg border border-ink-750 bg-ink-850" data-demo-events>
       <h3 className="flex flex-wrap items-baseline justify-between gap-2 border-b border-ink-750 px-4 py-2.5">
-        <span className="font-display text-[11px] uppercase tracking-wide text-ink-300">Engine history</span>
+        <span className="text-[12px] text-ink-300 font-medium">Engine history</span>
         <span className="text-[11px] text-ink-400">get_events, read live</span>
       </h3>
       {events.length === 0 ? (

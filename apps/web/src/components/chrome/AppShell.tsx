@@ -135,7 +135,7 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
               className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 md:flex"
             >
               <span className="hidden lg:inline">Search</span>
-              <kbd className="font-display text-[10px] uppercase text-ink-400">⌘K</kbd>
+              <kbd className="text-[11px] text-ink-400 font-medium">⌘K</kbd>
             </button>
             <WalletPills />
           </div>

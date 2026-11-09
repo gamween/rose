@@ -32,7 +32,7 @@ export function VerifyPanel({ detail }: { detail: RoundDetail }) {
   if (neverOpened) {
     return (
       <section aria-label="Verify" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-verify="cancelled">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Verify</h3>
+        <h3 className="text-[13px] text-ink-100 font-semibold">Verify</h3>
         <p className="mt-0.5 text-[12px] text-ink-400">Nothing to verify: the round was cancelled before any order was opened, so no clearing price exists. Every order settles as a refund.</p>
       </section>
     );
@@ -42,7 +42,7 @@ export function VerifyPanel({ detail }: { detail: RoundDetail }) {
     <section aria-label="Verify" className="rounded-lg border border-ink-750 bg-ink-850" data-verify>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div>
-          <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Verify</h3>
+          <h3 className="text-[13px] text-ink-100 font-semibold">Verify</h3>
           <p className="mt-0.5 text-[12px] text-ink-400">Recompute the clearing price and every fill in this browser from the public book, with the same integer rules the contract runs.</p>
         </div>
         <Button size="sm" variant={ran ? "secondary" : "primary"} onClick={() => setRan(true)} disabled={!cleared} data-verify-run>
@@ -58,7 +58,7 @@ export function VerifyPanel({ detail }: { detail: RoundDetail }) {
           </p>
         ) : (
           <div className="flex flex-col gap-3" data-verify-status={verification.status}>
-            <p className={cn("font-display text-[14px]", copy?.tone)}>
+            <p className={cn("text-[14px] font-semibold", copy?.tone)}>
               {copy?.label}
               {verification.status === "match" ? " · the browser reproduces the on-chain result exactly" : ""}
             </p>
@@ -66,19 +66,19 @@ export function VerifyPanel({ detail }: { detail: RoundDetail }) {
             {verification.local && verification.onChain ? (
               <dl className="grid grid-cols-3 gap-2 rounded-md border border-ink-750 bg-ink-900 p-3">
                 <div>
-                  <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Field</dt>
+                  <dt className="text-[11px] text-ink-400 font-medium">Field</dt>
                   <dd className="text-ink-300">Clearing price</dd>
                   <dd className="text-ink-300">Volume</dd>
                   <dd className="text-ink-300">Fills</dd>
                 </div>
                 <div>
-                  <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Browser</dt>
+                  <dt className="text-[11px] text-ink-400 font-medium">Browser</dt>
                   <dd className="tabular text-ink-50">{verification.local.price !== null ? formatUsdc(verification.local.price) : "no crossing"}</dd>
                   <dd className="tabular text-ink-50">{verification.local.volume !== null ? formatQty(verification.local.volume, cls.decimals) : "—"}</dd>
                   <dd className="tabular text-ink-50">{String(verification.local.fills.filter((f) => f.qty > 0n).length)}</dd>
                 </div>
                 <div>
-                  <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">On chain</dt>
+                  <dt className="text-[11px] text-ink-400 font-medium">On chain</dt>
                   <dd className="tabular text-ink-50">{verification.onChain.price !== null ? formatUsdc(verification.onChain.price) : "no crossing"}</dd>
                   <dd className="tabular text-ink-50">{verification.onChain.volume !== null ? formatQty(verification.onChain.volume, cls.decimals) : "—"}</dd>
                   <dd className="tabular text-ink-50">{String(verification.onChain.fills.length)}</dd>

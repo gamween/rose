@@ -129,7 +129,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
                 href={link.href}
                 target="_blank"
                 rel="noreferrer"
-                className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline"
+                className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium"
               >
                 {link.label} ↗
               </a>

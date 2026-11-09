@@ -63,7 +63,7 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
     <article className="group relative flex flex-col gap-3 rounded-lg border border-ink-750 bg-ink-850 p-4 transition-colors hover:border-ink-600" data-round-card={round.roundId.toString()}>
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <Link href={href} className="font-display text-[15px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline">
+          <Link href={href} className="text-[15px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline font-semibold">
             Round #{round.roundId.toString()}
           </Link>
           <p className="mt-0.5 text-[12px] text-ink-400" title={cls ? `Token ${cls.token} on ${cls.chain} · class ${cls.classId}` : round.classId}>
@@ -84,15 +84,15 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
         <div className="min-w-0">
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{money.label}</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">{money.label}</dt>
           <dd className="tabular text-[13px] text-ink-100 [overflow-wrap:anywhere]">{money.value}</dd>
         </div>
         <div className="min-w-0">
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Sealed orders</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">Sealed orders</dt>
           <dd className="tabular text-[13px] text-ink-100">{String(round.bidCount)}</dd>
         </div>
         <div className="min-w-0">
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Cancelled" ? "Outcome" : cleared ? "Cleared at" : "Locked at close"}</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">{round.status === "Cancelled" ? "Outcome" : cleared ? "Cleared at" : "Locked at close"}</dt>
           <dd className="tabular text-[13px] text-ink-100 [overflow-wrap:anywhere]">
             {round.status === "Cancelled" ? cancelledOutcome(round) : cleared ? `${formatUsdc(cleared.price)} USDC` : lockedPercent(round.fTs)}
           </dd>

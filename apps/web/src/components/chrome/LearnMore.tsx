@@ -7,7 +7,7 @@ export function LearnMore({ topic, anchor, label, className }: { topic: LearnTop
   return (
     <Link
       href={learnHref(topic, anchor)}
-      className={cn("inline-flex items-center gap-1 font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline", className)}
+      className={cn("inline-flex items-center gap-1 text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium", className)}
       title={LEARN_TOPICS[topic].label}
     >
       {label ?? "Learn more"}

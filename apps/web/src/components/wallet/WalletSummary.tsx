@@ -42,7 +42,7 @@ function ChainCard({
         title={CHAIN_LABEL[chain]}
         description={
           address ? (
-            <a href={addressUrl(chain, address)} target="_blank" rel="noreferrer" className="tabular break-all underline-offset-2 hover:underline">
+            <a href={addressUrl(chain, address)} target="_blank" rel="noreferrer" className="font-mono break-all underline-offset-2 hover:underline">
               {address}
             </a>
           ) : (
@@ -91,7 +91,7 @@ export function WalletSummary() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[22px] text-ink-50">Portfolio</h1>
+          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Portfolio</h1>
           <p className="mt-1 text-[13px] text-ink-400">
             Your wallets on the three testnets and what they hold. {engine ? `Engine: ${engine}.` : "The engine is not deployed yet; units and rounds appear here once it is."}{" "}
             <LearnMore topic="concepts" />
@@ -134,12 +134,12 @@ export function WalletSummary() {
         />
       </div>
       <section>
-        <h2 className="mb-3 font-display text-[11px] uppercase tracking-wide text-ink-400">Sections</h2>
+        <h2 className="mb-3 text-[12px] text-ink-400 font-medium">Sections</h2>
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {SECTIONS.map((section) => (
             <li key={section.href}>
               <Link href={section.href} className="flex h-full flex-col gap-1 rounded-lg border border-ink-750 bg-ink-850 px-4 py-3 transition-colors hover:border-ink-500 hover:bg-ink-800">
-                <span className="font-display text-[13px] text-ink-50">{section.title}</span>
+                <span className="text-[13px] text-ink-50 font-semibold">{section.title}</span>
                 <span className="text-[12px] text-ink-400">{section.body}</span>
               </Link>
             </li>

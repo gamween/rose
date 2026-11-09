@@ -167,7 +167,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   if (sides.length === 0) {
     return (
       <section aria-label="Your Tender" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-order-form="issuer">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Your Tender</h3>
+        <h3 className="text-[13px] text-ink-100 font-semibold">Your Tender</h3>
         <p className="mt-1 text-[12px] text-ink-400">
           You are the buyer of this Tender: your escrowed budget is the demand side, and holders of the class submit the sealed asks. The engine refuses an ask from the issuer, so there is no order to place here.
         </p>
@@ -180,7 +180,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   return (
     <section aria-label={title} className="rounded-lg border border-ink-750 bg-ink-850" data-order-form>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">{title}</h3>
+        <h3 className="text-[13px] text-ink-100 font-semibold">{title}</h3>
         <p className="mt-0.5 text-[12px] text-ink-400">
           Sealed in this browser to the round identity; venue <span className="text-ink-200">{venueLabel(round.venue)}</span>.
         </p>

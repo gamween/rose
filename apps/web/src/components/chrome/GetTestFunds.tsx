@@ -128,7 +128,7 @@ function ActionRow({
         <p className="flex flex-wrap items-center gap-x-3 text-[12px] text-success-400">
           {state.message}
           {state.links.map((link) => (
-            <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+            <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
               {link.label} ↗
             </a>
           ))}
@@ -145,10 +145,10 @@ function ActionRow({
 
 function ChainHeading({ chain, address, kind }: { chain: ChainId; address: string | null; kind: "external" | "demo" | null }) {
   return (
-    <h3 className="flex items-center gap-2 font-display text-[11px] uppercase tracking-wide text-ink-200">
+    <h3 className="flex items-center gap-2 text-[12px] text-ink-200 font-medium">
       {CHAIN_LABEL[chain]}
       {kind === "demo" ? <Badge tone="ember">Demo</Badge> : null}
-      {address ? <span className="tabular truncate normal-case tracking-normal text-ink-400">{address}</span> : <span className="normal-case tracking-normal text-ink-400">not connected</span>}
+      {address ? <span className="font-mono truncate normal-case tracking-normal text-ink-400">{address}</span> : <span className="normal-case tracking-normal text-ink-400">not connected</span>}
     </h3>
   );
 }

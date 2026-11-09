@@ -32,7 +32,7 @@ function Box({ label, children, note, data }: { label: string; children: ReactNo
   return (
     <section aria-label={label} className="rounded-lg border border-ink-750 bg-ink-850" data-demo-panel={data}>
       <h3 className="flex flex-wrap items-baseline justify-between gap-2 border-b border-ink-750 px-4 py-2.5">
-        <span className="font-display text-[11px] uppercase tracking-wide text-ink-300">{label}</span>
+        <span className="text-[12px] text-ink-300 font-medium">{label}</span>
         <span className="text-[11px] text-ink-400">read live from the engine</span>
       </h3>
       <div className="px-4 py-3">{children}</div>
@@ -77,7 +77,7 @@ function ClassPanel(props: PanelProps) {
           <span className="tabular block truncate text-[11px] text-ink-400">{cls.classId}</span>
         </Param>
         <Param label="Token" mono={false}>
-          <a href={addressUrl(cls.chain === "Base" ? "base" : "solana", cls.token)} target="_blank" rel="noreferrer" className="tabular underline-offset-2 hover:underline">
+          <a href={addressUrl(cls.chain === "Base" ? "base" : "solana", cls.token)} target="_blank" rel="noreferrer" className="font-mono underline-offset-2 hover:underline">
             {shortHex(cls.token)} ↗
           </a>
         </Param>
@@ -237,12 +237,12 @@ function SealedPanel(props: PanelProps) {
                 <TD className={bid.side === "Buy" ? "text-success-400" : "text-rose-300"}>{bid.side === "Buy" ? "Bid" : "Ask"}</TD>
                 <TD>
                   <Person manifest={manifest} account={bid.bidder} />
-                  {recorded?.malformed ? <span className="ml-1.5 font-display text-[10px] uppercase tracking-wide text-warning-400">malformed</span> : null}
+                  {recorded?.malformed ? <span className="ml-1.5 text-[11px] text-warning-400 font-medium">malformed</span> : null}
                 </TD>
                 <TD numeric>{collateralText(bid, live.cls.decimals)}</TD>
                 <TD numeric>{formatUsdc(bid.bond)}</TD>
                 <TD>
-                  <span className="tabular text-[11px] text-ink-300" title={hash} data-demo-hash>
+                  <span className="font-mono text-[11px] text-ink-300" title={hash} data-demo-hash>
                     {hash ? `${hash.slice(0, 16)}…` : "—"}
                   </span>
                   {computed !== undefined ? (
@@ -369,7 +369,7 @@ function VerifyPanel(props: PanelProps) {
   const ok = verification.status === "match";
   return (
     <Box label="Verify in this browser" data="verify" note={scenario.clearingMatchesReference ? "The seed script ran the same reference against the engine's result when it cleared the round, and matched too." : undefined}>
-      <p className={cn("font-display text-[16px]", ok ? "text-success-400" : "text-danger-400")} data-demo-verify={verification.status}>
+      <p className={cn("text-[16px] font-semibold", ok ? "text-success-400" : "text-danger-400")} data-demo-verify={verification.status}>
         {ok ? "Match: the browser reproduces the on-chain result exactly" : verification.status === "mismatch" ? "Mismatch" : (verification.reason ?? "Not comparable")}
       </p>
       {verification.local && verification.onChain ? (

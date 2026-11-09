@@ -21,12 +21,12 @@ export function Footer() {
                     href={item.href}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-display text-[12px] uppercase tracking-wide text-ink-300 hover:text-ember-300"
+                    className="text-[12px] text-ink-300 hover:text-ember-300 font-medium"
                   >
                     {item.label}
                   </a>
                 ) : (
-                  <Link href={item.href} className="font-display text-[12px] uppercase tracking-wide text-ink-300 hover:text-ember-300">
+                  <Link href={item.href} className="text-[12px] text-ink-300 hover:text-ember-300 font-medium">
                     {item.label}
                   </Link>
                 )}

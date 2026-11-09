@@ -124,7 +124,7 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
         {steps.map((step) => (
           <li key={step.id} className="flex min-w-0 flex-col items-center gap-1.5 text-center" data-step={step.id} data-state={step.state}>
             <StepDot state={step.state} />
-            <span className={cn("font-display text-[10px] uppercase tracking-wide", step.state === "active" ? "text-ember-300" : step.state === "failed" ? "text-danger-400" : step.state === "done" ? "text-ink-200" : "text-ink-400")}>{step.label}</span>
+            <span className={cn("text-[11px] font-medium", step.state === "active" ? "text-ember-300" : step.state === "failed" ? "text-danger-400" : step.state === "done" ? "text-ink-200" : "text-ink-400")}>{step.label}</span>
             <span className="tabular hidden text-[11px] text-ink-400 sm:block">{step.at !== null ? formatDateTime(step.at).replace(" UTC", "") : "—"}</span>
             <span className="hidden text-[11px] leading-tight text-ink-400 lg:block">{step.detail}</span>
           </li>
@@ -132,14 +132,14 @@ export function StatusTimeline({ detail, nowMs, onChanged, onFinalize, onSettle 
       </ol>
       <div className="flex flex-col gap-3 p-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
-          <p className="font-display text-[14px] text-ink-50" data-next-action={action.kind}>
+          <p className="text-[14px] text-ink-50 font-semibold" data-next-action={action.kind}>
             {text.title}
           </p>
           <p className="mt-1 max-w-2xl text-[12px] text-ink-400">{text.body}</p>
           {round.key ? (
             <div className="mt-3 rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px]" data-key-release>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-display text-[10px] uppercase tracking-wide text-success-400">Key released</span>
+                <span className="text-[11px] text-success-400 font-medium">Key released</span>
                 <span className="text-ink-300">
                   {round.keySource === "Submitted" ? "submitted by a participant" : "MPC callback"}
                   {keyLatency !== null ? <span className="tabular"> · {keyLatency.toFixed(1)} s after the close request</span> : null}

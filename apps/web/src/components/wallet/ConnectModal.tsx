@@ -32,7 +32,7 @@ function DemoRow({ title, description, onClick, busy }: { title: string; descrip
         </span>
         <span className="mt-0.5 block text-[12px] text-ink-400">{description}</span>
       </span>
-      <span className="font-display text-[11px] uppercase tracking-wide text-ember-300">Use</span>
+      <span className="text-[12px] text-ember-300 font-medium">Use</span>
     </button>
   );
 }

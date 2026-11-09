@@ -120,7 +120,7 @@ export function ActivityFeedList({ state }: { state: FeedState }) {
               <span className="tabular shrink-0 text-[11px] text-ink-400">{timeAgo(entry.timestamp, now)}</span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-ink-400">
-              <span className="font-display uppercase tracking-wide">{entry.event.event.replace(/_/g, " ")}</span>
+              <span className="font-medium">{entry.event.event.replace(/_/g, " ")}</span>
               <span aria-hidden>·</span>
               <a href={nearAccountUrl(entry.predecessor)} target="_blank" rel="noreferrer" className="truncate underline-offset-2 hover:underline">
                 {entry.predecessor}

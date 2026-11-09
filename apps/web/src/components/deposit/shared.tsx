@@ -36,7 +36,7 @@ export function ChainPicker({ value, onChange, deployed }: { value: DepositChain
               selected ? "border-ember-500 bg-ember-700/15" : "border-ink-750 bg-ink-850 hover:border-ink-500 hover:bg-ink-800",
             )}
           >
-            <span className="flex items-center gap-2 font-display text-[13px] text-ink-50">
+            <span className="flex items-center gap-2 text-[13px] text-ink-50 font-semibold">
               {option.title}
               {missing ? <Badge tone="warning">Not deployed</Badge> : null}
             </span>

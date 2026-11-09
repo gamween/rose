@@ -5,7 +5,7 @@ import { Button } from "./Button";
 import { Spinner } from "./Spinner";
 
 function StepMarker({ status, index }: { status: FlowStep["status"]; index: number }) {
-  const base = "flex size-6 shrink-0 items-center justify-center rounded-sm border font-display text-[11px]";
+  const base = "flex size-6 shrink-0 items-center justify-center rounded-sm border text-[11px] font-medium";
   switch (status) {
     case "running":
       return (
@@ -54,7 +54,7 @@ export function FlowSteps({ steps, onRetry, running, className, footer }: { step
             {step.links.length > 0 ? (
               <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                 {step.links.map((link) => (
-                  <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+                  <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
                     {link.label} ↗
                   </a>
                 ))}

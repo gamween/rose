@@ -216,12 +216,12 @@ export function CreateExitModal({
         {settings ? <RoundTimingFields value={timing} onChange={setTiming} errors={durations} limits={settings.limits} /> : null}
         <dl className="grid grid-cols-2 gap-3 rounded-md border border-ink-750 bg-ink-900 p-3 text-[12px]">
           <div>
-            <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Storage deposit</dt>
+            <dt className="text-[11px] text-ink-400 font-medium">Storage deposit</dt>
             <dd className="tabular text-ink-100">{formatUnits(ROUND_STORAGE_DEPOSIT, 24, 2)} NEAR</dd>
             <dd className="text-ink-400">Kept with the round record, its result and its price point.</dd>
           </div>
           <div>
-            <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Locked at close</dt>
+            <dt className="text-[11px] text-ink-400 font-medium">Locked at close</dt>
             <dd className="tabular text-ink-100" data-locked-at-close>
               {fTs === null ? "—" : lockedPercent(fTs)}
             </dd>

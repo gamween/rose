@@ -35,13 +35,13 @@ export function DocPageView({ slug }: { slug: string }) {
         </aside>
         <main className="min-w-0 flex-1" id="docs-content">
           <header className="mb-6">
-            <p className="font-display text-[11px] uppercase tracking-wide text-ember-400">{summary.section}</p>
-            <h1 className="mt-2 font-display text-[28px] leading-tight text-ink-50 md:text-[34px]">{summary.title}</h1>
+            <p className="text-[12px] text-ember-400 font-medium">{summary.section}</p>
+            <h1 className="mt-2 text-[28px] leading-tight text-ink-50 md:text-[34px] font-semibold tracking-tight">{summary.title}</h1>
             <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-300">{summary.description}</p>
           </header>
           {compiled.headings.length > 0 ? (
             <details className="mb-6 rounded-md border border-ink-750 bg-ink-900 px-4 py-3 xl:hidden">
-              <summary className="cursor-pointer font-display text-[11px] uppercase tracking-wide text-ink-300">On this page</summary>
+              <summary className="cursor-pointer text-[12px] text-ink-300 font-medium">On this page</summary>
               <ul className="mt-3 flex flex-col gap-1.5 text-[13px]">
                 {compiled.headings.map((heading) => (
                   <li key={heading.id} className={heading.depth === 3 ? "pl-4" : undefined}>

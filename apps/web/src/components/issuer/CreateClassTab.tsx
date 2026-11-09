@@ -295,7 +295,7 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
               {state.computed.existing ? <ClassSummary cls={state.computed.existing} symbols={base.symbols} /> : null}
               <p className="text-[12px] text-ink-400">
                 Token contract:{" "}
-                <a href={addressUrl(state.computed.chain === "Base" ? "base" : "solana", state.computed.token)} target="_blank" rel="noreferrer" className="tabular underline-offset-2 hover:underline">
+                <a href={addressUrl(state.computed.chain === "Base" ? "base" : "solana", state.computed.token)} target="_blank" rel="noreferrer" className="font-mono underline-offset-2 hover:underline">
                   {state.computed.token}
                 </a>
                 . Next: create the cohort streams in custody (Base) or ask holders to deposit, then distribute units.

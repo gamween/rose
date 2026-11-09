@@ -21,7 +21,7 @@ export function EmptyState({
         <span aria-hidden className="dither-glow absolute size-28 opacity-60" />
         <VoxelArt preset={illustration} size={88} className="relative" />
       </div>
-      <h3 className="font-display text-[14px] text-ink-50">{title}</h3>
+      <h3 className="text-[14px] text-ink-50 font-semibold">{title}</h3>
       {description ? <p className="mt-1.5 max-w-sm text-[13px] text-ink-400">{description}</p> : null}
       {action ? <div className="mt-5">{action}</div> : null}
     </div>

@@ -28,7 +28,7 @@ export function Field({ label, hint, error, children, className }: FieldProps) {
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <label htmlFor={id} className="font-display text-[11px] uppercase tracking-wide text-ink-300">
+      <label htmlFor={id} className="text-[12px] text-ink-300 font-medium">
         {label}
       </label>
       {children({ inputId: id, describedBy, invalid: Boolean(error) })}
@@ -82,7 +82,7 @@ export function NumberInput({ value, onValueChange, unit, decimals = 6, invalid 
         className={cn(fieldBase, fieldTone(invalid), "tabular", unit ? "pr-16" : undefined)}
       />
       {unit ? (
-        <span className="pointer-events-none absolute right-3 font-display text-[11px] uppercase tracking-wide text-ink-400">
+        <span className="pointer-events-none absolute right-3 text-[12px] text-ink-400 font-medium">
           {unit}
         </span>
       ) : null}

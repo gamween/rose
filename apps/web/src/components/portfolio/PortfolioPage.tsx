@@ -40,12 +40,12 @@ function WalletStrip({ onConnect }: { onConnect: (chain: ChainId) => void }) {
       {entries.map((entry) => (
         <li key={entry.chain} className="flex items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-850 px-3 py-2">
           <div className="min-w-0">
-            <p className="flex items-center gap-2 font-display text-[11px] uppercase tracking-wide text-ink-300">
+            <p className="flex items-center gap-2 text-[12px] text-ink-300 font-medium">
               {CHAIN_LABEL[entry.chain]}
               {entry.kind === "demo" ? <Badge tone="ember">Demo</Badge> : null}
             </p>
             {entry.address ? (
-              <a href={addressUrl(entry.chain, entry.address)} target="_blank" rel="noreferrer" className="tabular block truncate text-[12px] text-ink-100 underline-offset-2 hover:underline" title={entry.address}>
+              <a href={addressUrl(entry.chain, entry.address)} target="_blank" rel="noreferrer" className="font-mono block truncate text-[12px] text-ink-100 underline-offset-2 hover:underline" title={entry.address}>
                 {shortAddress(entry.chain, entry.address)}
               </a>
             ) : (
@@ -68,12 +68,12 @@ function WalletStrip({ onConnect }: { onConnect: (chain: ChainId) => void }) {
 function Sections() {
   return (
     <section>
-      <h2 className="mb-3 font-display text-[11px] uppercase tracking-wide text-ink-400">Sections</h2>
+      <h2 className="mb-3 text-[12px] text-ink-400 font-medium">Sections</h2>
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {SECTIONS.map((section) => (
           <li key={section.href}>
             <Link href={section.href} className="flex h-full flex-col gap-1 rounded-lg border border-ink-750 bg-ink-850 px-4 py-3 transition-colors hover:border-ink-500 hover:bg-ink-800">
-              <span className="font-display text-[13px] text-ink-50">{section.title}</span>
+              <span className="text-[13px] text-ink-50 font-semibold">{section.title}</span>
               <span className="text-[12px] text-ink-400">{section.body}</span>
             </Link>
           </li>
@@ -119,11 +119,11 @@ export function PortfolioPage() {
     <div className="flex flex-col gap-6" data-portfolio>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[22px] text-ink-50">Portfolio</h1>
+          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Portfolio</h1>
           <p className="mt-1 text-[13px] text-ink-400">
             Units per class, unlock timelines, open orders, liens, claims and history of{" "}
             {account ? (
-              <a href={addressUrl("near", account)} target="_blank" rel="noreferrer" className="tabular text-ink-100 underline-offset-2 hover:underline">
+              <a href={addressUrl("near", account)} target="_blank" rel="noreferrer" className="font-mono text-ink-100 underline-offset-2 hover:underline">
                 {account}
               </a>
             ) : (

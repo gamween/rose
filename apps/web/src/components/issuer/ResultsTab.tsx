@@ -145,7 +145,7 @@ export function ResultsTab({ base }: { base: IssuerBase }) {
                     <TD numeric>{round.bidCount}</TD>
                     <TD>
                       {round.status === "Settled" || round.status === "Cancelled" ? (
-                        <Link href={`${ROUTES.issuer}/results/${round.roundId.toString()}`} className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+                        <Link href={`${ROUTES.issuer}/results/${round.roundId.toString()}`} className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
                           Results →
                         </Link>
                       ) : (

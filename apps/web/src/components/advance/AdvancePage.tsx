@@ -44,7 +44,7 @@ function AdvanceCard({ round, data }: { round: Round; data: AdvanceData }) {
     <li className="flex flex-col gap-3 rounded-lg border border-ink-750 bg-ink-850 p-4" data-advance-round={round.roundId.toString()}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-display text-[14px] text-ink-50">
+          <p className="text-[14px] text-ink-50 font-semibold">
             Advance #{round.roundId.toString()} · {symbol}
           </p>
           <p className="text-[12px] text-ink-400">
@@ -55,33 +55,33 @@ function AdvanceCard({ round, data }: { round: Round; data: AdvanceData }) {
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Claim K</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">Claim K</dt>
           <dd className="tabular text-ink-50">{formatAmount(round.advanceClaim ?? 0n, decimals)} tokens</dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">On units X</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">On units X</dt>
           <dd className="tabular text-ink-50">{formatAmount(round.advanceUnits ?? 0n, decimals)}</dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Price ceiling</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">Price ceiling</dt>
           <dd className="tabular text-ink-50">{formatUsdc(round.maxPrice)} / claimed token</dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Min fill</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">Min fill</dt>
           <dd className="tabular text-ink-50">{formatAmount(round.advanceMinFill ?? 0n, decimals)}</dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{round.status === "Open" ? "Closes in" : round.status === "Scheduled" ? "Opens" : "Closed"}</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">{round.status === "Open" ? "Closes in" : round.status === "Scheduled" ? "Opens" : "Closed"}</dt>
           <dd className="tabular text-ink-50">{round.status === "Open" ? <Countdown target={closesMs} /> : round.status === "Scheduled" ? formatDate(nsToMs(round.opensAt)) : formatDate(closesMs)}</dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Sealed bids</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">Sealed bids</dt>
           <dd className="tabular text-ink-50">{round.bidCount}</dd>
         </div>
       </dl>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-ink-400">Delivered by the schedule, no oracle, no liquidation.</span>
-        <Link href={`${ROUTES.rounds}/${round.roundId.toString()}`} className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+        <Link href={`${ROUTES.rounds}/${round.roundId.toString()}`} className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
           {round.status === "Open" ? "Bid on this Advance →" : "View round →"}
         </Link>
       </div>
@@ -207,7 +207,7 @@ export function AdvancePage() {
     <div className="flex flex-col gap-6" data-advance>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[22px] text-ink-50">Advance</h1>
+          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Advance</h1>
           <p className="mt-1 text-[13px] text-ink-400">
             A holder sells a senior claim on the first K tokens that will unlock from X of their units; funders bid sealed per claimed token. No oracle, no liquidation: the claim is repaid by the schedule. <LearnMore topic="concepts" anchor="advance" />
           </p>
@@ -263,7 +263,7 @@ export function AdvancePage() {
               )}
               {data.past.length > 0 ? (
                 <section className="flex flex-col gap-3" data-advance-past>
-                  <h2 className="font-display text-[11px] uppercase tracking-wide text-ink-400">Settled and cancelled</h2>
+                  <h2 className="text-[12px] text-ink-400 font-medium">Settled and cancelled</h2>
                   <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {data.past.map((round) => (
                       <AdvanceCard key={round.roundId.toString()} round={round} data={data} />

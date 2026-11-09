@@ -95,7 +95,7 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
     >
       {/* The focus ring sits on the search row, flush with it, instead of the global outline offset around the bare input. */}
       <div className="flex items-center gap-2 border-b border-ink-750 px-3 focus-within:shadow-[inset_0_-2px_0_var(--color-ember-400)]" data-palette-row>
-        <span aria-hidden className="font-display text-[11px] uppercase tracking-wide text-ember-300">⌘K</span>
+        <span aria-hidden className="text-[12px] text-ember-300 font-medium">⌘K</span>
         <input
           ref={inputRef}
           value={query}
@@ -130,7 +130,7 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
           if (items.length === 0) return null;
           return (
             <li key={group} role="presentation">
-              <p className="px-4 pb-1 pt-2 font-display text-[11px] uppercase tracking-wide text-ink-400">{group}</p>
+              <p className="px-4 pb-1 pt-2 text-[12px] text-ink-400 font-medium">{group}</p>
               <ul role="group" aria-label={group}>
                 {items.map(({ command, index }) => (
                   <PaletteItem key={command.id} id={`${listId}-${command.id}`} selected={index === active} onHover={() => setActive(index)} onSelect={() => choose(command)}>

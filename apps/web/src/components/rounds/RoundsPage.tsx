@@ -81,7 +81,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
     <div className="flex flex-col gap-5" data-rounds-page>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[22px] text-ink-50">Rounds</h1>
+          <h1 className="text-[22px] text-ink-50 font-semibold tracking-tight">Rounds</h1>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
             Sealed, uniform-price auctions over locked token classes. Every transition is a public method: whoever cares about the outcome advances the round. <LearnMore topic="sealedRounds" />
           </p>
@@ -105,7 +105,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
           <div className="flex flex-col gap-2 rounded-lg border border-ink-750 bg-ink-850 p-3" role="group" aria-label="Filters">
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
               <div className="flex flex-wrap items-center gap-1.5" data-filter-group="type">
-                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Type</span>
+                <span className="mr-1 text-[11px] text-ink-400 font-medium">Type</span>
                 <Chip active={filter.kind === ""} onClick={() => setFilter((f) => ({ ...f, kind: "" }))}>
                   All
                 </Chip>
@@ -117,7 +117,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
               </div>
               <span className="mx-1 hidden h-4 w-px bg-ink-700 sm:block" aria-hidden />
               <div className="flex flex-wrap items-center gap-1.5" data-filter-group="status">
-                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Status</span>
+                <span className="mr-1 text-[11px] text-ink-400 font-medium">Status</span>
                 <Chip active={filter.status === ""} onClick={() => setFilter((f) => ({ ...f, status: "" }))}>
                   Any
                 </Chip>
@@ -130,7 +130,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
             </div>
             {data && data.classes.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Class</span>
+                <span className="mr-1 text-[11px] text-ink-400 font-medium">Class</span>
                 <Chip active={filter.classId === ""} onClick={() => setFilter((f) => ({ ...f, classId: "" }))}>
                   All
                 </Chip>
