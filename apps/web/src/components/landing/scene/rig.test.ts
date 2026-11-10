@@ -8,7 +8,7 @@ const model = buildDragon();
 
 function poseAt(progress: number, aim = new Vector3(), aimWeight = 0, time = 0): Pose {
   const state = sequenceAt(progress);
-  const pose: Pose = { time, rise: [], stand: [], thrust: [], awake: state.wake * (1 - state.sleep), fire: state.fire, heave: state.heave, aim, aimWeight, jaw: 0, wingFold: state.wingFold, wingSpread: state.wingSpread };
+  const pose: Pose = { time, rise: [], stand: [], thrust: [], rest: [], awake: state.wake * (1 - state.sleep), fire: state.fire, heave: state.heave, aim, aimWeight, jaw: 0, wingFold: state.wingFold, wingSpread: state.wingSpread };
   bodyPose(pose, progress);
   return pose;
 }
@@ -104,13 +104,28 @@ describe("dragon rig", () => {
     expect(snout.angleTo(target.clone().sub(skull).normalize())).toBeLessThan(0.02);
   });
 
-  it("curls back into the same ball at the end", () => {
+  it("lies stretched out at the end, the neck arched and the head resting low on the ground ahead of the body", () => {
     const rig = new DragonRig(model.anchors);
-    rig.update(poseAt(0));
-    const start = bounds(rig);
     rig.update(poseAt(1));
-    const end = bounds(rig);
-    expect(end.min.distanceTo(start.min)).toBeLessThan(1e-6);
-    expect(end.max.distanceTo(start.max)).toBeLessThan(1e-6);
+    const head = rig.transform(model.anchors.head, HEAD_BONE, new Vector3());
+    const chest = rig.transform(SPINE[1]!.to, SPINE[1]!.bone, new Vector3());
+    const neckTop = Math.max(...SPINE.filter((spine) => spine.bone > SPINE[1]!.bone && spine.bone < HEAD_BONE).map((spine) => rig.transform(spine.to, spine.bone, new Vector3()).y));
+    expect(head.x).toBeLessThan(chest.x - 40);
+    expect(head.y).toBeLessThan(25);
+    expect(neckTop).toBeGreaterThan(head.y + 15);
+    const { min } = bounds(rig);
+    expect(min.y).toBeGreaterThan(-4);
+    // The neck leaves an open loop above the forelegs: its highest joint stands well above the chest.
+    expect(neckTop).toBeGreaterThan(chest.y + 25);
+  });
+
+  it("keeps the far wing half raised behind the back at rest, and the near one folded", () => {
+    const rig = new DragonRig(model.anchors);
+    rig.update(poseAt(1));
+    const [near, far] = WINGS;
+    const tip = (wing: (typeof WINGS)[number]) => rig.transform(wing.tips[0]!, wing.fingers[0]!, new Vector3());
+    const shoulder = (wing: (typeof WINGS)[number]) => rig.transform(wing.shoulder, wing.arm, new Vector3());
+    expect(tip(far!).y).toBeGreaterThan(shoulder(far!).y + 30);
+    expect(tip(near!).y).toBeLessThan(shoulder(near!).y + 30);
   });
 });

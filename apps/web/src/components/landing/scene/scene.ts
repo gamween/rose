@@ -90,12 +90,13 @@ const PARTICLE_UNIT_DISTANCE = 200;
 
 /**
  * A camera framing of the dragon: the share of the screen width its body spans, where its center
- * sits on screen (normalized device coordinates) and how far the camera looks down at it.
+ * sits on screen (normalized device coordinates), how far the camera looks down at it and how far
+ * it is turned about the vertical (positive moves the camera toward the tail).
  */
-type Shot = { share: number; x: number; y: number; elevation: number };
+type Shot = { share: number; x: number; y: number; elevation: number; yaw: number };
 
-/** A screen box (normalized device coordinates) the dragon must fit in, and the camera elevation. */
-type Fit = { left: number; right: number; bottom: number; top: number; elevation: number };
+/** A screen box (normalized device coordinates) the dragon must fit in, and the camera elevation and yaw. */
+type Fit = { left: number; right: number; bottom: number; top: number; elevation: number; yaw: number };
 
 /** Composition per orientation. */
 type Layout = {
@@ -109,8 +110,8 @@ type Layout = {
    * it breathes fire never cropped, under the phrase it drives off the top of the screen.
    */
   stand: Fit;
-  /** The final frame: the dragon asleep again, as small as at the start or smaller. */
-  far: Shot;
+  /** The last shot: the camera closes in on the dragon resting, stretched out, large and in detail. */
+  end: Fit;
   /** Share of the screen width the phrase spans at rest, and how much wider it grows. */
   textShare: number;
   textGrow: number;
@@ -123,9 +124,9 @@ type Layout = {
 };
 
 const LANDSCAPE: Layout = {
-  full: { left: -0.6, right: 0.6, bottom: -0.86, top: 0, elevation: 0.12 },
-  stand: { left: -0.84, right: 0.84, bottom: -0.95, top: 0.34, elevation: 0.04 },
-  far: { share: 0.14, x: 0, y: -0.14, elevation: 0.2 },
+  full: { left: -0.6, right: 0.6, bottom: -0.86, top: 0, elevation: 0.12, yaw: 0 },
+  stand: { left: -0.84, right: 0.84, bottom: -0.95, top: 0.34, elevation: 0.04, yaw: 0 },
+  end: { left: -0.97, right: 0.97, bottom: -0.86, top: 0.8, elevation: 0.36, yaw: 0.18 },
   textShare: 0.54,
   textGrow: 0.3,
   textY: 0.16,
@@ -134,9 +135,9 @@ const LANDSCAPE: Layout = {
 };
 
 const PORTRAIT: Layout = {
-  full: { left: -0.9, right: 0.9, bottom: -0.86, top: -0.05, elevation: 0.12 },
-  stand: { left: -0.92, right: 0.92, bottom: -0.92, top: 0.3, elevation: 0.04 },
-  far: { share: 0.28, x: 0, y: -0.12, elevation: 0.2 },
+  full: { left: -0.9, right: 0.9, bottom: -0.86, top: -0.05, elevation: 0.12, yaw: 0 },
+  stand: { left: -0.92, right: 0.92, bottom: -0.92, top: 0.3, elevation: 0.04, yaw: 0 },
+  end: { left: -0.97, right: 0.97, bottom: -0.45, top: 0.35, elevation: 0.36, yaw: 0.18 },
   textShare: 0.8,
   textGrow: 0.1,
   textY: 0.14,
@@ -153,6 +154,7 @@ function mixShot(a: Shot, b: Shot, t: number, out: Shot): Shot {
   out.x = lerp(a.x, b.x, t);
   out.y = lerp(a.y, b.y, t);
   out.elevation = lerp(a.elevation, b.elevation, t);
+  out.yaw = lerp(a.yaw, b.yaw, t);
   return out;
 }
 
@@ -189,7 +191,7 @@ function nextTask(): Promise<void> {
 type Bounds = { min: Vector3; max: Vector3 };
 
 function emptyPose(): Pose {
-  return { time: 0, rise: [], stand: [], thrust: [], awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1, wingSpread: 0 };
+  return { time: 0, rise: [], stand: [], thrust: [], rest: [], awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1, wingSpread: 0 };
 }
 
 /** Fills `pose` for a point of the sequence (the body channels travelling along the spine), the head aiming at `aim` as far as the sequence turns it. */
@@ -257,7 +259,9 @@ const BOUNDS_STRIDE = 3;
 /** While the camera holds the full-size frame: asleep, waking and starting to uncurl. */
 const LYING_RANGES = [[0, 0.23]] as const;
 /** While the camera moves to the standing frame and holds it: lifting the neck, rearing, breathing fire, lying back down and curling up. */
-const STANDING_RANGES = [[0.25, PHASES.retreat[0]]] as const;
+const STANDING_RANGES = [[0.25, PHASES.close[0]]] as const;
+/** The resting dragon of the last shot. */
+const END_RANGES = [[PHASES.close[1], 1]] as const;
 
 /**
  * Builds the scene in short tasks: the voxel dragon first (pure CPU, one task per body part), then
@@ -272,6 +276,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   await nextTask();
   const lying = await posedBounds(model, rig, LYING_RANGES);
   const standing = await posedBounds(model, rig, STANDING_RANGES);
+  const resting = await posedBounds(model, rig, END_RANGES);
   await nextTask();
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
   // Clear alpha 0: the empty background is crisp black for the dither pass and never blooms.
@@ -356,14 +361,17 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   const aim = new Vector3();
   const pose = emptyPose();
   let aimReady = false;
-  const shot: Shot = { ...LANDSCAPE.far };
-  const shotScratch: Shot = { ...LANDSCAPE.far };
-  const fullShot: Shot = { ...LANDSCAPE.far };
-  const standShot: Shot = { ...LANDSCAPE.far };
+  const blankShot: Shot = { share: 1, x: 0, y: 0, elevation: 0, yaw: 0 };
+  const shot: Shot = { ...blankShot };
+  const shotScratch: Shot = { ...blankShot };
+  const fullShot: Shot = { ...blankShot };
+  const standShot: Shot = { ...blankShot };
+  const endShot: Shot = { ...blankShot };
   let fireAccumulator = 0;
   let smokeAccumulator = 0;
   let sparkAccumulator = 0;
   let emberAccumulator = 0;
+  let sparkMouthAccumulator = 0;
   let running = false;
   let frameHandle = 0;
   let lastTime = 0;
@@ -434,16 +442,13 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
    */
   function fitShot(bounds: Bounds, fit: Fit, out: Shot): Shot {
     const aspect = width / height;
-    const cos = Math.cos(fit.elevation);
-    const sin = Math.sin(fit.elevation);
+    orient(fit.elevation, fit.yaw);
     const corners: [number, number, number][] = [];
     for (const x of [bounds.min.x, bounds.max.x]) {
       for (const y of [bounds.min.y, bounds.max.y]) {
         for (const z of [bounds.min.z, bounds.max.z]) {
-          const dx = x - frame.focus.x;
-          const dy = y - frame.focus.y;
-          const dz = z - frame.focus.z;
-          corners.push([dx, dy * cos - dz * sin, -dy * sin - dz * cos]);
+          scratch.set(x, y, z).sub(frame.focus);
+          corners.push([scratch.dot(right), scratch.dot(up), scratch.dot(forward)]);
         }
       }
     }
@@ -473,25 +478,34 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     out.x = -(shift(far, 0, fit.left, fit.right, TAN_HALF_FOV * aspect) ?? 0) / (halfHeight * aspect);
     out.y = -(shift(far, 1, fit.bottom, fit.top, TAN_HALF_FOV) ?? 0) / halfHeight;
     out.elevation = fit.elevation;
+    out.yaw = fit.yaw;
     return out;
+  }
+
+  /** Points `forward`, `up` and `right` along the axes of a camera looking down by `elevation` and turned by `yaw` about the vertical. */
+  function orient(elevation: number, yaw: number): void {
+    const ce = Math.cos(elevation);
+    const se = Math.sin(elevation);
+    forward.set(-ce * Math.sin(yaw), -se, -ce * Math.cos(yaw));
+    up.set(-se * Math.sin(yaw), ce, -se * Math.cos(yaw));
+    right.set(Math.cos(yaw), 0, -Math.sin(yaw));
   }
 
   /** The camera is a pure function of the (spring-smoothed) progress, plus the shake of the second pass of the jet. */
   function updateCamera(): void {
     layout = width / height < 1 ? PORTRAIT : LANDSCAPE;
     mixShot(fullShot, standShot, state.frame, shotScratch);
-    mixShot(shotScratch, layout.far, state.retreat, shot);
+    mixShot(shotScratch, endShot, state.close, shot);
     const aspect = width / height;
     const distance = frame.width / (shot.share * 2 * TAN_HALF_FOV * aspect);
     const halfHeight = distance * TAN_HALF_FOV;
 
     camera.aspect = aspect;
-    // Clip planes follow the distance: a narrow portrait frame puts the far shot thousands of units away.
+    // Clip planes follow the distance: a narrow portrait frame puts the camera far from the dragon.
     camera.near = distance * 0.05;
     camera.far = distance * 4;
-    camera.rotation.set(-shot.elevation, 0, 0);
-    forward.set(0, -Math.sin(shot.elevation), -Math.cos(shot.elevation));
-    up.set(0, Math.cos(shot.elevation), -Math.sin(shot.elevation));
+    camera.rotation.set(-shot.elevation, shot.yaw, 0, "YXZ");
+    orient(shot.elevation, shot.yaw);
     camera.position
       .copy(frame.focus)
       .addScaledVector(forward, -distance)
@@ -676,10 +690,14 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
       }
     }
 
-    smokeAccumulator += (state.smoke * 12 + state.heave * 10 + state.wake * (1 - state.fire) * (1 - state.sleep) * 3) * dt;
+    // Smoke from the nostrils and the mouth: it builds as the dragon rears (flowing into the first
+    // flame), puffs after the fire, and rolls thick from the resting dragon in the last shot.
+    const smokeRate = state.smoke * 12 * (1 + 2.5 * state.close) + state.simmer * 18 + state.heave * 10 + state.wake * (1 - state.fire) * (1 - state.sleep) * 3;
+    smokeAccumulator += smokeRate * dt;
     while (smokeAccumulator >= 1) {
       smokeAccumulator -= 1;
-      rig.transform(anchors.nostrils[Math.random() < 0.5 ? 0 : 1]!, HEAD_BONE, scratch);
+      const fromMouth = Math.random() < 0.35;
+      rig.transform(fromMouth ? anchors.mouth : anchors.nostrils[Math.random() < 0.5 ? 0 : 1]!, HEAD_BONE, scratch);
       smoke.spawn({
         x: scratch.x + random(-0.3, 0.3),
         y: scratch.y + random(0, 0.5),
@@ -687,10 +705,28 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
         vx: random(0.6, 1.6),
         vy: random(1.6, 2.6),
         vz: random(-0.2, 0.3),
-        life: random(3.5, 6),
-        size: random(0.45, 0.8),
-        growth: random(0.6, 1.2),
+        life: random(3.5, 6) * (1 + 0.5 * state.close),
+        size: random(0.45, 0.8) * (1 + 1.2 * state.close),
+        growth: random(0.6, 1.2) * (1 + 0.6 * state.close),
         kind: 2,
+      });
+    }
+    // Before the first flame, the mouth already spits a few embers into the smoke.
+    sparkMouthAccumulator += state.simmer * 6 * dt;
+    while (sparkMouthAccumulator >= 1) {
+      sparkMouthAccumulator -= 1;
+      rig.transform(anchors.mouth, HEAD_BONE, scratch);
+      fire.spawn({
+        x: scratch.x,
+        y: scratch.y,
+        z: scratch.z,
+        vx: random(-1.5, 1.5) * unit,
+        vy: random(2, 5) * unit,
+        vz: random(-1, 1),
+        life: random(0.6, 1.2),
+        size: unit * random(0.5, 0.9),
+        growth: -0.6,
+        kind: 1,
       });
     }
 
@@ -706,7 +742,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     firePos!.copy(firePoint);
     fireColor!.set(1.3, 0.5, 0.14).multiplyScalar(state.fire * 1.7 * (0.6 + 0.4 * power));
     rig.transform(anchors.tailTip, anchors.tailTipBone, tailPos!).add(scratch.set(0, 4, 3));
-    tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * state.reveal * (0.7 + 0.5 * state.sleep));
+    tailColor!.set(1.6, 0.55, 0.14).multiplyScalar(state.tail * state.reveal * (0.7 + 0.5 * state.sleep + 0.5 * state.close));
     // Light 2 glows from "rose" while the phrase is whole, then becomes a low warm light just above
     // the sleeping head so its silhouette (snout, horns, closed eye) stays readable.
     const whole = 1 - smoothstep(0.75, 1, state.phrase);
@@ -716,9 +752,9 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     roseColor!
       .set(0.9, 0.22, 0.06)
       .multiplyScalar(state.rose * whole * 0.9)
-      .addScaledVector(headLightColor, state.sleep * 1.25);
-    fillColor!.set(0.35, 0.22, 0.18).multiplyScalar(state.light * (1 - 0.55 * state.sleep));
-    lightUniforms.uKeyColor.value.set(0.95, 0.62, 0.5).multiplyScalar(state.light * (1 - 0.35 * state.sleep) * (0.85 + 0.15 * Math.sin(time.value * 0.8)));
+      .addScaledVector(headLightColor, state.sleep * (1.25 + 0.9 * state.close));
+    fillColor!.set(0.35, 0.22, 0.18).multiplyScalar(state.light * (1 - 0.55 * state.sleep + 0.35 * state.close));
+    lightUniforms.uKeyColor.value.set(0.95, 0.62, 0.5).multiplyScalar(state.light * (1 - 0.35 * state.sleep + 0.3 * state.close) * (0.85 + 0.15 * Math.sin(time.value * 0.8)));
     lightUniforms.uRimColor.value.set(1.6, 0.7, 0.9).lerp(scratch.set(1.3, 0.95, 1.2), state.sleep).multiplyScalar(state.light * (1 + 0.25 * state.sleep));
 
     // Alone in the dark, the opening eye glows hotter; then the light comes up on the whole body.
@@ -767,9 +803,9 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     pipeline.setHeat(mid.x / width, 1 - mid.y / height, radius * (0.4 + 0.6 * layout.fireScale), state.fire * 0.9 * (0.75 + 0.25 * state.power) * layout.fireScale, time.value);
   }
 
-  /** Just under the front of the sleeping dragon, where the Launch app button appears. */
+  /** Just under the glowing tip of the resting dragon's tail, where the Launch app button appears. */
   function launchAnchor(): { x: number; y: number } {
-    return project(new Vector3(frame.focus.x, 0, frame.front));
+    return project(rig.transform(anchors.tailTip, anchors.tailTipBone, new Vector3()).setY(0));
   }
 
   function renderFrame(dt: number): void {
@@ -865,6 +901,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
       layout = width / height < 1 ? PORTRAIT : LANDSCAPE;
       fitShot(lying, layout.full, fullShot);
       fitShot(standing, layout.stand, standShot);
+      fitShot(resting, layout.end, endShot);
       rebuildText();
       updateCamera();
       applyTier(tierIndex);

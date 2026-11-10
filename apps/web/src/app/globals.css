@@ -436,6 +436,7 @@ body {
   left: 50%;
   top: 80%;
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   gap: 10px;
   height: 44px;

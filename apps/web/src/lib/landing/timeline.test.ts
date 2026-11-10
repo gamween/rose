@@ -47,7 +47,9 @@ describe("landing sequence timeline", () => {
     expect(start.eyes).toBe(0);
     expect(start.smoke).toBe(0);
     expect(start.frame).toBe(0);
-    expect(start.retreat).toBe(0);
+    expect(start.close).toBe(0);
+    expect(start.rest).toBe(0);
+    expect(start.simmer).toBe(0);
     expect(start.wake).toBe(0);
     expect(start.stand).toBe(0);
     expect(start.rise).toBe(0);
@@ -74,11 +76,21 @@ describe("landing sequence timeline", () => {
     expect(sequenceAt(1).reveal).toBe(1);
   });
 
-  it("starts close on the sleeping ball, and pulls back only once it lies asleep again", () => {
+  it("starts close on the sleeping ball, and closes in on the dragon only once it lies down to rest", () => {
     const lying = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).stand === 0);
-    expect(PHASES.retreat[0]).toBeGreaterThanOrEqual(lying);
-    for (const p of samples.filter((q) => q <= PHASES.retreat[0])) expect(sequenceAt(p).retreat).toBe(0);
+    expect(PHASES.close[0]).toBeGreaterThanOrEqual(lying - 0.0001);
+    for (const p of samples.filter((q) => q <= PHASES.close[0])) expect(sequenceAt(p).close).toBe(0);
     for (const p of samples.filter((q) => q <= PHASES.rise[0])) expect(sequenceAt(p).frame).toBe(0);
+    expect(sequenceAt(PHASES.close[1]).close).toBe(1);
+    expect(sequenceAt(PHASES.close[1]).rest).toBe(1);
+  });
+
+  it("starts smoking as it rears, flowing into the first flame", () => {
+    const smoking = firstWhere((p) => sequenceAt(p).simmer > 0.1);
+    expect(smoking).toBeGreaterThan(PHASES.stand[0]);
+    expect(smoking).toBeLessThan(PHASES.breath[0]);
+    expect(sequenceAt(PHASES.breath[0]).simmer).toBe(1);
+    expect(sequenceAt(0.46).simmer).toBe(0);
   });
 
   it("eases the camera to the standing frame as the dragon rears up", () => {
@@ -194,7 +206,7 @@ describe("landing sequence timeline", () => {
     expect(late).toBeGreaterThan(early * 1.5);
   });
 
-  it("stops the fire at the right end of the second pass and lowers itself in the same motion, folding its wings", () => {
+  it("stops the fire at the right end of the second pass, lowers itself in the same motion folding its wings, and lies down to rest", () => {
     const out = firstWhere((p) => p > second.start && sequenceAt(p).fire === 0);
     expect(sequenceAt(out).aim).toBeGreaterThan(0.98);
     for (const p of samples.filter((q) => q >= out)) expect(sequenceAt(p).aim).toBe(1);
@@ -204,23 +216,24 @@ describe("landing sequence timeline", () => {
     expect(sequenceAt(out + 0.01).stand).toBeLessThan(0.98);
     expect(sequenceAt(out + 0.01).wingFold).toBeGreaterThan(0.01);
     const down = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).stand === 0);
-    const folded = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).wingFold >= 1);
+    const folded = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).wingFold >= 0.9);
     const asleep = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).eyelid === 0);
     expect(Math.abs(folded - down)).toBeLessThan(0.03);
     expect(down).toBeLessThanOrEqual(asleep);
-    const curling = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).rise < 0.9);
-    expect(curling).toBeLessThan(down);
+    const settling = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).rest > 0.1);
+    expect(settling).toBeLessThan(down);
     const end = sequenceAt(1);
-    expect(end.rise).toBe(0);
+    expect(end.rise).toBe(1);
     expect(end.stand).toBe(0);
-    expect(end.wingFold).toBe(1);
+    expect(end.wingFold).toBeGreaterThan(0.85);
     expect(end.wingSpread).toBe(0);
     expect(end.eyelid).toBe(0);
     expect(end.sleep).toBe(1);
     expect(end.smoke).toBe(1);
     expect(end.tail).toBe(1);
     expect(end.fire).toBe(0);
-    expect(end.retreat).toBe(1);
+    expect(end.close).toBe(1);
+    expect(end.rest).toBe(1);
     expect(end.phrase).toBe(1);
     expect(end.launchReady).toBe(true);
   });
@@ -229,7 +242,9 @@ describe("landing sequence timeline", () => {
     const limit = 0.02;
     const channels: ((p: number) => number)[] = [
       (p) => sequenceAt(p).frame,
-      (p) => sequenceAt(p).retreat,
+      (p) => sequenceAt(p).close,
+      (p) => sequenceAt(p).rest,
+      (p) => sequenceAt(p).simmer,
       (p) => sequenceAt(p).wake,
       (p) => sequenceAt(p).stand,
       (p) => sequenceAt(p).rise,
@@ -255,8 +270,8 @@ describe("landing sequence timeline", () => {
 
   it("gives the body channels on their own, for the bones that sample them a little later", () => {
     for (const p of [0.1, 0.3, 0.45, 0.6, 0.85]) {
-      const { rise, stand, thrust } = sequenceAt(p);
-      expect(bodyAt(p)).toEqual({ rise, stand, thrust });
+      const { rise, rest, stand, thrust } = sequenceAt(p);
+      expect(bodyAt(p)).toEqual({ rise, rest, stand, thrust });
     }
     expect(SPINE_LAG).toBeGreaterThan(0);
     expect(SPINE_LAG * 12).toBeLessThan(0.06);

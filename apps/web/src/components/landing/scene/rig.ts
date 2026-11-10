@@ -22,7 +22,7 @@ import {
   type SpineBone,
 } from "@/lib/voxel/dragon";
 import type { Vec3 } from "@/lib/voxel/grid";
-import { SPINE_LAG, bodyAt } from "@/lib/landing/timeline";
+import { SPINE_LAG, bodyAt, lerp } from "@/lib/landing/timeline";
 
 /*
  * Poses of the spine, as the direction of each bone in degrees above the horizontal, the dragon
@@ -36,6 +36,25 @@ const SPHINX_HEAD = -14;
 const STAND_TORSO = [48, 60];
 const STAND_NECK = [48, 64, 80, 92, 88, 66, 36, 10];
 const STAND_HEAD = -6;
+/**
+ * Asleep at the end, as a dragon on its hoard: the torso lies as in the ball, the neck rises from
+ * the chest in a high arch and comes back down, leaving an open loop above the forelegs, and the
+ * head rests forward on the ground (pitch, then yaw from straight ahead toward the near side); the
+ * tail stays wrapped along the ground in front of the body, its glowing tip in front of the chest.
+ */
+const REST_NECK: readonly (readonly [pitch: number, yaw: number])[] = [
+  [62, 0],
+  [52, 3],
+  [36, 6],
+  [12, 9],
+  [-20, 12],
+  [-52, 15],
+  [-68, 18],
+  [-50, 20],
+];
+const REST_HEAD: readonly [pitch: number, yaw: number] = [-6, 20];
+/** Asleep at the end, the far wing stays half raised behind the back, its fingers and membrane showing. */
+const REST_FAR_WING = { fold: 0.6, spread: 0.6 };
 const STAND_TAIL: readonly (readonly [pitch: number, yaw: number])[] = [
   [-58, 0],
   [-34, 8],
@@ -117,6 +136,8 @@ export type Pose = {
   rise: number[];
   stand: number[];
   thrust: number[];
+  /** Lying asleep at the end, stretched out (0 the pose of the other channels, 1 fully at rest). */
+  rest: number[];
   /** Overall wakefulness, fire intensity and the deep breaths after it, for the waves. */
   awake: number;
   fire: number;
@@ -139,12 +160,13 @@ const STAND_LAG = 0.6;
  * Fills the body channels of `pose` for a point of the sequence: each spine bone samples the
  * timeline `SPINE_LAG` later per bone away from the hips, so every move travels along the body.
  */
-export function bodyPose(pose: Pick<Pose, "rise" | "stand" | "thrust">, progress: number): void {
+export function bodyPose(pose: Pick<Pose, "rise" | "stand" | "thrust" | "rest">, progress: number): void {
   SPINE.forEach((spine, i) => {
     const body = bodyAt(progress - spine.chain * SPINE_LAG);
     pose.rise[i] = body.rise;
     pose.stand[i] = bodyAt(progress - spine.chain * SPINE_LAG * STAND_LAG).stand;
     pose.thrust[i] = body.thrust;
+    pose.rest[i] = body.rest;
   });
 }
 
@@ -175,6 +197,13 @@ function ahead(degrees: number): [Vector3, Vector3] {
   return [new Vector3(-Math.cos(a), Math.sin(a), 0), new Vector3(Math.sin(a), Math.cos(a), 0)];
 }
 
+/** A direction pitched `pitch` degrees from straight ahead (-x), turned `yaw` degrees toward the near side. */
+function aheadTurned(pitch: number, yaw: number): [Vector3, Vector3] {
+  const p = (pitch * Math.PI) / 180;
+  const y = (yaw * Math.PI) / 180;
+  return [new Vector3(-Math.cos(p) * Math.cos(y), Math.sin(p), Math.cos(p) * Math.sin(y)), UP.clone()];
+}
+
 /** A direction pitched `pitch` degrees from straight back (+x), turned `yaw` degrees toward the near side. */
 function behind(pitch: number, yaw: number): [Vector3, Vector3] {
   const p = (pitch * Math.PI) / 180;
@@ -187,7 +216,8 @@ function inBody(axes: BodyAxes, [forward, up, out]: Vec3, side: number): Vector3
   return vector(axes.forward).multiplyScalar(forward).addScaledVector(vector(axes.up), up).addScaledVector(vector(axes.lateral), out * side).normalize();
 }
 
-type SpineRig = SpineBone & { direction: Vector3; lateral: Vector3; dorsal: Vector3; sphinx: Quaternion; stand: Quaternion; index: number };
+type SpineRig = SpineBone & { direction: Vector3; lateral: Vector3; dorsal: Vector3; sphinx: Quaternion; stand: Quaternion; rest: Quaternion; index: number };
+type SpinePose = "sphinx" | "stand" | "rest";
 type WingRig = { arm: Quaternion; forearm: Quaternion; fingers: Quaternion[] };
 type FrontRig = { sphinx: Quaternion[]; stand: Quaternion[] };
 type HindRig = { stance: Vector3; lengths: number[] };
@@ -231,17 +261,21 @@ export class DragonRig {
     const pivot = vector(SPINE[0]!.from);
     this.gazePoint = [pivot.x - 120, 135, pivot.z + 10];
 
-    const targets = new Map<number, { sphinx: Quaternion; stand: Quaternion }>();
+    const targets = new Map<number, Record<SpinePose, Quaternion>>();
     this.spine = SPINE.map((spine, index) => {
       const direction = vector(spine.to).sub(vector(spine.from)).normalize();
       const dorsal = UP.clone().addScaledVector(direction, -UP.dot(direction)).normalize();
       const lateral = new Vector3().crossVectors(direction, dorsal).normalize();
       const neck = spine.bone - FORWARD_CHAIN[1]!;
       const tail = spine.bone > HEAD_BONE ? spine.chain - 1 : -1;
-      const world = (pose: "sphinx" | "stand"): Quaternion => {
+      const world = (pose: SpinePose): Quaternion => {
         const parent = targets.get(spine.parent)?.[pose] ?? IDENTITY;
         let target: [Vector3, Vector3] | null = null;
-        if (spine.bone <= CHEST_BONE) target = ahead((pose === "sphinx" ? SPHINX_TORSO : STAND_TORSO)[spine.chain]!);
+        if (pose === "rest") {
+          if (spine.bone > CHEST_BONE && spine.bone < HEAD_BONE) target = aheadTurned(...REST_NECK[neck]!);
+          else if (spine.bone === HEAD_BONE) target = aheadTurned(...REST_HEAD);
+          else return IDENTITY.clone();
+        } else if (spine.bone <= CHEST_BONE) target = ahead((pose === "sphinx" ? SPHINX_TORSO : STAND_TORSO)[spine.chain]!);
         else if (spine.bone < HEAD_BONE) target = ahead((pose === "sphinx" ? SPHINX_NECK : STAND_NECK)[neck]!);
         else if (spine.bone === HEAD_BONE) target = ahead(pose === "sphinx" ? SPHINX_HEAD : STAND_HEAD);
         else if (pose === "stand") target = behind(...STAND_TAIL[tail]!);
@@ -249,9 +283,10 @@ export class DragonRig {
       };
       const sphinx = world("sphinx");
       const stand = world("stand");
-      targets.set(spine.bone, { sphinx, stand });
-      const local = (pose: "sphinx" | "stand", own: Quaternion) => (targets.get(spine.parent)?.[pose] ?? IDENTITY).clone().invert().multiply(own);
-      return { ...spine, direction, lateral, dorsal, sphinx: local("sphinx", sphinx), stand: local("stand", stand), index };
+      const rest = world("rest");
+      targets.set(spine.bone, { sphinx, stand, rest });
+      const local = (pose: SpinePose, own: Quaternion) => (targets.get(spine.parent)?.[pose] ?? IDENTITY).clone().invert().multiply(own);
+      return { ...spine, direction, lateral, dorsal, sphinx: local("sphinx", sphinx), stand: local("stand", stand), rest: local("rest", rest), index };
     });
 
     this.front = FRONT_LEGS.map((limb) => {
@@ -293,7 +328,10 @@ export class DragonRig {
     for (const spine of this.spine) {
       const i = spine.index;
       const standing = pose.stand[i] ?? 0;
-      const local = this.blend.slerpQuaternions(IDENTITY, spine.sphinx, pose.rise[i] ?? 0).slerp(spine.stand, Math.min(1, standing));
+      const local = this.blend
+        .slerpQuaternions(IDENTITY, spine.sphinx, pose.rise[i] ?? 0)
+        .slerp(spine.stand, Math.min(1, standing))
+        .slerp(spine.rest, pose.rest[i] ?? 0);
       const chain = Math.min(spine.chain, THRUST_BEND.length - 1);
       const tail = spine.bone > HEAD_BONE;
       let bend = tail ? 0 : Math.max(0, standing - 1) * OVERSHOOT_BEND;
@@ -317,7 +355,7 @@ export class DragonRig {
     bones[JAW_BONE]!.multiplyMatrices(bones[HEAD_BONE]!, this.scratch);
 
     const chestIndex = this.spine.findIndex((spine) => spine.bone === CHEST_BONE);
-    FRONT_LEGS.forEach((limb, k) => this.poseFront(limb, this.front[k]!, pose.rise[chestIndex] ?? 0, pose.stand[chestIndex] ?? 0));
+    FRONT_LEGS.forEach((limb, k) => this.poseFront(limb, this.front[k]!, pose.rise[chestIndex] ?? 0, pose.stand[chestIndex] ?? 0, pose.rest[chestIndex] ?? 0));
     this.hind.forEach((rig, k) => this.poseHind(HIND_LEGS[k]!, rig, Math.min(1, stand)));
     WINGS.forEach((spec, k) => this.poseWing(spec, this.wings[k]!, pose, Math.min(1, pose.stand[chestIndex] ?? 0)));
   }
@@ -355,7 +393,7 @@ export class DragonRig {
   private restPose(stand: number): Pose {
     const channel = this.spine.map(() => stand);
     const none = this.spine.map(() => 0);
-    return { time: 0, rise: channel, stand: channel, thrust: none, awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1 - stand, wingSpread: stand };
+    return { time: 0, rise: channel, stand: channel, thrust: none, rest: none, awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1 - stand, wingSpread: stand };
   }
 
   /**
@@ -381,11 +419,11 @@ export class DragonRig {
     }
   }
 
-  /** Front leg: tucked under the chest, reaching forward lying awake, swung forward and out rearing. */
-  private poseFront(limb: Leg, rig: FrontRig, rise: number, stand: number): void {
+  /** Front leg: tucked under the chest, reaching forward lying awake, swung forward and out rearing, tucked again asleep. */
+  private poseFront(limb: Leg, rig: FrontRig, rise: number, stand: number, rest: number): void {
     let parent = CHEST_BONE;
     limb.bones.forEach((bone, k) => {
-      const local = this.blend.slerpQuaternions(IDENTITY, rig.sphinx[k]!, rise).slerp(rig.stand[k]!, Math.min(1, stand));
+      const local = this.blend.slerpQuaternions(IDENTITY, rig.sphinx[k]!, rise).slerp(rig.stand[k]!, Math.min(1, stand)).slerp(IDENTITY, rest);
       const at = this.a.set(...limb.joints[k]!).applyMatrix4(this.bones[parent]!);
       this.world[bone]!.multiplyQuaternions(this.world[parent]!, local);
       this.place(limb.joints[k]!, at, this.world[bone]!, this.bones[bone]!);
@@ -439,7 +477,9 @@ export class DragonRig {
    * parent rigidly toward their own folded directions, the fingers with the membrane spread.
    */
   private poseWing(spec: (typeof WINGS)[number], rig: WingRig, pose: Pose, stand: number): void {
-    const fold = pose.wingFold - 0.08 * (pose.thrust[1] ?? 0);
+    const rest = spec.side < 0 ? (pose.rest[1] ?? 0) : 0;
+    const fold = lerp(pose.wingFold - 0.08 * (pose.thrust[1] ?? 0), REST_FAR_WING.fold, rest);
+    const spread = lerp(pose.wingSpread, REST_FAR_WING.spread, rest);
     const arm = this.armTurn
       .setFromAxisAngle(vector(CHEST_AXES.lateral), WING_RAISE * stand)
       .multiply(this.quaternion.slerpQuaternions(IDENTITY, rig.arm, fold));
@@ -449,8 +489,8 @@ export class DragonRig {
     this.turnFromChest(spec.elbow, elbow, forearm, spec.forearm);
     const wrist = this.chestSpace(spec.wrist, spec.forearm);
     spec.fingers.forEach((bone, k) => {
-      const ripple = this.extra.setFromAxisAngle(vector(CHEST_AXES.lateral), Math.sin(pose.time * 1.4 + k * 0.9) * (0.025 + 0.04 * pose.fire) * pose.wingSpread);
-      this.quaternion.slerpQuaternions(forearm, rig.fingers[k]!, 1 - pose.wingSpread).premultiply(ripple);
+      const ripple = this.extra.setFromAxisAngle(vector(CHEST_AXES.lateral), Math.sin(pose.time * 1.4 + k * 0.9) * (0.025 + 0.04 * pose.fire) * spread);
+      this.quaternion.slerpQuaternions(forearm, rig.fingers[k]!, 1 - spread).premultiply(ripple);
       this.turnFromChest(spec.wrist, wrist, this.quaternion, bone);
     });
   }

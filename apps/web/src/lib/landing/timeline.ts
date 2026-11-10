@@ -10,8 +10,9 @@
  * upward with its whole body, swings to the left and sweeps twice from left to right across the
  * phrase, the second pass far stronger than the first, so the phrase cracks and rises until it has
  * left the screen through the top. The fire stops as the second pass reaches the right end and, in
- * the same motion, the dragon lowers itself onto all fours folding its wings, curls back into its
- * ball and falls asleep, and the camera pulls back until it is small in the dark again.
+ * the same motion, the dragon lowers itself onto all fours folding its wings, lies down stretched
+ * out, its head resting on the ground ahead of it, and falls asleep, smoke drifting from its
+ * nostrils, while the camera closes in on it for a large, detailed last shot.
  *
  * The body channels (`bodyAt`) are sampled by the scene a little later for each bone further from
  * the hips, so every move travels along the spine as a wave, from the hips up the neck to the head
@@ -87,10 +88,11 @@ export const PHASES = {
   /** As the fire stops, the dragon lowers itself back onto all fours. */
   lower: [0.645, 0.745],
   sleep: [0.7, 0.8],
-  /** The neck lowers and the dragon curls back into its ball. */
-  curl: [0.68, 0.79],
+  /** The neck comes down and the dragon settles into its resting pose, stretched out. */
+  rest: [0.68, 0.8],
   smoke: [0.7, 0.88],
-  retreat: [0.8, 0.96],
+  /** The camera closes in on the resting dragon. */
+  close: [0.76, 0.95],
   launchReady: 0.95,
 } as const;
 
@@ -112,8 +114,6 @@ const EYELID: readonly Key[] = [
 const RISE: readonly Key[] = [
   [PHASES.rise[0], 0],
   [PHASES.rise[1], 1, EASE.inOutQuint],
-  [PHASES.curl[0], 1],
-  [PHASES.curl[1], 0, EASE.inOutQuint],
 ];
 
 /** Rearing up, past the full height and settling back (the follow-through travels up the neck). */
@@ -147,7 +147,7 @@ const POWER: readonly Key[] = [
 
 /**
  * The camera starts close on the sleeping ball; as the dragon uncurls it eases to the frame that
- * holds it whole standing, wings spread, and lying back down, and it pulls back from there.
+ * holds it whole standing, wings spread, and lying back down, and it closes in from there.
  */
 const FRAME: readonly Key[] = [
   [0.2, 0],
@@ -156,7 +156,8 @@ const FRAME: readonly Key[] = [
 
 /**
  * Wings: they lift off the flanks, hold a beat, then rise to their full height with a slight
- * overshoot; as the fire stops they fold back down while the dragon lowers itself.
+ * overshoot; as the fire stops they fold back down while the dragon lowers itself, resting just
+ * off the back.
  */
 const WING_FOLD: readonly Key[] = [
   [0.29, 1],
@@ -165,8 +166,8 @@ const WING_FOLD: readonly Key[] = [
   [0.4, -0.06, EASE.inOutCubic],
   [0.43, 0, EASE.inOutSine],
   [0.645, 0],
-  [0.75, 1.03, EASE.inOutSine],
-  [0.775, 1, EASE.inOutSine],
+  [0.75, 0.94, EASE.inOutSine],
+  [0.775, 0.9, EASE.inOutSine],
 ];
 
 /** Membranes: they open a little with the first lift, then spread wide; they furl as the dragon lowers itself. */
@@ -220,10 +221,20 @@ const HEAVE: readonly Key[] = [
   [0.8, 0, EASE.inOutSine],
 ];
 
+/** Smoke builds from the mouth and nostrils as the dragon rears, flowing into the first flame. */
+const SIMMER: readonly Key[] = [
+  [0.25, 0],
+  [0.36, 1, EASE.inOutSine],
+  [0.39, 1],
+  [0.44, 0, EASE.inOutSine],
+];
+
 /** The channels of the body, sampled per bone with a lag (see `SPINE_LAG`). */
 export type BodyState = {
   /** 0 curled asleep, 1 uncurled with the neck raised. */
   rise: number;
+  /** Settling into the stretched-out resting pose at the end (it overrides the other channels). */
+  rest: number;
   /** 0 lying, 1 rearing on the hind legs (slightly above 1 at the overshoot). */
   stand: number;
   /** The push forward into the jet. */
@@ -232,14 +243,21 @@ export type BodyState = {
 
 export function bodyAt(rawProgress: number): BodyState {
   const progress = clamp01(rawProgress);
-  return { rise: keyframes(RISE, progress), stand: keyframes(STAND, progress), thrust: keyframes(THRUST, progress) };
+  return {
+    rise: keyframes(RISE, progress),
+    rest: EASE.inOutCubic(clamp01((progress - PHASES.rest[0]) / (PHASES.rest[1] - PHASES.rest[0]))),
+    stand: keyframes(STAND, progress),
+    thrust: keyframes(THRUST, progress),
+  };
 }
 
 export type SequenceState = BodyState & {
   /** Camera move from the full size (0) to the frame of the standing dragon (1). */
   frame: number;
-  /** Camera move from the full size (0) to the final wide frame, the dragon small (1). */
-  retreat: number;
+  /** Camera move from the standing frame (0) to the close, detailed last shot of the resting dragon (1). */
+  close: number;
+  /** Smoke drifting from the mouth as the dragon rears, before the first flame. */
+  simmer: number;
   /** Overall wakefulness: 0 asleep, 1 awake (the final sleep is `sleep`). */
   wake: number;
   /** Overall return to sleep. */
@@ -313,7 +331,8 @@ export function sequenceAt(rawProgress: number): SequenceState {
 
   return {
     frame: keyframes(FRAME, progress),
-    retreat: EASE.inOutQuint(clamp01((progress - PHASES.retreat[0]) / (PHASES.retreat[1] - PHASES.retreat[0]))),
+    close: EASE.inOutQuint(clamp01((progress - PHASES.close[0]) / (PHASES.close[1] - PHASES.close[0]))),
+    simmer: keyframes(SIMMER, progress),
     wake,
     sleep,
     ...bodyAt(progress),
