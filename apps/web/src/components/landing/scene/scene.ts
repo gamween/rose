@@ -4,6 +4,7 @@ import {
   InstancedBufferAttribute,
   Mesh,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
   ShaderMaterial,
   Vector2,
@@ -11,7 +12,7 @@ import {
   Vector4,
   WebGLRenderer,
 } from "three";
-import { HEAD_BONE, buildDragonInSteps, type DragonModel } from "@/lib/voxel/dragon";
+import { CHEST_BONE, HEAD_BONE, buildDragonInSteps, type DragonModel } from "@/lib/voxel/dragon";
 import { PHASES, sequenceAt, lerp, clamp01, smoothstep, type SequenceState } from "@/lib/landing/timeline";
 import { QUALITY_TIERS, createQualityState, sampleFrame, type QualityState, type QualityTier } from "@/lib/landing/quality";
 import { stepSpring, type Spring } from "@/lib/landing/spring";
@@ -19,6 +20,8 @@ import { ParticlePool, instancedBox } from "./particles";
 import { DitherPipeline } from "./post";
 import { DragonRig, bodyPose, type Pose } from "./rig";
 import {
+  backdropFragment,
+  backdropVertex,
   dragonFragment,
   dragonVertex,
   fireFragment,
@@ -87,6 +90,14 @@ const VEIL_STRENGTH = 0.82;
 const MIN_TEXT_PIXELS_PER_DESIGN_PIXEL = 1.7;
 /** World size of the fire and smoke particles relative to the distance from the camera. */
 const PARTICLE_UNIT_DISTANCE = 200;
+/** The backdrop that holds the aura faces the camera this many times as far as the dragon. */
+const BACKDROP_DEPTH = 1.5;
+/**
+ * The aura on the backdrop, sized as seen at the dragon (world units): a wide ember glow behind
+ * the chest, a glow behind the flame and one behind the tail tip, and an ember haze over the
+ * ground, even up to `hazeTop` above it and thinning over `haze` higher up.
+ */
+const AURA = { chest: 118, chestLift: new Vector3(8, 12.6, 0), fire: 86, tail: 47, tailLift: new Vector3(0, 3, 0), hazeTop: 18, haze: 22 };
 
 /**
  * A camera framing of the dragon: the share of the screen width its body spans, where its center
@@ -110,7 +121,7 @@ type Layout = {
    * it breathes fire never cropped, under the phrase it drives off the top of the screen.
    */
   stand: Fit;
-  /** The last shot: the camera closes in on the dragon resting, stretched out, large and in detail. */
+  /** The last shot: the camera closes in on the dragon resting, stretched out across the screen, large and in detail. */
   end: Fit;
   /** Share of the screen width the phrase spans at rest, and how much wider it grows. */
   textShare: number;
@@ -126,7 +137,7 @@ type Layout = {
 const LANDSCAPE: Layout = {
   full: { left: -0.6, right: 0.6, bottom: -0.86, top: 0, elevation: 0.12, yaw: 0 },
   stand: { left: -0.84, right: 0.84, bottom: -0.95, top: 0.34, elevation: 0.04, yaw: 0 },
-  end: { left: -0.97, right: 0.97, bottom: -0.86, top: 0.8, elevation: 0.36, yaw: 0.18 },
+  end: { left: -1, right: 0.82, bottom: -0.59, top: 0.47, elevation: 0.053, yaw: 0 },
   textShare: 0.54,
   textGrow: 0.3,
   textY: 0.16,
@@ -137,7 +148,7 @@ const LANDSCAPE: Layout = {
 const PORTRAIT: Layout = {
   full: { left: -0.9, right: 0.9, bottom: -0.86, top: -0.05, elevation: 0.12, yaw: 0 },
   stand: { left: -0.92, right: 0.92, bottom: -0.92, top: 0.3, elevation: 0.04, yaw: 0 },
-  end: { left: -0.97, right: 0.97, bottom: -0.45, top: 0.35, elevation: 0.36, yaw: 0.18 },
+  end: { left: -0.92, right: 0.92, bottom: -0.33, top: 0.1, elevation: 0.068, yaw: -0.1 },
   textShare: 0.8,
   textGrow: 0.1,
   textY: 0.14,
@@ -189,6 +200,13 @@ function nextTask(): Promise<void> {
 }
 
 type Bounds = { min: Vector3; max: Vector3 };
+
+/** The eight corners of a box. */
+function corners({ min, max }: Bounds): Vector3[] {
+  const points: Vector3[] = [];
+  for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) points.push(new Vector3(x, y, z));
+  return points;
+}
 
 function emptyPose(): Pose {
   return { time: 0, rise: [], stand: [], thrust: [], rest: [], awake: 0, fire: 0, heave: 0, aim: new Vector3(), aimWeight: 0, jaw: 0, wingFold: 1, wingSpread: 0 };
@@ -255,13 +273,21 @@ async function posedBounds(model: DragonModel, rig: DragonRig, ranges: readonly 
 
 /** The framing bounds skin one voxel in this many: the shots fit with margins far larger than the gaps. */
 const BOUNDS_STRIDE = 3;
+/** The last shot fits the silhouette of the resting dragon, one voxel in this many. */
+const END_STRIDE = 4;
+
+/** Points of the dragon at rest at the end of the sequence, for the last shot to fit its silhouette. */
+function restingPoints(model: DragonModel, rig: DragonRig): Vector3[] {
+  const points: Vector3[] = [];
+  poseAt(rig, 1, rig.gaze(new Vector3()));
+  rig.skin(model, END_STRIDE, (posed) => points.push(posed.clone()));
+  return points;
+}
 
 /** While the camera holds the full-size frame: asleep, waking and starting to uncurl. */
 const LYING_RANGES = [[0, 0.23]] as const;
 /** While the camera moves to the standing frame and holds it: lifting the neck, rearing, breathing fire, lying back down and curling up. */
 const STANDING_RANGES = [[0.25, PHASES.close[0]]] as const;
-/** The resting dragon of the last shot. */
-const END_RANGES = [[PHASES.close[1], 1]] as const;
 
 /**
  * Builds the scene in short tasks: the voxel dragon first (pure CPU, one task per body part), then
@@ -274,12 +300,12 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   const rig = new DragonRig(anchors);
   const frame = sleepingFrame(model, rig);
   await nextTask();
-  const lying = await posedBounds(model, rig, LYING_RANGES);
-  const standing = await posedBounds(model, rig, STANDING_RANGES);
-  const resting = await posedBounds(model, rig, END_RANGES);
+  const lying = corners(await posedBounds(model, rig, LYING_RANGES));
+  const standing = corners(await posedBounds(model, rig, STANDING_RANGES));
+  const resting = restingPoints(model, rig);
   await nextTask();
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
-  // Clear alpha 0: the empty background is crisp black for the dither pass and never blooms.
+  // Clear alpha 0: anything the backdrop does not cover is crisp black for the dither pass and never blooms.
   renderer.setClearColor(new Color(0x000000), 0);
   renderer.autoClear = true;
 
@@ -318,6 +344,17 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   };
   const dragon = createDragonMesh(model, dragonUniforms);
   scene.add(dragon);
+
+  const backdropUniforms = {
+    uGlow: { value: [new Vector4(), new Vector4(), new Vector4()] },
+    uGlowColor: { value: [new Vector3(1, 0.32, 0.1), new Vector3(1, 0.5, 0.16), new Vector3(0.9, 0.2, 0.12)] },
+    uGlowStrength: { value: [0, 0, 0] },
+    uHaze: { value: new Vector3() },
+  };
+  const hazeLine = new Vector4();
+  const backdrop = new Mesh(new PlaneGeometry(1, 1), new ShaderMaterial({ vertexShader: backdropVertex, fragmentShader: backdropFragment, uniforms: backdropUniforms }));
+  backdrop.frustumCulled = false;
+  scene.add(backdrop);
 
   const textUniforms = {
     ...lightUniforms,
@@ -387,6 +424,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   const firePoint = new Vector3();
   const headLight = new Vector3();
   const headLightColor = new Vector3(0.75, 0.42, 0.3);
+  const auraAnchor = new Vector3();
   const aimGoal = new Vector3();
 
   /** CSS pixels per design pixel of the phrase at rest (before it grows). */
@@ -437,21 +475,16 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
   }
 
   /**
-   * The shot that holds `bounds` whole inside `fit`: the closest camera (at the fit's elevation)
-   * for which every corner of the bounds projects inside the box.
+   * The shot that holds `points` whole inside `fit`: the closest camera (at the fit's elevation and
+   * yaw) for which every point projects inside the box.
    */
-  function fitShot(bounds: Bounds, fit: Fit, out: Shot): Shot {
+  function fitShot(points: readonly Vector3[], fit: Fit, out: Shot): Shot {
     const aspect = width / height;
     orient(fit.elevation, fit.yaw);
-    const corners: [number, number, number][] = [];
-    for (const x of [bounds.min.x, bounds.max.x]) {
-      for (const y of [bounds.min.y, bounds.max.y]) {
-        for (const z of [bounds.min.z, bounds.max.z]) {
-          scratch.set(x, y, z).sub(frame.focus);
-          corners.push([scratch.dot(right), scratch.dot(up), scratch.dot(forward)]);
-        }
-      }
-    }
+    const corners = points.map((point): [number, number, number] => {
+      scratch.copy(point).sub(frame.focus);
+      return [scratch.dot(right), scratch.dot(up), scratch.dot(forward)];
+    });
     // For a camera `distance` back from the focus and shifted by (a, b) in its own plane, a corner
     // lands at x = (px - a) / (depth * tan * aspect) and y = (py - b) / (depth * tan): each bound
     // of the box limits the shift, and the shot exists once the limits leave room for one.
@@ -773,6 +806,35 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     dragonUniforms.uBreathDepth.value = 0.014 * lerp(0.7, 1, awake) + 0.024 * state.heave;
   }
 
+  /**
+   * The backdrop faces the camera behind the dragon and covers the whole frame. Each glow of the
+   * aura sits on it right behind its anchor (the chest, the flame, the tail tip), sized so it looks
+   * the same around the dragon whatever the shot.
+   */
+  function updateBackdrop(): void {
+    const focusDepth = depthOf(frame.focus);
+    const depth = BACKDROP_DEPTH * focusDepth;
+    const halfHeight = depth * TAN_HALF_FOV * 1.1;
+    backdrop.position.copy(camera.position).addScaledVector(forward, depth);
+    backdrop.quaternion.copy(camera.quaternion);
+    backdrop.scale.set(2 * halfHeight * camera.aspect, 2 * halfHeight, 1);
+    const glow = (light: Vector4, anchor: Vector3, radius: number) => {
+      const along = depth / Math.max(depthOf(anchor), 1e-3);
+      anchor.sub(camera.position).multiplyScalar(along).add(camera.position);
+      light.set(anchor.x, anchor.y, anchor.z, radius * along);
+    };
+    const [chestGlow, fireGlow, tailGlow] = backdropUniforms.uGlow.value;
+    glow(chestGlow!, rig.transform(anchors.chest, CHEST_BONE, auraAnchor).add(AURA.chestLift), AURA.chest);
+    glow(fireGlow!, auraAnchor.copy(mouth).lerp(jetTarget, 0.7), AURA.fire);
+    glow(tailGlow!, rig.transform(anchors.tailTip, anchors.tailTipBone, auraAnchor).add(AURA.tailLift), AURA.tail);
+    const strength = backdropUniforms.uGlowStrength.value;
+    strength[0] = 0.008 * state.aura * (1 - 0.4 * state.sleep);
+    strength[1] = 0.012 * state.fire;
+    strength[2] = 0.014 * state.tail * state.aura;
+    glow(hazeLine, auraAnchor.set(frame.focus.x, AURA.hazeTop, frame.focus.z), AURA.haze);
+    backdropUniforms.uHaze.value.set(0.05 * state.aura, hazeLine.y, hazeLine.w);
+  }
+
   /** World position of the letters of "rose". */
   function roseAnchor(out: Vector3): Vector3 {
     const centers = text?.letterCenters ?? [];
@@ -816,6 +878,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
     updateText();
     updatePose(dt);
     simulate(dt);
+    updateBackdrop();
     updateHeat();
     fade = Math.min(1, fade + dt * 1.6);
     pipeline.setFade(fade);
@@ -863,6 +926,7 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
       updatePose(1 / 30);
       simulate(1 / 30);
     }
+    updateBackdrop();
     updateHeat();
     pipeline.setFade(1);
     pipeline.render(scene, camera);
@@ -926,6 +990,8 @@ export async function createLandingScene(options: SceneOptions): Promise<Landing
       pipeline.dispose();
       dragon.geometry.dispose();
       (dragon.material as ShaderMaterial).dispose();
+      backdrop.geometry.dispose();
+      backdrop.material.dispose();
       if (textMesh) {
         textMesh.geometry.dispose();
         (textMesh.material as ShaderMaterial).dispose();

@@ -119,9 +119,12 @@ describe("procedural voxel dragon", () => {
     expect(model.anchors.mouth[0]).toBeGreaterThan(model.anchors.head[0]);
   });
 
-  it("is authored curled into a ball: the tail wraps around to the snout, the head lies in front of the body", () => {
-    const tip = model.anchors.tailTip;
-    expect(Math.hypot(tip[0] - model.anchors.mouth[0], tip[2] - model.anchors.mouth[2])).toBeLessThan(25);
+  it("is authored curled into a ball: the long tail wraps in front of the head and around the end of the neck, the head lies in front of the body", () => {
+    const tail = SPINE.filter((spine) => spine.bone > JAW_BONE);
+    const length = tail.reduce((sum, spine) => sum + Math.hypot(spine.to[0] - spine.from[0], spine.to[1] - spine.from[1], spine.to[2] - spine.from[2]), 0);
+    expect(length).toBeGreaterThan(200);
+    expect(Math.max(...tail.map((spine) => spine.to[2]))).toBeGreaterThan(model.anchors.mouth[2] + 5);
+    expect(model.anchors.tailTip[0]).toBeLessThan(model.anchors.chest[0] - 30);
     expect(model.anchors.head[2]).toBeGreaterThan(model.anchors.chest[2] + 15);
   });
 });

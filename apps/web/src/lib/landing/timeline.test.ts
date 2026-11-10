@@ -76,6 +76,16 @@ describe("landing sequence timeline", () => {
     expect(sequenceAt(1).reveal).toBe(1);
   });
 
+  it("lights the aura up as the body appears, after the eye, and keeps it until the end", () => {
+    expect(sequenceAt(0).aura).toBe(0);
+    const eyeOpen = firstWhere((p) => sequenceAt(p).eyelid >= 1);
+    expect(sequenceAt(eyeOpen).aura).toBeLessThan(0.1);
+    const lit = firstWhere((p) => sequenceAt(p).aura >= 1);
+    expect(lit).toBeLessThanOrEqual(PHASES.aura[1]);
+    expect(sequenceAt(lit).reveal).toBe(1);
+    for (const p of samples) if (p >= lit) expect(sequenceAt(p).aura).toBe(1);
+  });
+
   it("starts close on the sleeping ball, and closes in on the dragon only once it lies down to rest", () => {
     const lying = firstWhere((p) => p > PHASES.breath[1] && sequenceAt(p).stand === 0);
     expect(PHASES.close[0]).toBeGreaterThanOrEqual(lying - 0.0001);
@@ -252,6 +262,7 @@ describe("landing sequence timeline", () => {
       (p) => sequenceAt(p).wingFold,
       (p) => sequenceAt(p).wingSpread,
       (p) => sequenceAt(p).reveal,
+      (p) => sequenceAt(p).aura,
       (p) => sequenceAt(p).power,
       (p) => sequenceAt(p).heave,
       (p) => sequenceAt(p).eyelid,

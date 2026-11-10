@@ -22,7 +22,7 @@ import {
   type SpineBone,
 } from "@/lib/voxel/dragon";
 import type { Vec3 } from "@/lib/voxel/grid";
-import { SPINE_LAG, bodyAt, lerp } from "@/lib/landing/timeline";
+import { SPINE_LAG, bodyAt } from "@/lib/landing/timeline";
 
 /*
  * Poses of the spine, as the direction of each bone in degrees above the horizontal, the dragon
@@ -37,32 +37,107 @@ const STAND_TORSO = [48, 60];
 const STAND_NECK = [48, 64, 80, 92, 88, 66, 36, 10];
 const STAND_HEAD = -6;
 /**
- * Asleep at the end, as a dragon on its hoard: the torso lies as in the ball, the neck rises from
- * the chest in a high arch and comes back down, leaving an open loop above the forelegs, and the
- * head rests forward on the ground (pitch, then yaw from straight ahead toward the near side); the
- * tail stays wrapped along the ground in front of the body, its glowing tip in front of the chest.
+ * Asleep at the end, lying low and long: the torso turned toward the camera, the neck arched in a
+ * wide loop to the left and down to the head, which rests on the ground at the far end of the loop
+ * on its side, crown toward the camera, snout pointing back toward the body; the long tail sweeps
+ * around the front of the body and ends with its glowing tip in front of the chest, by the snout.
+ * World directions of each bone: the torso and the tail keep the vertical as their up, each neck
+ * bone and the head carry their own. The tail and the end of the neck descend a little less than
+ * the pose they follow, so the heavier body and the larger head stay on the ground.
  */
-const REST_NECK: readonly (readonly [pitch: number, yaw: number])[] = [
-  [62, 0],
-  [52, 3],
-  [36, 6],
-  [12, 9],
-  [-20, 12],
-  [-52, 15],
-  [-68, 18],
-  [-50, 20],
+const REST_TORSO: Vec3 = [-0.85, 0.128, 0.51];
+const REST_NECK: readonly (readonly [direction: Vec3, up: Vec3])[] = [
+  [
+    [-0.779, 0.298, 0.552],
+    [0.244, 0.955, -0.171],
+  ],
+  [
+    [-0.757, 0.261, 0.6],
+    [0.206, 0.965, -0.161],
+  ],
+  [
+    [-0.726, 0.193, 0.66],
+    [0.138, 0.981, -0.135],
+  ],
+  [
+    [-0.704, 0.076, 0.706],
+    [0.051, 0.997, -0.056],
+  ],
+  [
+    [-0.657, -0.034, 0.753],
+    [-0.03, 0.999, 0.019],
+  ],
+  [
+    [-0.544, -0.235, 0.806],
+    [-0.231, 0.931, 0.282],
+  ],
+  [
+    [-0.203, -0.553, 0.808],
+    [-0.371, 0.668, 0.645],
+  ],
+  [
+    [0.547, -0.689, 0.476],
+    [-0.139, 0.332, 0.933],
+  ],
 ];
-const REST_HEAD: readonly [pitch: number, yaw: number] = [-6, 20];
-/** Asleep at the end, the far wing stays half raised behind the back, its fingers and membrane showing. */
-const REST_FAR_WING = { fold: 0.6, spread: 0.6 };
+const REST_HEAD: readonly [direction: Vec3, up: Vec3] = [
+  [0.986, -0.163, 0.04],
+  [0.081, 0.67, 0.738],
+];
+const REST_TAIL: readonly Vec3[] = [
+  [0.964, -0.117, 0.239],
+  [0.789, -0.109, 0.605],
+  [0.437, -0.078, 0.896],
+  [0.133, -0.05, 0.99],
+  [-0.191, -0.015, 0.981],
+  [-0.412, -0.008, 0.911],
+  [-0.636, 0, 0.772],
+  [-0.82, 0.023, 0.572],
+  [-0.944, 0.043, 0.326],
+  [-0.986, 0.038, 0.165],
+  [-0.996, 0.075, -0.058],
+  [-0.216, 0.425, -0.879],
+];
+/**
+ * Wings at rest, as directions in the chest's axes (forward, up, out to the wing's side), near wing
+ * first: the near one folded along the flank, its fingers trailing back and down; the far one
+ * spread out behind the back, its fingers and membrane showing over it.
+ */
+const REST_WINGS: readonly { arm: Vec3; forearm: Vec3; fingers: readonly Vec3[] }[] = [
+  {
+    arm: [-0.38, 0.772, 0.509],
+    forearm: [-0.936, -0.057, 0.347],
+    fingers: [
+      [-0.968, -0.093, 0.234],
+      [-0.917, -0.36, 0.173],
+      [-0.732, -0.681, -0.03],
+      [-0.396, -0.55, -0.35],
+    ],
+  },
+  {
+    arm: [-0.259, 0.17, 0.951],
+    forearm: [-0.558, 0.214, 0.802],
+    fingers: [
+      [-0.991, 0.087, 0.099],
+      [-0.951, 0.012, -0.309],
+      [-0.734, -0.147, -0.663],
+      [-0.339, -0.315, -0.886],
+    ],
+  },
+];
 const STAND_TAIL: readonly (readonly [pitch: number, yaw: number])[] = [
   [-58, 0],
   [-34, 8],
   [-6, 25],
   [-2, 50],
-  [-2, 80],
-  [-2, 110],
-  [-2, 140],
+  [-2, 75],
+  [-2, 100],
+  [-2, 125],
+  [-2, 150],
+  [-2, 170],
+  [-2, 185],
+  [-2, 195],
+  [-1, 200],
 ];
 /** Rearing lifts the hips this high on the straightened hind legs, and turns the dragon this far toward the camera (radians). */
 const STAND_LIFT = 13;
@@ -197,13 +272,6 @@ function ahead(degrees: number): [Vector3, Vector3] {
   return [new Vector3(-Math.cos(a), Math.sin(a), 0), new Vector3(Math.sin(a), Math.cos(a), 0)];
 }
 
-/** A direction pitched `pitch` degrees from straight ahead (-x), turned `yaw` degrees toward the near side. */
-function aheadTurned(pitch: number, yaw: number): [Vector3, Vector3] {
-  const p = (pitch * Math.PI) / 180;
-  const y = (yaw * Math.PI) / 180;
-  return [new Vector3(-Math.cos(p) * Math.cos(y), Math.sin(p), Math.cos(p) * Math.sin(y)), UP.clone()];
-}
-
 /** A direction pitched `pitch` degrees from straight back (+x), turned `yaw` degrees toward the near side. */
 function behind(pitch: number, yaw: number): [Vector3, Vector3] {
   const p = (pitch * Math.PI) / 180;
@@ -218,7 +286,9 @@ function inBody(axes: BodyAxes, [forward, up, out]: Vec3, side: number): Vector3
 
 type SpineRig = SpineBone & { direction: Vector3; lateral: Vector3; dorsal: Vector3; sphinx: Quaternion; stand: Quaternion; rest: Quaternion; index: number };
 type SpinePose = "sphinx" | "stand" | "rest";
-type WingRig = { arm: Quaternion; forearm: Quaternion; fingers: Quaternion[] };
+type WingTurns = { arm: Quaternion; forearm: Quaternion; fingers: Quaternion[] };
+/** A wing's folded turns, and its turns at rest at the end. */
+type WingRig = WingTurns & { rest: WingTurns };
 type FrontRig = { sphinx: Quaternion[]; stand: Quaternion[] };
 type HindRig = { stance: Vector3; lengths: number[] };
 
@@ -250,6 +320,7 @@ export class DragonRig {
   private readonly extra = new Quaternion();
   private readonly armTurn = new Quaternion();
   private readonly forearmTurn = new Quaternion();
+  private readonly restTurn = new Quaternion();
   private readonly a = new Vector3();
   private readonly b = new Vector3();
   private readonly c = new Vector3();
@@ -272,9 +343,10 @@ export class DragonRig {
         const parent = targets.get(spine.parent)?.[pose] ?? IDENTITY;
         let target: [Vector3, Vector3] | null = null;
         if (pose === "rest") {
-          if (spine.bone > CHEST_BONE && spine.bone < HEAD_BONE) target = aheadTurned(...REST_NECK[neck]!);
-          else if (spine.bone === HEAD_BONE) target = aheadTurned(...REST_HEAD);
-          else return IDENTITY.clone();
+          if (spine.bone <= CHEST_BONE) target = [vector(REST_TORSO), UP.clone()];
+          else if (spine.bone < HEAD_BONE) target = [vector(REST_NECK[neck]![0]), vector(REST_NECK[neck]![1])];
+          else if (spine.bone === HEAD_BONE) target = [vector(REST_HEAD[0]), vector(REST_HEAD[1])];
+          else target = [vector(REST_TAIL[tail]!), UP.clone()];
         } else if (spine.bone <= CHEST_BONE) target = ahead((pose === "sphinx" ? SPHINX_TORSO : STAND_TORSO)[spine.chain]!);
         else if (spine.bone < HEAD_BONE) target = ahead((pose === "sphinx" ? SPHINX_NECK : STAND_NECK)[neck]!);
         else if (spine.bone === HEAD_BONE) target = ahead(pose === "sphinx" ? SPHINX_HEAD : STAND_HEAD);
@@ -297,11 +369,15 @@ export class DragonRig {
       return { sphinx: locals(FRONT_SPHINX), stand: locals(FRONT_STAND) };
     });
 
-    this.wings = WINGS.map((spec) => ({
-      arm: this.foldTurn(spec.shoulder, spec.elbow, FOLDED_ARM, spec.side),
-      forearm: this.foldTurn(spec.elbow, spec.wrist, FOLDED_FOREARM, spec.side),
-      fingers: spec.tips.map((tip, k) => this.foldTurn(spec.wrist, tip, FOLDED_FINGERS[k]!, spec.side)),
-    }));
+    const wingTurns = (spec: (typeof WINGS)[number], arm: Vec3, forearm: Vec3, fingers: readonly Vec3[]): WingTurns => ({
+      arm: this.foldTurn(spec.shoulder, spec.elbow, arm, spec.side),
+      forearm: this.foldTurn(spec.elbow, spec.wrist, forearm, spec.side),
+      fingers: spec.tips.map((tip, k) => this.foldTurn(spec.wrist, tip, fingers[k]!, spec.side)),
+    });
+    this.wings = WINGS.map((spec, k) => {
+      const rest = REST_WINGS[k]!;
+      return { ...wingTurns(spec, FOLDED_ARM, FOLDED_FOREARM, FOLDED_FINGERS), rest: wingTurns(spec, rest.arm, rest.forearm, rest.fingers) };
+    });
     this.update(this.restPose(1));
     const raised = this.bones[PELVIS_BONE]!;
     const root = this.bones[ROOT_BONE]!.clone().invert();
@@ -374,6 +450,14 @@ export class DragonRig {
   bounds(model: DragonModel, min: Vector3, max: Vector3, stride = 1): void {
     min.setScalar(Infinity);
     max.setScalar(-Infinity);
+    this.skin(model, stride, (posed) => {
+      min.min(posed);
+      max.max(posed);
+    });
+  }
+
+  /** Visits every `stride`-th voxel of the posed model, skinned on the CPU the same way as in the vertex shader. */
+  skin(model: DragonModel, stride: number, visit: (posed: Vector3) => void): void {
     const point = this.a;
     const posed = this.b;
     const part = this.c;
@@ -384,8 +468,7 @@ export class DragonRig {
         const weight = model.skinWeights[i * 4 + k]!;
         if (weight > 0) posed.addScaledVector(part.copy(point).applyMatrix4(this.bones[model.skinBones[i * 4 + k]!]!), weight);
       }
-      min.min(posed);
-      max.max(posed);
+      visit(posed);
     }
   }
 
@@ -474,23 +557,26 @@ export class DragonRig {
   /**
    * The arm turns from its spread direction toward its folded one (lifted on top of that while the
    * chest rears, so the wings stay high); the forearm and the fingers turn from following their
-   * parent rigidly toward their own folded directions, the fingers with the membrane spread.
+   * parent rigidly toward their own folded directions, the fingers with the membrane spread. At
+   * rest at the end, every bone turns on to its resting direction.
    */
   private poseWing(spec: (typeof WINGS)[number], rig: WingRig, pose: Pose, stand: number): void {
-    const rest = spec.side < 0 ? (pose.rest[1] ?? 0) : 0;
-    const fold = lerp(pose.wingFold - 0.08 * (pose.thrust[1] ?? 0), REST_FAR_WING.fold, rest);
-    const spread = lerp(pose.wingSpread, REST_FAR_WING.spread, rest);
-    const arm = this.armTurn
+    const rest = pose.rest[1] ?? 0;
+    const fold = pose.wingFold - 0.08 * (pose.thrust[1] ?? 0);
+    const spread = pose.wingSpread;
+    const raised = this.armTurn
       .setFromAxisAngle(vector(CHEST_AXES.lateral), WING_RAISE * stand)
       .multiply(this.quaternion.slerpQuaternions(IDENTITY, rig.arm, fold));
+    const folded = this.forearmTurn.slerpQuaternions(raised, rig.forearm, fold);
+    const arm = this.restTurn.slerpQuaternions(raised, rig.rest.arm, rest);
     this.turnFromChest(spec.shoulder, vector(spec.shoulder), arm, spec.arm);
     const elbow = this.chestSpace(spec.elbow, spec.arm);
-    const forearm = this.forearmTurn.slerpQuaternions(arm, rig.forearm, fold);
+    const forearm = this.restTurn.slerpQuaternions(folded, rig.rest.forearm, rest);
     this.turnFromChest(spec.elbow, elbow, forearm, spec.forearm);
     const wrist = this.chestSpace(spec.wrist, spec.forearm);
     spec.fingers.forEach((bone, k) => {
       const ripple = this.extra.setFromAxisAngle(vector(CHEST_AXES.lateral), Math.sin(pose.time * 1.4 + k * 0.9) * (0.025 + 0.04 * pose.fire) * spread);
-      this.quaternion.slerpQuaternions(forearm, rig.fingers[k]!, 1 - spread).premultiply(ripple);
+      this.quaternion.slerpQuaternions(folded, rig.fingers[k]!, 1 - spread).premultiply(ripple).slerp(rig.rest.fingers[k]!, rest);
       this.turnFromChest(spec.wrist, wrist, this.quaternion, bone);
     });
   }

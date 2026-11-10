@@ -357,6 +357,40 @@ void main() {
 }
 `;
 
+export const backdropVertex = /* glsl */ `
+varying vec3 vWorld;
+void main() {
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}
+`;
+
+/**
+ * Backdrop: the aura, a very dim ember glow behind the chest, the flame and the tail tip, and a
+ * haze low on the ground, on a plane behind the dragon. It writes alpha 1, so the final pass breaks
+ * these faint gradients into ordered halftone dots, and the halos of the embers into sparkles.
+ * `uGlow` holds each glow's center on the plane (xyz) and radius (w), `uHaze` the haze strength,
+ * the height on the plane it starts thinning from and how fast it thins.
+ */
+export const backdropFragment = /* glsl */ `
+uniform vec4 uGlow[3];
+uniform vec3 uGlowColor[3];
+uniform float uGlowStrength[3];
+uniform vec3 uHaze;
+varying vec3 vWorld;
+
+void main() {
+  vec3 color = vec3(0.0);
+  for (int i = 0; i < 3; i++) {
+    vec3 d = (vWorld - uGlow[i].xyz) / max(uGlow[i].w, 1.0);
+    color += uGlowColor[i] * uGlowStrength[i] * exp(-dot(d, d));
+  }
+  color += vec3(0.16, 0.07, 0.05) * uHaze.x * exp(-max(vWorld.y - uHaze.y, 0.0) / max(uHaze.z, 1.0));
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
 export const fullscreenVertex = /* glsl */ `
 varying vec2 vUv;
 void main() {

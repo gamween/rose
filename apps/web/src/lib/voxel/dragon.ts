@@ -31,9 +31,9 @@ export const KIND = {
 /*
  * The model is authored in its sleeping pose, curled into a closed ball like a sleeping cat: the
  * torso lies with its back to the far side, the neck wraps around the chest and runs along the
- * front of the body to the head, which rests on the forepaws, and the tail wraps around the hips
- * and along the front to the snout. Legs are tucked under the body, wings folded over the back by
- * the rig (they are modelled spread).
+ * front of the body to the head, which rests on the forepaws, and the long tail wraps around the
+ * hips, along the ground in front of the head and forepaws and around the far end of the neck. Legs
+ * are tucked under the body, wings folded over the back by the rig (they are modelled spread).
  *
  * Every limb, spine and tail segment is a rigid capsule on its own bone and its own grid part,
  * including the full sphere at its far joint: a joint bends about that sphere's center, so the
@@ -51,9 +51,29 @@ const TORSO_RADII = [15, 18.5, 17.5];
 const NECK_JOINTS: readonly Vec3[] = [CHEST, [-38, 18, 2], [-47, 16, 9], [-50, 15, 18], [-45, 14, 24], [-35, 14, 25], [-25, 14.5, 23], [-15, 15.5, 21], [-7, 17, 19]];
 const NECK_RADII = [13, 12, 11.2, 10.4, 9.7, 9.1, 8.5, 8, 7.5];
 
-/** Joints of the tail, from the hips around the body to the tip by the snout, and its radius at each. */
-const TAIL_JOINTS: readonly Vec3[] = [HIPS, [44, 11, 1], [45, 8.5, 12], [37, 7, 19], [28, 5.5, 25], [19, 4.5, 29], [9, 3.5, 31], [-2, 3, 30]];
-const TAIL_RADII = [13, 10, 8, 6.4, 5.2, 4.2, 3.2, 1.6];
+/**
+ * Joints of the tail, from the hips around the body, in front of the head and around the far end of
+ * the neck to the tip behind the chest, and its radius at each. It is long enough to sweep around
+ * the whole front of the dragon once it lies stretched out.
+ */
+const TAIL_JOINTS: readonly Vec3[] = [
+  HIPS,
+  [45, 10, 3],
+  [44, 9.5, 22],
+  [37, 8.5, 38],
+  [22, 8, 48],
+  [3, 7, 50],
+  [-15, 6.5, 49],
+  [-33, 5.5, 44],
+  [-49, 5, 35],
+  [-61, 4.5, 21],
+  [-66, 3.5, 4],
+  [-63, 3, -14],
+  [-50, 2, -27],
+];
+const TAIL_RADII = [13, 10.5, 9, 8, 7.2, 6.5, 5.8, 5.1, 4.4, 3.7, 3, 2.3, 1.6];
+/** The glowing ember at the tip of the tail reaches this far along the tail and past its tip. */
+const TAIL_EMBER = 8.5;
 
 /**
  * The head is drawn in its own coordinates (snout toward +x, the base of the skull at
@@ -391,7 +411,7 @@ function buildNeckAndTail(builder: Builder): void {
   const tip = TAIL_JOINTS[TAIL_JOINTS.length - 1]!;
   const before = TAIL_JOINTS[TAIL_JOINTS.length - 2]!;
   grid.part = tailBones[tailBones.length - 1]!;
-  grid.tube([add(tip, scale(normalize(sub(before, tip)), 4)), tip, add(tip, scale(normalize(sub(tip, before)), 3.5))], [2, 1.7, 0.7], M.tailTip, () => skins.rigid(grid.part), true);
+  grid.tube([add(tip, scale(normalize(sub(before, tip)), TAIL_EMBER)), tip, add(tip, scale(normalize(sub(tip, before)), TAIL_EMBER))], [2.2, 1.9, 0.9], M.tailTip, () => skins.rigid(grid.part), true);
 }
 
 /** Head and jaw (the jaw first: where they meet, the jaw keeps its cells), drawn in head coordinates. */
@@ -580,7 +600,7 @@ function collect({ grid, skins }: Builder): DragonModel {
       local = 1 - Math.min(1, distance([x, y, z], MOUTH) / (12 * HEAD_SCALE));
     } else if (mat === M.tailTip) {
       kind = KIND.tail;
-      local = 1 - Math.min(1, distance([x, y, z], tailTip) / 7);
+      local = 1 - Math.min(1, distance([x, y, z], tailTip) / TAIL_EMBER);
     } else if (mat === M.crack) {
       kind = KIND.crack;
     } else if (mat === M.membrane) {

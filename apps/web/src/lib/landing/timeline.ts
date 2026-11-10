@@ -12,7 +12,8 @@
  * left the screen through the top. The fire stops as the second pass reaches the right end and, in
  * the same motion, the dragon lowers itself onto all fours folding its wings, lies down stretched
  * out, its head resting on the ground ahead of it, and falls asleep, smoke drifting from its
- * nostrils, while the camera closes in on it for a large, detailed last shot.
+ * nostrils, while the camera closes in on it for a large, detailed last shot. From the moment the
+ * light comes up on it until the end, a faint aura of ember dots glows around the dragon.
  *
  * The body channels (`bodyAt`) are sampled by the scene a little later for each bone further from
  * the hips, so every move travels along the spine as a wave, from the hips up the neck to the head
@@ -75,6 +76,8 @@ export const SWEEPS: readonly Sweep[] = [
 export const PHASES = {
   /** After the eye has opened, the light comes up on the whole dragon. */
   reveal: [0.03, 0.17],
+  /** With it, a faint aura of ember dots lights up around the dragon, and stays until the end. */
+  aura: [0.05, 0.2],
   /** Overall wake (light, breath, smoke); the body parts follow their own staged keys. */
   wake: [0.17, 0.32],
   /** The dragon uncurls and raises its neck, still lying. */
@@ -274,6 +277,8 @@ export type SequenceState = BodyState & {
   light: number;
   /** How far the light has come up on the dragon: 0 only the open eye shows, 1 all of it. */
   reveal: number;
+  /** The aura around the dragon: 0 before it wakes, then 1 until the end. */
+  aura: number;
   /** Eye glow. */
   eyes: number;
   /** Eyelid opening, 1 open, 0 closed (asleep). */
@@ -342,6 +347,7 @@ export function sequenceAt(rawProgress: number): SequenceState {
     focus: keyframes(FOCUS, progress),
     light: lerp(lerp(0.4, 1, wake), 0.75, sleep),
     reveal: EASE.inOutSine(clamp01((progress - PHASES.reveal[0]) / (PHASES.reveal[1] - PHASES.reveal[0]))),
+    aura: EASE.inOutSine(clamp01((progress - PHASES.aura[0]) / (PHASES.aura[1] - PHASES.aura[0]))),
     eyes: smoothstep(0, 0.012, progress),
     eyelid: keyframes(EYELID, progress),
     fire: keyframes(BREATH, progress),
