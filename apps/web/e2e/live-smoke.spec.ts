@@ -84,7 +84,8 @@ test.describe("live smoke", () => {
   test("prices: settled rounds plot a clearing price history", async ({ page }) => {
     await skipTour(page);
     await page.goto("/app/prices");
-    await expect(page.getByRole("heading", { name: "Clearing price history per class" })).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator("[data-markets]")).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByRole("img", { name: /Clearing price history/ })).toHaveCount(1);
   });
 
   test("wallets: the three demo wallets connect and show in the top bar", async ({ page }) => {
