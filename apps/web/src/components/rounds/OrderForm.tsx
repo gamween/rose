@@ -10,6 +10,7 @@
 
 import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
 import { useMemo, useState, type ReactNode } from "react";
+import { GetTestFundsButton } from "@/components/chrome/AppActions";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
 import { ActionCard } from "@/components/ui/ActionCard";
@@ -307,6 +308,10 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
             <Button size="lg" className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
               Connect a NEAR wallet
             </Button>
+          ) : open && near.kind === "demo" && !near.demoAccountExists ? (
+            <GetTestFundsButton size="lg" variant="primary" className="w-full">
+              Create the demo account: get test funds
+            </GetTestFundsButton>
           ) : (
             <Button type="submit" size="lg" className="w-full" disabled={!ready} loading={sealing || status.status === "busy"} loadingLabel={sealing ? "Sealing in the browser…" : "Signing…"} data-order-submit>
               {side === "Buy" ? (bidStorage ? "Add storage, seal and place bid" : "Seal and place bid") : "Seal and place ask"}
