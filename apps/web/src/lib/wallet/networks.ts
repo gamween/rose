@@ -8,6 +8,8 @@ export type NetworkInfo = {
   testnet: string;
   /** Why someone connects it, in plain words. */
   purpose: string;
+  /** The same reason in a few words, for the network list. */
+  hint: string;
   /** NEAR holds the account every bid, ask and claim is signed with. */
   requiredForTrading: boolean;
 };
@@ -18,9 +20,9 @@ export type NetworkInfo = {
  * stream lives there (deposit, then payouts to the same chain).
  */
 export const NETWORKS: readonly NetworkInfo[] = [
-  { chain: "near", name: "NEAR", testnet: "Testnet", purpose: "Your rose account: it holds your units and cash and signs every bid, ask and claim.", requiredForTrading: true },
-  { chain: "base", name: "Base", testnet: "Sepolia", purpose: "Only if your position is a Sablier stream on Base: deposit it and receive the payouts there.", requiredForTrading: false },
-  { chain: "solana", name: "Solana", testnet: "Devnet", purpose: "Only if your position is a Streamflow stream on Solana: deposit it and receive the payouts there.", requiredForTrading: false },
+  { chain: "near", name: "NEAR", testnet: "Testnet", purpose: "Your rose account: it holds your units and cash and signs every bid, ask and claim.", hint: "Your units, cash and orders", requiredForTrading: true },
+  { chain: "base", name: "Base", testnet: "Sepolia", purpose: "Only if your position is a Sablier stream on Base: deposit it and receive the payouts there.", hint: "Only for Sablier positions", requiredForTrading: false },
+  { chain: "solana", name: "Solana", testnet: "Devnet", purpose: "Only if your position is a Streamflow stream on Solana: deposit it and receive the payouts there.", hint: "Only for Streamflow positions", requiredForTrading: false },
 ];
 
 export function networkInfo(chain: ChainId): NetworkInfo {

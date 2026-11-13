@@ -58,7 +58,7 @@ function useAddresses(): Record<ChainId, string | null> {
 function NetworkStep({ onPick }: { onPick: (chain: ChainId) => void }) {
   const addresses = useAddresses();
   return (
-    <div className="flex flex-col gap-2" data-network-step>
+    <div className="-mx-1 flex flex-col gap-0.5" data-network-step>
       {NETWORKS.map((network) => {
         const address = addresses[network.chain];
         return (
@@ -67,22 +67,25 @@ function NetworkStep({ onPick }: { onPick: (chain: ChainId) => void }) {
             type="button"
             onClick={() => onPick(network.chain)}
             data-network={network.chain}
-            className="ui-surface group flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition-colors hover:border-ink-600 hover:bg-ink-800"
+            className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-ink-800"
           >
-            <ChainLogo chain={network.chain} size={32} />
+            <ChainLogo chain={network.chain} size={28} />
             <span className="min-w-0 flex-1">
               <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-[14px] font-medium text-ink-50">{network.name}</span>
                 <span className="text-[12px] text-ink-400">{network.testnet}</span>
                 {network.requiredForTrading ? <Badge tone="rose">Required for trading</Badge> : null}
               </span>
-              <span className="mt-0.5 block text-[12px] leading-snug text-ink-400">{network.purpose}</span>
               {address ? (
-                <span className="mt-1 flex items-center gap-1.5 text-[12px] text-success-400">
+                <span className="mt-0.5 flex items-center gap-1.5 text-[12px] text-success-400">
                   <span aria-hidden className="size-[5px] bg-success-400" />
-                  Connected <span className="font-mono text-ink-200">{shortAddress(network.chain, address)}</span>
+                  <span className="font-mono text-ink-200">{shortAddress(network.chain, address)}</span>
                 </span>
-              ) : null}
+              ) : (
+                <span className="mt-0.5 block text-[12px] text-ink-400" title={network.purpose}>
+                  {network.hint}
+                </span>
+              )}
             </span>
             <span className="shrink-0 text-ink-400">
               <Chevron direction="right" />
@@ -90,7 +93,6 @@ function NetworkStep({ onPick }: { onPick: (chain: ChainId) => void }) {
           </button>
         );
       })}
-      <p className="mt-1 text-[12px] text-ink-400">Nothing to install? Each network also has a demo wallet whose key stays in this browser.</p>
     </div>
   );
 }
@@ -102,7 +104,7 @@ function WalletRow({ name, icon, hint, onClick, busy }: { name: string; icon?: s
       type="button"
       onClick={onClick}
       disabled={busy}
-      className="ui-surface flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:border-ink-600 hover:bg-ink-800 disabled:opacity-60"
+      className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-ink-800 disabled:opacity-60"
     >
       {icon && !iconFailed ? (
         // eslint-disable-next-line @next/next/no-img-element -- wallet icons are data URIs or remote and unknown at build time
@@ -112,10 +114,8 @@ function WalletRow({ name, icon, hint, onClick, busy }: { name: string; icon?: s
           {name.charAt(0)}
         </span>
       )}
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium text-ink-50">{name}</span>
-        {hint ? <span className="block text-[12px] text-ink-400">{hint}</span> : null}
-      </span>
+      <span className="min-w-0 flex-1 text-[13px] font-medium text-ink-50">{name}</span>
+      {hint ? <span className="shrink-0 text-[11.5px] text-ink-400">{hint}</span> : null}
     </button>
   );
 }
@@ -127,7 +127,7 @@ function DemoRow({ title, description, onClick, busy }: { title: string; descrip
       onClick={onClick}
       disabled={busy}
       data-demo-wallet
-      className="flex w-full items-center justify-between gap-3 rounded-md border border-dashed border-ember-700 bg-ember-700/10 px-3 py-2.5 text-left transition-colors hover:bg-ember-700/20 disabled:opacity-60"
+      className="flex w-full items-center justify-between gap-3 rounded-md border border-dashed border-ember-700 bg-ember-700/10 px-3 py-2 text-left transition-colors hover:bg-ember-700/20 disabled:opacity-60"
     >
       <span className="min-w-0">
         <span className="flex items-center gap-2 text-[13px] font-medium text-ink-50">
@@ -157,7 +157,7 @@ function Connected({ chain, address, wallet, onDisconnect, busy }: { chain: Chai
 
 function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex flex-col gap-1">
       <h3 className="text-[12px] font-medium text-ink-400">{label}</h3>
       {children}
     </section>
@@ -192,7 +192,7 @@ function WalletStep({ chain, onBack, run, busy }: { chain: ChainId; onBack: () =
             <span className="text-[14px] font-medium text-ink-50">{CHAIN_LABEL[chain]}</span>
             {network.requiredForTrading ? <Badge tone="rose">Required for trading</Badge> : null}
           </p>
-          <p className="mt-0.5 text-[12px] leading-snug text-ink-400">{network.purpose}</p>
+          <p className="mt-0.5 text-[12px] leading-snug text-ink-400">{network.hint}</p>
         </div>
       </div>
 
@@ -208,10 +208,10 @@ function WalletStep({ chain, onBack, run, busy }: { chain: ChainId; onBack: () =
               <WalletRow name="NEAR Connect" hint="Opens the NEAR Connect wallet list" onClick={() => void run(() => wallets.connectNearExternal(), "NEAR wallet connected")} busy={busy} />
             ) : null}
           </Group>
-          <Group label="Try without a wallet">
+          <Group label="No wallet?">
             <DemoRow
               title={wallets.near.demo ? `Demo wallet ${wallets.near.demo.accountId}` : "Create a demo wallet"}
-              description="An ed25519 key stored in this browser. Its testnet account is created from the Get test funds panel."
+              description="Key stays in this browser; Get test funds creates its account."
               onClick={() => void run(wallets.useNearDemo, "NEAR demo wallet ready")}
               busy={busy}
             />
@@ -229,17 +229,16 @@ function WalletStep({ chain, onBack, run, busy }: { chain: ChainId; onBack: () =
                 key={connector.uid}
                 name={connector.name}
                 icon={connector.icon}
-                hint="Switched to Base Sepolia (chain 84532)"
                 onClick={() => void run(() => wallets.connectEvm(connector), `${connector.name} connected`)}
                 busy={busy}
               />
             ))}
             {wallets.walletsStatus === "ready" && wallets.evmConnectors.length === 0 ? <p className="rounded-md border border-ink-750 bg-(--surface-inset) px-3 py-2 text-[12px] text-ink-400">No browser wallet found. Install MetaMask or Rabby, or use the demo wallet.</p> : null}
           </Group>
-          <Group label="Try without a wallet">
+          <Group label="No wallet?">
             <DemoRow
               title={wallets.evm.demo ? `Demo wallet ${shortAddress("base", wallets.evm.demo.address)}` : "Create a demo wallet"}
-              description="A private key stored in this browser, funded with Base Sepolia ETH from the faucet."
+              description="Key stays in this browser; funded from the faucet."
               onClick={() => void run(wallets.useEvmDemo, "EVM demo wallet ready")}
               busy={busy}
             />
@@ -257,16 +256,16 @@ function WalletStep({ chain, onBack, run, busy }: { chain: ChainId; onBack: () =
                 key={wallet.name}
                 name={wallet.name}
                 icon={wallet.icon}
-                hint={wallet.installed ? "Detected in this browser" : "Not installed: opens the download page"}
+                hint={wallet.installed ? "Detected" : "Not installed"}
                 onClick={() => void run(() => wallets.connectSolana(wallet.name), `${wallet.name} connected`)}
                 busy={busy}
               />
             ))}
           </Group>
-          <Group label="Try without a wallet">
+          <Group label="No wallet?">
             <DemoRow
               title={wallets.solana.demo ? `Demo wallet ${shortAddress("solana", wallets.solana.demo.publicKey)}` : "Create a demo wallet"}
-              description="An ed25519 keypair stored in this browser, funded with devnet SOL from the faucet."
+              description="Key stays in this browser; funded from the faucet."
               onClick={() => void run(wallets.useSolanaDemo, "Solana demo wallet ready")}
               busy={busy}
             />
@@ -327,7 +326,7 @@ function ConnectModal({ request, onClose }: { request: ConnectRequest | null; on
       open={open}
       onClose={onClose}
       title="Connect a wallet"
-      description={step === null ? "Choose a network, then a wallet. Testnets only: nothing here has real value." : "Choose a wallet. Testnets only: nothing here has real value."}
+      description={step === null ? "Choose a network. Each one also has a demo wallet." : "Testnet only: nothing here has real value."}
     >
       {step === null ? (
         <div ref={networksRef}>
