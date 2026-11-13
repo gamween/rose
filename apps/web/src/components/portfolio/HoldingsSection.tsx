@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { Card, CardBody } from "@/components/ui/Card";
+import { DetailsList } from "@/components/ui/DetailsList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { formatAmount, formatDay, formatFraction, secondsToMs, shortHex } from "@/lib/amounts";
@@ -29,114 +30,109 @@ function ChainBadge({ chain }: { chain: "Base" | "Solana" }) {
   return <Badge tone={chain === "Base" ? "info" : "ember"}>{chain === "Base" ? "Base" : "Solana"}</Badge>;
 }
 
-/** Units per class with locked and claimable amounts, and the unlock timeline on demand. */
+/** Units per class with what is unlocked and claimable, one Claim per row; the timeline, the other balances and Redeem open under the row. */
 export function HoldingsSection({ rows, data, onClaim, onRedeem }: { rows: HoldingRow[]; data: PortfolioData; onClaim: (row: HoldingRow) => void; onRedeem: (row: HoldingRow) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const expandedRow = rows.find((row) => row.info.classId === expanded) ?? null;
-  return (
-    <Card data-holdings>
-      <CardHeader title="Holdings" description="Units per class, valued with the class unlock function at the current time. Locked tokens unlock by the schedule; claimable tokens accrued to your units already." />
-      {rows.length === 0 ? (
+  if (rows.length === 0) {
+    return (
+      <Card data-holdings>
         <EmptyState
           illustration="vault"
           title="No units yet"
-          description="Deposit a Sablier or Streamflow position to mint units, buy some in an Exit round, or ask an issuer to distribute a cohort to your NEAR account."
+          description="Deposit a locked Sablier or Streamflow position to mint units."
           action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <Link href="/app/deposit" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
-                Deposit a position →
-              </Link>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <ButtonLink href="/app/deposit">Deposit a position</ButtonLink>
               <Link href={ROUTES.rounds} className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
                 Browse rounds →
               </Link>
             </div>
           }
         />
-      ) : (
-        <Table className="max-md:block">
-          <THead className="max-md:hidden">
-            <TR>
-              <TH>Class</TH>
-              <TH numeric>Units</TH>
-              <TH numeric>In rounds / liens</TH>
-              <TH numeric>Unlocked</TH>
-              <TH numeric>Locked tokens</TH>
-              <TH numeric>Claimable</TH>
-              <TH className="text-right">Actions</TH>
-            </TR>
-          </THead>
-          <TBody className="max-md:block">
-            {rows.map((row) => {
-              const symbol = classLabel(row.info, data.symbols);
-              const open = expanded === row.info.classId;
-              const bounds = scheduleBounds(row.info.schedule);
-              const positions = data.positions.filter((position) => position.classId === row.info.classId);
-              return (
-                <TR key={row.info.classId} data-holding={row.info.classId} className={CARD_ROW}>
-                  <TD className={CARD_WIDE}>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="flex items-center gap-2 text-ink-50">
-                        <span title={`Token ${row.info.token}`}>{symbol}</span>
-                        <ChainBadge chain={row.info.chain} />
-                      </span>
-                      <span className="tabular text-[11px] text-ink-400" title={row.info.classId}>
-                        {shortHex(row.info.classId, 8, 6)} · {formatDay(secondsToMs(bounds.start))} → {formatDay(secondsToMs(bounds.end))}
-                      </span>
-                    </div>
-                  </TD>
-                  <TD numeric className={CARD_CELL} data-label="Units">
-                    {formatAmount(row.holding.balance, row.info.decimals)}
-                  </TD>
-                  <TD numeric className={CARD_CELL} data-label="In rounds / liens">
-                    {formatAmount(row.holding.lockedInRounds, row.info.decimals)} / {formatAmount(row.holding.encumbered, row.info.decimals)}
-                  </TD>
-                  <TD numeric className={CARD_CELL} data-label="Unlocked">
-                    {formatFraction(row.fractionNow)}
-                  </TD>
-                  <TD numeric className={CARD_CELL} data-label="Locked tokens">
-                    {formatAmount(row.lockedTokens, row.info.decimals)}
-                  </TD>
-                  <TD numeric className={cn(CARD_CELL, row.holding.claimable > 0n && "text-success-400")} data-label="Claimable">
-                    {formatAmount(row.holding.claimable, row.info.decimals)}
-                  </TD>
-                  <TD className={CARD_WIDE}>
-                    <div className="flex flex-wrap justify-end gap-1.5 max-md:justify-start">
-                      <Button size="sm" variant="ghost" onClick={() => setExpanded(open ? null : row.info.classId)} aria-expanded={open}>
-                        {open ? "Hide timeline" : "Timeline"}
-                      </Button>
-                      <Button size="sm" variant="secondary" disabled={row.holding.claimable === 0n} title={row.holding.claimable === 0n ? "Nothing claimable yet" : undefined} onClick={() => onClaim(row)}>
-                        Claim
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={positions.length === 0 || !positions.some((position) => position.allocation <= row.holding.balance)}
-                        title={positions.length === 0 ? "No held position of this class" : !positions.some((position) => position.allocation <= row.holding.balance) ? "You need at least a position's full allocation in free units" : undefined}
-                        onClick={() => onRedeem(row)}
-                      >
-                        Redeem
-                      </Button>
-                    </div>
-                  </TD>
-                </TR>
-              );
-            })}
-          </TBody>
-        </Table>
-      )}
-      {expandedRow ? (
-        <CardBody className="flex flex-col gap-2 border-t border-ink-750" data-holding-timeline={expandedRow.info.classId}>
-          <p className="text-[12px] text-ink-400">
-            Unlock timeline of your {formatAmount(expandedRow.totalUnits, expandedRow.info.decimals)} {classLabel(expandedRow.info, data.symbols)} units ({expandedRow.info.schedule.kind === "Linear" ? "Sablier Lockup Linear" : "Streamflow stepped"} schedule, exact port of the protocol math). {expandedRow.info.tokenRisk}
-          </p>
-          <UnlockChart schedule={expandedRow.info.schedule} decimals={expandedRow.info.decimals} units={expandedRow.totalUnits} symbol={classLabel(expandedRow.info, data.symbols)} now={Number(data.blockTimeSec)} title={`Unlock timeline of ${classLabel(expandedRow.info, data.symbols)}`} />
-        </CardBody>
-      ) : null}
-      {rows.length > 0 ? (
-        <CardBody className="border-t border-ink-750 py-2 text-[11px] text-ink-400">
-          Units in rounds keep accruing to you until the round settles; encumbered units accrue to the lien until its claim is delivered. Dust rounding always favors the pool.
-        </CardBody>
-      ) : null}
+      </Card>
+    );
+  }
+  return (
+    <Card data-holdings>
+      <Table className="max-md:block">
+        <THead className="max-md:hidden">
+          <TR>
+            <TH>Class</TH>
+            <TH numeric>Units</TH>
+            <TH numeric>Unlocked</TH>
+            <TH numeric>Claimable</TH>
+            <TH className="text-right">
+              <span className="sr-only">Actions</span>
+            </TH>
+          </TR>
+        </THead>
+        <TBody className="max-md:block">
+          {rows.map((row) => {
+            const symbol = classLabel(row.info, data.symbols);
+            const open = expanded === row.info.classId;
+            return (
+              <TR key={row.info.classId} data-holding={row.info.classId} className={CARD_ROW}>
+                <TD className={CARD_WIDE}>
+                  <span className="flex items-center gap-2 text-ink-50">
+                    <span title={`Token ${row.info.token}`}>{symbol}</span>
+                    <ChainBadge chain={row.info.chain} />
+                  </span>
+                </TD>
+                <TD numeric className={CARD_CELL} data-label="Units">
+                  {formatAmount(row.holding.balance, row.info.decimals)}
+                </TD>
+                <TD numeric className={CARD_CELL} data-label="Unlocked">
+                  {formatFraction(row.fractionNow)}
+                </TD>
+                <TD numeric className={cn(CARD_CELL, row.holding.claimable > 0n && "text-success-400")} data-label="Claimable">
+                  {formatAmount(row.holding.claimable, row.info.decimals)}
+                </TD>
+                <TD className={CARD_WIDE}>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 max-md:justify-start">
+                    <Button size="sm" variant={row.holding.claimable > 0n ? "primary" : "secondary"} disabled={row.holding.claimable === 0n} title={row.holding.claimable === 0n ? "Nothing claimable yet" : undefined} onClick={() => onClaim(row)}>
+                      Claim
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setExpanded(open ? null : row.info.classId)} aria-expanded={open} data-holding-details-toggle>
+                      {open ? "Hide" : "Details"}
+                    </Button>
+                  </div>
+                </TD>
+              </TR>
+            );
+          })}
+        </TBody>
+      </Table>
+      {expandedRow ? <HoldingDetails row={expandedRow} data={data} onRedeem={onRedeem} /> : null}
     </Card>
+  );
+}
+
+/** Under an expanded holding: its unlock timeline, the balances behind the row and the in-kind redeem. */
+function HoldingDetails({ row, data, onRedeem }: { row: HoldingRow; data: PortfolioData; onRedeem: (row: HoldingRow) => void }) {
+  const symbol = classLabel(row.info, data.symbols);
+  const bounds = scheduleBounds(row.info.schedule);
+  const positions = data.positions.filter((position) => position.classId === row.info.classId);
+  const redeemBlocked = positions.length === 0 ? "No held position of this class" : !positions.some((position) => position.allocation <= row.holding.balance) ? "You need at least a position's full allocation in free units" : undefined;
+  return (
+    <CardBody className="flex flex-col gap-4 border-t border-ink-750" data-holding-timeline={row.info.classId}>
+      <UnlockChart schedule={row.info.schedule} decimals={row.info.decimals} units={row.totalUnits} symbol={symbol} now={Number(data.blockTimeSec)} title={`Unlock timeline of ${symbol}`} />
+      <DetailsList
+        rows={[
+          { id: "rounds", label: "In rounds", value: formatAmount(row.holding.lockedInRounds, row.info.decimals), hint: "Keeps accruing to you until the round settles." },
+          { id: "liens", label: "Under liens", term: "lien", value: formatAmount(row.holding.encumbered, row.info.decimals) },
+          { id: "locked", label: "Locked tokens", value: `${formatAmount(row.lockedTokens, row.info.decimals)} ${symbol}` },
+          { id: "schedule", label: "Schedule", value: `${row.info.schedule.kind === "Linear" ? "Sablier linear" : "Streamflow stepped"} · ${formatDay(secondsToMs(bounds.start))} → ${formatDay(secondsToMs(bounds.end))}`, hint: row.info.tokenRisk || undefined },
+          { id: "class", label: "Class id", term: "class", value: shortHex(row.info.classId, 10, 8), copy: row.info.classId, mono: true },
+          { id: "token", label: "Token", value: shortHex(row.info.token, 10, 8), copy: row.info.token, mono: true },
+        ]}
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Button size="sm" variant="secondary" disabled={redeemBlocked !== undefined} title={redeemBlocked} onClick={() => onRedeem(row)}>
+          Redeem a position in kind
+        </Button>
+        {redeemBlocked ? <span className="text-[12px] text-ink-400">{redeemBlocked}</span> : null}
+      </div>
+    </CardBody>
   );
 }

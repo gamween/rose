@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { Term } from "@/components/ui/Term";
 import { formatAmount, formatUsdc, formatDate, nsToMs } from "@/lib/amounts";
 import { ROUTES } from "@/lib/routes";
 import { classLabel } from "@/lib/token-symbols";
@@ -18,14 +20,18 @@ const STATUS_TONE: Record<string, BadgeTone> = { Sealed: "ember", Opened: "info"
 export function OrdersSection({ rows, data }: { rows: OrderRow[]; data: PortfolioData }) {
   return (
     <Card data-orders>
-      <CardHeader title="Bids and asks" description="Sealed orders you placed, live ones first, then settled and void ones. Prices and quantities stay encrypted until the round closes; the engine shows only your public collateral." />
+      <CardHeader title="Bids and asks" description="Prices and quantities stay sealed until the round closes." />
       {rows.length === 0 ? (
-        <CardBody className="text-[13px] text-ink-400">
-          No sealed orders. Place a bid or an ask from a round page.{" "}
-          <Link href={ROUTES.rounds} className="text-ember-300 underline-offset-2 hover:underline">
-            Browse rounds →
-          </Link>
-        </CardBody>
+        <EmptyState
+          illustration="tender"
+          title="No sealed orders"
+          description="Place a bid or an ask from a round."
+          action={
+            <ButtonLink href={ROUTES.rounds} size="sm">
+              Browse rounds
+            </ButtonLink>
+          }
+        />
       ) : (
         <Table className="max-md:block">
           <THead className="max-md:hidden">
@@ -33,9 +39,7 @@ export function OrdersSection({ rows, data }: { rows: OrderRow[]; data: Portfoli
               <TH>Round</TH>
               <TH>Side</TH>
               <TH>Status</TH>
-              <TH numeric>Escrow</TH>
-              <TH numeric>Locked units</TH>
-              <TH numeric>Bond</TH>
+              <TH numeric>Collateral</TH>
               <TH numeric>Fill</TH>
             </TR>
           </THead>
@@ -58,14 +62,9 @@ export function OrdersSection({ rows, data }: { rows: OrderRow[]; data: Portfoli
                     <Badge tone={STATUS_TONE[bid.status] ?? "neutral"}>{bid.status}</Badge>
                     {bid.void ? <span className="ml-1 text-[11px] text-danger-400">{bid.void}</span> : null}
                   </TD>
-                  <TD numeric className={CARD_CELL} data-label="Escrow">
-                    {formatUsdc(bid.escrow)}
-                  </TD>
-                  <TD numeric className={CARD_CELL} data-label="Locked units">
-                    {info ? formatAmount(bid.lockedUnits, info.decimals) : bid.lockedUnits.toString()}
-                  </TD>
-                  <TD numeric className={CARD_CELL} data-label="Bond">
-                    {formatUsdc(bid.bond)}
+                  <TD numeric className={CARD_CELL} data-label="Collateral">
+                    <span className="block">{bid.side === "Buy" ? `${formatUsdc(bid.escrow)} USDC` : `${info ? formatAmount(bid.lockedUnits, info.decimals) : bid.lockedUnits.toString()} units`}</span>
+                    <span className="block text-[11px] text-ink-400">+ {formatUsdc(bid.bond)} bond</span>
                   </TD>
                   <TD numeric className={CARD_CELL} data-label="Fill">
                     {bid.status === "Settled" ? (info ? formatAmount(bid.fillQuantity, info.decimals) : bid.fillQuantity.toString()) : "—"}
@@ -85,7 +84,7 @@ export function LiensSection({ held, data, onRelease }: { held: LienProgress[]; 
   const shares = data.portfolio.lienShares;
   return (
     <Card data-liens>
-      <CardHeader title="Liens" description="An Advance encumbers units: their accruals flow to the funders until the claim is delivered, then the units are free again. No oracle, no liquidation." />
+      <CardHeader title={<Term term="lien">Liens</Term>} description="Unlocks of pledged units pay the funders until the claim is delivered." />
       <CardBody className="flex flex-col gap-4">
         <section className="flex flex-col gap-2">
           <h4 className="text-[12px] text-ink-300 font-medium">As holder</h4>

@@ -161,6 +161,13 @@ function overrides(state: { account: string; withdrawn: boolean; synced?: boolea
   };
 }
 
+/** Selects a portfolio tab (one section shows at a time). */
+async function openTab(page: Page, name: string, options: { timeout?: number } = {}): Promise<void> {
+  const tab = page.getByRole("tab", { name: new RegExp(`^${name}`) });
+  await tab.click(options);
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+}
+
 async function connectNearDemo(page: Page): Promise<string> {
   await page.goto("/app");
   await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
@@ -190,15 +197,18 @@ test.describe("portfolio", () => {
     await expect(page.getByRole("heading", { name: "Connect a NEAR wallet" })).toBeVisible({ timeout: 60_000 });
     await shot(page, "connect");
     state.account = await connectNearDemo(page);
-    await expect(page.locator("[data-portfolio-stats]")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("[data-key-stats]")).toBeVisible({ timeout: 60_000 });
     const holdings = page.locator("[data-holdings]");
     await expect(holdings.locator("tbody tr")).toHaveCount(2);
     await expect(holdings).toContainText("CINDR");
     await expect(holdings).toContainText("12.5000");
-    await holdings.getByRole("button", { name: "Timeline" }).first().click();
+    await holdings.getByRole("button", { name: "Details" }).first().click();
     await expect(page.locator("[data-unlock-chart] svg")).toBeVisible();
     await expect(page.locator("[data-unlock-chart]").getByText("cliff")).toBeVisible();
+    await expect(holdings.locator("[data-detail='rounds']")).toContainText("20.0000");
+    await expect(holdings.getByRole("button", { name: "Redeem a position in kind" })).toBeEnabled();
     await shot(page, "loaded");
+    await openTab(page, "Claims");
     const claims = page.locator("[data-claims]");
     await expect(claims.locator("[data-cash]")).toHaveCount(2);
     await expect(claims.locator("[data-token-claim='base']")).toHaveCount(2);
@@ -207,22 +217,27 @@ test.describe("portfolio", () => {
     await expect(claims.locator("[data-payout='11']")).toHaveAttribute("data-payout-state", "stale");
     await expect(claims.locator("[data-payout='9']")).toHaveAttribute("data-payout-state", "awaiting_gas");
     await expect(claims.getByRole("button", { name: "Submit on Base" })).toBeVisible();
-    await expect(page.locator("[data-orders]")).toContainText("#8 Exit");
-    await expect(page.locator("[data-orders]").getByRole("link", { name: /#8 Exit/ })).toHaveAttribute("href", "/app/rounds/8");
-    await expect(page.locator("[data-lien='4']")).toContainText("3.0000 of 4.0000 delivered");
-    await expect(page.locator("[data-lien-share='9']")).toBeVisible();
-    await expect(page.locator("[data-history]")).toContainText("Failed: authority signature not produced");
     await expect(claims.locator("[data-payout='13']")).toHaveAttribute("data-payout-state", "requested");
     await expect(claims.locator("[data-payout='13']")).toContainText('"Retry signature" opens at block 276201100');
-    const landed = page.locator("[data-history-payout='14']");
-    await expect(landed).toContainText("Executed");
-    await expect(landed.getByRole("link", { name: "Solana transaction ↗" })).toHaveAttribute("href", /^https:\/\/explorer\.solana\.com\/tx\/[1-9A-HJ-NP-Za-km-z]{64,88}\?cluster=devnet$/);
+    await shot(page, "claims");
+    await openTab(page, "Orders");
+    await expect(page.locator("[data-orders]")).toContainText("#8 Exit");
+    await expect(page.locator("[data-orders]").getByRole("link", { name: /#8 Exit/ })).toHaveAttribute("href", "/app/rounds/8");
     await expect(page.locator("[data-orders]")).toContainText("Bids and asks");
     if ((page.viewportSize()?.width ?? 0) < 768) {
       await expect(page.locator("[data-orders] thead")).toBeHidden();
-      await expect(page.locator("[data-orders] [data-label='Escrow']").first()).toBeVisible();
+      await expect(page.locator("[data-orders] [data-label='Collateral']").first()).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     }
+    await openTab(page, "Liens");
+    await expect(page.locator("[data-lien='4']")).toContainText("3.0000 of 4.0000 delivered");
+    await expect(page.locator("[data-lien-share='9']")).toBeVisible();
+    await openTab(page, "History");
+    await expect(page.locator("[data-history]")).toContainText("Failed: authority signature not produced");
+    const landed = page.locator("[data-history-payout='14']");
+    await expect(landed).toContainText("Executed");
+    await expect(landed.getByRole("link", { name: "Solana transaction ↗" })).toHaveAttribute("href", /^https:\/\/explorer\.solana\.com\/tx\/[1-9A-HJ-NP-Za-km-z]{64,88}\?cluster=devnet$/);
+    await openTab(page, "Storage");
     await expect(page.locator("[data-storage]")).toContainText("Registered");
     expect(errors).toEqual([]);
   });
@@ -231,6 +246,7 @@ test.describe("portfolio", () => {
     const state = { account: "", withdrawn: false };
     await mockChains(page, overrides(state));
     state.account = await connectNearDemo(page);
+    await openTab(page, "Claims", { timeout: 60_000 });
     const claims = page.locator("[data-claims]");
     await claims.locator("[data-cash='near']").getByRole("button", { name: "Claim" }).click({ timeout: 60_000 });
     const dialog = page.getByRole("dialog", { name: "Claim NEAR tUSDC" });
@@ -269,8 +285,9 @@ test.describe("portfolio", () => {
     const state = { account: "", withdrawn: false, synced: false };
     await mockChains(page, overrides(state));
     state.account = await connectNearDemo(page);
+    await openTab(page, "Solana streams", { timeout: 60_000 });
     const section = page.locator("[data-sol-streams]");
-    await expect(section).toBeVisible({ timeout: 60_000 });
+    await expect(section).toBeVisible();
     await expect(section).toContainText("except from 5 minutes before a stream's end");
     await expect(section.locator("[data-swept]")).toContainText("Swept balance 5,000.0000");
     await expect(section.locator("[data-sol-stream='2']")).toHaveAttribute("data-sol-stream-phase", "open");
@@ -299,6 +316,7 @@ test.describe("portfolio", () => {
     const state = { account: "", withdrawn: false };
     await mockChains(page, overrides(state));
     state.account = await connectNearDemo(page);
+    await openTab(page, "Claims", { timeout: 60_000 });
     await page.locator("[data-claims] [data-token-claim='solana']").first().getByRole("button", { name: "Claim" }).click({ timeout: 60_000 });
     const dialog = page.getByRole("dialog", { name: /on Solana devnet/ });
     await expect(dialog).toContainText("the class's swept balance first");

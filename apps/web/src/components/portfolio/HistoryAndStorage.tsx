@@ -6,11 +6,12 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { Field, NumberInput } from "@/components/ui/Input";
 import { amountToText, formatAmount, formatDate, nsToMs, parseAmount } from "@/lib/amounts";
 import { CASH_ROW_BYTES, HOLDING_ROW_BYTES, STORAGE_BYTE_COST } from "@/lib/engine-storage";
 import { deployedAddress } from "@/lib/deployment";
-import { nearAccountUrl, nearBlockUrl } from "@/lib/explorer";
+import { nearBlockUrl } from "@/lib/explorer";
 import { eventAmountFormat } from "@/lib/event-format";
 import { describePayout, payoutExplorerLink } from "@/lib/payouts";
 import { ROUTES } from "@/lib/routes";
@@ -31,7 +32,7 @@ export function HistorySection({ data }: { data: PortfolioData }) {
   const executed = data.payouts.filter((entry) => settledPayout(entry.state));
   return (
     <Card data-history>
-      <CardHeader title="History" description="Your entries in the engine's bounded on-chain event history (no indexer) and your payouts." />
+      <CardHeader title="History" description="Your recent engine events and payouts." />
       <CardBody className="flex flex-col gap-4">
         {data.events.length === 0 ? (
           <p className="text-[13px] text-ink-400">No event mentions this account in the last {400} engine events.</p>
@@ -41,28 +42,17 @@ export function HistorySection({ data }: { data: PortfolioData }) {
               const href = roundHref(entry.event.data as Record<string, unknown>);
               const line = describeRoseEvent(entry.event, amountFormat);
               return (
-                <li key={entry.seq.toString()} className="flex flex-col gap-0.5 py-2" data-history-event={entry.event.event}>
-                  <div className="flex items-start justify-between gap-3">
-                    {href ? (
-                      <Link href={href} className="min-w-0 text-[13px] text-ink-100 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
-                        {line}
-                      </Link>
-                    ) : (
-                      <span className="min-w-0 text-[13px] text-ink-100 [overflow-wrap:anywhere]">{line}</span>
-                    )}
-                    <span className="tabular shrink-0 text-[11px] text-ink-400">{formatDate(nsToMs(entry.timestamp))}</span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
-                    <span className="font-medium">{entry.event.event.replace(/_/g, " ")}</span>
-                    <span aria-hidden>·</span>
-                    <a href={nearAccountUrl(entry.predecessor)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                      {entry.predecessor}
-                    </a>
-                    <span aria-hidden>·</span>
-                    <a href={nearBlockUrl(entry.blockHeight)} target="_blank" rel="noreferrer" className="tabular underline-offset-2 hover:underline">
-                      block {entry.blockHeight.toString()} ↗
-                    </a>
-                  </div>
+                <li key={entry.seq.toString()} className="flex items-start justify-between gap-3 py-2" data-history-event={entry.event.event}>
+                  {href ? (
+                    <Link href={href} className="min-w-0 text-[13px] text-ink-100 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
+                      {line}
+                    </Link>
+                  ) : (
+                    <span className="min-w-0 text-[13px] text-ink-100 [overflow-wrap:anywhere]">{line}</span>
+                  )}
+                  <a href={nearBlockUrl(entry.blockHeight)} target="_blank" rel="noreferrer" className="tabular shrink-0 text-[11px] text-ink-400 underline-offset-2 hover:text-ink-200 hover:underline" title={`Block ${entry.blockHeight.toString()}, sent by ${entry.predecessor}`}>
+                    {formatDate(nsToMs(entry.timestamp))} ↗
+                  </a>
                 </li>
               );
             })}
@@ -127,11 +117,7 @@ export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: Po
   const registered = data.storage !== null;
   return (
     <Card data-storage>
-      <CardHeader
-        title="Storage (NEP-145)"
-        description={`The minimum covers your account, one class and one cash venue; each further class held costs ${formatAmount(HOLDING_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR and each further cash venue ${formatAmount(CASH_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR. Receiving units, buying in an Exit, depositing NEAR cash or getting a distribution needs room for the row; the app adds the top-up to those actions.`}
-        action={registered ? <Badge tone="success">Registered</Badge> : <Badge tone="warning">Not registered</Badge>}
-      />
+      <CardHeader title="Storage" description="NEAR held by the engine for your rows. Actions that need more add the top-up for you." action={registered ? <Badge tone="success">Registered</Badge> : <Badge tone="warning">Not registered</Badge>} />
       <CardBody className="flex flex-col gap-3">
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div>
@@ -158,6 +144,11 @@ export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: Po
             Withdraw {parsed !== null && parsed > 0n ? "amount" : "all available"}
           </Button>
         </div>
+        <Disclosure summary="What storage pays for">
+          <p className="text-[12.5px] leading-relaxed text-ink-300">
+            NEP-145 storage. The minimum covers your account, one class and one cash venue; each further class held costs {formatAmount(HOLDING_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR and each further cash venue {formatAmount(CASH_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR. Receiving units, buying in an Exit, depositing NEAR cash or getting a distribution needs room for the row.
+          </p>
+        </Disclosure>
       </CardBody>
     </Card>
   );
