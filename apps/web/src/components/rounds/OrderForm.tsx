@@ -12,14 +12,13 @@ import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
 import { useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
-import { CardTitle } from "@/components/ui/Card";
+import { ActionCard } from "@/components/ui/ActionCard";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { Term } from "@/components/ui/Term";
 import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { cn } from "@/lib/cn";
 import { readStorageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { formatUnits } from "@/lib/format";
 import { formatStorageNear } from "@/lib/near-cash";
@@ -33,34 +32,13 @@ import type { RoundDetail } from "./useRoundDetail";
 
 function Row({ label, value, strong = false, hint }: { label: ReactNode; value: string; strong?: boolean; hint?: string }) {
   return (
-    <div className={cn("flex items-baseline justify-between gap-3 text-[12px]", strong && "mt-1 border-t border-ink-750 pt-2")}>
+    <div className="flex items-baseline justify-between gap-3 text-[12px]">
       <dt className="text-ink-400">
         {label}
         {hint ? <span className="block text-[11px] text-ink-400">{hint}</span> : null}
       </dt>
       <dd className={strong ? "tabular text-[14px] text-ink-50 font-medium" : "tabular text-ink-200"}>{value}</dd>
     </div>
-  );
-}
-
-/** What happens to an order once it is sealed, in three lines under the form. */
-function SealingSteps() {
-  const steps = [
-    "Your price and exact quantity are encrypted here, in this browser.",
-    "Until the close, everyone sees only your public collateral.",
-    "After the close the orders open and every fill pays one clearing price.",
-  ];
-  return (
-    <ol className="flex flex-col gap-1.5 text-[12px] leading-snug text-ink-400" aria-label="What happens next" data-sealing-steps>
-      {steps.map((text, index) => (
-        <li key={text} className="flex items-start gap-2">
-          <span aria-hidden className="tabular flex size-4 shrink-0 items-center justify-center rounded-[2px] border border-ink-700 bg-ink-900 text-[10px] text-ink-300">
-            {index + 1}
-          </span>
-          {text}
-        </li>
-      ))}
-    </ol>
   );
 }
 
@@ -192,25 +170,30 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
 
   if (sides.length === 0) {
     return (
-      <section aria-label="Your Tender" className="ui-surface rounded-lg px-4 py-3" data-order-form="issuer">
-        <CardTitle>Your Tender</CardTitle>
-        <p className="mt-1 text-[12px] text-ink-400">
-          You are the buyer of this Tender: your escrowed budget is the demand side, and holders of the class submit the sealed asks. The engine refuses an ask from the issuer, so there is no order to place here.
-        </p>
-      </section>
+      <ActionCard title="Your Tender" data-order-form="issuer">
+        <p className="text-[12.5px] leading-snug text-ink-300">You are the buyer of this Tender: your escrowed budget is the demand side and holders submit the sealed asks, so there is no order to place here.</p>
+      </ActionCard>
     );
   }
 
   const title = round.kind === "Tender" ? "Place ask" : round.kind === "Advance" ? (isCreator ? "Place your reserve" : "Place bid") : side === "Buy" ? "Place bid" : "Place ask";
 
   return (
-    <section aria-label={title} className="ui-surface rounded-lg" data-order-form>
-      <div className="border-b border-ink-750 px-4 py-3">
-        <CardTitle accent>{title}</CardTitle>
-        <p className="mt-1 text-[12px] leading-snug text-ink-400">
-          Sealed in this browser to the round identity; <Term term="cashVenue">venue</Term> <span className="text-ink-200">{venueLabel(round.venue)}</span>.
-        </p>
-      </div>
+    <ActionCard
+      title={title}
+      description={
+        <>
+          Paid from your cash in <Term term="cashVenue">{venueLabel(round.venue)}</Term>.
+        </>
+      }
+      footer={
+        <>
+          <span>Your price and quantity are encrypted in this browser.</span>
+          <LearnMore topic="fees" label="Fees and bonds" />
+        </>
+      }
+      data-order-form
+    >
       {sides.length > 1 ? (
         <Tabs
           label="Order side"
@@ -220,11 +203,11 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
           ]}
           value={side}
           onChange={setSide}
-          className="px-4"
+          className="-mx-4 px-4"
         />
       ) : null}
       <form
-        className="flex flex-col gap-4 p-4"
+        className="flex flex-col gap-4 pt-4"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -232,14 +215,6 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
       >
         {!open ? <Notice tone="info">{round.status === "Scheduled" ? "The round is not open yet." : "Bidding is closed for this round."}</Notice> : null}
         {open && restoring ? <Notice tone="info">Restoring your wallet…</Notice> : null}
-        {open && !restoring && near.status !== "connected" ? (
-          <Notice tone="warning" className="flex items-center justify-between gap-3">
-            <span>Connect a NEAR wallet (or use the demo wallet) to place a sealed order.</span>
-            <Button size="sm" variant="secondary" onClick={() => openConnect("near")} data-connect-prompt="near">
-              Connect NEAR
-            </Button>
-          </Notice>
-        ) : null}
         {open && viewer && existing !== null && existing !== undefined ? (
           <Notice tone="info">
             You already placed {side === "Buy" ? "a bid" : "an ask"} in this round (#{String(existing)}). One sealed order per side per account; see &quot;My orders&quot;.
@@ -269,33 +244,48 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
             </Field>
           ) : null}
           {side === "Buy" ? (
-            <Field label={<><Term term="escrow">Escrow</Term> (public)</>} hint={buyPreview ? `Minimum ${formatUsdc(buyPreview.escrowRequired)}. A larger escrow hides your limit × quantity.` : "Minimum: limit × quantity + 30 bps fee."} error={errors.escrow}>
+            <Field label={<><Term term="escrow">Escrow</Term> (public)</>} hint={buyPreview ? `Minimum ${formatUsdc(buyPreview.escrowRequired)}. A larger escrow hides your limit × quantity.` : "At least limit × quantity + fee."} error={errors.escrow}>
               {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={escrowText} onValueChange={setEscrowText} decimals={USDC_DECIMALS} placeholder={buyPreview ? formatUsdc(buyPreview.escrowRequired) : "0.00"} unit="USDC" />}
             </Field>
           ) : null}
         </div>
 
-        <dl className="flex flex-col gap-1.5 rounded-md border border-ink-750 bg-(--surface-inset) p-3" data-order-preview>
-          {side === "Buy" ? (
-            <>
-              <Row label="Cash at your limit" value={buyPreview ? `${formatUsdc(buyPreview.charge)} USDC` : "—"} hint={round.kind === "Advance" ? "quantity × limit" : "quantity × locked fraction × limit, rounded up"} />
-              <Row label="Fee (30 bps, buyer)" value={buyPreview ? `${formatUsdc(buyPreview.fee)} USDC` : "—"} />
-              <Row label="Escrow" value={buyPreview ? `${formatUsdc(escrowInput !== null && escrowInput >= buyPreview.escrowRequired ? escrowInput : buyPreview.escrowRequired)} USDC` : "—"} hint="refunded above your charge + fee" />
-              <Row label={<Term term="bond">Bond</Term>} value={buyPreview ? `${formatUsdc(buyPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of escrow), back on a valid opening`} />
-              <Row label="Debited from your cash" value={buyPreview ? `${formatUsdc(buyPreview.total)} USDC` : "—"} strong />
-            </>
-          ) : (
-            <>
-              <Row label="Units locked" value={lockUnits !== null && lockUnits > 0n ? formatQty(lockUnits, decimals) : "—"} hint="public; they keep accruing to you until the close" />
-              <Row label="Proceeds at your minimum" value={sellPreview ? `${formatUsdc(sellPreview.proceedsAtMinimum)} USDC` : "—"} hint="sellers receive the clearing price, nothing deducted" />
-              <Row label={<Term term="bond">Bond</Term>} value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of ${sellPreview ? formatUsdc(sellPreview.valuation) : "units at max price"})`} />
-              <Row label="Debited from your cash" value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} strong />
-            </>
-          )}
-          <Row label="Storage deposit" value={`${formatUnits(BID_STORAGE_DEPOSIT, 24, 2)} NEAR`} hint="returned when the order settles" />
-          {bidStorage ? <Row label={bidStorage.kind === "register" ? "Engine registration (NEP-145)" : "Engine storage top-up (NEP-145)"} value={`${formatStorageNear(bidStorage.deposit)} NEAR`} hint="room for the units you buy, sent first; withdrawable" /> : null}
-          <Row label="Your cash in the venue" value={viewer ? `${formatUsdc(venueCash)} USDC` : "—"} />
-        </dl>
+        <div className="rounded-md border border-ink-750 bg-(--surface-inset) px-3 py-2.5" data-order-preview>
+          <dl className="flex flex-col gap-1.5">
+            <Row label="Debited from your cash" value={preview ? `${formatUsdc(side === "Buy" ? (buyPreview?.total ?? 0n) : (sellPreview?.bond ?? 0n))} USDC` : "—"} strong />
+            <Row label="Your cash in the venue" value={viewer ? `${formatUsdc(venueCash)} USDC` : "—"} />
+          </dl>
+          <details className="group mt-2 border-t border-ink-750 pt-2">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-[12px] text-ink-300 hover:text-ink-100 [&::-webkit-details-marker]:hidden">
+              Cost breakdown
+              <svg viewBox="0 0 10 6" width="10" height="6" shapeRendering="crispEdges" className="text-ink-400 transition-transform group-open:rotate-180" aria-hidden>
+                <path d="M0 0h2v2H0zM2 2h2v2H2zM4 4h2v2H4zM6 2h2v2H6zM8 0h2v2H8z" fill="currentColor" />
+              </svg>
+            </summary>
+            <dl className="mt-2 flex flex-col gap-1.5">
+              {side === "Buy" ? (
+                <>
+                  <Row label="Cash at your limit" value={buyPreview ? `${formatUsdc(buyPreview.charge)} USDC` : "—"} hint={round.kind === "Advance" ? "quantity × limit" : "quantity × locked fraction × limit, rounded up"} />
+                  <Row label="Fee (30 bps, buyer)" value={buyPreview ? `${formatUsdc(buyPreview.fee)} USDC` : "—"} />
+                  <Row label="Escrow" value={buyPreview ? `${formatUsdc(escrowInput !== null && escrowInput >= buyPreview.escrowRequired ? escrowInput : buyPreview.escrowRequired)} USDC` : "—"} hint="refunded above your charge + fee" />
+                  <Row label={<Term term="bond">Bond</Term>} value={buyPreview ? `${formatUsdc(buyPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of escrow), back on a valid opening`} />
+                </>
+              ) : (
+                <>
+                  <Row label="Units locked" value={lockUnits !== null && lockUnits > 0n ? formatQty(lockUnits, decimals) : "—"} hint="public; they keep accruing to you until the close" />
+                  <Row label="Proceeds at your minimum" value={sellPreview ? `${formatUsdc(sellPreview.proceedsAtMinimum)} USDC` : "—"} hint="sellers receive the clearing price, nothing deducted" />
+                  <Row label={<Term term="bond">Bond</Term>} value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of ${sellPreview ? formatUsdc(sellPreview.valuation) : "units at max price"})`} />
+                </>
+              )}
+              <Row label="Storage deposit" value={`${formatUnits(BID_STORAGE_DEPOSIT, 24, 2)} NEAR`} hint="returned when the order settles" />
+            </dl>
+          </details>
+          {bidStorage ? (
+            <dl className="mt-2 border-t border-ink-750 pt-2">
+              <Row label={bidStorage.kind === "register" ? "Engine registration (NEP-145)" : "Engine storage top-up (NEP-145)"} value={`${formatStorageNear(bidStorage.deposit)} NEAR`} hint="room for the units you buy, sent first; withdrawable" />
+            </dl>
+          ) : null}
+        </div>
 
         {viewer && open && shortfall > 0n && existing === null ? (
           <div className="flex flex-col gap-2">
@@ -312,14 +302,18 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
         {sealError ? <Notice tone="danger">{sealError}</Notice> : null}
         {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
 
-        <SealingSteps />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <LearnMore topic="fees" label="Fees and bonds" />
-          <Button type="submit" disabled={!ready} loading={sealing || status.status === "busy"} loadingLabel={sealing ? "Sealing in the browser…" : "Signing…"} data-order-submit>
-            {side === "Buy" ? (bidStorage ? "Add storage, seal and place bid" : "Seal and place bid") : "Seal and place ask"}
-          </Button>
+        <div className="flex flex-col">
+          {open && !restoring && near.status !== "connected" ? (
+            <Button size="lg" className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
+              Connect a NEAR wallet
+            </Button>
+          ) : (
+            <Button type="submit" size="lg" className="w-full" disabled={!ready} loading={sealing || status.status === "busy"} loadingLabel={sealing ? "Sealing in the browser…" : "Signing…"} data-order-submit>
+              {side === "Buy" ? (bidStorage ? "Add storage, seal and place bid" : "Seal and place bid") : "Seal and place ask"}
+            </Button>
+          )}
         </div>
       </form>
-    </section>
+    </ActionCard>
   );
 }

@@ -97,9 +97,10 @@ test.describe("rounds with a mocked engine", () => {
     await mockRounds(page);
     await page.goto("/app/rounds/2");
     await expect(page.locator("[data-round-detail='2']")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator("[data-parameters]")).toContainText("400.00 USDC");
-    await expect(page.locator("[data-timeline] [data-step='settle']")).toHaveAttribute("data-state", "done");
-    await expect(page.locator("[data-key-release]")).toContainText("5.0 s after the close request");
+    await expect(page.locator("[data-progress] [data-step='settle']")).toHaveAttribute("data-state", "done");
+    // A settled round opens on its results; the parameters wait in Details.
+    await expect(page.locator("[data-tab='results']")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("[data-parameters]")).toHaveCount(0);
     await expect(page.locator("[data-clearing-chart]")).toBeVisible();
     await expect(page.getByRole("img", { name: /Issuer can afford and Supply/ })).toBeVisible();
     await page.getByRole("button", { name: "Table view" }).click();
@@ -111,16 +112,25 @@ test.describe("rounds with a mocked engine", () => {
     await expect(fills.locator("[data-settle='2']")).toBeDisabled();
     await page.locator("[data-verify-run]").click();
     await expect(page.locator("[data-verify-status='match']")).toBeVisible();
+    await page.getByRole("button", { name: "Chart view" }).click();
+    const ticks = await page.locator("[data-price-tick]").allTextContents();
+    expect(ticks.length).toBeGreaterThan(2);
+    expect(new Set(ticks).size).toBe(ticks.length);
+    await page.locator("[data-tab='details']").click();
+    await expect(page).toHaveURL(/#details$/);
+    await expect(page.locator("[data-parameters]")).toContainText("400.00 USDC");
+    await expect(page.locator("[data-key-release]")).toContainText("5.0 s after the close request");
     await expect(page.locator("[data-settlement]")).toContainText("Claim cash and units in the Portfolio");
     await expect(page.locator("[data-participants]").getByRole("link", { name: /halden\.testnet/ })).toHaveAttribute("href", "https://testnet.near.rocks/account/halden.testnet");
     await expect(page.locator("[data-participants]")).toContainText("ask #0 settled");
     await expect(page.locator("[data-parameters]").getByRole("link", { name: "cindral.testnet" })).toHaveAttribute("href", "https://testnet.near.rocks/account/cindral.testnet");
     // Settled orders lose their ciphertext in the engine (storage refund); the book says so.
+    await page.locator("[data-tab='book']").click();
     await expect(page.locator("[data-sealed-book] [data-bid-row='0']")).toContainText("pruned at settlement");
-    await page.getByRole("button", { name: "Chart view" }).click();
-    const ticks = await page.locator("[data-price-tick]").allTextContents();
-    expect(ticks.length).toBeGreaterThan(2);
-    expect(new Set(ticks).size).toBe(ticks.length);
+    // The hash keeps the picked tab across a reload.
+    await page.locator("[data-tab='details']").click();
+    await page.reload();
+    await expect(page.locator("[data-parameters]")).toBeVisible({ timeout: 20_000 });
     expect(errors).toEqual([]);
   });
 
@@ -131,6 +141,7 @@ test.describe("rounds with a mocked engine", () => {
     await expect(page.locator("[data-round-detail='3']")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("[data-fills-summary='cancelled']")).toContainText("Cancelled (no crossing)");
     await expect(page.locator("[data-curves]")).toContainText("The curves never meet");
+    await page.locator("[data-tab='overview']").click();
     await expect(page.locator("[data-timeline] [data-step='clear']")).toContainText("no price crossed the book");
     await expect(page.locator("main")).not.toContainText("Cleared at 0.00");
     await expect(page.locator("main")).not.toContainText("P* 0.00");
@@ -175,6 +186,7 @@ test.describe("rounds with a mocked engine", () => {
     await page.locator("[data-submit-key-run]").click();
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 30_000 });
     expect(state.sent.map((s) => [s.method, s.args.key])).toEqual([["submit_key", ROUNDS_MOCK.round1Key]]);
+    await page.locator("[data-tab='details']").click();
     await expect(page.locator("[data-key-release]")).toContainText("submitted by a participant");
     expect(errors).toEqual([]);
   });
@@ -211,14 +223,14 @@ test.describe("rounds with a mocked engine", () => {
     await mockRounds(page);
     await page.goto("/app/rounds/5");
     await expect(page.locator("[data-next-action='waiting_key']")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator("[data-timeline]")).toContainText("cancel possible in");
+    await expect(page.locator("[data-round-action]")).toContainText("cancel possible in");
     await page.goto("/app/rounds/6");
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("[data-finalize]")).toContainText("2 / 4");
     await expect(page.locator("[data-finalize]")).toContainText("0.0132 per order");
     await page.goto("/app/rounds/3");
     await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator("[data-timeline] [data-step='clear']")).toHaveAttribute("data-state", "failed");
+    await expect(page.locator("[data-progress] [data-step='clear']")).toHaveAttribute("data-state", "failed");
     await page.goto("/app/rounds/7");
     await expect(page.locator("[data-next-action='wait_open']")).toBeVisible({ timeout: 20_000 });
     await page.goto("/app/rounds/999");
@@ -272,30 +284,36 @@ test.describe("rounds with a mocked engine", () => {
     expect(state.sent.map((s) => s.method)).toEqual(["storage_deposit", "ft_transfer_call", "place_bid"]);
     expect(state.sent[0]?.deposit).toBe(619n * BYTE_COST);
     const mine = page.locator("[data-my-order='2']");
+    await page.locator("[data-tab='mine']").click();
     await expect(mine).toContainText("20 @ 7.50 USDC", { timeout: 20_000 });
+    await page.locator("[data-tab='book']").click();
     await expect(page.locator("[data-sealed-book] tbody tr")).toHaveCount(3);
 
     await expect(page.locator("[data-next-action='close']")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator("[data-timeline]")).toContainText("80 Tgas prepaid");
+    await expect(page.locator("[data-round-action]")).toContainText("80 Tgas prepaid");
     await page.locator("[data-action='close']").click();
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 30_000 });
+    await page.locator("[data-tab='details']").click();
     await expect(page.locator("[data-key-release]")).toContainText(ROUNDS_MOCK.round1Key);
-    await page.locator("[data-action='finalize']").click();
+    await page.locator("[data-finalize-run]").click();
     // A second click where "Open every order" sat lands on the disabled run button, never on a pause.
     await page.locator("[data-finalize-run]").click({ force: true });
     await expect(page.locator("[data-open-status='opened']")).toHaveCount(3, { timeout: 60_000 });
     await expect(page.locator("[data-next-action='clear']")).toBeVisible({ timeout: 30_000 });
     await page.locator("[data-action='clear']").click();
     await expect(page.locator("[data-round-status='Settled']")).toBeVisible({ timeout: 30_000 });
+    await page.locator("[data-tab='results']").click();
     const fills = page.locator("[data-fills]");
     await expect(fills).toContainText("Cleared at 7.00 USDC");
     await expect(fills.locator("tbody tr")).toHaveCount(3);
-    await expect(mine).toContainText("filled 20");
     await fills.locator("[data-settle-all]").click();
     await expect(fills).toContainText("all settled", { timeout: 60_000 });
     await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 20_000 });
     await page.locator("[data-verify-run]").click();
     await expect(page.locator("[data-verify-status='match']")).toBeVisible();
+    await page.locator("[data-tab='mine']").click();
+    await expect(mine).toContainText("filled 20");
+    await page.locator("[data-tab='details']").click();
     await expect(page.locator("[data-receipts] li")).toHaveCount(11);
     expect(state.sent.map((s) => s.method)).toEqual(["storage_deposit", "ft_transfer_call", "place_bid", "close", "open_bid", "open_bid", "open_bid", "clear", "settle_bid", "settle_bid", "settle_bid"]);
     expect(errors).toEqual([]);
@@ -320,7 +338,7 @@ test.describe("rounds with a mocked engine", () => {
     await form.locator("[data-show-deposit]").click();
     const amount = form.getByRole("textbox", { name: "Amount to deposit" });
     await expect(amount).toHaveValue("1139.65875");
-    await expect(form.locator("[data-cash-deposit]").getByRole("alert")).toHaveText("Not enough tUSDC in the wallet: mint some with “Get test funds” in the banner, then retry.");
+    await expect(form.locator("[data-cash-deposit]").getByRole("alert")).toHaveText("Not enough tUSDC in the wallet: mint some with Get test funds, then retry.");
     await form.locator("[data-order-quantity]").fill("10");
     await expect(amount).toHaveValue("38.6125");
     await expect(form.locator("[data-storage-notice='top_up']")).toContainText("storage top-up of 0.00172 NEAR", { timeout: 20_000 });
