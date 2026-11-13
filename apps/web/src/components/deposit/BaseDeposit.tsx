@@ -20,6 +20,7 @@ import { LearnMore } from "@/components/chrome/LearnMore";
 import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FlowSteps } from "@/components/ui/FlowSteps";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -36,7 +37,7 @@ import { basePublicClient } from "@/lib/wallet/evm-demo";
 import { loadAttempted, recordAttempted, type AttemptedDeposit } from "./attempted";
 import { holdingBalance, initialRange, listBaseStreams, waitForReplay, type BaseListing, type BaseStreamRow } from "./base-reads";
 import { baseLogReplayKey, remainingToLock } from "./eligibility";
-import { ClassNote, Reasons, Row, VerdictBadge, WalletPrompt } from "./shared";
+import { Row, StreamItem, WalletPrompt } from "./shared";
 
 /** Extra wei above `calculateMinFeeWei` (0 today, oracle-based, admin-controlled); the vault refunds the unused part. */
 const FEE_MARGIN_WEI = 1_000_000_000_000n;
@@ -47,33 +48,27 @@ function StreamRow({ row, symbol, onDeposit, busy, disabledReason }: { row: Base
   const stream = row.stream;
   const unit = symbol ?? (stream ? shortHex(stream.token) : "tokens");
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2.5" data-stream={row.streamId.toString()}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-ink-50">
-            Sablier stream #{row.streamId.toString()}
-            <VerdictBadge verdict={row.verdict} />
-          </p>
-          {stream ? (
-            <dl className="mt-1 grid min-w-0 gap-x-6 gap-y-0.5 sm:grid-cols-2">
-              <Row label="Deposited" value={`${formatAmount(stream.deposited, stream.decimals)} ${unit}`} />
-              <Row label="Left to lock" value={`${formatAmount(remainingToLock(stream), stream.decimals)} ${unit}`} />
-              <Row label="Schedule" value={`${formatDay(secondsToMs(stream.start))} → ${formatDay(secondsToMs(stream.end))}`} />
-              <Row label="Cliff" value={stream.cliff > 0 ? formatDay(secondsToMs(stream.cliff)) : "none"} />
-              <Row label="Vested, withdrawable now" value={`${formatAmount(stream.withdrawable, stream.decimals)} ${unit}`} />
-              <Row label="Token" value={stream.token} />
-            </dl>
-          ) : null}
-          <div className="mt-1 flex flex-col gap-1">
-            <Reasons reasons={row.verdict.reasons} />
-            <ClassNote classId={row.classId} classExists={row.classExists} />
-          </div>
-        </div>
-        <Button size="sm" onClick={onDeposit} disabled={!row.verdict.eligible || busy || disabledReason !== null} title={disabledReason ?? undefined} data-deposit-stream>
-          Deposit
-        </Button>
-      </div>
-    </li>
+    <StreamItem
+      id={row.streamId.toString()}
+      title={`Sablier stream #${row.streamId.toString()}`}
+      amount={stream ? `${formatAmount(stream.deposited, stream.decimals)} ${unit} · ${formatAmount(remainingToLock(stream), stream.decimals)} still locked` : "Unreadable stream"}
+      verdict={row.verdict}
+      classId={row.classId}
+      classExists={row.classExists}
+      onDeposit={onDeposit}
+      depositDisabled={!row.verdict.eligible || busy || disabledReason !== null}
+      disabledReason={disabledReason}
+      details={
+        stream ? (
+          <>
+            <Row label="Schedule" value={`${formatDay(secondsToMs(stream.start))} → ${formatDay(secondsToMs(stream.end))}`} />
+            <Row label="Cliff" value={stream.cliff > 0 ? formatDay(secondsToMs(stream.cliff)) : "none"} />
+            <Row label="Vested, withdrawable now" value={`${formatAmount(stream.withdrawable, stream.decimals)} ${unit}`} />
+            <Row label="Token" value={stream.token} />
+          </>
+        ) : null
+      }
+    />
   );
 }
 
@@ -284,9 +279,9 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
         <CardHeader
           title="Your Sablier v4 streams"
           description={
-            state.status === "ok"
-              ? `Owned by ${address}; ids ${state.value.fromId.toString()} to ${state.value.toId.toString()} scanned (next id ${state.value.nextStreamId.toString()}).`
-              : `Owned by ${address}, read from the Lockup contract.`
+            <span title={state.status === "ok" ? `Ids ${state.value.fromId.toString()} to ${state.value.toId.toString()} scanned (next id ${state.value.nextStreamId.toString()})` : undefined}>
+              Owned by {shortHex(address, 6, 4)}
+            </span>
           }
           action={
             <div className="flex items-center gap-2">
@@ -316,7 +311,7 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
             <EmptyState
               illustration="vault"
               title="No Sablier stream in this range"
-              description={`No Lockup stream owned by ${shortHex(address, 6, 4)} between ids ${state.value.fromId.toString()} and ${state.value.toId.toString()}. Load older ids, or mint a demo vesting position of the demo token.`}
+              description="Mint a demo vesting position, or load older stream ids."
               action={
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-wrap items-center gap-2 text-[12px]">
@@ -375,7 +370,7 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
         <Card data-deposit-flow>
           <CardHeader
             title={`${selected.resumed ? "Registering" : "Depositing"} Sablier stream #${selected.streamId.toString()}`}
-            description={`Units are minted to ${nearAccount ?? "your NEAR account"} with a checkpoint at the deposit time. The vault withdraws the already vested part to your EVM address first; the rest accrues to the units.`}
+            description={`Units are minted to ${nearAccount ?? "your NEAR account"}; the vested part goes to your EVM address.`}
             action={
               flow.completed ? (
                 <Button size="sm" variant="secondary" onClick={() => (window.location.href = ROUTES.portfolio)}>
@@ -393,9 +388,11 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
           </CardBody>
         </Card>
       ) : null}
-      <p className="text-[12px] text-ink-400">
-        RoseVault refuses non-linear, cancelable, non-transferable, canceled or depleted streams and streams below one whole token; the engine re-checks the schedule from the attested event. <LearnMore topic="custody" />
-      </p>
+      <Disclosure summary="Which streams are eligible">
+        <p className="text-[12.5px] leading-relaxed text-ink-300">
+          RoseVault refuses non-linear, cancelable, non-transferable, canceled or depleted streams and streams below one whole token; the engine re-checks the schedule from the attested event. The vault withdraws the already vested part to your EVM address first; the rest accrues to the units. <LearnMore topic="custody" />
+        </p>
+      </Disclosure>
     </div>
   );
 }
@@ -424,7 +421,7 @@ function PendingRegistrations({ nearAccount, busy, onResume, refreshKey }: { nea
   if (query.state.status !== "ok" || query.state.value.length === 0) return null;
   return (
     <Card data-pending-registrations>
-      <CardHeader title="Waiting for registration" description="Streams this browser deposited into RoseVault whose registration on NEAR did not finish. Register them to receive the units." />
+      <CardHeader title="Waiting for registration" description="Deposited but not registered on NEAR yet. Register to receive the units." />
       <CardBody>
         <ul className="flex flex-col gap-2">
           {query.state.value.map((attempt) => (

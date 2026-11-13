@@ -157,7 +157,7 @@ export function RefusedDeposits() {
 
   return (
     <Card data-refused-deposits>
-      <CardHeader title="Refused deposits" description="Deposits this browser attempted that the engine refused at registration. The asset is held in custody until you ask for it back." />
+      <CardHeader title="Refused deposits" description="Held in custody until you ask for it back." />
       <CardBody className="flex flex-col gap-3">
         {query.state.status === "error" ? <p className="text-[12px] text-danger-400">{query.state.message}</p> : null}
         <ul className="flex flex-col gap-2">

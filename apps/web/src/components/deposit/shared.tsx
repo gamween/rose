@@ -14,34 +14,13 @@ import type { Verdict } from "./eligibility";
 
 export type DepositChain = "base" | "solana";
 
-/** A numbered step heading of a wizard: the current step's number is an ember block, a finished one a tick. */
-export function WizardStep({ index, title, state }: { index: number; title: ReactNode; state: "done" | "current" | "upcoming" }) {
-  return (
-    <h2 className={cn("flex items-center gap-2.5 text-[13px] font-semibold", state === "upcoming" ? "text-ink-400" : "text-ink-50")} data-wizard-step={index} data-state={state}>
-      <span
-        aria-hidden
-        className={cn(
-          "tabular flex size-5 shrink-0 items-center justify-center rounded-[2px] border text-[11px]",
-          state === "current" && "border-ember-500 bg-ember-500 text-ink-950 shadow-[0_2px_0_0_var(--color-ember-700)]",
-          state === "done" && "border-success-500/60 bg-success-500/15 text-success-400",
-          state === "upcoming" && "border-ink-700 bg-ink-900 text-ink-400",
-        )}
-      >
-        {state === "done" ? "✓" : index}
-      </span>
-      <span className="sr-only">Step {index}: </span>
-      {title}
-    </h2>
-  );
-}
-
 export function ChainPicker({ value, onChange, deployed }: { value: DepositChain | null; onChange: (chain: DepositChain) => void; deployed: Record<DepositChain, string | null> }) {
   const options: { id: DepositChain; title: string; body: string }[] = [
-    { id: "base", title: "Base Sepolia", body: "Sablier Lockup v4 streams (Lockup Linear, transferable, non-cancelable), held by RoseVault." },
-    { id: "solana", title: "Solana devnet", body: "Streamflow streams the recipient can transfer and the sender cannot change, held by the engine's vault." },
+    { id: "base", title: "Base Sepolia", body: "Sablier streams" },
+    { id: "solana", title: "Solana devnet", body: "Streamflow streams" },
   ];
   return (
-    <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Chain of the position">
+    <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Chain of the position">
       {options.map((option) => {
         const missing = deployed[option.id];
         const selected = value === option.id;
@@ -125,5 +104,41 @@ export function Row({ label, value, mono = true }: { label: string; value: React
         {value}
       </dd>
     </div>
+  );
+}
+
+/**
+ * One stream of the deposit list, as a single row: name, eligibility, the amount and the Deposit
+ * button; the reasons it is refused stay visible, the schedule and addresses sit under Details.
+ */
+export function StreamItem({ id, title, amount, verdict, details, classId, classExists, onDeposit, depositDisabled, disabledReason }: { id: string; title: ReactNode; amount: ReactNode; verdict: Verdict; details: ReactNode; classId: string | null; classExists: boolean | null; onDeposit: () => void; depositDisabled: boolean; disabledReason: string | null }) {
+  return (
+    <li className="flex flex-col gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2.5" data-stream={id}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-ink-50">
+            <span className="tabular">{title}</span>
+            <VerdictBadge verdict={verdict} />
+          </p>
+          <p className="tabular mt-0.5 text-[12px] text-ink-300">{amount}</p>
+        </div>
+        <Button size="sm" onClick={onDeposit} disabled={depositDisabled} title={disabledReason ?? undefined} data-deposit-stream>
+          Deposit
+        </Button>
+      </div>
+      <Reasons reasons={verdict.reasons} />
+      <details className="group" data-stream-details>
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-[12px] text-ink-400 hover:text-ink-100 [&::-webkit-details-marker]:hidden">
+          Details
+          <span aria-hidden className="transition-transform group-open:rotate-90">
+            ›
+          </span>
+        </summary>
+        <div className="mt-2 flex flex-col gap-2 border-t border-ink-750 pt-2">
+          <dl className="grid min-w-0 gap-x-6 gap-y-0.5 sm:grid-cols-2">{details}</dl>
+          <ClassNote classId={classId} classExists={classExists} />
+        </div>
+      </details>
+    </li>
   );
 }

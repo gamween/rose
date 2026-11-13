@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FlowSteps } from "@/components/ui/FlowSteps";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -24,7 +25,7 @@ import { solanaConnection } from "@/lib/wallet/solana-demo";
 import { createSolanaDemoPosition, demoPositionLinks } from "@/lib/wallet/solana-stream";
 import { loadAttempted, recordAttempted, type AttemptedDeposit } from "./attempted";
 import { solStreamReplayKey } from "./eligibility";
-import { ClassNote, Reasons, Row, VerdictBadge, WalletPrompt } from "./shared";
+import { Row, StreamItem, WalletPrompt } from "./shared";
 import { holdingBalance } from "./base-reads";
 import { depositAddressFor, listSolanaStreams, pendingStatus, readMetadataHex, readSolanaStreamRow, stageName, streamLocation, waitForStage, type SolanaStreamRow } from "./solana-reads";
 
@@ -41,31 +42,25 @@ function StreamRow({ row, onDeposit, busy, disabledReason }: { row: SolanaStream
   const unit = useTokenSymbol("Solana", mint) ?? shortHex(mint, 4, 4);
   const start = m.cliff > 0n ? m.cliff : m.startTime;
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2.5" data-stream={row.metadataPubkey}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-ink-50">
-            <span className="tabular">Streamflow stream {shortHex(row.metadataPubkey, 6, 6)}</span>
-            <VerdictBadge verdict={row.verdict} />
-          </p>
-          <dl className="mt-1 grid min-w-0 gap-x-6 gap-y-0.5 sm:grid-cols-2">
-            <Row label="Deposited" value={`${formatAmount(m.netAmountDeposited, decimals)} ${unit}`} />
-            <Row label="Withdrawn" value={`${formatAmount(m.amountWithdrawn, decimals)} ${unit}`} />
-            <Row label="Unlocks" value={`${formatDay(secondsToMs(start))} → ${formatDay(secondsToMs(m.endTime))}`} />
-            <Row label="Period" value={`${formatAmount(m.amountPerPeriod, decimals)} every ${formatDuration(Number(m.period))}`} />
-            <Row label="Cliff amount" value={`${formatAmount(m.cliffAmount, decimals)} ${unit}`} />
-            <Row label="Mint" value={m.mint.toBase58()} />
-          </dl>
-          <div className="mt-1 flex flex-col gap-1">
-            <Reasons reasons={row.verdict.reasons} />
-            <ClassNote classId={row.classId} classExists={row.classExists} />
-          </div>
-        </div>
-        <Button size="sm" onClick={onDeposit} disabled={!row.verdict.eligible || busy || disabledReason !== null} title={disabledReason ?? undefined} data-deposit-stream>
-          Deposit
-        </Button>
-      </div>
-    </li>
+    <StreamItem
+      id={row.metadataPubkey}
+      title={`Streamflow stream ${shortHex(row.metadataPubkey, 6, 6)}`}
+      amount={`${formatAmount(m.netAmountDeposited, decimals)} ${unit} · ${formatAmount(m.amountWithdrawn, decimals)} withdrawn`}
+      verdict={row.verdict}
+      classId={row.classId}
+      classExists={row.classExists}
+      onDeposit={onDeposit}
+      depositDisabled={!row.verdict.eligible || busy || disabledReason !== null}
+      disabledReason={disabledReason}
+      details={
+        <>
+          <Row label="Unlocks" value={`${formatDay(secondsToMs(start))} → ${formatDay(secondsToMs(m.endTime))}`} />
+          <Row label="Period" value={`${formatAmount(m.amountPerPeriod, decimals)} every ${formatDuration(Number(m.period))}`} />
+          <Row label="Cliff amount" value={`${formatAmount(m.cliffAmount, decimals)} ${unit}`} />
+          <Row label="Mint" value={mint} />
+        </>
+      }
+    />
   );
 }
 
@@ -286,7 +281,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
       <Card>
         <CardHeader
           title="Your Streamflow streams"
-          description={`Streams whose recipient is ${owner}, read from the Streamflow program. A stream ending within an hour is refused: one second after its end, Streamflow's auto-claim empties it into whichever address holds it, and a deposit takes a few minutes. In the vault, a stream pays claims until 5 minutes before its end; after the end its remainder is synced into the class's swept balance, which claims pay from.`}
+          description={<span title={owner}>Streams paying {shortHex(owner, 4, 4)}. A stream ending within an hour is refused.</span>}
           action={
             <Button size="sm" variant="secondary" onClick={() => void listing.refresh()} loading={listing.refreshing && state.status === "ok"} loadingLabel="Refreshing">
               Refresh
@@ -310,7 +305,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
             <EmptyState
               illustration="vault"
               title="No Streamflow stream for this wallet"
-              description="No stream names this wallet as recipient. Create a demo Streamflow position of the demo token (the faucet sends the 1,000 demo tokens it locks; your wallet pays about 0.012 SOL of rent and fees), or transfer an existing one to this wallet."
+              description="Create a demo Streamflow position (about 0.012 SOL of fees), or transfer a stream to this wallet."
               action={
                 <div className="flex flex-col items-center gap-2">
                   <Button
@@ -348,7 +343,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
         <Card data-deposit-flow>
           <CardHeader
             title={`Depositing Streamflow stream ${shortHex(selected.metadataPubkey, 6, 6)}`}
-            description={`Three engine steps, each proven to the MPC: attribute at your deposit address, move into the vault (signed by the engine, broadcast by you, fee paid by gas/sol), register. Units are minted to ${nearAccount ?? "your NEAR account"}.`}
+            description={`Units are minted to ${nearAccount ?? "your NEAR account"}.`}
             action={
               flow.completed ? (
                 <Button size="sm" variant="secondary" onClick={() => (window.location.href = ROUTES.portfolio)}>
@@ -370,9 +365,11 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
           </CardBody>
         </Card>
       ) : null}
-      <p className="text-[12px] text-ink-400">
-        The engine refuses streams the sender can still cancel, transfer, pause, top up or re-rate, paused or re-rated streams, streams that withdraw automatically or charge fees, closed or fully unlocked streams, streams below one whole token, mints with a freeze authority and Token-2022 mints. Already unlocked tokens stay with the units: the engine withdraws them inside its payouts. <LearnMore topic="custody" />
-      </p>
+      <Disclosure summary="Which streams are eligible">
+        <p className="text-[12.5px] leading-relaxed text-ink-300">
+          The engine refuses streams the sender can still cancel, transfer, pause, top up or re-rate, paused or re-rated streams, streams that withdraw automatically or charge fees, closed or fully unlocked streams, streams below one whole token, mints with a freeze authority and Token-2022 mints. A deposit takes three steps proven to the MPC: attribution at your deposit address, the move into the vault, registration. In the vault, a stream pays claims until 5 minutes before its end. <LearnMore topic="custody" />
+        </p>
+      </Disclosure>
     </div>
   );
 }
@@ -432,7 +429,7 @@ function PendingSolanaDeposits({
   if (query.state.status !== "ok" || query.state.value.length === 0) return null;
   return (
     <Card data-pending-solana-deposits>
-      <CardHeader title="Deposits to finish" description="Streams this browser started depositing that left your wallet but are not registered yet. Resume to receive the units; every step picks up where it stopped." />
+      <CardHeader title="Deposits to finish" description="Resume to receive the units; every step picks up where it stopped." />
       <CardBody>
         <ul className="flex flex-col gap-2">
           {query.state.value.map(({ attempt, metadata, status }) => (

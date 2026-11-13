@@ -472,7 +472,7 @@ test.describe("deposit wizard (mocked chains)", () => {
     await page.locator("[data-chain='base']").click();
     await expect(page.getByText("No Sablier stream in this range")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator("[data-mint-demo]")).toBeEnabled();
-    await expect(page.getByText(/ids 1 to 100 scanned/)).toBeVisible();
+    await expect(page.locator("[title^='Ids 1 to 100 scanned']")).toBeVisible();
     await snap(page, "base-empty");
   });
 });
