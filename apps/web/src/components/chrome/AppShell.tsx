@@ -13,6 +13,7 @@ import { Kbd } from "@/components/ui/Kbd";
 import { Spinner } from "@/components/ui/Spinner";
 import { ROUTES } from "@/lib/routes";
 import { ActivityFeedDrawer } from "./ActivityFeed";
+import { AppActionsProvider, type AppActions } from "./AppActions";
 import { CommandPalette, usePaletteShortcut, type PaletteCommand } from "./CommandPalette";
 import { GuidedTour, readTourDismissed } from "./GuidedTour";
 import { tourVisible, type TourState } from "@/lib/tour";
@@ -82,6 +83,7 @@ function AppChrome({ children, demo }: { children: ReactNode; demo: boolean }) {
     [FundsPanel, loadFundsPanel, loadWallets],
   );
   const [activityOpen, setActivityOpen] = useState(false);
+  const appActions = useMemo<AppActions>(() => ({ openTestFunds: () => setFundsOpen(true), openActivity: () => setActivityOpen(true) }), [setFundsOpen]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tour, setTour] = useState<TourState>("closed");
   const [tourDecided, setTourDecided] = useState(false);
@@ -118,62 +120,64 @@ function AppChrome({ children, demo }: { children: ReactNode; demo: boolean }) {
   );
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      <TopNav
-        menuActions={menuActions}
-        action={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActivityOpen(true)}
-              aria-label="Open activity feed"
-              title="Activity"
-              data-activity
-              data-variant="secondary"
-              className="ui-block hidden size-8 items-center justify-center rounded-md sm:flex"
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M12 7v5l3 2" />
-                <circle cx="12" cy="12" r="9" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPaletteOpen(true)}
-              title="Command palette (⌘K)"
-              aria-label="Open the command palette"
-              data-palette
-              className="ui-field hidden h-8 items-center gap-2 px-2 text-[12px] text-ink-400 transition-colors hover:text-ink-100 md:flex lg:w-48"
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
-              <span className="hidden lg:inline">Search</span>
-              <Kbd className="lg:ml-auto">⌘K</Kbd>
-            </button>
-            <WalletPills />
-          </div>
-        }
-      />
-      <TestnetBanner onGetFunds={() => setFundsOpen(true)} demo={demo} />
-      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 md:px-6">{children}</main>
-      <Footer />
-      {FundsPanel ? (
-        <FundsPanel
-          open={fundsOpen}
-          onClose={() => setFundsOpen(false)}
-          onConnect={(chain) => {
-            setFundsOpen(false);
-            openConnect(chain);
-          }}
+    <AppActionsProvider value={appActions}>
+      <div className="flex min-h-dvh flex-col">
+        <TopNav
+          menuActions={menuActions}
+          action={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActivityOpen(true)}
+                aria-label="Open activity feed"
+                title="Activity"
+                data-activity
+                data-variant="secondary"
+                className="ui-block hidden size-8 items-center justify-center rounded-md sm:flex"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 7v5l3 2" />
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                title="Command palette (⌘K)"
+                aria-label="Open the command palette"
+                data-palette
+                className="ui-field hidden h-8 items-center gap-2 px-2 text-[12px] text-ink-400 transition-colors hover:text-ink-100 md:flex lg:w-48"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <span className="hidden lg:inline">Search</span>
+                <Kbd className="lg:ml-auto">⌘K</Kbd>
+              </button>
+              <WalletPills />
+            </div>
+          }
         />
-      ) : (
-        <FundsLoading open={fundsOpen} failed={fundsFailed} onClose={() => setFundsOpen(false)} onRetry={loadFundsPanel} />
-      )}
-      <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
-      <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} deciding={!tourDecided} />
-    </div>
+        <TestnetBanner onGetFunds={() => setFundsOpen(true)} demo={demo} />
+        <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 md:px-6">{children}</main>
+        <Footer />
+        {FundsPanel ? (
+          <FundsPanel
+            open={fundsOpen}
+            onClose={() => setFundsOpen(false)}
+            onConnect={(chain) => {
+              setFundsOpen(false);
+              openConnect(chain);
+            }}
+          />
+        ) : (
+          <FundsLoading open={fundsOpen} failed={fundsFailed} onClose={() => setFundsOpen(false)} onRetry={loadFundsPanel} />
+        )}
+        <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+        <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} deciding={!tourDecided} />
+      </div>
+    </AppActionsProvider>
   );
 }
