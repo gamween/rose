@@ -38,10 +38,10 @@ export function Badge({
   );
 }
 
-/** Network badge shown in the top bar: every rose deployment runs on testnets only. */
-export function NetworkBadge({ className }: { className?: string }) {
+/** Network badge shown in the top bar: every rose deployment runs on testnets only. `detail` adds a sentence to its title. */
+export function NetworkBadge({ className, detail }: { className?: string; detail?: string }) {
   return (
-    <Badge tone="ember" live className={className} title="NEAR testnet, Base Sepolia and Solana devnet. Nothing touches mainnet.">
+    <Badge tone="ember" live className={className} title={`NEAR testnet, Base Sepolia and Solana devnet. Nothing here has value.${detail ? ` ${detail}` : ""}`}>
       Testnet
     </Badge>
   );

@@ -33,7 +33,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Get test funds",
-    body: "The testnet banner opens a panel that creates your NEAR demo account, sends Base Sepolia gas and devnet SOL, mints tUSDC on both venues, and mints a demo vesting position to deposit.",
+    body: "The wallet menu (or the menu on a phone) opens a panel that creates your NEAR demo account, sends Base Sepolia gas and devnet SOL, mints tUSDC on both venues, and mints a demo vesting position to deposit.",
     illustration: "ember",
   },
   {

@@ -7,7 +7,14 @@ import { Logo } from "@/components/brand/Logo";
 import { NetworkBadge } from "@/components/ui/Badge";
 import { Drawer } from "@/components/ui/Modal";
 import { cn } from "@/lib/cn";
+import { missingDeployments } from "@/lib/deployment";
 import { PRIMARY_NAV, ROUTES } from "@/lib/routes";
+
+/** What the Testnet badge adds when contracts are missing (the Status page lists them). */
+function networkDetail(): string | undefined {
+  const missing = missingDeployments().length;
+  return missing === 0 ? undefined : `${String(missing)} contract${missing === 1 ? "" : "s"} not deployed yet: see Status.`;
+}
 
 /** A global action listed in the mobile menu (the activity feed and the palette, whose top-bar buttons hide on small screens). */
 export type MenuAction = { id: string; label: string; hint: string; onSelect: () => void };
@@ -64,7 +71,11 @@ export function TopNav({
           })}
         </ul>
         <div className="ml-auto flex items-center gap-3">
-          {minimal ? null : <NetworkBadge className="hidden sm:inline-flex" />}
+          {minimal ? null : (
+            <Link href={ROUTES.status} className="hidden rounded-sm sm:inline-flex" aria-label="Testnet: deployment status" data-network-badge>
+              <NetworkBadge detail={networkDetail()} />
+            </Link>
+          )}
           {action}
           <button
             type="button"
@@ -115,9 +126,9 @@ export function TopNav({
               ))}
             </ul>
           ) : null}
-          <div className="mt-6">
-            <NetworkBadge />
-          </div>
+          <Link href={ROUTES.status} onClick={() => setMenuOpen(false)} className="mt-6 inline-flex rounded-sm" aria-label="Testnet: deployment status">
+            <NetworkBadge detail={networkDetail()} />
+          </Link>
         </Drawer>
       )}
     </header>

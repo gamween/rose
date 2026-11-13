@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { runPaletteCommand } from "./fixtures/chrome";
 import { collectErrors } from "./fixtures/console";
 import { DEMO_RECORDING, mockDemoEngine } from "./fixtures/demo-mock";
 
@@ -20,11 +21,11 @@ async function open(page: Page, query: string): Promise<void> {
 test.describe("guided demo", () => {
   test.skip(!DEMO_BUILD, `NEXT_PUBLIC_ENGINE_ACCOUNT must be ${DEMO_RECORDING.engine} for this suite`);
 
-  test("is reachable from the testnet banner and the rounds list", async ({ page }) => {
+  test("is reachable from the rounds list", async ({ page }) => {
     const errors = collectErrors(page);
     await mockDemoEngine(page);
     await page.goto("/app/rounds");
-    await expect(page.locator("[data-testnet-banner] [data-watch-demo]")).toHaveAttribute("href", "/app/demo");
+    await expect(page.locator("[data-rounds-page] [data-watch-demo]")).toHaveAttribute("href", "/app/demo");
     // The first-visit tour is open over the list; a DOM click follows the link client-side while the
     // tour is still due, which is exactly when it must not cover the demo.
     await expect(page.locator("[data-tour-step='0']")).toBeVisible();
@@ -97,7 +98,7 @@ test.describe("guided demo", () => {
       await page.getByRole("button", { name: "Open menu" }).click();
       await page.locator("[data-menu-action='activity']").click();
     } else {
-      await page.locator("[data-activity]").click();
+      await runPaletteCommand(page, "activity");
     }
     const feed = page.getByRole("dialog", { name: "Activity" });
     await expect(feed).toBeVisible();

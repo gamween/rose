@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { runPaletteCommand } from "./fixtures/chrome";
 import { collectErrors } from "./fixtures/console";
 
 /**
@@ -54,7 +55,7 @@ test.describe("connect modal", () => {
       ["Connect a Base Sepolia wallet", "base"],
       ["Connect a Solana devnet wallet", "solana"],
     ] as const) {
-      await page.locator("[data-get-funds]").click();
+      await runPaletteCommand(page, "test funds");
       const drawer = page.getByRole("dialog", { name: "Get test funds" });
       await expect(drawer).toBeVisible();
       await drawer.getByRole("button", { name: label }).first().click();

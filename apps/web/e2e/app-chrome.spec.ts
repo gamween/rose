@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors } from "./fixtures/console";
+import { runPaletteCommand } from "./fixtures/chrome";
 import { connectDemoWallet, openWalletDrawer } from "./fixtures/wallets";
 
 /**
@@ -21,7 +22,7 @@ test.describe("app chrome", () => {
     await page.getByRole("button", { name: "Skip tour" }).click();
     await expect(next).toBeHidden();
     await page.reload();
-    await expect(page.locator("[data-testnet-banner]")).toBeVisible();
+    await expect(page.getByRole("link", { name: "rose home" })).toBeVisible();
     await expect(next).toBeHidden();
     await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyK" : "Control+KeyK");
     const input = page.locator("[data-palette-input]");
@@ -51,6 +52,12 @@ test.describe("app chrome", () => {
       await expect(menu.locator("[data-wallet-row]")).toHaveCount(3);
       await expect(menu.locator("[data-wallet-row='base']")).toContainText("0x");
       await expect(menu.locator("[data-add-network]")).toHaveCount(0);
+      await menu.locator("[data-activity]").click();
+      await expect(page.getByRole("dialog", { name: "Activity" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await walletButton.click();
+      await menu.locator("[data-get-funds]").click();
+      await expect(page.getByRole("dialog", { name: "Get test funds" })).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(menu).toBeHidden();
     } else {
@@ -69,7 +76,8 @@ test.describe("app chrome", () => {
     await page.goto(APP_PAGE);
     await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await page.reload();
-    await page.locator("[data-get-funds]").click();
+    await expect(page.locator("[data-testnet-banner]")).toHaveCount(0);
+    await runPaletteCommand(page, "test funds");
     const drawer = page.getByRole("dialog", { name: "Get test funds" });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByText("Create the demo account with test NEAR")).toBeVisible();
@@ -106,12 +114,15 @@ test.describe("app chrome", () => {
     await expect(page).toHaveURL(/\/app\/prices$/);
   });
 
-  test("the mobile menu opens the activity feed and the command palette", async ({ page, isMobile }) => {
-    test.skip(!isMobile, "the top-bar buttons cover wider screens");
+  test("the mobile menu opens the test funds, the activity feed and the command palette", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "the top bar and the wallet menu cover wider screens");
     await page.goto(APP_PAGE);
     await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await page.reload();
-    await expect(page.locator("[data-activity]")).toBeHidden();
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await page.locator("[data-menu-action='funds']").click();
+    await expect(page.getByRole("dialog", { name: "Get test funds" })).toBeVisible();
+    await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Open menu" }).click();
     await page.locator("[data-menu-action='activity']").click();
     await expect(page.getByRole("dialog", { name: "Activity" })).toBeVisible();
@@ -128,14 +139,12 @@ test.describe("app chrome", () => {
     await page.goto(APP_PAGE);
     await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await page.reload();
-    if (await page.locator("[data-activity]").isVisible()) {
-      await page.locator("[data-activity]").click();
-      const feed = page.getByRole("dialog", { name: "Activity" });
-      await expect(feed).toBeVisible();
-      // A live engine shows its latest events (any kind); a fresh or missing one shows its empty state.
-      await expect(feed.locator("[data-activity-feed] li").or(feed.getByText(/Engine not deployed yet|No activity yet/)).first()).toBeVisible({ timeout: 20_000 });
-      await page.keyboard.press("Escape");
-    }
+    await runPaletteCommand(page, "activity");
+    const feed = page.getByRole("dialog", { name: "Activity" });
+    await expect(feed).toBeVisible();
+    // A live engine shows its latest events (any kind); a fresh or missing one shows its empty state.
+    await expect(feed.locator("[data-activity-feed] li").or(feed.getByText(/Engine not deployed yet|No activity yet/)).first()).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press("Escape");
     await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyK" : "Control+KeyK");
     await page.locator("[data-palette-input]").fill("docs");
     await page.keyboard.press("Enter");
