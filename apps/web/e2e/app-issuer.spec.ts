@@ -228,7 +228,7 @@ test.describe("issuer console", () => {
     state.account = await connectNearDemo(page);
     await expect(page.locator("[data-issuer-tab='tender']")).toBeVisible({ timeout: 30_000 });
     await page.locator("#tender-budget").fill("950");
-    await page.getByRole("button", { name: "Max discount to a declared reference" }).click();
+    await page.getByRole("button", { name: "Max discount", exact: true }).click();
     await page.locator("#tender-ref").fill("10");
     await page.locator("#tender-discount").fill("10");
     await page.getByRole("button", { name: "Burn address" }).click();

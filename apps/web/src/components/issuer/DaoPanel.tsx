@@ -7,6 +7,7 @@ import { LearnMore } from "@/components/chrome/LearnMore";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { Input } from "@/components/ui/Input";
 import type { ExplorerLink } from "@/components/ui/Toast";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -45,18 +46,23 @@ function ProposalBlock({ name, proposal, cli, onFile, filing, disabled, testId }
   const json = JSON.stringify(proposal, null, 2);
   return (
     <div className="flex flex-col gap-2" data-proposal={testId}>
-      <div className="flex items-center justify-between gap-2">
-        <FieldLabel>{name}: add_proposal arguments</FieldLabel>
-        <CopyButton text={json} label="Copy JSON" />
-      </div>
-      <pre className="max-h-56 overflow-auto rounded-md border border-ink-750 bg-ink-900 p-3 font-mono text-[11px] text-ink-200" data-dao-json={testId}>
-        {json}
-      </pre>
-      <div className="flex items-center justify-between gap-2">
-        <FieldLabel>near-cli-rs command</FieldLabel>
-        <CopyButton text={cli} label="Copy command" />
-      </div>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md border border-ink-750 bg-ink-900 p-3 font-mono text-[11px] text-ink-200">{cli}</pre>
+      <Disclosure summary={`${name} proposal: JSON and CLI command`}>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <FieldLabel>add_proposal arguments</FieldLabel>
+            <CopyButton text={json} label="Copy JSON" />
+          </div>
+          <pre className="max-h-56 overflow-auto rounded-md border border-ink-750 bg-ink-950 p-3 font-mono text-[11px] text-ink-200" data-dao-json={testId}>
+            {json}
+          </pre>
+          <div className="flex items-center justify-between gap-2">
+            <FieldLabel>near-cli-rs command</FieldLabel>
+            <CopyButton text={cli} label="Copy command" />
+          </div>
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md border border-ink-750 bg-ink-950 p-3 font-mono text-[11px] text-ink-200">{cli}</pre>
+          <Hint>Members vote with act_proposal (Sputnik DAO has no testnet web UI today).</Hint>
+        </div>
+      </Disclosure>
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={onFile} disabled={disabled !== null || filing} loading={filing} loadingLabel="Filing" title={disabled ?? undefined} data-file-proposal={testId}>
           File from my wallet
@@ -172,7 +178,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
     <Card data-dao-panel className={className}>
       <CardHeader
         title="Run via DAO"
-        description="For treasuries that need an on-chain vote: the DAO account creates the Tender, so the escrow is debited from the DAO's own engine cash. Read the DAO, fund its cash, then file the create_tender proposal (Sputnik DAO v2, shapes verified live on testnet, see docs/verification.md)."
+        description="The DAO creates the Tender from its own engine cash after a vote."
         action={<Badge tone="info">Sputnik v2</Badge>}
       />
       <CardBody className="flex flex-col gap-5">
@@ -191,7 +197,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
           ) : readError ? (
             <Hint tone="danger">{readError}</Hint>
           ) : (
-            <Hint>Reads get_policy().proposal_bond, the DAO&apos;s engine cash and storage, and its token wallet.</Hint>
+            <Hint>Reads its proposal bond, engine cash and token wallet.</Hint>
           )}
         </section>
 
@@ -212,8 +218,8 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
             <>
               <div className="flex flex-col gap-2">
                 <p className="text-[12px] text-ink-300">
-                  a. Engine storage for the DAO (NEP-145, anyone may pay it):{" "}
-                  {current.storage ? `${formatNear(current.storage.deposit)} NEAR is missing; the engine refuses the DAO's transfer without it.` : "covered."}
+                  a. Engine storage for the DAO:{" "}
+                  {current.storage ? `${formatNear(current.storage.deposit)} NEAR is missing (anyone may pay it).` : "covered."}
                 </p>
                 {current.storage ? (
                   <div className="flex flex-wrap items-center gap-3">
@@ -241,7 +247,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
               </div>
               {fundingProposal ? (
                 <>
-                  <p className="text-[12px] text-ink-300">c. The DAO moves the tUSDC into its engine cash: only the sender of ft_transfer_call is credited, so this is a proposal.</p>
+                  <p className="text-[12px] text-ink-300">c. A proposal moves the DAO&apos;s tUSDC into its engine cash.</p>
                   <ProposalBlock name="Funding" proposal={fundingProposal} cli={cliFor(fundingProposal)} onFile={() => void file(fundFile, "Filing the funding proposal", fundingProposal)} filing={fundFile.state.status === "loading"} disabled={fileDisabled} testId="funding" />
                   <ActionFeedback state={fundFile.state} onRetry={() => void file(fundFile, "Filing the funding proposal", fundingProposal)} />
                 </>
@@ -249,7 +255,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
             </>
           ) : venue !== "Near" && current ? (
             <>
-              <p className="text-[12px] text-ink-300">A member deposits on Base with the DAO as the credited account: no vote needed, the engine credits the account named in the log.</p>
+              <p className="text-[12px] text-ink-300">Deposit on Base with the DAO as the credited account (no vote needed).</p>
               <BaseCashFunding base={base} token={venue.Base.token} amount={shortfall} creditTo={current.account} roundId={0n} onDone={() => void readDao()} />
             </>
           ) : null}
@@ -263,16 +269,18 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
               {shortfall !== null && shortfall > 0n ? <Hint tone="warning">Approve the funding first: create_tender fails while the DAO&apos;s cash is short of the escrow.</Hint> : null}
               <ProposalBlock name="Tender" proposal={tenderProposal} cli={cliFor(tenderProposal)} onFile={() => void file(tenderFile, "Filing the Tender proposal", tenderProposal)} filing={tenderFile.state.status === "loading"} disabled={fileDisabled} testId="tender" />
               <ActionFeedback state={tenderFile.state} onRetry={() => void file(tenderFile, "Filing the Tender proposal", tenderProposal)} />
-              <Hint>Sputnik DAO has no testnet web UI reachable today (sputnik.fund and AstroDAO testnet hosts do not resolve), so proposals are filed from here or with the command; members vote with act_proposal.</Hint>
-              <div className="flex items-center justify-between gap-2">
-                <FieldLabel>Trezu custom proposal template</FieldLabel>
-                {trezu ? <CopyButton text={trezu} label="Copy manifest" /> : null}
-              </div>
-              <Hint>Manifest DSL version 1 of Trezu (NEAR-DevHub/trezu, docs/CUSTOM_PROPOSAL_TEMPLATES.md): paste it in the Code tab of /&lt;dao&gt;/custom-templates/create. The class, venue and retire-to address are fixed by the template; budget, max price, reference price and closing time are member inputs defaulted to the values of the form.</Hint>
               {trezu ? (
-                <pre className="max-h-56 overflow-auto rounded-md border border-ink-750 bg-ink-900 p-3 font-mono text-[11px] text-ink-200" data-trezu-json>
-                  {trezu}
-                </pre>
+                <Disclosure summary="Trezu custom proposal template">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <Hint>Paste it in the Code tab of /&lt;dao&gt;/custom-templates/create (Trezu manifest DSL v1). Class, venue and retire-to are fixed; budget, prices and closing time are member inputs.</Hint>
+                      <CopyButton text={trezu} label="Copy manifest" />
+                    </div>
+                    <pre className="max-h-56 overflow-auto rounded-md border border-ink-750 bg-ink-950 p-3 font-mono text-[11px] text-ink-200" data-trezu-json>
+                      {trezu}
+                    </pre>
+                  </div>
+                </Disclosure>
               ) : null}
             </>
           ) : (
@@ -280,7 +288,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
           )}
         </section>
         <p className="text-[12px] text-ink-400">
-          Once the DAO approves, the proposal executes and the round appears in <Link href={ROUTES.rounds} className="underline-offset-2 hover:underline">Rounds</Link> and, under the DAO&apos;s name, in the Results tab. <LearnMore topic="issuer" anchor="5-run-via-dao" />
+          Once approved, the round appears in <Link href={ROUTES.rounds} className="underline-offset-2 hover:underline">Rounds</Link> and in Results. <LearnMore topic="issuer" anchor="5-run-via-dao" />
         </p>
       </CardBody>
     </Card>

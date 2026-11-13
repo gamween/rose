@@ -299,7 +299,7 @@ export function IssuerGate({ state, onRetry, children }: { state: EngineQuerySta
       <EmptyState
         illustration="vault"
         title="Engine not deployed yet"
-        description="The issuer console reads classes, limits and cash balances from the rose engine on NEAR testnet. It opens as soon as the engine is deployed."
+        description="The issuer console opens once the engine is deployed on NEAR testnet."
         action={<LearnMore topic="contracts" label="Contracts and addresses" />}
       />
     );
@@ -331,7 +331,7 @@ export function IssuerGate({ state, onRetry, children }: { state: EngineQuerySta
       <div className="flex flex-col gap-4">
         <NextStep
           title="Connect a NEAR wallet to act as the issuer"
-          description="Every issuer action (registering cohort deposits, distributing units, creating and funding a Tender) is signed by your NEAR account. Previews below work without a wallet."
+          description="Previews work without a wallet."
           action={<IssuerConnectButton />}
         />
         {children(state.value)}

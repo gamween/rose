@@ -80,7 +80,7 @@ export function FundTab({ base }: { base: IssuerBase }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <Card>
-        <CardHeader title="Fund the Tender" description="The escrow (budget + 30 bps) is debited from your cash balance in the round's venue when the Tender is created. Fund that venue first." />
+        <CardHeader title="Fund the Tender" description="The Tender's escrow (budget + 30 bps) comes from this cash when you launch it." />
         <CardBody className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
@@ -101,7 +101,7 @@ export function FundTab({ base }: { base: IssuerBase }) {
           {option.venue === "Near" ? (
             <>
               <Hint>
-                ft_transfer_call on {NEAR_TUSDC_ACCOUNT} credits the engine&apos;s NEAR cash ledger for your account. Wallet balance: {wallets.balances.nearTusdc === null ? "—" : `${formatUsdc(wallets.balances.nearTusdc)} tUSDC`}; mint more from the testnet banner.
+                <span title={`ft_transfer_call on ${NEAR_TUSDC_ACCOUNT}`}>Wallet balance: {wallets.balances.nearTusdc === null ? "—" : `${formatUsdc(wallets.balances.nearTusdc)} tUSDC`}; get more with Get test funds in the wallet menu.</span>
               </Hint>
               {storageNeed ? (
                 <Hint tone="warning">
@@ -122,12 +122,12 @@ export function FundTab({ base }: { base: IssuerBase }) {
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="fund-credit">Credit the cash to (NEAR account)</FieldLabel>
                   <Input id="fund-credit" value={creditInput} onChange={(event) => setCreditInput(event.target.value)} placeholder={wallets.near.accountId ?? "treasury.sputnik-v2.testnet"} data-fund-credit />
-                  {creditValid ? <Hint>Empty credits your connected account. A DAO that files the Tender needs the escrow in its own cash.</Hint> : <Hint tone="danger">Not a NEAR account id.</Hint>}
+                  {creditValid ? <Hint>Empty credits your account; a DAO needs the escrow in its own cash.</Hint> : <Hint tone="danger">Not a NEAR account id.</Hint>}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="fund-round">Round id label (optional)</FieldLabel>
                   <Input id="fund-round" value={roundId} onChange={(event) => setRoundId(event.target.value.replace(/\D/g, ""))} placeholder="0" />
-                  <Hint>A note in the deposit log only; the cash is usable by any round of the account.</Hint>
+                  <Hint>A note in the deposit log only.</Hint>
                 </div>
               </div>
               <BaseCashFunding base={base} token={option.venue.Base.token} amount={amountUnits} creditTo={creditValid ? creditTo : ""} roundId={BigInt(roundId || "0")} onDone={() => setBaseRuns((runs) => runs + 1)} />

@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { Button } from "@/components/ui/Button";
+import { Stepper } from "@/components/ui/Stepper";
 import { Tabs } from "@/components/ui/Tabs";
-import { Term } from "@/components/ui/Term";
 import { CohortTab } from "./CohortTab";
 import { CreateClassTab } from "./CreateClassTab";
 import { DistributeTab } from "./DistributeTab";
@@ -12,39 +13,36 @@ import { ResultsTab } from "./ResultsTab";
 import { IssuerGate, useIssuerBase } from "./shared";
 import { TenderTab } from "./TenderTab";
 
+/** Every place of the console, in the URL hash: the five steps, the DAO variant of the launch step, and the results. */
 export type IssuerTab = "class" | "cohort" | "distribute" | "fund" | "tender" | "dao" | "results";
 
-const STEPS = [
-  { id: "class", label: "Create a class" },
+type Step = "class" | "cohort" | "distribute" | "fund" | "tender";
+
+const STEPS: readonly { id: Step; label: string }[] = [
+  { id: "class", label: "Class" },
   { id: "cohort", label: "Cohort streams" },
   { id: "distribute", label: "Distribute units" },
   { id: "fund", label: "Fund" },
   { id: "tender", label: "Launch Tender" },
-  { id: "dao", label: "Run via DAO" },
+];
+
+const VIEWS = [
+  { id: "setup", label: "New Tender" },
   { id: "results", label: "Results" },
 ] as const;
 
-/** Each tab is a step of the issuer's path: its number shows the order (decorative, the name stays the label). */
-const TABS = STEPS.map((step, index) => ({
-  id: step.id,
-  label: (
-    <>
-      <span aria-hidden className="tabular text-[11px] text-ink-500">
-        {String(index + 1).padStart(2, "0")}
-      </span>
-      {step.label}
-    </>
-  ),
-}));
-
-const TAB_IDS = new Set<string>(STEPS.map((step) => step.id));
+const TAB_IDS = new Set<string>(["class", "cohort", "distribute", "fund", "tender", "dao", "results"]);
 
 function tabFromHash(hash: string): IssuerTab {
   const id = hash.replace(/^#/, "");
   return TAB_IDS.has(id) ? (id as IssuerTab) : "class";
 }
 
-/** `/app/issuer`: the issuer's path from a class to a settled Tender, one tab per step, the tab in the URL hash. */
+/**
+ * `/app/issuer`: a launchpad-style create flow. "New Tender" walks the five steps one at a time
+ * (Back / Continue under the step); "Results" lists the issuer's Tenders. The place lives in the
+ * URL hash, so `#fund` or `#dao` links straight to it.
+ */
 export function IssuerConsole() {
   const [tab, setTab] = useState<IssuerTab>("class");
   const { state, refresh } = useIssuerBase();
@@ -61,28 +59,59 @@ export function IssuerConsole() {
     window.history.replaceState(null, "", `#${next}`);
   };
 
+  const step: Step = tab === "dao" ? "tender" : tab === "results" ? "class" : tab;
+  const stepIndex = STEPS.findIndex((item) => item.id === step);
+  const previous = STEPS[stepIndex - 1];
+  const next = STEPS[stepIndex + 1];
+
   return (
     <div className="flex flex-col gap-5" data-issuer-console>
-      <header>
-        <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Issuer console</h1>
-        <p className="mt-1 max-w-3xl text-[13px] text-ink-400">
-          Buy back locked allocations at one fair price. Create the <Term term="class">class</Term>, put the cohort&apos;s streams in custody, distribute <Term term="unit">units</Term>, then launch and fund a <Term term="tender">Tender</Term>: a public budget and max price, sealed asks, one <Term term="uniformPrice">uniform clearing price</Term> and a public report. <LearnMore topic="issuer" />
-        </p>
+      <header className="flex flex-col gap-4">
+        <div>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Issuer console</h1>
+          <p className="mt-1 text-[13px] text-ink-400">
+            Buy back your cohort&apos;s locked allocations at one fair price. <LearnMore topic="issuer" />
+          </p>
+        </div>
+        <Tabs items={VIEWS} value={tab === "results" ? "results" : "setup"} onChange={(view) => select(view === "results" ? "results" : step)} label="Issuer views" />
       </header>
-      <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-        <Tabs items={TABS} value={tab} onChange={select} label="Issuer steps" className="min-w-max" />
-      </div>
       <IssuerGate state={state} onRetry={() => void refresh()}>
-        {(base) => (
-          <div role="tabpanel" data-issuer-tab={tab}>
-            {tab === "class" ? <CreateClassTab base={base} /> : null}
-            {tab === "cohort" ? <CohortTab base={base} /> : null}
-            {tab === "distribute" ? <DistributeTab base={base} /> : null}
-            {tab === "tender" || tab === "dao" ? <TenderTab base={base} showDao={tab === "dao"} /> : null}
-            {tab === "fund" ? <FundTab base={base} /> : null}
-            {tab === "results" ? <ResultsTab base={base} /> : null}
-          </div>
-        )}
+        {(base) =>
+          tab === "results" ? (
+            <div role="tabpanel" data-issuer-tab="results">
+              <ResultsTab base={base} />
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              <Stepper steps={STEPS} value={step} onChange={select} label="Issuer steps" />
+              <div role="tabpanel" aria-label={STEPS[stepIndex]?.label} data-issuer-tab={tab}>
+                {tab === "class" ? <CreateClassTab base={base} /> : null}
+                {tab === "cohort" ? <CohortTab base={base} /> : null}
+                {tab === "distribute" ? <DistributeTab base={base} /> : null}
+                {tab === "fund" ? <FundTab base={base} /> : null}
+                {tab === "tender" || tab === "dao" ? <TenderTab base={base} showDao={tab === "dao"} onSigner={(dao) => select(dao ? "dao" : "tender")} /> : null}
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-ink-750 pt-4">
+                {previous ? (
+                  <Button variant="ghost" onClick={() => select(previous.id)} data-step-back>
+                    ← {previous.label}
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                {next ? (
+                  <Button variant="secondary" onClick={() => select(next.id)} data-step-next>
+                    Continue: {next.label} →
+                  </Button>
+                ) : (
+                  <Button variant="secondary" onClick={() => select("results")} data-step-next>
+                    See results →
+                  </Button>
+                )}
+              </div>
+            </div>
+          )
+        }
       </IssuerGate>
     </div>
   );

@@ -123,7 +123,7 @@ export function BaseCashFunding({
 
   return (
     <div className="flex flex-col gap-3">
-      <Hint>depositCash pulls the tokens into RoseVault and emits CashDeposited; the engine credits the Base cash of {creditTo || "the named account"} after a ForeignTx proof at Base safe finality.</Hint>
+      <Hint>Credited to {creditTo || "the named account"} once the deposit is final on Base.</Hint>
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => void run()} disabled={disabled !== null || flow.running} loading={flow.running} loadingLabel="Running" title={disabled ?? undefined} data-fund-base>
           Deposit on Base
