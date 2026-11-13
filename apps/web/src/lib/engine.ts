@@ -4,33 +4,6 @@ import { NEAR_READ_RPC_ENDPOINTS, NEAR_RPC_URL } from "./deployment";
 /** Decimals of the rose cash token (tUSDC) used for every USDC amount returned by the engine. */
 export const USDC_DECIMALS = 6;
 
-/**
- * Raw JSON returned by the engine `stats` view method.
- * Counters are `u64` serialized as JSON numbers; the settled volume is a `U128` (decimal string)
- * in USDC base units (6 decimals).
- */
-export type EngineStatsView = {
-  rounds_total: number;
-  rounds_settled: number;
-  volume_settled_usdc: string;
-  classes: number;
-  positions: number;
-};
-
-export type EngineStats = {
-  roundsTotal: number;
-  roundsSettled: number;
-  volumeSettledUsdc: bigint;
-  classes: number;
-  positions: number;
-};
-
-export type NotDeployedReason = "account_not_configured" | "account_missing" | "no_contract" | "method_missing";
-
-export type StatsResult =
-  | { status: "ok"; account: string; stats: EngineStats; blockHeight: number }
-  | { status: "not_deployed"; account: string | null; reason: NotDeployedReason };
-
 export type ViewErrorKind = "account_missing" | "no_contract" | "method_missing" | "execution" | "rpc" | "invalid_response";
 
 export class EngineViewError extends Error {
@@ -55,12 +28,6 @@ type RpcResponse = {
   result?: { result?: number[]; error?: string; block_height?: number };
   error?: { cause?: { name?: string }; data?: unknown; message?: string };
 };
-
-/** The engine account from `NEXT_PUBLIC_ENGINE_ACCOUNT`, or null while the engine is not deployed. */
-export function configuredEngineAccount(): string | null {
-  const value = process.env.NEXT_PUBLIC_ENGINE_ACCOUNT?.trim();
-  return value ? value : null;
-}
 
 function toBase64(text: string): string {
   const bytes = new TextEncoder().encode(text);
@@ -155,57 +122,5 @@ export async function viewCall<T>(
     return { value: JSON.parse(text) as T, blockHeight: result.block_height ?? 0 };
   } catch {
     throw new EngineViewError("invalid_response", "The view did not return JSON.");
-  }
-}
-
-function isCounter(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-/** Validates the raw `stats` view and converts it to typed values. */
-export function parseEngineStats(raw: unknown): EngineStats {
-  if (typeof raw !== "object" || raw === null) {
-    throw new EngineViewError("invalid_response", "stats did not return an object.");
-  }
-  const view = raw as Partial<Record<keyof EngineStatsView, unknown>>;
-  const counters = ["rounds_total", "rounds_settled", "classes", "positions"] as const;
-  for (const key of counters) {
-    if (!isCounter(view[key])) throw new EngineViewError("invalid_response", `stats.${key} is not a counter.`);
-  }
-  const volume = view.volume_settled_usdc;
-  if (typeof volume !== "string" || !/^\d+$/.test(volume)) {
-    throw new EngineViewError("invalid_response", "stats.volume_settled_usdc is not a U128 string.");
-  }
-  const checked = view as EngineStatsView;
-  return {
-    roundsTotal: checked.rounds_total,
-    roundsSettled: checked.rounds_settled,
-    volumeSettledUsdc: BigInt(volume),
-    classes: checked.classes,
-    positions: checked.positions,
-  };
-}
-
-const NOT_DEPLOYED_KINDS: Partial<Record<ViewErrorKind, NotDeployedReason>> = {
-  account_missing: "account_missing",
-  no_contract: "no_contract",
-  method_missing: "method_missing",
-};
-
-/** Reads the protocol stats; a missing account, contract or method is reported as "not deployed", other failures throw. */
-export async function fetchEngineStats(
-  account: string | null = configuredEngineAccount(),
-  options: ViewOptions = {},
-): Promise<StatsResult> {
-  if (!account) return { status: "not_deployed", account: null, reason: "account_not_configured" };
-  try {
-    const { value, blockHeight } = await viewCall<unknown>(account, "stats", {}, options);
-    return { status: "ok", account, stats: parseEngineStats(value), blockHeight };
-  } catch (error) {
-    if (error instanceof EngineViewError) {
-      const reason = NOT_DEPLOYED_KINDS[error.kind];
-      if (reason) return { status: "not_deployed", account, reason };
-    }
-    throw error;
   }
 }

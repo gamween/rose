@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors } from "./fixtures/console";
+import { connectDemoWallet, openWalletDrawer } from "./fixtures/wallets";
 
 /**
  * Global app chrome (spec 8.3 "Global") with the in-app demo wallets. Nothing here needs a
@@ -35,34 +36,32 @@ test.describe("app chrome", () => {
     await page.goto(APP_PAGE);
     await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
     await page.reload();
-    await page.locator("[data-connect]").click();
-    const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: /Create a demo wallet/ }).click();
-    await expect(dialog).toBeHidden();
+    await connectDemoWallet(page, "near");
     await expect(page.getByText("NEAR demo wallet ready")).toBeVisible();
-    await page.locator("[data-connect]").click();
-    await page.getByRole("tab", { name: "Base" }).click();
-    await page.getByRole("button", { name: /Create a demo wallet/ }).click();
+    await connectDemoWallet(page, "base");
     await expect(page.getByText("EVM demo wallet ready")).toBeVisible();
-    await page.locator("[data-connect]").click();
-    await page.getByRole("tab", { name: "Solana" }).click();
-    await page.getByRole("button", { name: /Create a demo wallet/ }).click();
+    await connectDemoWallet(page, "solana");
     await expect(page.getByText("Solana demo wallet ready")).toBeVisible();
-    const pills = page.locator("[data-wallets]").first();
-    if (await pills.isVisible()) {
-      await expect(pills).toContainText("rose-demo-");
-      await expect(pills).toContainText("0x");
+    const walletButton = page.locator("[data-wallets]");
+    await expect(walletButton.locator("[data-logo-stack] > span")).toHaveCount(3);
+    await walletButton.click();
+    const menu = page.locator("[data-wallet-menu]");
+    if (await menu.isVisible()) {
+      await expect(walletButton).toContainText("rose-demo-");
+      await expect(menu.locator("[data-wallet-row]")).toHaveCount(3);
+      await expect(menu.locator("[data-wallet-row='base']")).toContainText("0x");
+      await expect(menu.locator("[data-add-network]")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
+    } else {
+      await page.keyboard.press("Escape");
     }
-    await page.locator("[aria-label='Open wallets']:visible").first().click();
-    const drawer = page.getByRole("dialog", { name: "Wallets" });
-    await expect(drawer).toBeVisible();
+    const drawer = await openWalletDrawer(page);
     await expect(drawer.getByText("Demo", { exact: true })).toHaveCount(3);
     await expect(drawer.getByRole("button", { name: "Export demo key" })).toHaveCount(3);
     await expect(drawer.getByText("Account not created on testnet yet")).toBeVisible();
     await page.reload();
-    await page.locator("[aria-label='Open wallets']:visible").first().click();
-    await expect(page.getByRole("dialog", { name: "Wallets" }).getByText("Demo", { exact: true })).toHaveCount(3);
+    await expect((await openWalletDrawer(page)).getByText("Demo", { exact: true })).toHaveCount(3);
     expect(errors).toEqual([]);
   });
 

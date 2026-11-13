@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { dateTimeToSeconds, secondsToDateTime } from "@/components/issuer/class-schedule";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
-import { Field, Input, NumberInput } from "@/components/ui/Input";
+import { Field, Input, NumberInput, selectClasses } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { amountToText, formatAmount, formatFraction, formatUsdc, formatDate, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
 import { USDC_DECIMALS } from "@/lib/engine";
@@ -24,7 +24,7 @@ import { holderBond, maxClaim, validateAdvance } from "./math";
 
 export type AdvanceSubmission = { classId: string; venue: Venue; units: bigint; claim: bigint; minFill: bigint; maxPrice: bigint; reserve: bigint; closesAtNs: bigint; keyTimeoutNs: bigint; revealWindowNs: bigint };
 
-const selectClass = "h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 focus:border-ember-500 focus:outline-none";
+const selectClass = selectClasses();
 
 /** One day after `nowSec`, as the UTC `datetime-local` text the issuer forms use too. */
 function defaultClose(nowSec: number): string {
@@ -115,22 +115,12 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
         </Field>
         <Field label="Units to encumber (X)" error={show("units")} hint="Encumbered units cannot be transferred or enter another round until the claim is delivered.">
           {({ inputId, invalid }) => (
-            <div className="flex items-center gap-2">
-              <NumberInput id={inputId} value={units} onValueChange={setUnits} decimals={decimals} unit={info ? classLabel(info, data.symbols) : undefined} invalid={invalid} className="flex-1" />
-              <Button type="button" size="md" variant="ghost" onClick={() => holding && setUnits(amountToText(holding.balance, decimals))}>
-                Max
-              </Button>
-            </div>
+            <NumberInput id={inputId} value={units} onValueChange={setUnits} decimals={decimals} unit={info ? classLabel(info, data.symbols) : undefined} invalid={invalid} max={holding ? amountToText(holding.balance, decimals) : undefined} />
           )}
         </Field>
         <Field label="Claim (K): first tokens to unlock" error={show("claim")} hint={kMax !== null ? `K ≤ X · (1 − f(ts)) = ${formatAmount(kMax, decimals)} tokens` : "Enter X first"}>
           {({ inputId, invalid }) => (
-            <div className="flex items-center gap-2">
-              <NumberInput id={inputId} value={claim} onValueChange={setClaim} decimals={decimals} invalid={invalid} className="flex-1" />
-              <Button type="button" size="md" variant="ghost" disabled={kMax === null} onClick={() => kMax !== null && setClaim(amountToText(kMax, decimals))}>
-                Max
-              </Button>
-            </div>
+            <NumberInput id={inputId} value={claim} onValueChange={setClaim} decimals={decimals} invalid={invalid} max={kMax !== null ? amountToText(kMax, decimals) : undefined} />
           )}
         </Field>
         <Field label="Sealed reserve price per claimed token" error={show("reserve")} hint="Encrypted in your browser; the floor below which you do not sell. The clearing price can land above it.">

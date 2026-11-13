@@ -10,10 +10,12 @@ import { baseSepoliaChain, ONE, type ClassInfo, type ConfigView, type Limits } f
 import { createPublicClient, http, type PublicClient } from "viem";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { selectClasses } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { NextStep } from "@/components/ui/NextStep";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatDate, formatFraction, secondsToMs, shortHex, venueLabel } from "@/lib/amounts";
 import { engineClient, requireEngine, type EngineClient } from "@/lib/engine-client";
@@ -114,7 +116,7 @@ export function ClassPicker({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 hover:border-ink-600 focus:border-ember-500 focus:outline-none disabled:opacity-50"
+      className={selectClasses()}
       data-class-picker
     >
       <option value="">Choose a class</option>
@@ -137,40 +139,40 @@ export function ClassSummary({ cls, symbols }: { cls: ClassInfo; symbols: Readon
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] sm:grid-cols-3">
       <div>
-        <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Token</dt>
+        <dt className="text-[12px] text-ink-400 font-medium">Token</dt>
         <dd className="text-ink-100">
           {classSymbol(cls, symbols)}{" "}
-          <a href={addressUrl(chain, cls.token)} target="_blank" rel="noreferrer" className="tabular text-ink-400 underline-offset-2 hover:underline">
+          <a href={addressUrl(chain, cls.token)} target="_blank" rel="noreferrer" className="font-mono text-ink-400 underline-offset-2 hover:underline">
             {shortHex(cls.token)}
           </a>
         </dd>
       </div>
       <div>
-        <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Chain · decimals</dt>
+        <dt className="text-[12px] text-ink-400 font-medium">Chain · decimals</dt>
         <dd className="text-ink-100">
           {cls.chain} · {cls.decimals}
         </dd>
       </div>
       <div>
-        <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Unlocked now</dt>
+        <dt className="text-[12px] text-ink-400 font-medium">Unlocked now</dt>
         <dd className="tabular text-ink-100">{formatFraction(cls.fractionNow)}</dd>
       </div>
       <div>
-        <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Schedule</dt>
+        <dt className="text-[12px] text-ink-400 font-medium">Schedule</dt>
         <dd className="text-ink-100">
           {formatDate(secondsToMs(bounds.start))} → {formatDate(secondsToMs(bounds.end))}
         </dd>
       </div>
       <div>
-        <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Units outstanding</dt>
+        <dt className="text-[12px] text-ink-400 font-medium">Units outstanding</dt>
         <dd className="tabular text-ink-100">{formatAmount(cls.totalUnits, cls.decimals)}</dd>
       </div>
       <div>
-        <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Positions</dt>
+        <dt className="text-[12px] text-ink-400 font-medium">Positions</dt>
         <dd className="tabular text-ink-100">{cls.positions}</dd>
       </div>
       <div className="col-span-2 sm:col-span-3">
-        <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Class id</dt>
+        <dt className="text-[12px] text-ink-400 font-medium">Class id</dt>
         <dd className="tabular break-all text-ink-300">{cls.classId}</dd>
       </div>
       {cls.tokenRisk ? <dd className="col-span-2 text-ink-400 sm:col-span-3">{cls.tokenRisk}</dd> : null}
@@ -185,7 +187,7 @@ export function ActionFeedback({ state, onRetry }: { state: ActionState; onRetry
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-success-400" data-action-success>
         {state.message}
         {state.links.map((link) => (
-          <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+          <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
             {link.label} ↗
           </a>
         ))}
@@ -211,7 +213,7 @@ export function ActionFeedback({ state, onRetry }: { state: ActionState; onRetry
 
 export function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: ReactNode }) {
   return (
-    <label htmlFor={htmlFor} className="font-display text-[11px] uppercase tracking-wide text-ink-300">
+    <label htmlFor={htmlFor} className="text-[12px] text-ink-300 font-medium">
       {children}
     </label>
   );
@@ -226,7 +228,7 @@ export function Hint({ children, tone = "muted" }: { children: ReactNode; tone?:
 export function Preview({ rows, title }: { rows: { label: string; value: ReactNode; emphasis?: boolean }[]; title?: string }) {
   return (
     <dl className="rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px]" data-preview>
-      {title ? <p className="mb-1 font-display text-[11px] uppercase tracking-wide text-ink-400">{title}</p> : null}
+      {title ? <p className="mb-1 text-[12px] text-ink-400 font-medium">{title}</p> : null}
       {rows.map((row) => (
         <div key={row.label} className="flex items-baseline justify-between gap-3 py-0.5">
           <dt className="text-ink-400">{row.label}</dt>
@@ -279,16 +281,13 @@ export function useVenueOptions(base: IssuerBase | null): { id: string; label: s
   }, [base]);
 }
 
-/** Opens the connect modal on the NEAR tab: the issuer signs with a NEAR account. */
+/** Opens the connect modal on the NEAR wallets: the issuer signs with a NEAR account. */
 function IssuerConnectButton() {
-  const [open, setOpen] = useState(false);
+  const openConnect = useConnectModal();
   return (
-    <>
-      <Button onClick={() => setOpen(true)} data-issuer-connect>
-        Connect NEAR
-      </Button>
-      <ConnectModal open={open} onClose={() => setOpen(false)} initialChain="near" />
-    </>
+    <Button onClick={() => openConnect("near")} data-issuer-connect>
+      Connect NEAR
+    </Button>
   );
 }
 
@@ -330,8 +329,7 @@ export function IssuerGate({ state, onRetry, children }: { state: EngineQuerySta
   if (!wallets.near.accountId && wallets.hydrated) {
     return (
       <div className="flex flex-col gap-4">
-        <EmptyState
-          illustration="ledger"
+        <NextStep
           title="Connect a NEAR wallet to act as the issuer"
           description="Every issuer action (registering cohort deposits, distributing units, creating and funding a Tender) is signed by your NEAR account. Previews below work without a wallet."
           action={<IssuerConnectButton />}

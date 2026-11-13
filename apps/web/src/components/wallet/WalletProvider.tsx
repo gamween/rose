@@ -33,6 +33,9 @@ export type NearWalletState = {
   demoAccountExists: boolean;
 };
 
+/** A NEAR wallet from the NEAR Connect manifest (testnet wallets only). */
+export type NearWalletOption = { id: string; name: string; icon: string };
+
 export type EvmWalletState = {
   status: "idle" | "connecting" | "connected";
   address: `0x${string}` | null;
@@ -73,8 +76,10 @@ export type WalletRuntimeValue = {
   solana: SolanaWalletState;
   balances: Balances;
   refreshBalances: () => Promise<void>;
-  /** Opens the NEAR Connect modal (external wallets). */
-  connectNearExternal: () => Promise<void>;
+  /** The NEAR Connect wallets, once its manifest has loaded. */
+  nearWallets: readonly NearWalletOption[];
+  /** Signs in with that NEAR Connect wallet, or opens the NEAR Connect wallet list without an id. */
+  connectNearExternal: (walletId?: string) => Promise<void>;
   /** Creates (or restores) the in-app NEAR demo wallet; the account is funded through the faucet panel. */
   useNearDemo: () => Promise<NearDemoWallet>;
   disconnectNear: () => Promise<void>;
@@ -214,7 +219,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       solana: IDLE_SOLANA,
       balances: NO_BALANCES,
       refreshBalances: () => (runtimeRef.current ? runtimeRef.current.refreshBalances() : Promise.resolve()),
-      connectNearExternal: () => viaRuntime((runtime) => runtime.connectNearExternal()),
+      nearWallets: [],
+      connectNearExternal: (walletId) => viaRuntime((runtime) => runtime.connectNearExternal(walletId)),
       useNearDemo: () => viaRuntime((runtime) => runtime.useNearDemo()),
       disconnectNear: () => viaRuntime((runtime) => runtime.disconnectNear()),
       forgetNearDemo: () => void viaRuntime((runtime) => runtime.forgetNearDemo()).catch(() => undefined),

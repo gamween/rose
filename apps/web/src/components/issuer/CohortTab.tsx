@@ -376,7 +376,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
                         <Badge tone={row.status === "done" ? "success" : row.status === "refused" || row.status === "error" ? "danger" : row.status === "running" ? "ember" : "neutral"}>{row.status}</Badge>
                         {row.detail ? <span className="text-[11px] text-ink-400">{row.detail}</span> : null}
                         {row.txHash ? (
-                          <a href={txLinks("near", row.txHash)[0]!.href} target="_blank" rel="noreferrer" className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+                          <a href={txLinks("near", row.txHash)[0]!.href} target="_blank" rel="noreferrer" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
                             NEAR transaction ↗
                           </a>
                         ) : null}

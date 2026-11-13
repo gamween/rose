@@ -9,13 +9,17 @@
  */
 
 import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
+import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
+import { Term } from "@/components/ui/Term";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
+import { cn } from "@/lib/cn";
 import { readStorageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { formatUnits } from "@/lib/format";
 import { formatStorageNear } from "@/lib/near-cash";
@@ -27,21 +31,43 @@ import { formatQty, formatUsdc, parseDecimal, previewBuy, previewSell, roundPric
 import { Notice } from "./shared";
 import type { RoundDetail } from "./useRoundDetail";
 
-function Row({ label, value, strong = false, hint }: { label: string; value: string; strong?: boolean; hint?: string }) {
+function Row({ label, value, strong = false, hint }: { label: ReactNode; value: string; strong?: boolean; hint?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 text-[12px]">
+    <div className={cn("flex items-baseline justify-between gap-3 text-[12px]", strong && "mt-1 border-t border-ink-750 pt-2")}>
       <dt className="text-ink-400">
         {label}
         {hint ? <span className="block text-[11px] text-ink-400">{hint}</span> : null}
       </dt>
-      <dd className={strong ? "tabular text-[13px] text-ink-50" : "tabular text-ink-200"}>{value}</dd>
+      <dd className={strong ? "tabular text-[14px] text-ink-50 font-medium" : "tabular text-ink-200"}>{value}</dd>
     </div>
+  );
+}
+
+/** What happens to an order once it is sealed, in three lines under the form. */
+function SealingSteps() {
+  const steps = [
+    "Your price and exact quantity are encrypted here, in this browser.",
+    "Until the close, everyone sees only your public collateral.",
+    "After the close the orders open and every fill pays one clearing price.",
+  ];
+  return (
+    <ol className="flex flex-col gap-1.5 text-[12px] leading-snug text-ink-400" aria-label="What happens next" data-sealing-steps>
+      {steps.map((text, index) => (
+        <li key={text} className="flex items-start gap-2">
+          <span aria-hidden className="tabular flex size-4 shrink-0 items-center justify-center rounded-[2px] border border-ink-700 bg-ink-900 text-[10px] text-ink-300">
+            {index + 1}
+          </span>
+          {text}
+        </li>
+      ))}
+    </ol>
   );
 }
 
 export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; nowMs: number; onPlaced: () => void }) {
   const { round, cls, viewer, engine, limits, config } = detail;
   const { near, restoring } = useWallets();
+  const openConnect = useConnectModal();
   const { run, status } = useNearAction();
   const isCreator = viewer?.account === round.creator;
   const sides = useMemo<Side[]>(() => {
@@ -166,8 +192,8 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
 
   if (sides.length === 0) {
     return (
-      <section aria-label="Your Tender" className="rounded-lg border border-ink-750 bg-ink-850 px-4 py-3" data-order-form="issuer">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Your Tender</h3>
+      <section aria-label="Your Tender" className="ui-surface rounded-lg px-4 py-3" data-order-form="issuer">
+        <CardTitle>Your Tender</CardTitle>
         <p className="mt-1 text-[12px] text-ink-400">
           You are the buyer of this Tender: your escrowed budget is the demand side, and holders of the class submit the sealed asks. The engine refuses an ask from the issuer, so there is no order to place here.
         </p>
@@ -178,11 +204,11 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   const title = round.kind === "Tender" ? "Place ask" : round.kind === "Advance" ? (isCreator ? "Place your reserve" : "Place bid") : side === "Buy" ? "Place bid" : "Place ask";
 
   return (
-    <section aria-label={title} className="rounded-lg border border-ink-750 bg-ink-850" data-order-form>
+    <section aria-label={title} className="ui-surface rounded-lg" data-order-form>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">{title}</h3>
-        <p className="mt-0.5 text-[12px] text-ink-400">
-          Sealed in this browser to the round identity; venue <span className="text-ink-200">{venueLabel(round.venue)}</span>.
+        <CardTitle accent>{title}</CardTitle>
+        <p className="mt-1 text-[12px] leading-snug text-ink-400">
+          Sealed in this browser to the round identity; <Term term="cashVenue">venue</Term> <span className="text-ink-200">{venueLabel(round.venue)}</span>.
         </p>
       </div>
       {sides.length > 1 ? (
@@ -206,7 +232,14 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
       >
         {!open ? <Notice tone="info">{round.status === "Scheduled" ? "The round is not open yet." : "Bidding is closed for this round."}</Notice> : null}
         {open && restoring ? <Notice tone="info">Restoring your wallet…</Notice> : null}
-        {open && !restoring && near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or use the demo wallet) to place a sealed order.</Notice> : null}
+        {open && !restoring && near.status !== "connected" ? (
+          <Notice tone="warning" className="flex items-center justify-between gap-3">
+            <span>Connect a NEAR wallet (or use the demo wallet) to place a sealed order.</span>
+            <Button size="sm" variant="secondary" onClick={() => openConnect("near")} data-connect-prompt="near">
+              Connect NEAR
+            </Button>
+          </Notice>
+        ) : null}
         {open && viewer && existing !== null && existing !== undefined ? (
           <Notice tone="info">
             You already placed {side === "Buy" ? "a bid" : "an ask"} in this round (#{String(existing)}). One sealed order per side per account; see &quot;My orders&quot;.
@@ -236,26 +269,26 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
             </Field>
           ) : null}
           {side === "Buy" ? (
-            <Field label="Escrow (public)" hint={buyPreview ? `Minimum ${formatUsdc(buyPreview.escrowRequired)}. A larger escrow hides your limit × quantity.` : "Minimum: limit × quantity + 30 bps fee."} error={errors.escrow}>
+            <Field label={<><Term term="escrow">Escrow</Term> (public)</>} hint={buyPreview ? `Minimum ${formatUsdc(buyPreview.escrowRequired)}. A larger escrow hides your limit × quantity.` : "Minimum: limit × quantity + 30 bps fee."} error={errors.escrow}>
               {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={escrowText} onValueChange={setEscrowText} decimals={USDC_DECIMALS} placeholder={buyPreview ? formatUsdc(buyPreview.escrowRequired) : "0.00"} unit="USDC" />}
             </Field>
           ) : null}
         </div>
 
-        <dl className="flex flex-col gap-1.5 rounded-md border border-ink-750 bg-ink-900 p-3" data-order-preview>
+        <dl className="flex flex-col gap-1.5 rounded-md border border-ink-750 bg-(--surface-inset) p-3" data-order-preview>
           {side === "Buy" ? (
             <>
               <Row label="Cash at your limit" value={buyPreview ? `${formatUsdc(buyPreview.charge)} USDC` : "—"} hint={round.kind === "Advance" ? "quantity × limit" : "quantity × locked fraction × limit, rounded up"} />
               <Row label="Fee (30 bps, buyer)" value={buyPreview ? `${formatUsdc(buyPreview.fee)} USDC` : "—"} />
               <Row label="Escrow" value={buyPreview ? `${formatUsdc(escrowInput !== null && escrowInput >= buyPreview.escrowRequired ? escrowInput : buyPreview.escrowRequired)} USDC` : "—"} hint="refunded above your charge + fee" />
-              <Row label="Bond" value={buyPreview ? `${formatUsdc(buyPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of escrow), back on a valid opening`} />
+              <Row label={<Term term="bond">Bond</Term>} value={buyPreview ? `${formatUsdc(buyPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of escrow), back on a valid opening`} />
               <Row label="Debited from your cash" value={buyPreview ? `${formatUsdc(buyPreview.total)} USDC` : "—"} strong />
             </>
           ) : (
             <>
               <Row label="Units locked" value={lockUnits !== null && lockUnits > 0n ? formatQty(lockUnits, decimals) : "—"} hint="public; they keep accruing to you until the close" />
               <Row label="Proceeds at your minimum" value={sellPreview ? `${formatUsdc(sellPreview.proceedsAtMinimum)} USDC` : "—"} hint="sellers receive the clearing price, nothing deducted" />
-              <Row label="Bond" value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of ${sellPreview ? formatUsdc(sellPreview.valuation) : "units at max price"})`} />
+              <Row label={<Term term="bond">Bond</Term>} value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of ${sellPreview ? formatUsdc(sellPreview.valuation) : "units at max price"})`} />
               <Row label="Debited from your cash" value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} strong />
             </>
           )}
@@ -279,6 +312,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
         {sealError ? <Notice tone="danger">{sealError}</Notice> : null}
         {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
 
+        <SealingSteps />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <LearnMore topic="fees" label="Fees and bonds" />
           <Button type="submit" disabled={!ready} loading={sealing || status.status === "busy"} loadingLabel={sealing ? "Sealing in the browser…" : "Signing…"} data-order-submit>

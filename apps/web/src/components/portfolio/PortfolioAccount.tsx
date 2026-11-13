@@ -8,13 +8,16 @@
 
 import { type PayoutView } from "@rose/sdk";
 import { useMemo } from "react";
+import { ButtonLink } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
+import { NextStep } from "@/components/ui/NextStep";
 import { Stat } from "@/components/ui/Stat";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { cashDecimalsOf, formatAmount, formatUsdc, formatVenueCash, shortHex, venueLabel } from "@/lib/amounts";
 import { deployed } from "@/lib/deployment";
 import { nearRpc, requireEngine } from "@/lib/engine-client";
 import { txLinks } from "@/lib/explorer";
+import { ROUTES } from "@/lib/routes";
 import { classLabel } from "@/lib/token-symbols";
 import { useAction } from "@/lib/use-action";
 import { basePublicClient } from "@/lib/wallet/evm-demo";
@@ -24,6 +27,7 @@ import { ClaimsSection } from "./ClaimsSection";
 import type { PortfolioData, SolClassView, SolStreamRow } from "./data";
 import type { FlowRequest } from "./FlowDialog";
 import { claimBaseTokensSteps, claimSolTokensSteps, confirmPayoutSteps, finishPayoutSteps, redeemSteps, resignGasSteps, retryBaseSignatureSteps, retrySolPayoutSteps, syncSolStreamSteps, withdrawBaseCashSteps, withdrawNearCashSteps, type FlowDeps } from "./flows";
+import { HOLDER_PATH } from "./GettingStarted";
 import { HistorySection, StorageSection } from "./HistoryAndStorage";
 import { HoldingsSection } from "./HoldingsSection";
 import { LiensSection, OrdersSection } from "./OrdersAndLiens";
@@ -195,13 +199,38 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
 
   const totalClaims = claims.base.length + claims.solana.length;
 
+  const openOrders = orders.filter((row) => row.open).length;
+
   return (
     <>
+      {rows.length === 0 ? (
+        <NextStep
+          step={{ index: 3, total: HOLDER_PATH.length }}
+          title="Deposit a position to get units"
+          description="rose takes custody of a locked Sablier or Streamflow stream and mints its allocation as units of its class. No position yet? Get test funds mints a demo one."
+          action={
+            <ButtonLink href="/app/deposit" size="sm">
+              Deposit a position
+            </ButtonLink>
+          }
+        />
+      ) : openOrders === 0 ? (
+        <NextStep
+          step={{ index: 4, total: HOLDER_PATH.length }}
+          title="Put your units in a round"
+          description="Sell in an Exit or a Tender, or pledge your first unlocks in an Advance. Orders stay sealed until the round closes."
+          action={
+            <ButtonLink href={ROUTES.rounds} size="sm">
+              Browse rounds
+            </ButtonLink>
+          }
+        />
+      ) : null}
       <Card>
         <CardBody>
           <dl className="grid grid-cols-2 gap-4 md:grid-cols-5" data-portfolio-stats>
             <Stat label="Classes held" value={rows.length} />
-            <Stat label="Open orders" value={orders.filter((row) => row.open).length} />
+            <Stat label="Open orders" value={openOrders} />
             <Stat label="Liens" value={liens.filter((item) => !item.lien.released).length + data.portfolio.lienShares.length} hint="as holder + as funder" />
             <Stat label="Token claims" value={totalClaims} hint={totalClaims > 0 ? "ready to pull" : "none yet"} />
             <Stat

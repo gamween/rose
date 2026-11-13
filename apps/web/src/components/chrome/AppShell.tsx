@@ -6,11 +6,11 @@ import { TopNav, type MenuAction } from "@/components/chrome/TopNav";
 import { Footer } from "@/components/chrome/Footer";
 import { WalletPills } from "@/components/wallet/WalletPills";
 import { useWallets } from "@/components/wallet/WalletProvider";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { ConnectModalProvider, useConnectModal } from "@/components/wallet/ConnectModal";
 import { Drawer } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { Kbd } from "@/components/ui/Kbd";
 import { Spinner } from "@/components/ui/Spinner";
-import type { ChainId } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { ActivityFeedDrawer } from "./ActivityFeed";
 import { CommandPalette, usePaletteShortcut, type PaletteCommand } from "./CommandPalette";
@@ -44,12 +44,22 @@ function FundsLoading({ open, failed, onClose, onRetry }: { open: boolean; faile
 }
 
 /**
- * Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour.
+ * Global chrome of `/app`: top bar with wallets, testnet banner, activity feed, palette and tour,
+ * around the app's single connect modal (any page opens it with `useConnectModal()`).
  * `demo`: the configured engine has a guided demo ("Watch a full round"); the first-visit tour
  * stays closed on the demo itself, which explains itself and is used for screen recordings.
  */
 export function AppShell({ children, demo }: { children: ReactNode; demo: boolean }) {
+  return (
+    <ConnectModalProvider>
+      <AppChrome demo={demo}>{children}</AppChrome>
+    </ConnectModalProvider>
+  );
+}
+
+function AppChrome({ children, demo }: { children: ReactNode; demo: boolean }) {
   const wallets = useWallets();
+  const openConnect = useConnectModal();
   const router = useRouter();
   const onDemo = (usePathname() ?? "") === ROUTES.demo;
   const [fundsOpen, setFundsOpenState] = useState(false);
@@ -75,7 +85,6 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tour, setTour] = useState<TourState>("closed");
   const [tourDecided, setTourDecided] = useState(false);
-  const [connect, setConnect] = useState<ChainId | null>(null);
 
   useEffect(() => {
     if (tourDecided) return;
@@ -90,14 +99,14 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
 
   const commands = useMemo<PaletteCommand[]>(
     () => [
-      { id: "act-connect", label: wallets.anyConnected ? "Connect another wallet" : "Connect a wallet", group: "Actions", keywords: "near evm solana demo", run: () => setConnect("near") },
+      { id: "act-connect", label: wallets.anyConnected ? "Connect another wallet" : "Connect a wallet", group: "Actions", keywords: "near evm solana demo", run: () => openConnect() },
       { id: "act-funds", label: "Get test funds", group: "Actions", keywords: "faucet tusdc eth sol mint", run: () => setFundsOpen(true) },
       { id: "act-activity", label: "Open the activity feed", group: "Actions", keywords: "events history", run: () => setActivityOpen(true) },
       { id: "act-tour", label: "Replay the guided tour", group: "Help", keywords: "onboarding help", run: () => setTour("requested") },
       { id: "act-refresh", label: "Refresh balances", group: "Actions", run: () => void wallets.refreshBalances() },
       ...(demo ? [{ id: "help-demo", label: "Watch a full round (guided demo)", group: "Help" as const, keywords: "demo walkthrough seeded tour video", run: () => router.push(ROUTES.demo) }] : []),
     ],
-    [demo, router, setFundsOpen, wallets],
+    [demo, openConnect, router, setFundsOpen, wallets],
   );
   /** The activity and palette buttons hide below `sm` / `lg`; the mobile menu carries both (a phone has no Cmd+K). */
   const menuActions = useMemo<MenuAction[]>(
@@ -120,10 +129,12 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
               aria-label="Open activity feed"
               title="Activity"
               data-activity
-              className="hidden size-8 items-center justify-center rounded-md border border-ink-700 bg-ink-850 text-ink-200 transition-colors hover:border-ink-500 hover:text-ink-50 sm:flex"
+              data-variant="secondary"
+              className="ui-block hidden size-8 items-center justify-center rounded-md sm:flex"
             >
-              <svg viewBox="0 0 8 8" width="12" height="12" shapeRendering="crispEdges" aria-hidden>
-                <path d="M0 4h2v1H0zM2 2h1v3H2zM3 1h1v6H3zM4 3h1v3H4zM5 0h1v7H5zM6 4h2v1H6z" fill="currentColor" />
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 7v5l3 2" />
+                <circle cx="12" cy="12" r="9" />
               </svg>
             </button>
             <button
@@ -132,10 +143,14 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
               title="Command palette (⌘K)"
               aria-label="Open the command palette"
               data-palette
-              className="hidden h-8 items-center gap-2 rounded-md border border-ink-700 bg-ink-850 px-2 text-[11px] text-ink-300 transition-colors hover:border-ink-500 hover:text-ink-50 md:flex"
+              className="ui-field hidden h-8 items-center gap-2 px-2 text-[12px] text-ink-400 transition-colors hover:text-ink-100 md:flex lg:w-48"
             >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
               <span className="hidden lg:inline">Search</span>
-              <kbd className="font-display text-[10px] uppercase text-ink-400">⌘K</kbd>
+              <Kbd className="lg:ml-auto">⌘K</Kbd>
             </button>
             <WalletPills />
           </div>
@@ -150,7 +165,7 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
           onClose={() => setFundsOpen(false)}
           onConnect={(chain) => {
             setFundsOpen(false);
-            setConnect(chain);
+            openConnect(chain);
           }}
         />
       ) : (
@@ -159,7 +174,6 @@ export function AppShell({ children, demo }: { children: ReactNode; demo: boolea
       <ActivityFeedDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <GuidedTour open={tourVisible(tour, onDemo)} onClose={() => setTour("closed")} deciding={!tourDecided} />
-      <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
     </div>
   );
 }

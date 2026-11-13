@@ -61,7 +61,7 @@ test.describe("rounds with a mocked engine", () => {
     await page.getByRole("button", { name: "Tender", exact: true }).click();
     await expect(cards).toHaveCount(2, { timeout: 20_000 });
     await expect(cards.first()).toContainText("Budget");
-    await page.getByRole("button", { name: "Settled", exact: true }).click();
+    await page.getByRole("combobox", { name: "Status" }).selectOption("Settled");
     await expect(cards).toHaveCount(1);
     await page.getByRole("button", { name: "Advance", exact: true }).click();
     await expect(page.getByText("No round matches these filters")).toBeVisible();
@@ -225,6 +225,19 @@ test.describe("rounds with a mocked engine", () => {
     await expect(page.getByText("Round #999 does not exist")).toBeVisible({ timeout: 20_000 });
     await page.goto("/app/rounds/abc");
     await expect(page.getByText("Not a round id")).toBeVisible();
+  });
+
+  test("the order form asks a visitor without a wallet for NEAR, on the NEAR wallets", async ({ page }) => {
+    await mockRounds(page);
+    await page.goto("/app/rounds/1");
+    const form = page.locator("[data-order-form]");
+    await expect(form.locator("[data-connect-prompt='near']")).toBeVisible({ timeout: 20_000 });
+    await form.locator("[data-connect-prompt='near']").click();
+    const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
+    await expect(dialog.locator("[data-wallet-step='near']")).toBeVisible();
+    await dialog.locator("[data-demo-wallet]").click();
+    await expect(dialog).toBeHidden();
+    await expect(form.locator("[data-connect-prompt='near']")).toBeHidden();
   });
 
   test("full round from a sealed bid to the claim with the demo wallet", async ({ page }) => {

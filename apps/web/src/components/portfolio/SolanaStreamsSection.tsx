@@ -44,7 +44,7 @@ function StreamItem({ row, decimals, nowSec, onSync }: { row: SolStreamRow; deci
       <div className="min-w-0">
         <p className="flex flex-wrap items-center gap-2 text-[13px] text-ink-50">
           <span>Position #{row.entry.position_id}</span>
-          <a href={solanaAddressUrl(stream.metadata)} target="_blank" rel="noreferrer" className="tabular text-ink-300 underline-offset-2 hover:underline">
+          <a href={solanaAddressUrl(stream.metadata)} target="_blank" rel="noreferrer" className="font-mono text-ink-300 underline-offset-2 hover:underline">
             {shortHex(stream.metadata, 6, 6)} ↗
           </a>
           <Badge tone={phase.tone}>{phase.text}</Badge>
@@ -77,7 +77,7 @@ function ClassBlock({ view, data, onSync }: { view: SolClassView; data: Portfoli
   return (
     <section className="flex flex-col gap-2" data-sol-class={view.classId}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">{symbol}</h4>
+        <h4 className="text-[12px] text-ink-300 font-medium">{symbol}</h4>
         <p className="tabular text-[12px] text-ink-300" data-swept>
           Swept balance {formatAmount(view.swept.available, info.decimals)} {symbol}
           {view.swept.pending > 0n ? ` (+ ${formatAmount(view.swept.pending, info.decimals)} reserved by unconfirmed payouts)` : ""}

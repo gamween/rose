@@ -51,7 +51,7 @@ async function fetchReport(roundId: bigint, signal: AbortSignal): Promise<Loaded
 function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
   return (
     <section id={id} className="flex flex-col gap-3 break-inside-avoid">
-      <h2 className="font-display text-[13px] uppercase tracking-wide text-ink-200">{title}</h2>
+      <h2 className="text-[13px] text-ink-200 font-semibold">{title}</h2>
       {children}
     </section>
   );
@@ -274,8 +274,8 @@ export function TenderResults({ roundId, printable }: { roundId: string; printab
   const header = (
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <p className="font-display text-[11px] uppercase tracking-wide text-ember-400">Tender report</p>
-        <h1 className="font-display text-[22px] text-ink-50">Round #{roundId}</h1>
+        <p className="text-[12px] text-ember-400 font-medium">Tender report</p>
+        <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Round #{roundId}</h1>
         {state.status === "ok" ? (
           <p className="mt-1 text-[13px] text-ink-400">
             {state.value.symbol} · {state.value.cls.chain} · {venueLabel(state.value.round.venue, state.value.symbols)} · {state.value.round.status}

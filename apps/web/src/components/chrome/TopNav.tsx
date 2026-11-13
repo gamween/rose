@@ -15,9 +15,19 @@ export type MenuAction = { id: string; label: string; hint: string; onSelect: ()
 /**
  * Global top bar: logo, primary navigation, network badge and an action slot (the Connect button
  * in the app, "Launch app" on the landing). Collapses into a drawer below 768 px, which also
- * lists `menuActions`.
+ * lists `menuActions`. `minimal` keeps only the logo and the action: the landing has one goal.
  */
-export function TopNav({ action, overlay = false, menuActions = [] }: { action?: ReactNode; overlay?: boolean; menuActions?: readonly MenuAction[] }) {
+export function TopNav({
+  action,
+  overlay = false,
+  minimal = false,
+  menuActions = [],
+}: {
+  action?: ReactNode;
+  overlay?: boolean;
+  minimal?: boolean;
+  menuActions?: readonly MenuAction[];
+}) {
   const pathname = usePathname() ?? "/";
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -27,24 +37,24 @@ export function TopNav({ action, overlay = false, menuActions = [] }: { action?:
         "z-40 w-full",
         overlay
           ? "fixed inset-x-0 top-0 border-b border-ink-850 bg-ink-950/80 backdrop-blur-md"
-          : "sticky top-0 border-b border-ink-750 bg-ink-950/90 backdrop-blur-md",
+          : "sticky top-0 border-b border-ink-750 bg-ink-950/85 backdrop-blur-md",
       )}
     >
       <nav aria-label="Primary" className="mx-auto flex h-14 max-w-[1440px] items-center gap-6 px-4 md:px-6">
         <Link href={ROUTES.home} aria-label="rose home" className="shrink-0 rounded-sm">
           <Logo />
         </Link>
-        <ul className="hidden items-center gap-1 md:flex">
+        <ul className={cn("hidden h-full items-stretch gap-1", !minimal && "md:flex")}>
           {PRIMARY_NAV.map((item) => {
             const active = item.match(pathname);
             return (
-              <li key={item.label}>
+              <li key={item.label} className="flex">
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
-                    active ? "bg-ink-800 text-ink-50" : "text-ink-300 hover:bg-ink-850 hover:text-ink-50",
+                    "relative flex items-center px-2.5 text-[13px] font-medium transition-colors after:absolute after:inset-x-2.5 after:-bottom-px after:h-[2px] after:transition-colors",
+                    active ? "text-ink-50 after:bg-ember-500" : "text-ink-400 hover:text-ink-100 hover:after:bg-ink-600",
                   )}
                 >
                   {item.label}
@@ -54,11 +64,11 @@ export function TopNav({ action, overlay = false, menuActions = [] }: { action?:
           })}
         </ul>
         <div className="ml-auto flex items-center gap-3">
-          <NetworkBadge className="hidden sm:inline-flex" />
+          {minimal ? null : <NetworkBadge className="hidden sm:inline-flex" />}
           {action}
           <button
             type="button"
-            className="flex size-9 items-center justify-center rounded-md text-ink-200 hover:bg-ink-800 md:hidden"
+            className={cn("flex size-9 items-center justify-center rounded-md text-ink-200 transition-colors hover:bg-ink-800 md:hidden", minimal && "hidden")}
             aria-label="Open menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
@@ -69,45 +79,47 @@ export function TopNav({ action, overlay = false, menuActions = [] }: { action?:
           </button>
         </div>
       </nav>
-      <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} title="Menu">
-        <ul className="flex flex-col gap-1">
-          {PRIMARY_NAV.map((item) => (
-            <li key={item.label}>
-              <Link
-                href={item.href}
-                onClick={() => setMenuOpen(false)}
-                aria-current={item.match(pathname) ? "page" : undefined}
-                className="flex h-11 items-center rounded-md px-3 text-[15px] text-ink-100 hover:bg-ink-800"
-              >
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-        {menuActions.length > 0 ? (
-          <ul className="mt-4 flex flex-col gap-1 border-t border-ink-750 pt-4" aria-label="Tools">
-            {menuActions.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    item.onSelect();
-                  }}
-                  className="flex h-11 w-full items-center justify-between gap-3 rounded-md px-3 text-left text-[15px] text-ink-100 hover:bg-ink-800"
-                  data-menu-action={item.id}
+      {minimal ? null : (
+        <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} title="Menu">
+          <ul className="flex flex-col gap-1">
+            {PRIMARY_NAV.map((item) => (
+              <li key={item.label}>
+                <Link
+                  href={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  aria-current={item.match(pathname) ? "page" : undefined}
+                  className="flex h-11 items-center gap-3 rounded-md px-3 text-[15px] text-ink-100 hover:bg-ink-800 aria-[current=page]:bg-ink-800 aria-[current=page]:text-ink-50 aria-[current=page]:before:size-[5px] aria-[current=page]:before:bg-ember-500 aria-[current=page]:before:content-['']"
                 >
                   {item.label}
-                  <span className="text-[12px] text-ink-400">{item.hint}</span>
-                </button>
+                </Link>
               </li>
             ))}
           </ul>
-        ) : null}
-        <div className="mt-6">
-          <NetworkBadge />
-        </div>
-      </Drawer>
+          {menuActions.length > 0 ? (
+            <ul className="mt-4 flex flex-col gap-1 border-t border-ink-750 pt-4" aria-label="Tools">
+              {menuActions.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      item.onSelect();
+                    }}
+                    className="flex h-11 w-full items-center justify-between gap-3 rounded-md px-3 text-left text-[15px] text-ink-100 hover:bg-ink-800"
+                    data-menu-action={item.id}
+                  >
+                    {item.label}
+                    <span className="text-[12px] text-ink-400">{item.hint}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="mt-6">
+            <NetworkBadge />
+          </div>
+        </Drawer>
+      )}
     </header>
   );
 }

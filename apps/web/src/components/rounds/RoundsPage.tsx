@@ -10,12 +10,17 @@ import { useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { HowItWorks } from "@/components/ui/HowItWorks";
+import { selectClasses } from "@/components/ui/Input";
+import { NextStep } from "@/components/ui/NextStep";
+import { Segmented, type SegmentedOption } from "@/components/ui/Segmented";
+import { Term } from "@/components/ui/Term";
 import { cn } from "@/lib/cn";
 import { toActionError } from "@/lib/errors";
 import { ROUTES } from "@/lib/routes";
 import { CreateExitModal } from "./CreateExitModal";
 import { symbolOf } from "./engine";
-import { classShortLabel, formatDate, KIND_LABEL, scheduleEndSecs, STATUS_LABEL } from "./model";
+import { classShortLabel, formatDate, KIND_LABEL, nextAction, scheduleEndSecs, STATUS_LABEL } from "./model";
 import { RoundCard } from "./RoundCard";
 import { ErrorState, LoadingCards, NotDeployedState } from "./shared";
 import { EMPTY_FILTER, useRoundsList, type RoundsFilterState } from "./useRoundsList";
@@ -23,22 +28,7 @@ import { EMPTY_FILTER, useRoundsList, type RoundsFilterState } from "./useRounds
 const KINDS: RoundKind[] = ["Tender", "Exit", "Advance"];
 const STATUSES: RoundStatus[] = ["Open", "KeyRequested", "Revealing", "Clearing", "Settled", "Cancelled", "Scheduled"];
 
-function Chip({ active, onClick, children, count }: { active: boolean; onClick: () => void; children: React.ReactNode; count?: number }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition-colors",
-        active ? "border-ember-500 bg-ember-700/25 text-ember-200" : "border-ink-700 bg-ink-850 text-ink-300 hover:border-ink-500 hover:text-ink-100",
-      )}
-    >
-      {children}
-      {count !== undefined ? <span className="tabular text-[11px] text-ink-400">{count}</span> : null}
-    </button>
-  );
-}
+const KIND_OPTIONS: SegmentedOption<RoundKind | "all">[] = [{ value: "all", label: "All" }, ...KINDS.map((kind) => ({ value: kind, label: KIND_LABEL[kind] }))];
 
 /** `demo`: the configured engine has a guided demo of its seeded rounds. */
 export function RoundsPage({ configured, demo }: { configured: boolean; demo: boolean }) {
@@ -76,14 +66,15 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
   const rounds = useMemo(() => [...(data?.rounds ?? []), ...list.extra], [data, list.extra]);
   const nextCursor = list.extra.length > 0 ? list.extraNext : (data?.next ?? null);
   const filtered = filter.kind !== "" || filter.classId !== "" || filter.status !== "";
+  const openRound = rounds.find((round) => nextAction(round, now).kind === "bid") ?? null;
 
   return (
     <div className="flex flex-col gap-5" data-rounds-page>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[22px] text-ink-50">Rounds</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Rounds</h1>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
-            Sealed, uniform-price auctions over locked token classes. Every transition is a public method: whoever cares about the outcome advances the round. <LearnMore topic="sealedRounds" />
+            Sealed, <Term term="uniformPrice">uniform-price</Term> auctions over locked token <Term term="class">classes</Term>. Every transition is a public method: whoever cares about the outcome advances the round. <LearnMore topic="sealedRounds" />
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -102,46 +93,70 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
         <NotDeployedState />
       ) : (
         <>
-          <div className="flex flex-col gap-2 rounded-lg border border-ink-750 bg-ink-850 p-3" role="group" aria-label="Filters">
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
-              <div className="flex flex-wrap items-center gap-1.5" data-filter-group="type">
-                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Type</span>
-                <Chip active={filter.kind === ""} onClick={() => setFilter((f) => ({ ...f, kind: "" }))}>
-                  All
-                </Chip>
-                {KINDS.map((kind) => (
-                  <Chip key={kind} active={filter.kind === kind} onClick={() => setFilter((f) => ({ ...f, kind: f.kind === kind ? "" : kind }))}>
-                    {KIND_LABEL[kind]}
-                  </Chip>
-                ))}
-              </div>
-              <span className="mx-1 hidden h-4 w-px bg-ink-700 sm:block" aria-hidden />
-              <div className="flex flex-wrap items-center gap-1.5" data-filter-group="status">
-                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Status</span>
-                <Chip active={filter.status === ""} onClick={() => setFilter((f) => ({ ...f, status: "" }))}>
-                  Any
-                </Chip>
+          {openRound ? (
+            <NextStep
+              title={`Round #${openRound.roundId.toString()} is taking sealed orders`}
+              description={
+                <>
+                  Nobody sees your price before the close, and every winning order pays the same <Term term="clearingPrice">clearing price</Term>.
+                </>
+              }
+              action={
+                <ButtonLink href={`${ROUTES.rounds}/${openRound.roundId.toString()}`} size="sm">
+                  Open round #{openRound.roundId.toString()}
+                </ButtonLink>
+              }
+            />
+          ) : null}
+          <HowItWorks
+            label="How a sealed round works"
+            steps={[
+              { title: "Seal", body: <>Holders and buyers submit encrypted orders; only their collateral is public in the <Term term="sealedBook">sealed book</Term>.</> },
+              { title: "Close", body: "At the close anyone asks the NEAR MPC network for the round key; nobody had it before." },
+              { title: "Open and clear", body: <>Orders are decrypted and verified on chain, then one <Term term="clearingPrice">clearing price</Term> is computed.</> },
+              { title: "Settle", body: "Units and cash move in the NEAR ledger; tokens and payouts are pulled to Base or Solana." },
+            ]}
+          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between" role="group" aria-label="Filters">
+            <Segmented
+              label="Round type"
+              options={KIND_OPTIONS}
+              value={filter.kind === "" ? "all" : filter.kind}
+              onChange={(kind) => setFilter((f) => ({ ...f, kind: kind === "all" || f.kind === kind ? "" : kind }))}
+              data-filter-group="type"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="Status"
+                value={filter.status}
+                onChange={(event) => setFilter((f) => ({ ...f, status: event.target.value as RoundStatus | "" }))}
+                className={selectClasses(undefined, "sm", false)}
+                data-filter-group="status"
+              >
+                <option value="">All statuses</option>
                 {STATUSES.map((status) => (
-                  <Chip key={status} active={filter.status === status} onClick={() => setFilter((f) => ({ ...f, status: f.status === status ? "" : status }))}>
+                  <option key={status} value={status}>
                     {STATUS_LABEL[status]}
-                  </Chip>
+                  </option>
                 ))}
-              </div>
+              </select>
+              {data && data.classes.length > 0 ? (
+                <select
+                  aria-label="Class"
+                  value={filter.classId}
+                  onChange={(event) => setFilter((f) => ({ ...f, classId: event.target.value }))}
+                  className={selectClasses("max-w-[320px]", "sm", false)}
+                  data-filter-group="class"
+                >
+                  <option value="">All classes</option>
+                  {data.classes.map((cls) => (
+                    <option key={cls.classId} value={cls.classId}>
+                      {classShortLabel(cls, symbolOf(data.symbols, cls))} · until {formatDate(scheduleEndSecs(cls) * 1000)}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </div>
-            {data && data.classes.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-1 font-display text-[10px] uppercase tracking-wide text-ink-400">Class</span>
-                <Chip active={filter.classId === ""} onClick={() => setFilter((f) => ({ ...f, classId: "" }))}>
-                  All
-                </Chip>
-                {data.classes.map((cls) => (
-                  <Chip key={cls.classId} active={filter.classId === cls.classId} onClick={() => setFilter((f) => ({ ...f, classId: f.classId === cls.classId ? "" : cls.classId }))}>
-                    {classShortLabel(cls, symbolOf(data.symbols, cls))}
-                    <span className="text-ink-400"> · until {formatDate(scheduleEndSecs(cls) * 1000)}</span>
-                  </Chip>
-                ))}
-              </div>
-            ) : null}
           </div>
 
           {list.state.status === "loading" ? <LoadingCards /> : null}

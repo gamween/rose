@@ -2,6 +2,7 @@
 
 import { DemoClass, decodePositionMinted, mintDemoPosition, mintTestUsdc, mintTestUsdcCall } from "@rose/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Segmented } from "@/components/ui/Segmented";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Modal";
@@ -128,7 +129,7 @@ function ActionRow({
         <p className="flex flex-wrap items-center gap-x-3 text-[12px] text-success-400">
           {state.message}
           {state.links.map((link) => (
-            <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+            <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
               {link.label} ↗
             </a>
           ))}
@@ -145,10 +146,10 @@ function ActionRow({
 
 function ChainHeading({ chain, address, kind }: { chain: ChainId; address: string | null; kind: "external" | "demo" | null }) {
   return (
-    <h3 className="flex items-center gap-2 font-display text-[11px] uppercase tracking-wide text-ink-200">
+    <h3 className="flex items-center gap-2 text-[12px] text-ink-200 font-medium">
       {CHAIN_LABEL[chain]}
       {kind === "demo" ? <Badge tone="ember">Demo</Badge> : null}
-      {address ? <span className="tabular truncate normal-case tracking-normal text-ink-400">{address}</span> : <span className="normal-case tracking-normal text-ink-400">not connected</span>}
+      {address ? <span className="font-mono truncate normal-case tracking-normal text-ink-400">{address}</span> : <span className="normal-case tracking-normal text-ink-400">not connected</span>}
     </h3>
   );
 }
@@ -308,24 +309,17 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                 })
               }
             >
-              <div className="flex items-center gap-2 text-[12px]">
+              <div className="flex flex-wrap items-center gap-2 text-[12px]">
                 <span className="text-ink-400">Class</span>
-                {(
-                  [
-                    [DemoClass.SEED, "Seed cohort"],
-                    [DemoClass.KOL, "KOL cohort"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setDemoClass(value)}
-                    aria-pressed={demoClass === value}
-                    className={demoClass === value ? "rounded-sm border border-ember-500 bg-ember-700/25 px-2 py-0.5 text-ink-50" : "rounded-sm border border-ink-700 px-2 py-0.5 text-ink-300 hover:border-ink-500"}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <Segmented
+                  label="Demo class"
+                  options={[
+                    { value: DemoClass.SEED, label: "Seed cohort" },
+                    { value: DemoClass.KOL, label: "KOL cohort" },
+                  ]}
+                  value={demoClass}
+                  onChange={setDemoClass}
+                />
               </div>
             </ActionRow>
           </ul>

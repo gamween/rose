@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Deployment } from "@/components/docs/deployment";
 import { useLiveQuery } from "@/components/status/useLiveQuery";
+import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -58,7 +59,7 @@ function LoadingGrid() {
   return (
     <div className="grid gap-4 md:grid-cols-2" aria-label="Loading prices">
       {[0, 1].map((index) => (
-        <div key={index} className="rounded-lg border border-ink-750 bg-ink-850 p-4">
+        <div key={index} className="ui-surface rounded-lg p-4">
           <Skeleton className="mb-3 h-4 w-2/3" />
           <Skeleton className="h-56 w-full" />
         </div>
@@ -69,21 +70,22 @@ function LoadingGrid() {
 
 function TokenFilter({ groups, value, onChange }: { groups: TokenGroup[]; value: string; onChange: (key: string) => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Token">
-      <span className="font-display text-[11px] uppercase tracking-wide text-ink-400">Token</span>
-      {groups.map((group) => (
-        <button
-          key={group.tokenKey}
-          type="button"
-          aria-pressed={group.tokenKey === value}
-          onClick={() => onChange(group.tokenKey)}
-          className={`h-8 rounded-md border px-3 text-[13px] transition-colors ${
-            group.tokenKey === value ? "border-ember-600 bg-ember-700/25 text-ember-200" : "border-ink-700 bg-ink-900 text-ink-300 hover:border-ink-600 hover:text-ink-50"
-          }`}
-        >
-          {group.symbol} <span className="text-ink-400">· {group.chain}</span>
-        </button>
-      ))}
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[12px] text-ink-400 font-medium">Token</span>
+      <Segmented
+        label="Token"
+        size="md"
+        options={groups.map((group) => ({
+          value: group.tokenKey,
+          label: (
+            <>
+              {group.symbol} <span className="text-ink-400">· {group.chain}</span>
+            </>
+          ),
+        }))}
+        value={value}
+        onChange={onChange}
+      />
     </div>
   );
 }
@@ -133,14 +135,14 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
         />
       </dl>
       <section aria-labelledby="price-history" className="flex flex-col gap-4">
-        <h2 id="price-history" className="font-display text-[16px] text-ink-50">
+        <h2 id="price-history" className="text-[16px] text-ink-50 font-semibold">
           Clearing price history per class
         </h2>
         <div className="grid gap-4 md:grid-cols-2">
           {plotted.map((series) => {
             const index = group.series.indexOf(series);
             return (
-              <div key={series.key} className="rounded-lg border border-ink-750 bg-ink-850 p-4" data-price-series={series.unit}>
+              <div key={series.key} className="ui-surface rounded-lg p-4" data-price-series={series.unit}>
                 <PriceHistoryChart series={series} color={seriesColor(index)} shape={seriesShape(index)} symbol={group.symbol} />
               </div>
             );
@@ -148,10 +150,10 @@ function PricesContent({ data, blockHeight }: { data: PricesData; blockHeight: n
         </div>
       </section>
       <section aria-labelledby="lock-scatter" className="flex flex-col gap-4">
-        <h2 id="lock-scatter" className="font-display text-[16px] text-ink-50">
+        <h2 id="lock-scatter" className="text-[16px] text-ink-50 font-semibold">
           Price versus remaining lock
         </h2>
-        <div className="rounded-lg border border-ink-750 bg-ink-850 p-4" data-lock-scatter>
+        <div className="ui-surface rounded-lg p-4" data-lock-scatter>
           {perLocked.length > 0 ? (
             <LockScatterChart group={{ ...group, series: perLocked }} />
           ) : (
@@ -188,10 +190,9 @@ export function PricesPage({ deployment }: { deployment: Deployment }) {
 
   return (
     <div className="py-2 lg:py-4" aria-busy={state.status === "loading"} data-prices>
-      <header className="mb-8">
-        <p className="font-display text-[11px] uppercase tracking-wide text-ember-400">Clearing prices</p>
-        <h1 className="mt-2 font-display text-[28px] leading-tight text-ink-50 md:text-[34px]">Prices</h1>
-        <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-300">
+      <header className="mb-6">
+        <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Prices</h1>
+        <p className="mt-1 max-w-3xl text-[14px] text-ink-300">
           What locked tokens actually cleared at, per class and against the lock left at settlement. Every point is a settled sealed round.
         </p>
       </header>

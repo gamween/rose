@@ -7,9 +7,9 @@ function PagerLink({ doc, direction }: { doc: DocSummary; direction: "previous" 
     <Link
       href={docHref(doc.slug)}
       rel={direction === "next" ? "next" : "prev"}
-      className={`group flex min-w-0 flex-1 flex-col gap-1 rounded-md border border-ink-750 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-600 hover:bg-ink-850 ${next ? "items-end text-right" : "items-start text-left"}`}
+      className={`group flex min-w-0 flex-1 flex-col gap-1 ui-surface rounded-md px-4 py-3 transition-colors hover:border-ink-600 hover:bg-ink-800/60 ${next ? "items-end text-right" : "items-start text-left"}`}
     >
-      <span className="font-display text-[11px] uppercase tracking-wide text-ink-400">{next ? "Next →" : "← Previous"}</span>
+      <span className="text-[12px] text-ink-400 font-medium">{next ? "Next →" : "← Previous"}</span>
       <span className="truncate text-[14px] text-ink-100 group-hover:text-ink-50">{doc.title}</span>
     </Link>
   );

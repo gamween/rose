@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Address } from "viem";
 import { LearnMore } from "@/components/chrome/LearnMore";
+import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -318,24 +319,17 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
               description={`No Lockup stream owned by ${shortHex(address, 6, 4)} between ids ${state.value.fromId.toString()} and ${state.value.toId.toString()}. Load older ids, or mint a demo vesting position of the demo token.`}
               action={
                 <div className="flex flex-col items-center gap-3">
-                  <div className="flex items-center gap-2 text-[12px]">
+                  <div className="flex flex-wrap items-center gap-2 text-[12px]">
                     <span className="text-ink-400">Class</span>
-                    {(
-                      [
-                        [DemoClass.SEED, "Seed cohort"],
-                        [DemoClass.KOL, "KOL cohort"],
-                      ] as const
-                    ).map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setDemoClass(value)}
-                        aria-pressed={demoClass === value}
-                        className={demoClass === value ? "rounded-sm border border-ember-500 bg-ember-700/25 px-2 py-0.5 text-ink-50" : "rounded-sm border border-ink-700 px-2 py-0.5 text-ink-300 hover:border-ink-500"}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                    <Segmented
+                      label="Demo class"
+                      options={[
+                        { value: DemoClass.SEED, label: "Seed cohort" },
+                        { value: DemoClass.KOL, label: "KOL cohort" },
+                      ]}
+                      value={demoClass}
+                      onChange={setDemoClass}
+                    />
                   </div>
                   <Button
                     onClick={() =>

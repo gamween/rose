@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { ConnectModal } from "@/components/wallet/ConnectModal";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { WalletsStatusRow } from "@/components/wallet/WalletsStatus";
 import { deployed } from "@/lib/deployment";
@@ -18,6 +18,7 @@ import { useEngineQuery } from "@/lib/use-engine-query";
 import { ClaimDialog, type ClaimPrompt } from "./ClaimDialog";
 import type { PortfolioData } from "./data";
 import { FlowDialog, type FlowRequest } from "./FlowDialog";
+import { GettingStarted } from "./GettingStarted";
 import type { PortfolioAccountProps } from "./PortfolioAccount";
 
 const SECTIONS = [
@@ -38,14 +39,14 @@ function WalletStrip({ onConnect }: { onConnect: (chain: ChainId) => void }) {
   return (
     <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3" data-wallet-summary>
       {entries.map((entry) => (
-        <li key={entry.chain} className="flex items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-850 px-3 py-2">
+        <li key={entry.chain} className="ui-surface flex items-center justify-between gap-3 rounded-md px-3 py-2">
           <div className="min-w-0">
-            <p className="flex items-center gap-2 font-display text-[11px] uppercase tracking-wide text-ink-300">
+            <p className="flex items-center gap-2 text-[12px] text-ink-300 font-medium">
               {CHAIN_LABEL[entry.chain]}
               {entry.kind === "demo" ? <Badge tone="ember">Demo</Badge> : null}
             </p>
             {entry.address ? (
-              <a href={addressUrl(entry.chain, entry.address)} target="_blank" rel="noreferrer" className="tabular block truncate text-[12px] text-ink-100 underline-offset-2 hover:underline" title={entry.address}>
+              <a href={addressUrl(entry.chain, entry.address)} target="_blank" rel="noreferrer" className="font-mono block truncate text-[12px] text-ink-100 underline-offset-2 hover:underline" title={entry.address}>
                 {shortAddress(entry.chain, entry.address)}
               </a>
             ) : (
@@ -68,12 +69,12 @@ function WalletStrip({ onConnect }: { onConnect: (chain: ChainId) => void }) {
 function Sections() {
   return (
     <section>
-      <h2 className="mb-3 font-display text-[11px] uppercase tracking-wide text-ink-400">Sections</h2>
+      <h2 className="mb-3 text-[12px] text-ink-400 font-medium">Sections</h2>
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {SECTIONS.map((section) => (
           <li key={section.href}>
-            <Link href={section.href} className="flex h-full flex-col gap-1 rounded-lg border border-ink-750 bg-ink-850 px-4 py-3 transition-colors hover:border-ink-500 hover:bg-ink-800">
-              <span className="font-display text-[13px] text-ink-50">{section.title}</span>
+            <Link href={section.href} className="flex h-full flex-col gap-1 ui-surface rounded-lg px-4 py-3 transition-colors hover:border-ink-500 hover:bg-ink-800">
+              <span className="text-[13px] text-ink-50 font-semibold">{section.title}</span>
               <span className="text-[12px] text-ink-400">{section.body}</span>
             </Link>
           </li>
@@ -101,7 +102,7 @@ export function PortfolioPage() {
   const wallets = useWallets();
   const account = wallets.near.accountId;
   const engine = deployed("engineAccount");
-  const [connect, setConnect] = useState<ChainId | null>(null);
+  const openConnect = useConnectModal();
   const [prompt, setPrompt] = useState<ClaimPrompt | null>(null);
   const [flow, setFlow] = useState<FlowRequest | null>(null);
 
@@ -119,11 +120,11 @@ export function PortfolioPage() {
     <div className="flex flex-col gap-6" data-portfolio>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[22px] text-ink-50">Portfolio</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Portfolio</h1>
           <p className="mt-1 text-[13px] text-ink-400">
             Units per class, unlock timelines, open orders, liens, claims and history of{" "}
             {account ? (
-              <a href={addressUrl("near", account)} target="_blank" rel="noreferrer" className="tabular text-ink-100 underline-offset-2 hover:underline">
+              <a href={addressUrl("near", account)} target="_blank" rel="noreferrer" className="font-mono text-ink-100 underline-offset-2 hover:underline">
                 {account}
               </a>
             ) : (
@@ -139,12 +140,12 @@ export function PortfolioPage() {
               Refresh
             </Button>
           ) : null}
-          <Button size="sm" onClick={() => setConnect("near")}>
+          <Button size="sm" variant={account ? "primary" : "secondary"} onClick={() => openConnect()}>
             {wallets.anyConnected ? "Connect another wallet" : "Connect a wallet"}
           </Button>
         </div>
       </header>
-      <WalletStrip onConnect={(chain) => setConnect(chain)} />
+      <WalletStrip onConnect={openConnect} />
 
       {!engine ? (
         <EmptyState illustration="ledger" title="Engine not deployed yet" description="The portfolio reads the engine's views (holdings, orders, liens, cash, payouts, events). It fills in as soon as NEXT_PUBLIC_ENGINE_ACCOUNT points to a deployed engine." />
@@ -153,16 +154,7 @@ export function PortfolioPage() {
       ) : !account && wallets.walletsStatus === "failed" ? (
         <WalletsStatusRow what="Restoring your wallet…" />
       ) : !account ? (
-        <EmptyState
-          illustration="vault"
-          title="Connect a NEAR wallet"
-          description="Units, cash and liens live on your NEAR account. Connect a testnet wallet, or create the in-app demo wallet, to see what you hold."
-          action={
-            <Button onClick={() => setConnect("near")} data-portfolio-connect>
-              Connect NEAR
-            </Button>
-          }
-        />
+        <GettingStarted onConnect={() => openConnect("near")} />
       ) : state.status === "loading" ? (
         <LoadingPortfolio />
       ) : state.status === "not_deployed" ? (
@@ -182,7 +174,6 @@ export function PortfolioPage() {
         <state.value.Account account={account} data={state.value.data} refreshAll={refreshAll} setPrompt={setPrompt} setFlow={setFlow} />
       ) : null}
       <Sections />
-      <ConnectModal open={connect !== null} onClose={() => setConnect(null)} initialChain={connect ?? "near"} />
       <ClaimDialog prompt={prompt} onClose={() => setPrompt(null)} />
       <FlowDialog request={flow} onClose={() => setFlow(null)} onDone={refreshAll} />
     </div>

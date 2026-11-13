@@ -1,12 +1,13 @@
 import {
-  AdditiveBlending,
   BoxGeometry,
+  CustomBlending,
   BufferAttribute,
   DynamicDrawUsage,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
   Mesh,
   NormalBlending,
+  OneFactor,
   ShaderMaterial,
   type IUniform,
 } from "three";
@@ -84,12 +85,18 @@ export class ParticlePool {
     geometry.setAttribute("aInfo", this.infoAttribute);
     geometry.instanceCount = 0;
 
+    // Additive pools add both color and alpha as written (alpha is the dither and bloom weight
+    // read by the post passes), so a particle can glow without marking its pixels for either.
     const material = new ShaderMaterial({
       vertexShader,
       fragmentShader,
       uniforms: options.uniforms ?? {},
       transparent: options.additive,
-      blending: options.additive ? AdditiveBlending : NormalBlending,
+      blending: options.additive ? CustomBlending : NormalBlending,
+      blendSrc: OneFactor,
+      blendDst: OneFactor,
+      blendSrcAlpha: OneFactor,
+      blendDstAlpha: OneFactor,
       depthWrite: !options.additive,
     });
     this.mesh = new Mesh(geometry, material);

@@ -22,7 +22,7 @@ import type { HoldingRow } from "./transforms";
  * 375 px while the desktop keeps the dense table.
  */
 export const CARD_ROW = "max-md:grid max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-2.5 max-md:px-3 max-md:py-3 max-md:hover:bg-transparent";
-export const CARD_CELL = "max-md:h-auto max-md:px-0 max-md:text-left max-md:before:mb-0.5 max-md:before:block max-md:before:font-display max-md:before:text-[10px] max-md:before:uppercase max-md:before:tracking-wide max-md:before:text-ink-400 max-md:before:content-[attr(data-label)]";
+export const CARD_CELL = "max-md:h-auto max-md:px-0 max-md:text-left max-md:before:mb-0.5 max-md:before:block max-md:before:text-[11px] max-md:before:text-ink-400 max-md:before:content-[attr(data-label)] max-md:before:font-medium";
 export const CARD_WIDE = "max-md:col-span-2 max-md:h-auto max-md:px-0";
 
 function ChainBadge({ chain }: { chain: "Base" | "Solana" }) {
@@ -43,10 +43,10 @@ export function HoldingsSection({ rows, data, onClaim, onRedeem }: { rows: Holdi
           description="Deposit a Sablier or Streamflow position to mint units, buy some in an Exit round, or ask an issuer to distribute a cohort to your NEAR account."
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Link href="/app/deposit" className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+              <Link href="/app/deposit" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
                 Deposit a position →
               </Link>
-              <Link href={ROUTES.rounds} className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+              <Link href={ROUTES.rounds} className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
                 Browse rounds →
               </Link>
             </div>

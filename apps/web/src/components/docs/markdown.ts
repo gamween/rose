@@ -6,6 +6,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
+import { glossaryAnchor } from "@/lib/glossary";
 
 export type DocHeading = { id: string; text: string; depth: 2 | 3 };
 
@@ -62,12 +63,31 @@ function collectHeadings(tree: Root): DocHeading[] {
   return headings;
 }
 
+/**
+ * Gives a definition paragraph (one that opens with a bold term, as in the glossary) the id
+ * `glossaryAnchor(term)`, so the app's in-place definitions can link to the exact entry. The first
+ * paragraph wins when two open with the same term.
+ */
+function anchorDefinitions(tree: Root): void {
+  const used = new Set<string>();
+  visit(tree, "element", (node: Element) => {
+    if (node.tagName !== "p" || node.properties.id !== undefined) return;
+    const first = node.children[0];
+    if (first?.type !== "element" || first.tagName !== "strong") return;
+    const id = glossaryAnchor(hastToString(first));
+    if (id === "term-" || used.has(id)) return;
+    used.add(id);
+    node.properties.id = id;
+  });
+}
+
 const processor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype).use(rehypeSlug);
 
 /** Compiles a docs page body (GitHub-flavoured Markdown) into a hast tree with slugged headings. */
 export function compileMarkdown(body: string, placeholders: PlaceholderValues = {}): CompiledDoc {
   const tree = processor.runSync(processor.parse(body)) as Root;
   substitutePlaceholders(tree, placeholders);
+  anchorDefinitions(tree);
   return { tree, headings: collectHeadings(tree) };
 }
 

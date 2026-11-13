@@ -12,8 +12,8 @@ function Heading({ level, className, children, id, ...rest }: ComponentProps<"h2
       id={id}
       className={cn(
         "group scroll-mt-20 text-ink-50",
-        level === 2 && "mt-10 border-b border-ink-750 pb-2 font-display text-[20px] first:mt-0",
-        level === 3 && "mt-8 font-display text-[16px]",
+        level === 2 && "mt-10 border-b border-ink-750 pb-2 text-[20px] first:mt-0 font-semibold tracking-tight",
+        level === 3 && "mt-8 text-[16px] font-semibold",
         level === 4 && "mt-6 text-[14px] font-semibold",
         className,
       )}
@@ -77,7 +77,7 @@ const components: Partial<Components> = {
   h2: (props) => <Heading level={2} {...props} />,
   h3: (props) => <Heading level={3} {...props} />,
   h4: (props) => <Heading level={4} {...props} />,
-  p: (props) => <p className="my-4 text-[14px] leading-relaxed text-ink-200" {...props} />,
+  p: ({ id, ...props }) => <p id={id} className={cn("my-4 text-[14px] leading-relaxed text-ink-200", id && "scroll-mt-20 target:-mx-3 target:rounded-md target:bg-ember-700/15 target:px-3 target:py-2")} {...props} />,
   a: Anchor,
   ul: (props) => <ul className="my-4 list-disc space-y-1.5 pl-5 text-[14px] leading-relaxed text-ink-200 marker:text-ink-400" {...props} />,
   ol: (props) => <ol className="my-4 list-decimal space-y-1.5 pl-5 text-[14px] leading-relaxed text-ink-200 marker:text-ink-400" {...props} />,
@@ -107,7 +107,7 @@ const components: Partial<Components> = {
   thead: (props) => <thead className="bg-ink-900" {...props} />,
   th: (props) => (
     <th
-      className="border-b border-ink-750 px-3 py-2 text-left align-bottom font-display text-[11px] font-normal uppercase tracking-wide text-ink-400"
+      className="border-b border-ink-750 px-3 py-2 text-left align-bottom text-[12px] text-ink-400 font-medium"
       {...props}
     />
   ),

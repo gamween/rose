@@ -8,6 +8,7 @@
 
 import type { Bid } from "@rose/sdk";
 import { useMemo, useSyncExternalStore } from "react";
+import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useNearAction } from "./actions";
 import { orderKey, rawSnapshot, subscribeLocal, type LocalOrder } from "./localOrders";
@@ -62,7 +63,7 @@ export function MyOrders({ detail, onChanged }: { detail: RoundDetail; onChanged
   return (
     <section aria-label="My orders" className="rounded-lg border border-ember-700/60 bg-ink-850" data-my-orders>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">My orders</h3>
+        <CardTitle>My orders</CardTitle>
         <p className="mt-0.5 text-[12px] text-ink-400">What you sealed (kept in this browser) next to the public row on chain.</p>
       </div>
       <ul className="divide-y divide-ink-800">
@@ -76,7 +77,7 @@ export function MyOrders({ detail, onChanged }: { detail: RoundDetail; onChanged
                   <span className="tabular text-ink-100">#{String(bid.bidId)}</span> <span className={bid.side === "Buy" ? "text-success-400" : "text-rose-300"}>{bid.side === "Buy" ? "bid" : "ask"}</span>
                   <span className="text-ink-400"> · {bid.side === "Buy" ? `${formatUsdc(bid.escrow)} USDC escrowed` : `${formatQty(bid.lockedUnits, cls.decimals)} units locked`} · bond {formatUsdc(bid.bond)}</span>
                 </span>
-                <span className="font-display text-[10px] uppercase tracking-wide text-ink-300">{bid.status}</span>
+                <span className="text-[11px] text-ink-300 font-medium">{bid.status}</span>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="tabular">

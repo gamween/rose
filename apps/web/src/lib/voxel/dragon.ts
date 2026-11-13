@@ -1,4 +1,4 @@
-import { VoxelGrid, hash3, pointOnCurve, sampleCurve, type Vec3 } from "./grid";
+import { VoxelGrid, add, catmullRom, cross, distance, hash3, normalize, scale, segmentDistance, sub, type Vec3 } from "./grid";
 
 /** Cell materials of the dragon model. */
 export const M = {
@@ -28,29 +28,195 @@ export const KIND = {
   nostril: 6,
 } as const;
 
-/**
- * Skeleton of the neck: `JOINTS[0]` is the neck base (bone 1 rotates about it), the last joint is
- * the base of the skull (the head is bone `HEAD_BONE`). Bone 0 is the rigid body, `JAW_BONE` is
- * the lower jaw, a child of the head. Every voxel carries a bone coordinate: `floor` is the bone,
- * `fract` blends toward the next one (linear blend skinning, so the neck bends without gaps).
+/*
+ * The model is authored in its sleeping pose, curled into a closed ball like a sleeping cat: the
+ * torso lies with its back to the far side, the neck wraps around the chest and runs along the
+ * front of the body to the head, which rests on the forepaws, and the long tail wraps around the
+ * hips, along the ground in front of the head and forepaws and around the far end of the neck. Legs
+ * are tucked under the body, wings folded over the back by the rig (they are modelled spread).
+ *
+ * Every limb, spine and tail segment is a rigid capsule on its own bone and its own grid part,
+ * including the full sphere at its far joint: a joint bends about that sphere's center, so the
+ * body stays closed at any angle, and each part keeps the surface where it touches another, so
+ * nothing opens when the dragon uncurls. Only the wing membranes blend between bones.
  */
-export const JOINTS: readonly Vec3[] = [
-  [-16, 27, -16],
-  [-32, 35, -4],
-  [-46, 43, 10],
-  [-56, 48, 24],
-  [-60, 47, 36],
-  [-58, 43, 44],
+
+/** Joints of the torso: the hips (where the tail starts), the middle of the back, the chest (where the neck starts). */
+const HIPS: Vec3 = [30, 15, -4];
+const WAIST: Vec3 = [2, 17, -8];
+const CHEST: Vec3 = [-26, 18, -2];
+const TORSO_RADII = [15, 18.5, 17.5];
+
+/** Joints of the neck, from the chest to the base of the skull, and its radius at each. */
+const NECK_JOINTS: readonly Vec3[] = [CHEST, [-38, 18, 2], [-47, 16, 9], [-50, 15, 18], [-45, 14, 24], [-35, 14, 25], [-25, 14.5, 23], [-15, 15.5, 21], [-7, 17, 19]];
+const NECK_RADII = [13, 12, 11.2, 10.4, 9.7, 9.1, 8.5, 8, 7.5];
+
+/**
+ * Joints of the tail, from the hips around the body, in front of the head and around the far end of
+ * the neck to the tip behind the chest, and its radius at each. It is long enough to sweep around
+ * the whole front of the dragon once it lies stretched out.
+ */
+const TAIL_JOINTS: readonly Vec3[] = [
+  HIPS,
+  [45, 10, 3],
+  [44, 9.5, 22],
+  [37, 8.5, 38],
+  [22, 8, 48],
+  [3, 7, 50],
+  [-15, 6.5, 49],
+  [-33, 5.5, 44],
+  [-49, 5, 35],
+  [-61, 4.5, 21],
+  [-66, 3.5, 4],
+  [-63, 3, -14],
+  [-50, 2, -27],
 ];
-export const HEAD_BONE = JOINTS.length;
+const TAIL_RADII = [13, 10.5, 9, 8, 7.2, 6.5, 5.8, 5.1, 4.4, 3.7, 3, 2.3, 1.6];
+/** The glowing ember at the tip of the tail reaches this far along the tail and past its tip. */
+const TAIL_EMBER = 8.5;
+
+/**
+ * The head is drawn in its own coordinates (snout toward +x, the base of the skull at
+ * `HEAD_BASE`), scaled by `HEAD_SCALE` and turned `HEAD_YAW` toward the camera about the end of the
+ * neck, where it rests on the forearms, snout toward the tail.
+ */
+const HEAD_BASE: Vec3 = [-58, 43, 44];
+const HEAD_SCALE = 1.2;
+const HEAD_YAW = (-30 * Math.PI) / 180;
+function headPoint(x: number, y: number, z: number): Vec3 {
+  const [px, py, pz] = [(x - HEAD_BASE[0]) * HEAD_SCALE, (y - HEAD_BASE[1]) * HEAD_SCALE, (z - HEAD_BASE[2]) * HEAD_SCALE];
+  const end = NECK_JOINTS[NECK_JOINTS.length - 1]!;
+  return [end[0] + px * Math.cos(HEAD_YAW) + pz * Math.sin(HEAD_YAW), end[1] + py, end[2] - px * Math.sin(HEAD_YAW) + pz * Math.cos(HEAD_YAW)];
+}
+const SKULL = headPoint(-52, 40, 48);
+const MOUTH = headPoint(-31, 35.5, 48);
+const NOSTRILS: readonly Vec3[] = [headPoint(-32, 41, 47), headPoint(-32, 41, 49)];
+/** Lower row of the eyes; the eye voxels carry their height above it (0 to 1), so the lids open from the slit up. */
+const EYE_ROW = headPoint(0, 41, 0)[1];
+export const JAW_HINGE = headPoint(-48, 34, 48);
+/** The jaw opens about the head's lateral axis. */
+export const JAW_AXIS: Vec3 = [Math.sin(HEAD_YAW), 0, Math.cos(HEAD_YAW)];
+
+/** Bones, in hierarchy order (a parent before its children). */
+export const ROOT_BONE = 0;
+export const PELVIS_BONE = 1;
+export const CHEST_BONE = 2;
+const NECK_FIRST = 3;
+export const HEAD_BONE = NECK_FIRST + NECK_JOINTS.length - 1;
 export const JAW_BONE = HEAD_BONE + 1;
-/** The raised far wing, folded down when the dragon sleeps (rotates about the hip to shoulder axis). */
-export const FAR_WING_BONE = JAW_BONE + 1;
-export const BONE_COUNT = FAR_WING_BONE + 1;
-export const JAW_HINGE: Vec3 = [-48, 34, 48];
-export const FAR_WING_SHOULDER: Vec3 = [-12, 32, -30];
-export const FAR_WING_HIP: Vec3 = [14, 20, -48];
-const FAR_WING_ELBOW: Vec3 = [0, 56, -44];
+const TAIL_FIRST = JAW_BONE + 1;
+const LIMB_FIRST = TAIL_FIRST + TAIL_JOINTS.length - 1;
+
+/** A spine bone: it turns about `from` and points at `to` in the rest pose; `chain` counts the bones from the hips. */
+export type SpineBone = { bone: number; parent: number; from: Vec3; to: Vec3; chain: number };
+
+/** The spine from the hips: the torso, the neck and the head forward, the tail backward (hierarchy order). */
+export const SPINE: readonly SpineBone[] = [
+  { bone: PELVIS_BONE, parent: ROOT_BONE, from: HIPS, to: WAIST, chain: 0 },
+  { bone: CHEST_BONE, parent: PELVIS_BONE, from: WAIST, to: CHEST, chain: 1 },
+  ...NECK_JOINTS.slice(0, -1).map((from, k) => ({ bone: NECK_FIRST + k, parent: k === 0 ? CHEST_BONE : NECK_FIRST + k - 1, from, to: NECK_JOINTS[k + 1]!, chain: 2 + k })),
+  { bone: HEAD_BONE, parent: HEAD_BONE - 1, from: NECK_JOINTS[NECK_JOINTS.length - 1]!, to: MOUTH, chain: NECK_JOINTS.length + 1 },
+  ...TAIL_JOINTS.slice(0, -1).map((from, k) => ({ bone: TAIL_FIRST + k, parent: k === 0 ? PELVIS_BONE : TAIL_FIRST + k - 1, from, to: TAIL_JOINTS[k + 1]!, chain: 1 + k })),
+];
+/** The bones the head turns with when it aims: the chest, the neck and the head itself. */
+export const FORWARD_CHAIN: readonly number[] = SPINE.filter((spine) => spine.bone >= CHEST_BONE && spine.bone <= HEAD_BONE).map((spine) => spine.bone);
+
+/** Axes of a torso segment at rest: toward the head, up, and toward the near flank (the camera side). */
+export type BodyAxes = { forward: Vec3; up: Vec3; lateral: Vec3 };
+function axes(from: Vec3, to: Vec3): BodyAxes {
+  const forward = normalize(sub(to, from));
+  const up = normalize(sub([0, 1, 0], scale(forward, forward[1])));
+  return { forward, up, lateral: cross(up, forward) };
+}
+export const PELVIS_AXES = axes(HIPS, WAIST);
+export const CHEST_AXES = axes(WAIST, CHEST);
+
+/** A point given in torso axes (forward, up, toward the flank `side`) from `origin`. */
+export function inAxes(frame: BodyAxes, origin: Vec3, [forward, up, out]: Vec3, side: number): Vec3 {
+  return add(add(add(origin, scale(frame.forward, forward)), scale(frame.up, up)), scale(frame.lateral, out * side));
+}
+
+/**
+ * A leg, modelled tucked under the sleeping body: its joints from the hip or shoulder down to the
+ * tip of the middle toe, one bone per segment (the last bone carries the paw), and its radius at
+ * each joint. `side` is +1 for the near flank, -1 for the far one.
+ */
+export type Leg = { side: 1 | -1; joints: readonly Vec3[]; radii: readonly number[]; bones: readonly number[] };
+
+function leg(frame: BodyAxes, origin: Vec3, side: 1 | -1, steps: readonly (readonly [Vec3, number])[], radii: readonly number[], firstBone: number): Leg {
+  const joints: Vec3[] = [origin];
+  for (const [direction, length] of steps) joints.push(add(joints[joints.length - 1]!, scale(normalize(inAxes(frame, [0, 0, 0], direction, side)), length)));
+  return { side, joints, radii, bones: steps.map((_, k) => firstBone + k) };
+}
+
+/** Front legs, on the chest: upper arm back and down, forearm forward along the ground under the neck, paw flat. */
+export const FRONT_LEGS: readonly Leg[] = ([1, -1] as const).map((side, k) =>
+  leg(
+    CHEST_AXES,
+    inAxes(CHEST_AXES, CHEST, [-6, -5, 11], side),
+    side,
+    [
+      [[-0.3, -0.8, 0.35], 15],
+      [[0.97, -0.1, 0.1], 16],
+      [[1, -0.05, 0.02], 8],
+    ],
+    [7.5, 5.6, 4.2, 3.4],
+    LIMB_FIRST + k * 3,
+  ),
+);
+
+/** Hind legs, on the pelvis: a heavy thigh forward along the flank, shin folded back, hock and paw flat forward. */
+export const HIND_LEGS: readonly Leg[] = ([1, -1] as const).map((side, k) =>
+  leg(
+    PELVIS_AXES,
+    inAxes(PELVIS_AXES, HIPS, [6, -3, 11], side),
+    side,
+    [
+      [[0.74, -0.37, 0.56], 21],
+      [[-0.9, -0.22, 0.12], 17],
+      [[0.95, -0.05, 0.08], 12],
+      [[1, 0, 0.04], 8],
+    ],
+    [10, 6.8, 4.8, 4, 3.4],
+    LIMB_FIRST + 6 + k * 4,
+  ),
+);
+
+/**
+ * A wing, modelled fully spread (the rig furls and folds it): the arm from the shoulder to the
+ * elbow, the forearm to the wrist, the fingers fanning from the wrist, and the membrane between
+ * them, down to its root on the back.
+ */
+export type Wing = {
+  /** +1 for the near wing, -1 for the far one. */
+  side: 1 | -1;
+  shoulder: Vec3;
+  elbow: Vec3;
+  wrist: Vec3;
+  /** Finger tips, from the leading edge to the trailing one. */
+  tips: readonly Vec3[];
+  /** Where the trailing edge of the membrane meets the back. */
+  root: Vec3;
+  arm: number;
+  forearm: number;
+  fingers: readonly number[];
+};
+
+function wing(side: 1 | -1, arm: number): Wing {
+  const at = (origin: Vec3, offset: Vec3) => inAxes(CHEST_AXES, origin, offset, side);
+  const shoulder = at(CHEST, [-8, 13, 8]);
+  const elbow = at(shoulder, [-4.6, 20.7, 13.8]);
+  const wrist = at(elbow, [6.9, 34.5, 12.7]);
+  const tips: Vec3[] = [at(wrist, [4.6, 23, 33.4]), at(wrist, [-12.7, 2.3, 41.4]), at(wrist, [-28.8, -17.3, 35.7]), at(wrist, [-39.1, -35.7, 19.6])];
+  const root = at(WAIST, [-2, 15, 7]);
+  return { side, shoulder, elbow, wrist, tips, root, arm, forearm: arm + 1, fingers: tips.map((_, i) => arm + 2 + i) };
+}
+
+const WING_FIRST = LIMB_FIRST + 14;
+export const WINGS: readonly Wing[] = [wing(1, WING_FIRST), wing(-1, WING_FIRST + 6)];
+export const BONE_COUNT = WING_FIRST + 12;
+/** The bones of the torso, whose voxels swell with the breath. */
+const TORSO_BONES: readonly number[] = [PELVIS_BONE, CHEST_BONE];
 
 export type DragonAnchors = {
   /** Center of the skull in the rest pose. */
@@ -59,16 +225,12 @@ export type DragonAnchors = {
   mouth: Vec3;
   /** Nostrils, where smoke rises from (head bone space). */
   nostrils: readonly Vec3[];
-  /** Near-side eye center (head bone space). */
-  eye: Vec3;
   chest: Vec3;
+  /** Glowing tip of the tail, and the bone it rides on. */
   tailTip: Vec3;
-  /** Points along the torso for hover hit regions, with their radius. */
-  body: readonly { point: Vec3; radius: number }[];
-  /** Points along the tail for hover hit regions, with their radius. */
-  tail: readonly { point: Vec3; radius: number }[];
-  /** Elbow of the far wing (far wing bone space), for hover hit regions. */
-  farWingElbow: Vec3;
+  tailTipBone: number;
+  /** Points of the body for hover hit regions: the bone each rides on and its radius. */
+  regions: readonly { point: Vec3; bone: number; radius: number }[];
 };
 
 export type DragonModel = {
@@ -77,8 +239,14 @@ export type DragonModel = {
   positions: Float32Array;
   /** Linear RGB per voxel. */
   colors: Float32Array;
-  /** Per voxel: kind, bone coordinate (bone + blend fraction), random seed (0..1), kind-specific local value. */
+  /**
+   * Per voxel: kind, how much it follows the torso (where the breath swells the chest), random
+   * seed (0..1), kind-specific local value (eye row, mouth depth, tail tip closeness).
+   */
   data: Float32Array;
+  /** Per voxel, the four bones it is skinned to and their weights (summing to 1). */
+  skinBones: Float32Array;
+  skinWeights: Float32Array;
   anchors: DragonAnchors;
 };
 
@@ -111,123 +279,284 @@ function hexLinear(hex: string): [number, number, number] {
 const LINEAR: Record<number, readonly [[number, number, number], [number, number, number]]> = Object.fromEntries(
   Object.entries(SRGB).map(([key, [a, b]]) => [key, [hexLinear(a), hexLinear(b)]]),
 );
+/** Up to four (bone, weight) influences of a voxel. */
+type Skin = readonly (readonly [bone: number, weight: number])[];
 
-const NECK: readonly Vec3[] = [...JOINTS, [-52, 40, 48]];
-const NECK_RADII = [9.5, 7.6, 6.6, 6, 5.6, 5.4, 5.2];
-const neckBone = (t: number) => Math.min(HEAD_BONE - 1e-3, t * HEAD_BONE);
+/** Weights are stored in steps of this size, so neighbouring voxels share their skin entry. */
+const SKIN_STEP = 1 / 32;
 
-const TORSO: readonly Vec3[] = [
-  [-18, 22, -18],
-  [2, 19, -30],
-  [22, 16, -42],
-];
-const TORSO_RADII = [13, 14.5, 12];
+/**
+ * The distinct skins of the model. A grid cell stores the index of its skin as its weight, so the
+ * build steps can stamp shapes skinned to several bones.
+ */
+class SkinTable {
+  readonly skins: Skin[] = [];
+  private readonly index = new Map<string, number>();
 
-const TAIL: readonly Vec3[] = [
-  [26, 13, -46],
-  [48, 8, -38],
-  [60, 4, -12],
-  [54, 3, 18],
-  [36, 3, 40],
-  [12, 4, 50],
-  [-10, 5, 52],
-  [-22, 7, 48],
-  [-18, 10, 42],
-];
-const TAIL_RADII = [7.5, 6.2, 5, 4.1, 3.3, 2.6, 2, 1.5, 1];
-const TAIL_TIP: Vec3 = [-18, 10, 42];
+  rigid(bone: number): number {
+    return this.id([[bone, 1]]);
+  }
 
-const SKULL: Vec3 = [-52, 40, 48];
-const MOUTH: Vec3 = [-31, 35.5, 48];
-const EYE: Vec3 = [-51, 41.5, 54];
-const NOSTRILS: readonly Vec3[] = [
-  [-32, 41, 47],
-  [-32, 41, 49],
-];
+  /** Blends from bone `a` (t = 0) to bone `b` (t = 1). */
+  blend(a: number, b: number, t: number): number {
+    return this.id([
+      [a, 1 - t],
+      [b, t],
+    ]);
+  }
+
+  id(influences: Skin): number {
+    const strongest = influences
+      .filter(([, weight]) => weight > 0)
+      .sort((p, q) => q[1] - p[1])
+      .slice(0, 4);
+    const total = strongest.reduce((sum, [, weight]) => sum + weight, 0);
+    const quantized = strongest
+      .map(([bone, weight]): [number, number] => [bone, Math.round(weight / total / SKIN_STEP) * SKIN_STEP])
+      .filter(([, weight]) => weight > 0);
+    const sum = quantized.reduce((acc, [, weight]) => acc + weight, 0);
+    const skin: Skin = quantized.map(([bone, weight]) => [bone, weight / sum] as const);
+    const key = skin.map(([bone, weight]) => `${bone}:${weight.toFixed(4)}`).join(",");
+    const existing = this.index.get(key);
+    if (existing !== undefined) return existing;
+    this.skins.push(skin);
+    this.index.set(key, this.skins.length - 1);
+    return this.skins.length - 1;
+  }
+}
+
+type Builder = { grid: VoxelGrid; skins: SkinTable };
 
 function dragonGrid(): VoxelGrid {
-  return new VoxelGrid({ min: [-84, -1, -80], max: [72, 84, 66] });
+  return new VoxelGrid({ min: [-112, -1, -112], max: [112, 112, 96] });
 }
 
-/** Torso and belly plates. */
-function buildTorso(grid: VoxelGrid): void {
-  grid.tube(TORSO, TORSO_RADII, M.scale);
-  grid.ellipsoid([-12, 14, -20], [8, 9, 10], M.belly, 0, true);
-  grid.ellipsoid([4, 11, -30], [8, 9, 11], M.belly, 0, true);
+/** Points along the Catmull-Rom curve through `joints`, segment by segment, about one per voxel. */
+function segmentSamples(joints: readonly Vec3[], k: number): Vec3[] {
+  const p0 = joints[Math.max(0, k - 1)]!;
+  const p1 = joints[k]!;
+  const p2 = joints[k + 1]!;
+  const p3 = joints[Math.min(joints.length - 1, k + 2)]!;
+  const steps = Math.max(2, Math.ceil(distance(p1, p2) * 1.5));
+  return Array.from({ length: steps + 1 }, (_, s) => catmullRom(p0, p1, p2, p3, s / steps));
 }
 
-/** Neck with its throat plates and spines. */
-function buildNeck(grid: VoxelGrid): void {
-  grid.tube(NECK, NECK_RADII, M.scale, neckBone);
-  const neckSamples = sampleCurve(NECK, 1);
-  neckSamples.forEach((p, i) => {
-    const t = i / (neckSamples.length - 1);
-    if (t < 0.12 || t > 0.96) return;
-    const next = neckSamples[Math.min(neckSamples.length - 1, i + 1)]!;
-    const [tx, , tz] = [next[0] - p[0], 0, next[2] - p[2]];
-    const len = Math.hypot(tx, tz) || 1;
-    const lateral: Vec3 = [tz / len, 0, -tx / len];
-    const radius = sampleRadius(NECK_RADII, t);
-    const throat: Vec3 = [p[0] + lateral[0] * 0.3, p[1] - radius + 1.3, p[2] + lateral[2] * 0.3];
-    grid.ellipsoid(throat, [3, 1.6, 3], M.belly, neckBone(t), true);
-    if (i % 4 === 0) {
-      const top: Vec3 = [p[0], p[1] + radius - 0.6, p[2]];
-      const spike = 1.4 + 1.6 * Math.sin(Math.PI * t);
-      grid.tube([top, [top[0] - lateral[2] * 0.2, top[1] + spike, top[2] + lateral[0] * 0.2]], [0.9, 0.3], M.spine, () => neckBone(t), false);
+/**
+ * A chain of rigid capsules along the curve through `joints`: segment `k` is part and bone
+ * `bones[k]`, a tube tapering from `radii[k]` to `radii[k + 1]` that ends in a full sphere. `extra`
+ * stamps details on each segment (the grid's current part is that segment's).
+ */
+function stampChain(
+  { grid, skins }: Builder,
+  joints: readonly Vec3[],
+  radii: readonly number[],
+  bones: readonly number[],
+  extra: (k: number, samples: readonly Vec3[], skin: number) => void,
+): void {
+  bones.forEach((bone, k) => {
+    grid.part = bone;
+    const skin = skins.rigid(bone);
+    const samples = segmentSamples(joints, k);
+    samples.forEach((point, s) => {
+      const r = radii[k]! + (radii[k + 1]! - radii[k]!) * (s / (samples.length - 1));
+      grid.ellipsoid(point, [r, r, r], M.scale, skin, false);
+    });
+    extra(k, samples, skin);
+  });
+}
+
+/** A short spike from the top of a capsule. */
+function spike(grid: VoxelGrid, base: Vec3, height: number, skin: number): void {
+  grid.tube([base, add(base, [0.5, height, 0])], [1.1, 0.3], M.spine, () => skin, false);
+}
+
+/** Torso, belly plates, chest and back spines. */
+function buildTorso(builder: Builder): void {
+  const { grid, skins } = builder;
+  stampChain(builder, [HIPS, WAIST, CHEST], TORSO_RADII, [PELVIS_BONE, CHEST_BONE], (k, samples, skin) => {
+    const frame = k === 0 ? PELVIS_AXES : CHEST_AXES;
+    samples.forEach((point, s) => {
+      const t = s / (samples.length - 1);
+      const r = TORSO_RADII[k]! + (TORSO_RADII[k + 1]! - TORSO_RADII[k]!) * t;
+      if (s % 3 === 0) spike(grid, inAxes(frame, point, [0, r - 1, 0], 1), 2.2 + 1.4 * Math.sin(Math.PI * t), skin);
+      if (s % 5 === 0) grid.ellipsoid(inAxes(frame, point, [0, -r + 4, 0], 1), [r * 0.55, 2.6, r * 0.55], M.belly, skin, true);
+    });
+  });
+  grid.part = CHEST_BONE;
+  const chest = skins.rigid(CHEST_BONE);
+  grid.ellipsoid(inAxes(CHEST_AXES, CHEST, [-8, -6, 0], 1), [13, 11, 14], M.scale, chest, false);
+  for (const side of [1, -1]) grid.ellipsoid(inAxes(CHEST_AXES, CHEST, [-7, 2, 10], side), [9, 10, 8], M.scale, chest, false);
+}
+
+/** Neck with its throat plates and spines, and the tail with its spines and glowing tip. */
+function buildNeckAndTail(builder: Builder): void {
+  const { grid, skins } = builder;
+  const neckBones = NECK_JOINTS.slice(0, -1).map((_, k) => NECK_FIRST + k);
+  stampChain(builder, NECK_JOINTS, NECK_RADII, neckBones, (k, samples, skin) => {
+    const frame = axes(NECK_JOINTS[k]!, NECK_JOINTS[k + 1]!);
+    samples.forEach((point, s) => {
+      const r = NECK_RADII[k]! + (NECK_RADII[k + 1]! - NECK_RADII[k]!) * (s / (samples.length - 1));
+      if (s % 4 === 0) spike(grid, inAxes(frame, point, [0, r - 0.8, 0], 1), 1.6 + 0.12 * r, skin);
+      if (s % 3 === 0) grid.ellipsoid(inAxes(frame, point, [0, -r + 1.6, 0], 1), [r * 0.5, 1.8, r * 0.5], M.belly, skin, true);
+    });
+  });
+  const tailBones = TAIL_JOINTS.slice(0, -1).map((_, k) => TAIL_FIRST + k);
+  stampChain(builder, TAIL_JOINTS, TAIL_RADII, tailBones, (k, samples, skin) => {
+    const frame = axes(TAIL_JOINTS[k]!, TAIL_JOINTS[k + 1]!);
+    samples.forEach((point, s) => {
+      const r = TAIL_RADII[k]! + (TAIL_RADII[k + 1]! - TAIL_RADII[k]!) * (s / (samples.length - 1));
+      if (s % 4 === 0 && k < tailBones.length - 1) spike(grid, inAxes(frame, point, [0, r - 0.6, 0], 1), 0.8 + 0.25 * r, skin);
+    });
+  });
+  const tip = TAIL_JOINTS[TAIL_JOINTS.length - 1]!;
+  const before = TAIL_JOINTS[TAIL_JOINTS.length - 2]!;
+  grid.part = tailBones[tailBones.length - 1]!;
+  grid.tube([add(tip, scale(normalize(sub(before, tip)), TAIL_EMBER)), tip, add(tip, scale(normalize(sub(tip, before)), TAIL_EMBER))], [2.2, 1.9, 0.9], M.tailTip, () => skins.rigid(grid.part), true);
+}
+
+/** Head and jaw (the jaw first: where they meet, the jaw keeps its cells), drawn in head coordinates. */
+function buildHead({ grid, skins }: Builder): void {
+  const head = skins.rigid(HEAD_BONE);
+  const jaw = skins.rigid(JAW_BONE);
+  const h = headPoint;
+  const k = HEAD_SCALE;
+  const tube = (points: Vec3[], radii: number[], material: number, skin: number, overwrite = true) =>
+    grid.tube(points, radii.map((r) => r * k), material, () => skin, overwrite);
+  /** One cell of the head drawing, at the head's scale. */
+  const cell = (point: Vec3, material: number, skin: number) => grid.ellipsoid(point, [0.62 * k, 0.62 * k, 0.62 * k], material, skin);
+  const carve = ([cx, cy, cz]: Vec3, r: number) => {
+    for (let z = Math.floor(cz - r); z <= Math.ceil(cz + r); z += 1) {
+      for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y += 1) {
+        for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x += 1) if ((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2 <= r * r) grid.clear(x, y, z);
+      }
     }
+  };
+  grid.part = JAW_BONE;
+  tube([h(-47, 33.5, 48), h(-38, 33.5, 48), h(-32, 33.5, 48)], [3.2, 2.8, 1.8], M.scale, jaw);
+  for (const side of [1, -1]) tube([h(-50, 31, 48 + side * 2), h(-52, 27.5, 48 + side * 3)], [1.2, 0.3], M.horn, jaw);
+  grid.part = HEAD_BONE;
+  grid.ellipsoid(SKULL, [8 * k, 6.5 * k, 6 * k], M.scale, head);
+  grid.ellipsoid(h(-56, 43.5, 48), [6 * k, 4 * k, 5 * k], M.scale, head);
+  tube([h(-46, 39, 48), h(-38, 38.5, 48), h(-31, 37.5, 48)], [5.2, 4.4, 3.2], M.scale, head);
+  for (let x = -46; x <= -31; x += 1) {
+    const inside = 4 - Math.max(0, (x + 34) * 0.4);
+    for (let z = 43; z <= 53; z += 1) {
+      if (Math.abs(z - 48) > inside) continue;
+      carve(h(x, 35, z), 0.75 * k);
+      cell(h(x, 36, z), M.mouth, head);
+      grid.part = JAW_BONE;
+      cell(h(x, 34, z), M.mouth, jaw);
+      grid.part = HEAD_BONE;
+    }
+  }
+  for (let x = -44; x <= -34; x += 3) {
+    cell(h(x, 35, 51), M.claw, head);
+    cell(h(x, 35, 45), M.claw, head);
+  }
+  for (const nostril of NOSTRILS) cell(nostril, M.nostril, head);
+  for (const side of [1, -1]) {
+    const z = 48 + side * 6;
+    for (let x = -53; x <= -49; x += 1) cell(h(x, 41, z), M.eye, head);
+    for (let x = -52; x <= -50; x += 1) cell(h(x, 42, z), M.eye, head);
+    for (let x = -54; x <= -48; x += 1) cell(h(x, 43, z + side), M.brow, head);
+    cell(h(-54, 42, z + side), M.brow, head);
+    cell(h(-48, 42, z + side), M.brow, head);
+    tube([h(-57, 45, 48 + side * 4), h(-62, 50, 48 + side * 5.5), h(-68, 53.5, 48 + side * 6.5), h(-73, 55, 48 + side * 7)], [2.2, 1.7, 1.1, 0.4], M.horn, head);
+    tube([h(-56, 38, 48 + side * 6), h(-62, 37, 48 + side * 8.5), h(-67, 36.5, 48 + side * 10)], [1.5, 1, 0.3], M.horn, head);
+  }
+  for (let i = 0; i < 3; i += 1) {
+    const x = -54 - i * 3;
+    tube([h(x, 46, 48), h(x - 1.5, 49.5 - i * 0.5, 48)], [1, 0.3], M.spine, head, false);
+  }
+}
+
+/** Legs: capsules with a muscle bulge on the upper segment, and clawed toes on the paw. */
+function buildLegs({ grid, skins }: Builder): void {
+  for (const limb of [...FRONT_LEGS, ...HIND_LEGS]) {
+    limb.bones.forEach((bone, k) => {
+      grid.part = bone;
+      const skin = skins.rigid(bone);
+      const from = limb.joints[k]!;
+      const to = limb.joints[k + 1]!;
+      const last = k === limb.bones.length - 1;
+      if (last) {
+        const along = normalize(sub(to, from));
+        const side = normalize(cross(along, [0, 1, 0]));
+        grid.ellipsoid(add(from, scale(along, 2)), [limb.radii[k]! + 0.6, limb.radii[k]! * 0.7, limb.radii[k]! + 0.6], M.scale, skin, false);
+        for (const toe of [-1, 0, 1]) {
+          const root = add(from, scale(side, toe * limb.radii[k]! * 0.75));
+          const end = add(add(root, scale(along, distance(from, to) * (toe === 0 ? 1 : 0.85))), scale(side, toe * 1.6));
+          grid.tube([root, end], [1.8, 1.3], M.scale, () => skin, false);
+          grid.tube([end, add(add(end, scale(along, 2.6)), [0, -1, 0])], [1.1, 0.4], M.claw, () => skin, false);
+        }
+        return;
+      }
+      grid.tube([from, to], [limb.radii[k]!, limb.radii[k + 1]!], M.scale, () => skin, false);
+      if (k === 0) {
+        const bulge = limb.radii[0]! * (limb.bones.length > 3 ? 1.25 : 1.05);
+        grid.ellipsoid(add(from, scale(sub(to, from), 0.28)), [bulge, bulge, bulge], M.scale, skin, false);
+      }
+    });
+  }
+}
+
+/** Both wings. */
+function buildWings(builder: Builder): void {
+  for (const spec of WINGS) buildWing(builder, spec);
+}
+
+/**
+ * Skin of a membrane voxel: the bones of the wing (and the back it hangs from) weighted by their
+ * inverse squared distance, so the membrane stretches smoothly between the fingers as they fan.
+ */
+function membraneSkin(skins: SkinTable, spec: Wing, cell: Vec3): number {
+  const segments: [number, Vec3, Vec3][] = [
+    [spec.arm, spec.shoulder, spec.elbow],
+    [spec.forearm, spec.elbow, spec.wrist],
+    ...spec.tips.map((tip, i): [number, Vec3, Vec3] => [spec.fingers[i]!, spec.wrist, tip]),
+    [CHEST_BONE, spec.root, spec.shoulder],
+  ];
+  return skins.id(segments.map(([bone, a, b]) => [bone, 1 / (segmentDistance(cell, a, b) ** 2 + 2)] as const));
+}
+
+function buildWing({ grid, skins }: Builder, spec: Wing): void {
+  const { shoulder, elbow, wrist, tips, root } = spec;
+  grid.part = spec.arm;
+  grid.tube([shoulder, elbow], [3.8, 3], M.wingBone, () => skins.rigid(spec.arm), false);
+  grid.part = spec.forearm;
+  grid.tube([elbow, wrist], [3, 2.1], M.wingBone, () => skins.rigid(spec.forearm), false);
+  const claw = skins.rigid(spec.forearm);
+  const thumb = inAxes(CHEST_AXES, wrist, [3.5, 5.5, 0], spec.side);
+  grid.tube([wrist, thumb, inAxes(CHEST_AXES, thumb, [2.3, 2.8, -0.5], spec.side)], [1.5, 1, 0.4], M.claw, () => claw, false);
+  tips.forEach((tip, i) => {
+    grid.part = spec.fingers[i]!;
+    grid.tube([wrist, tip], [1.6, 0.6], M.wingBone, () => skins.rigid(spec.fingers[i]!), false);
   });
+
+  grid.part = 200 + (spec.side > 0 ? 0 : 1);
+  const scallop = (u: number, v: number) => {
+    const sum = u + v;
+    if (sum <= 0) return true;
+    return sum <= 1 - 0.22 * Math.sin((Math.PI * v) / sum);
+  };
+  const keepAll = () => true;
+  const skin = (cell: Vec3) => membraneSkin(skins, spec, cell);
+  for (let i = 0; i < tips.length - 1; i += 1) {
+    grid.triangle(wrist, tips[i]!, tips[i + 1]!, M.membrane, scallop, false, skin);
+  }
+  const last = tips[tips.length - 1]!;
+  grid.triangle(wrist, last, elbow, M.membrane, keepAll, false, skin);
+  grid.triangle(elbow, last, root, M.membrane, scallop, false, skin);
+  grid.triangle(elbow, root, shoulder, M.membrane, keepAll, false, skin);
 }
 
-/** Head and legs. */
-function buildLimbs(grid: VoxelGrid): void {
-  buildHead(grid);
-  buildLegs(grid);
-}
-
-/** The far wing, then the near wing. */
-function buildWings(grid: VoxelGrid): void {
-  buildWing(grid, "far");
-  buildWing(grid, "near");
-}
-
-/** Tail, back and tail spines, and the glowing tail tip. */
-function buildTailAndSpines(grid: VoxelGrid): void {
-  grid.tube(TAIL, TAIL_RADII, M.scale);
-  const torsoSamples = sampleCurve(TORSO, 1);
-  torsoSamples.forEach((p, i) => {
-    if (i % 3 !== 0) return;
-    const t = i / (torsoSamples.length - 1);
-    const radius = sampleRadius(TORSO_RADII, t);
-    grid.tube([[p[0], p[1] + radius - 0.8, p[2]], [p[0] + 0.6, p[1] + radius + 2.6, p[2] - 0.6]], [1.1, 0.3], M.spine, () => 0, false);
-  });
-  const tailSamples = sampleCurve(TAIL, 1);
-  tailSamples.forEach((p, i) => {
-    if (i % 4 !== 0) return;
-    const t = i / (tailSamples.length - 1);
-    if (t > 0.86) return;
-    const radius = sampleRadius(TAIL_RADII, t);
-    grid.tube([[p[0], p[1] + radius - 0.6, p[2]], [p[0], p[1] + radius + 1.8 * (1 - t) + 0.5, p[2]]], [0.8, 0.3], M.spine, () => 0, false);
-  });
-  grid.tube(
-    [
-      [-22, 7, 48],
-      TAIL_TIP,
-      [-13, 12.5, 38],
-    ],
-    [1.7, 1.5, 0.8],
-    M.tailTip,
-    () => 0,
-    true,
-  );
-}
-
-const BUILD_STEPS: readonly ((grid: VoxelGrid) => void)[] = [buildTorso, buildNeck, buildLimbs, buildWings, buildTailAndSpines];
+const BUILD_STEPS: readonly ((builder: Builder) => void)[] = [buildTorso, buildNeckAndTail, buildHead, buildLegs, buildWings];
 
 /** Builds the rose dragon: a hand-authored procedural voxel model (no third-party asset). */
 export function buildDragon(): DragonModel {
-  const grid = dragonGrid();
-  for (const step of BUILD_STEPS) step(grid);
-  return collect(grid);
+  const builder: Builder = { grid: dragonGrid(), skins: new SkinTable() };
+  for (const step of BUILD_STEPS) step(builder);
+  return collect(builder);
 }
 
 /**
@@ -235,144 +564,23 @@ export function buildDragon(): DragonModel {
  * yields to the browser there, so no single task blocks input while the page loads).
  */
 export async function buildDragonInSteps(pause: () => Promise<void>): Promise<DragonModel> {
-  const grid = dragonGrid();
+  const builder: Builder = { grid: dragonGrid(), skins: new SkinTable() };
   for (const step of BUILD_STEPS) {
-    step(grid);
+    step(builder);
     await pause();
   }
-  return collect(grid);
+  return collect(builder);
 }
 
-function buildHead(grid: VoxelGrid): void {
-  const w = HEAD_BONE;
-  grid.ellipsoid(SKULL, [8, 6.5, 6], M.scale, w);
-  grid.ellipsoid([-56, 43.5, 48], [6, 4, 5], M.scale, w);
-  grid.tube([[-46, 39, 48], [-38, 38.5, 48], [-31, 37.5, 48]], [5.2, 4.4, 3.2], M.scale, () => w);
-  grid.tube([[-47, 33.5, 48], [-38, 33.5, 48], [-32, 33.5, 48]], [3.2, 2.8, 1.8], M.scale, () => JAW_BONE);
-  for (let x = -46; x <= -31; x += 1) {
-    const inside = 4 - Math.max(0, (x + 34) * 0.4);
-    for (let z = 43; z <= 53; z += 1) {
-      if (Math.abs(z - 48) > inside) continue;
-      grid.set(x, 35, z, 0, w);
-      grid.set(x, 36, z, M.mouth, w);
-      grid.set(x, 34, z, M.mouth, JAW_BONE);
-    }
-  }
-  for (let x = -44; x <= -34; x += 3) {
-    grid.set(x, 35, 51, M.claw, w);
-    grid.set(x, 35, 45, M.claw, w);
-  }
-  for (const [nx, ny, nz] of NOSTRILS) grid.set(nx, ny, nz, M.nostril, w);
-  for (const side of [1, -1]) {
-    const z = 48 + side * 6;
-    for (let x = -53; x <= -49; x += 1) grid.set(x, 41, z, M.eye, w);
-    for (let x = -52; x <= -50; x += 1) grid.set(x, 42, z, M.eye, w);
-    for (let x = -54; x <= -48; x += 1) grid.set(x, 43, z + side, M.brow, w);
-    grid.set(-54, 42, z + side, M.brow, w);
-    grid.set(-48, 42, z + side, M.brow, w);
-    grid.tube(
-      [
-        [-57, 45, 48 + side * 4],
-        [-62, 50, 48 + side * 5.5],
-        [-68, 53.5, 48 + side * 6.5],
-        [-73, 55, 48 + side * 7],
-      ],
-      [2.2, 1.7, 1.1, 0.4],
-      M.horn,
-      () => w,
-    );
-    grid.tube(
-      [
-        [-56, 38, 48 + side * 6],
-        [-62, 37, 48 + side * 8.5],
-        [-67, 36.5, 48 + side * 10],
-      ],
-      [1.5, 1, 0.3],
-      M.horn,
-      () => w,
-    );
-    grid.tube([[-50, 31, 48 + side * 2], [-52, 27.5, 48 + side * 3]], [1.2, 0.3], M.horn, () => JAW_BONE);
-  }
-  for (let i = 0; i < 3; i += 1) {
-    const x = -54 - i * 3;
-    grid.tube([[x, 46, 48], [x - 1.5, 49.5 - i * 0.5, 48]], [1, 0.3], M.spine, () => w, false);
-  }
-}
-
-function buildLegs(grid: VoxelGrid): void {
-  const legs: { hip: Vec3; knee: Vec3; foot: Vec3; radii: number[] }[] = [
-    { hip: [-14, 16, -6], knee: [-18, 8, 2], foot: [-16, 2, 8], radii: [5.5, 4, 3.4] },
-    { hip: [-14, 15, -30], knee: [-20, 8, -30], foot: [-22, 2, -28], radii: [5, 3.8, 3] },
-    { hip: [22, 14, -30], knee: [32, 8, -20], foot: [34, 2, -12], radii: [6.5, 4.6, 3.6] },
-    { hip: [22, 13, -54], knee: [30, 7, -56], foot: [34, 2, -54], radii: [6, 4.2, 3.4] },
-  ];
-  for (const leg of legs) {
-    grid.tube([leg.hip, leg.knee, leg.foot], leg.radii, M.scale);
-    for (const toe of [-2, 0, 2]) {
-      const forward = leg.foot[2] > leg.hip[2] ? 1 : 0.4;
-      grid.tube(
-        [
-          [leg.foot[0] + toe * 0.7, 1, leg.foot[2] + 1],
-          [leg.foot[0] + toe * 1.3 + 1.5, 0.3, leg.foot[2] + 4 * forward],
-        ],
-        [1.1, 0.5],
-        M.claw,
-      );
-    }
-  }
-}
-
-function buildWing(grid: VoxelGrid, which: "far" | "near"): void {
-  const far = which === "far";
-  const bone = far ? FAR_WING_BONE : 0;
-  const shoulder: Vec3 = far ? FAR_WING_SHOULDER : [-8, 31, -8];
-  const elbow: Vec3 = far ? FAR_WING_ELBOW : [6, 46, -4];
-  const wrist: Vec3 = far ? [18, 72, -56] : [28, 42, -8];
-  const tips: Vec3[] = far
-    ? [
-        [48, 66, -66],
-        [54, 48, -62],
-        [44, 30, -56],
-        [22, 22, -50],
-      ]
-    : [
-        [54, 36, -16],
-        [56, 26, -18],
-        [46, 16, -20],
-        [30, 14, -22],
-      ];
-  const hip: Vec3 = far ? FAR_WING_HIP : [12, 16, -26];
-  grid.tube([shoulder, elbow, wrist], [3.2, 2.4, 1.8], M.wingBone, () => bone);
-  grid.tube([wrist, [wrist[0] + 2, wrist[1] + 4, wrist[2] - 1], [wrist[0] + 3.5, wrist[1] + 6.5, wrist[2] - 2]], [1.3, 0.9, 0.4], M.claw, () => bone);
-  tips.forEach((tip) => grid.tube([wrist, tip], [1.4, 0.5], M.wingBone, () => bone));
-
-  const scallop = (u: number, v: number) => {
-    const sum = u + v;
-    if (sum <= 0) return true;
-    return sum <= 1 - 0.22 * Math.sin((Math.PI * v) / sum);
-  };
-  const keepAll = () => true;
-  for (let i = 0; i < tips.length - 1; i += 1) {
-    grid.triangle(wrist, tips[i]!, tips[i + 1]!, M.membrane, scallop, false, bone);
-  }
-  grid.triangle(wrist, tips[tips.length - 1]!, elbow, M.membrane, keepAll, false, bone);
-  grid.triangle(elbow, tips[tips.length - 1]!, hip, M.membrane, scallop, false, bone);
-  grid.triangle(elbow, hip, shoulder, M.membrane, keepAll, false, bone);
-}
-
-function sampleRadius(radii: readonly number[], t: number): number {
-  const scaled = t * (radii.length - 1);
-  const i = Math.min(radii.length - 2, Math.floor(scaled));
-  const f = scaled - i;
-  return radii[i]! * (1 - f) + radii[i + 1]! * f;
-}
-
-function collect(grid: VoxelGrid): DragonModel {
+function collect({ grid, skins }: Builder): DragonModel {
   const positions: number[] = [];
   const colors: number[] = [];
   const data: number[] = [];
+  const skinBones: number[] = [];
+  const skinWeights: number[] = [];
+  const tailTip = TAIL_JOINTS[TAIL_JOINTS.length - 1]!;
 
-  grid.surface((x, y, z, material, bone) => {
+  grid.surface((x, y, z, material, skinId) => {
     const seed = hash3(x, y, z);
     let mat = material;
     if ((mat === M.scale || mat === M.belly) && seed > 0.996 && y > 3) mat = M.crack;
@@ -386,13 +594,13 @@ function collect(grid: VoxelGrid): DragonModel {
     let local = 0;
     if (mat === M.eye) {
       kind = KIND.eye;
-      local = z > 48 ? 1 : 0;
+      local = Math.min(1, Math.max(0, (y - EYE_ROW) / HEAD_SCALE));
     } else if (mat === M.mouth) {
       kind = KIND.mouth;
-      local = 1 - Math.min(1, (MOUTH[0] - x) / 12);
+      local = 1 - Math.min(1, distance([x, y, z], MOUTH) / (12 * HEAD_SCALE));
     } else if (mat === M.tailTip) {
       kind = KIND.tail;
-      local = 1 - Math.min(1, Math.hypot(x - TAIL_TIP[0], y - TAIL_TIP[1], z - TAIL_TIP[2]) / 7);
+      local = 1 - Math.min(1, distance([x, y, z], tailTip) / TAIL_EMBER);
     } else if (mat === M.crack) {
       kind = KIND.crack;
     } else if (mat === M.membrane) {
@@ -400,27 +608,38 @@ function collect(grid: VoxelGrid): DragonModel {
     } else if (mat === M.nostril) {
       kind = KIND.nostril;
     }
+    const skin = skins.skins[skinId] ?? [[ROOT_BONE, 1] as const];
+    let torso = 0;
+    for (let k = 0; k < 4; k += 1) {
+      const [bone, weight] = skin[k] ?? [skin[0]![0], 0];
+      skinBones.push(bone);
+      skinWeights.push(weight);
+      if (TORSO_BONES.includes(bone)) torso += weight;
+    }
     positions.push(x, y, z);
-    data.push(kind, bone, seed, local);
+    data.push(kind, torso, seed, local);
   });
 
-  const tail = TAIL.map((point, i) => ({ point, radius: (TAIL_RADII[i] ?? 1) + 3 }));
-  const body = TORSO.map((point, i) => ({ point, radius: (TORSO_RADII[i] ?? 10) + 3 }));
+  const regions = [
+    ...SPINE.map((spine) => ({ point: spine.from, bone: spine.bone, radius: spine.bone <= CHEST_BONE ? 19 : spine.bone < TAIL_FIRST ? 11 : 7 })),
+    ...WINGS.map((spec) => ({ point: spec.elbow, bone: spec.arm, radius: 14 })),
+    { point: SKULL, bone: HEAD_BONE, radius: 13 },
+  ];
   return {
     count: positions.length / 3,
     positions: Float32Array.from(positions),
     colors: Float32Array.from(colors),
     data: Float32Array.from(data),
+    skinBones: Float32Array.from(skinBones),
+    skinWeights: Float32Array.from(skinWeights),
     anchors: {
       head: SKULL,
       mouth: MOUTH,
       nostrils: NOSTRILS,
-      eye: EYE,
-      chest: pointOnCurve(TORSO, 0.3),
-      tailTip: TAIL_TIP,
-      body,
-      tail,
-      farWingElbow: FAR_WING_ELBOW,
+      chest: scale(add(WAIST, CHEST), 0.5),
+      tailTip,
+      tailTipBone: TAIL_FIRST + TAIL_JOINTS.length - 2,
+      regions,
     },
   };
 }

@@ -10,6 +10,7 @@
 
 import Link from "next/link";
 import { useMemo, useSyncExternalStore } from "react";
+import { CardTitle } from "@/components/ui/Card";
 import { addressUrl, nearAccountUrl, txUrl } from "@/lib/explorer";
 import { deployed } from "@/lib/deployment";
 import { ROUTES } from "@/lib/routes";
@@ -39,14 +40,14 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
   }, [detail.bids]);
 
   return (
-    <section aria-label="Settlement and payouts" className="rounded-lg border border-ink-750 bg-ink-850" data-settlement>
+    <section aria-label="Settlement and payouts" className="ui-surface rounded-lg" data-settlement>
       <div className="border-b border-ink-750 px-4 py-3">
-        <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">Settlement and payouts</h3>
+        <CardTitle>Settlement and payouts</CardTitle>
         <p className="mt-0.5 text-[12px] text-ink-400">Cash and units settle inside the NEAR ledger; tokens are pulled to Base or Solana from the Portfolio.</p>
       </div>
       <dl className="grid gap-3 px-4 py-3 text-[12px] sm:grid-cols-3">
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">NEAR · cash and units</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">NEAR · cash and units</dt>
           <dd className="mt-0.5 flex flex-col gap-0.5">
             <a href={nearAccountUrl(engine.account)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
               engine {engine.account} ↗
@@ -60,7 +61,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
           </dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Base Sepolia · {cls.chain === "Base" ? "stream tokens" : "cash"}</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">Base Sepolia · {cls.chain === "Base" ? "stream tokens" : "cash"}</dt>
           <dd className="mt-0.5 flex flex-col gap-0.5">
             {roseVault ? (
               <a href={addressUrl("base", roseVault)} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
@@ -82,7 +83,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
           </dd>
         </div>
         <div>
-          <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Solana devnet · {cls.chain === "Solana" ? "stream tokens" : "no leg"}</dt>
+          <dt className="text-[11px] text-ink-400 font-medium">Solana devnet · {cls.chain === "Solana" ? "stream tokens" : "no leg"}</dt>
           <dd className="mt-0.5 flex flex-col gap-0.5">
             {cls.chain === "Solana" ? (
               <>
@@ -105,7 +106,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
       </dl>
       {participants.length > 0 ? (
         <div className="border-t border-ink-750 px-4 py-3" data-participants>
-          <h4 className="font-display text-[10px] uppercase tracking-wide text-ink-400">Participants · their settlement and payout transactions</h4>
+          <h4 className="text-[11px] text-ink-400 font-medium">Participants · their settlement and payout transactions</h4>
           <p className="mt-0.5 text-[11px] text-ink-400">The engine keeps no transaction hashes, so each order links to its account history on near.rocks, where its place, settle and claim transactions are listed.</p>
           <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
             {participants.map((participant) => (
@@ -120,7 +121,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
         </div>
       ) : null}
       <div className="border-t border-ink-750 px-4 py-3">
-        <h4 className="font-display text-[10px] uppercase tracking-wide text-ink-400">Transactions sent from this browser</h4>
+        <h4 className="text-[11px] text-ink-400 font-medium">Transactions sent from this browser</h4>
         {receipts.length === 0 ? (
           <p className="mt-1 text-[12px] text-ink-400">{settledOrCancelled ? "None yet. Every transaction you send for this round is listed here with its explorer link." : "Actions you take on this round appear here with their explorer links."}</p>
         ) : (
@@ -128,11 +129,11 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
             {[...receipts].reverse().map((receipt) => (
               <li key={receipt.hash} className="flex items-center justify-between gap-3 py-1.5">
                 <span className="truncate">
-                  <span className="font-display text-[10px] uppercase tracking-wide text-ink-300">{receipt.kind}</span> <span className="text-ink-400">{receipt.label}</span>
+                  <span className="text-[11px] text-ink-300 font-medium">{receipt.kind}</span> <span className="text-ink-400">{receipt.label}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-3">
                   <span className="tabular text-[11px] text-ink-400">{formatDateTime(receipt.at).replace(" UTC", "")}</span>
-                  <a href={txUrl(receipt.chain, receipt.hash)} target="_blank" rel="noreferrer" className="tabular text-ember-300 underline-offset-2 hover:underline">
+                  <a href={txUrl(receipt.chain, receipt.hash)} target="_blank" rel="noreferrer" className="font-mono text-ember-300 underline-offset-2 hover:underline">
                     {receipt.hash.slice(0, 8)}… ↗
                   </a>
                 </span>

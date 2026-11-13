@@ -3,8 +3,8 @@
 /**
  * Wallet runtime behind the unified wallet context (spec 8.4), loaded on demand by
  * `WalletProvider` so read-only pages never carry these SDKs in their critical path. NEAR through
- * NEAR Connect (`@hot-labs/near-connect`, the connector docs.near.org recommends; on testnet it
- * lists Meteor, Intear, Nightly, Ledger, Unity, WalletConnect and NEAR CLI) or the in-app demo
+ * NEAR Connect (`@hot-labs/near-connect`, the connector docs.near.org recommends; its manifest
+ * lists the testnet wallets, which the connect modal shows as its own rows) or the in-app demo
  * wallet; EVM through wagmi (injected wallets, EIP-6963 discovery) or the in-app demo wallet on
  * Base Sepolia; Solana through the wallet adapter (Phantom, Solflare) or the in-app demo keypair
  * on devnet. Balances per chain are read directly from the RPCs. Everything is testnet only. It
@@ -51,7 +51,7 @@ import {
 } from "@/lib/wallet/solana-demo";
 import { waitForSolanaConnection } from "@/lib/wallet/solana-connect";
 import { DEMO_STORAGE_KEYS, readStored, removeStored, writeStored } from "@/lib/wallet/storage";
-import type { Balances, EvmWalletState, NearWalletState, SolanaSigner, SolanaWalletState, WalletKind, WalletRuntimeValue } from "./WalletProvider";
+import type { Balances, EvmWalletState, NearWalletOption, NearWalletState, SolanaSigner, SolanaWalletState, WalletKind, WalletRuntimeValue } from "./WalletProvider";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
 
@@ -104,6 +104,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
   const connectorRef = useRef<Promise<NearConnector> | null>(null);
   const nearWalletRef = useRef<NearWalletBase | null>(null);
   const [near, setNear] = useState<NearWalletState>({ status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccountExists: false });
+  const [nearWallets, setNearWallets] = useState<NearWalletOption[]>([]);
 
   const [evmDemo, setEvmDemo] = useState<EvmDemoWallet | null>(null);
   const evmAccount = useAccount();
@@ -162,11 +163,16 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     };
   }, [getConnector]);
 
-  /* NEAR Connect events keep the state in sync with the modal. */
+  /* NEAR Connect events keep the state in sync with its wallets, and the wallet list with its manifest. */
   useEffect(() => {
     let disposed = false;
     void getConnector().then((connector) => {
       if (disposed) return;
+      const listWallets = () => {
+        if (!disposed) setNearWallets(connector.availableWallets.map(({ manifest }) => ({ id: manifest.id, name: manifest.name, icon: manifest.icon })));
+      };
+      connector.on("selector:walletsChanged", listWallets);
+      void connector.whenManifestLoaded.then(listWallets, () => undefined);
       connector.on("wallet:signIn", (payload) => {
         const account = payload.accounts[0];
         if (!payload.success || !account) return;
@@ -184,16 +190,19 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     };
   }, [getConnector]);
 
-  const connectNearExternal = useCallback(async () => {
-    setNear((state) => ({ ...state, status: "connecting" }));
-    try {
-      const connector = await getConnector();
-      await connector.connect();
-    } catch (error) {
-      setNear((state) => (state.status === "connecting" ? { ...state, status: state.accountId ? "connected" : "idle" } : state));
-      throw error;
-    }
-  }, [getConnector]);
+  const connectNearExternal = useCallback(
+    async (walletId?: string) => {
+      setNear((state) => ({ ...state, status: "connecting" }));
+      try {
+        const connector = await getConnector();
+        await connector.connect(walletId ? { walletId } : {});
+      } catch (error) {
+        setNear((state) => (state.status === "connecting" ? { ...state, status: state.accountId ? "connected" : "idle" } : state));
+        throw error;
+      }
+    },
+    [getConnector],
+  );
 
   const useNearDemo = useCallback((): Promise<NearDemoWallet> => {
     const wallet = loadNearDemoWallet() ?? generateNearDemoWallet();
@@ -447,6 +456,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       solana,
       balances,
       refreshBalances,
+      nearWallets,
       connectNearExternal,
       useNearDemo,
       disconnectNear,
@@ -476,6 +486,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       solana,
       balances,
       refreshBalances,
+      nearWallets,
       connectNearExternal,
       useNearDemo,
       disconnectNear,

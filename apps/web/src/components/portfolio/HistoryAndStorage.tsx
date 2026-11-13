@@ -53,7 +53,7 @@ export function HistorySection({ data }: { data: PortfolioData }) {
                     <span className="tabular shrink-0 text-[11px] text-ink-400">{formatDate(nsToMs(entry.timestamp))}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
-                    <span className="font-display uppercase tracking-wide">{entry.event.event.replace(/_/g, " ")}</span>
+                    <span className="font-medium">{entry.event.event.replace(/_/g, " ")}</span>
                     <span aria-hidden>·</span>
                     <a href={nearAccountUrl(entry.predecessor)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
                       {entry.predecessor}
@@ -75,7 +75,7 @@ export function HistorySection({ data }: { data: PortfolioData }) {
         ) : null}
         {executed.length > 0 ? (
           <section className="flex flex-col gap-2">
-            <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">Payouts</h4>
+            <h4 className="text-[12px] text-ink-300 font-medium">Payouts</h4>
             <ul className="flex flex-col divide-y divide-ink-800">
               {executed.map((entry) => (
                 <PayoutLine key={entry.payout.id} entry={entry} data={data} />
@@ -135,15 +135,15 @@ export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: Po
       <CardBody className="flex flex-col gap-3">
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div>
-            <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Total</dt>
+            <dt className="text-[12px] text-ink-400 font-medium">Total</dt>
             <dd className="tabular text-[15px] text-ink-50">{data.storage ? `${formatAmount(data.storage.total, NEAR_DECIMALS, 5)} NEAR` : "—"}</dd>
           </div>
           <div>
-            <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Available</dt>
+            <dt className="text-[12px] text-ink-400 font-medium">Available</dt>
             <dd className="tabular text-[15px] text-ink-50">{data.storage ? `${formatAmount(data.storage.available, NEAR_DECIMALS, 5)} NEAR` : "—"}</dd>
           </div>
           <div>
-            <dt className="font-display text-[11px] uppercase tracking-wide text-ink-400">Minimum</dt>
+            <dt className="text-[12px] text-ink-400 font-medium">Minimum</dt>
             <dd className="tabular text-[15px] text-ink-50">{formatAmount(data.storageMinimum, NEAR_DECIMALS, 5)} NEAR</dd>
           </div>
         </dl>

@@ -122,7 +122,7 @@ export class DitherPipeline {
         this.pass(this.blur, this.bloomA);
       }
     }
-    this.dither.uniforms.uBloomStrength!.value = this.bloomEnabled ? 0.65 : 0;
+    this.dither.uniforms.uBloomStrength!.value = this.bloomEnabled ? 0.45 : 0;
     this.pass(this.dither, null);
   }
 

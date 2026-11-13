@@ -41,12 +41,12 @@ export function StatusBlock<T>({
     <section
       aria-labelledby={`status-${slug(title)}`}
       aria-busy={state.status === "loading" || refreshing}
-      className={cn("flex min-w-0 flex-col rounded-lg border border-ink-750 bg-ink-850", className)}
+      className={cn("flex min-w-0 flex-col ui-surface rounded-lg", className)}
       data-status={state.status}
     >
       <header className="flex items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div className="min-w-0">
-          <h2 id={`status-${slug(title)}`} className="font-display text-[13px] uppercase tracking-wide text-ink-100">
+          <h2 id={`status-${slug(title)}`} className="text-[13px] text-ink-100 font-semibold">
             {title}
           </h2>
           {description ? <p className="mt-0.5 text-[12px] text-ink-400">{description}</p> : null}
@@ -106,7 +106,7 @@ export function Rows({ children }: { children: ReactNode }) {
 export function Row({ label, children, mono = false }: { label: ReactNode; children: ReactNode; mono?: boolean }) {
   return (
     <>
-      <dt className="font-display text-[11px] uppercase leading-5 tracking-wide text-ink-400">{label}</dt>
+      <dt className="text-[12px] leading-5 text-ink-400 font-medium">{label}</dt>
       <dd className={cn("min-w-0 leading-5 text-ink-100", mono && "font-mono text-[12px] break-all")}>{children}</dd>
     </>
   );
@@ -124,7 +124,7 @@ export function ExternalLink({ href, children, className }: { href: string; chil
 export function RawResult({ label, value }: { label: string; value: unknown }) {
   return (
     <details className="mt-3 rounded-md border border-ink-750 bg-ink-900">
-      <summary className="cursor-pointer px-3 py-1.5 font-display text-[11px] uppercase tracking-wide text-ink-400 hover:text-ink-100">{label}</summary>
+      <summary className="cursor-pointer px-3 py-1.5 text-[12px] text-ink-400 hover:text-ink-100 font-medium">{label}</summary>
       <pre className="overflow-x-auto px-3 pb-3 font-mono text-[11.5px] leading-relaxed text-ink-200">{JSON.stringify(value, null, 2)}</pre>
     </details>
   );

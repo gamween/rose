@@ -5,11 +5,11 @@ import { Button } from "./Button";
 import { Spinner } from "./Spinner";
 
 function StepMarker({ status, index }: { status: FlowStep["status"]; index: number }) {
-  const base = "flex size-6 shrink-0 items-center justify-center rounded-sm border font-display text-[11px]";
+  const base = "flex size-6 shrink-0 items-center justify-center rounded-sm border text-[11px] font-medium";
   switch (status) {
     case "running":
       return (
-        <span className={cn(base, "border-ember-500 text-ember-400")}>
+        <span className={cn(base, "border-ember-500 bg-ember-700/25 text-ember-300")}>
           <Spinner label="Running" />
         </span>
       );
@@ -41,10 +41,19 @@ export function FlowSteps({ steps, onRetry, running, className, footer }: { step
   return (
     <ol className={cn("flex flex-col gap-3", className)} aria-label="Progress" data-flow-steps>
       {steps.map((step, index) => (
-        <li key={step.id} className="flex items-start gap-3" data-step={step.id} data-status={step.status}>
+        <li
+          key={step.id}
+          className={cn(
+            "relative flex items-start gap-3",
+            index < steps.length - 1 && "before:absolute before:top-7 before:-bottom-2.5 before:left-[11.5px] before:w-px",
+            step.status === "done" ? "before:bg-success-500/40" : "before:bg-ink-700 before:[mask-image:var(--dither-50)] before:[mask-size:2px_2px]",
+          )}
+          data-step={step.id}
+          data-status={step.status}
+        >
           <StepMarker status={step.status} index={index} />
           <div className="min-w-0 flex-1">
-            <p className={cn("text-[13px]", step.status === "idle" ? "text-ink-400" : "text-ink-50")}>{step.label}</p>
+            <p className={cn("text-[13px] leading-6", step.status === "idle" ? "text-ink-400" : "text-ink-50", step.status === "running" && "font-medium")}>{step.label}</p>
             {step.detail ? <p className="mt-0.5 break-words text-[12px] text-ink-300">{step.detail}</p> : null}
             {step.error ? (
               <p className="mt-0.5 break-words text-[12px] text-danger-400" role="alert">
@@ -54,7 +63,7 @@ export function FlowSteps({ steps, onRetry, running, className, footer }: { step
             {step.links.length > 0 ? (
               <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                 {step.links.map((link) => (
-                  <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline">
+                  <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="text-[12px] text-ember-300 underline-offset-2 hover:underline font-medium">
                     {link.label} ↗
                   </a>
                 ))}

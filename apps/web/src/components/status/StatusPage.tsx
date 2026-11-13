@@ -27,9 +27,8 @@ export function StatusPage({ deployment }: { deployment: Deployment }) {
     <main className="mx-auto w-full max-w-[1440px] px-4 py-8 md:px-6 lg:py-10">
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="font-display text-[11px] uppercase tracking-wide text-ember-400">Live checks</p>
-          <h1 className="mt-2 font-display text-[28px] leading-tight text-ink-50 md:text-[34px]">Status</h1>
-          <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-300">
+          <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Status</h1>
+          <p className="mt-1 max-w-3xl text-[14px] text-ink-300">
             Everything on this page is read directly from NEAR testnet, Base Sepolia and Solana devnet in your browser. No indexer, no cache, no
             server in between.
           </p>

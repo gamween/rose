@@ -10,7 +10,7 @@ test.describe("landing", () => {
   test("exposes the phrase as the page heading and has the expected metadata", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(PHRASE);
-    await expect(page).toHaveTitle("rose: What was locked, rose.");
+    await expect(page).toHaveTitle("What was locked, rose.");
     await expect(page.locator('meta[property="og:image"]')).toHaveAttribute("content", /opengraph-image/);
   });
 
@@ -28,21 +28,19 @@ test.describe("landing", () => {
     await page.waitForURL("**/app");
   });
 
-  test("shows the How rose works strip, the protocol block and the footer", async ({ page }) => {
+  test("has one goal: a minimal top bar with Launch app, and reference links only in the footer", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "How rose works" })).toBeVisible();
-    for (const name of ["Tender", "Exit", "Advance"]) {
-      await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-    }
-    await expect(page.getByText(/Protocol not deployed yet|Settled volume/).first()).toBeVisible();
-    const footer = page.getByRole("navigation", { name: "Footer" });
-    for (const name of ["Docs", "Contracts", "Status"]) {
-      await expect(footer.getByRole("link", { name })).toBeVisible();
-    }
-    // GitHub answers 404 while the repository is private: the link appears once NEXT_PUBLIC_REPOSITORY_URL is set.
-    const repository = process.env.NEXT_PUBLIC_REPOSITORY_URL?.trim();
-    if (repository) await expect(footer.getByRole("link", { name: "GitHub" })).toHaveAttribute("href", repository);
-    else await expect(footer.getByRole("link", { name: "GitHub" })).toHaveCount(0);
+    await expect(page.locator("[data-mode]")).not.toHaveAttribute("data-mode", "poster");
+    const topBar = page.getByRole("banner");
+    await expect(topBar.getByRole("link")).toHaveCount(2);
+    await expect(topBar.getByText("Testnet")).toHaveCount(0);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const footer = page.getByRole("contentinfo");
+    await expect(footer).toBeInViewport();
+    await expect(footer.getByRole("link", { name: "How a sealed round works" })).toHaveAttribute("href", "/docs/sealed-rounds");
+    await expect(footer.getByRole("link", { name: "Contracts and addresses" })).toHaveAttribute("href", "/docs/contracts");
+    await expect(topBar.getByRole("link", { name: "rose home" })).toBeInViewport();
+    await expect(topBar.getByRole("link", { name: "Launch app" })).toBeInViewport();
   });
 
   test("scrolls through the sequence without console errors", async ({ page }) => {

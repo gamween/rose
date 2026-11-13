@@ -12,11 +12,10 @@ import { DEPLOYMENT } from "@/lib/deployment";
 import { ROUTES } from "@/lib/routes";
 import { formatDate, formatDateShort, formatDateTime, formatDateTimeShort, KIND_LABEL, STATUS_LABEL, STATUS_TONE } from "./model";
 
-const KIND_TONE: Record<RoundKind, "ember" | "rose" | "info"> = { Tender: "ember", Exit: "rose", Advance: "info" };
-
+/** The round type is a plain label: the status chip beside it carries the colour. */
 export function KindBadge({ kind, className }: { kind: RoundKind; className?: string }) {
   return (
-    <Badge tone={KIND_TONE[kind]} className={className}>
+    <Badge className={cn("text-ink-300", className)} data-kind={kind}>
       {KIND_LABEL[kind]}
     </Badge>
   );
@@ -24,8 +23,7 @@ export function KindBadge({ kind, className }: { kind: RoundKind; className?: st
 
 export function StatusBadge({ status, className }: { status: RoundStatus; className?: string }) {
   return (
-    <Badge tone={STATUS_TONE[status]} className={className} data-status={status}>
-      {status === "Open" || status === "KeyRequested" ? <span aria-hidden className={cn("size-[5px]", status === "Open" ? "animate-pulse bg-ember-400" : "animate-pulse bg-warning-400")} /> : null}
+    <Badge tone={STATUS_TONE[status]} led live={status === "Open" || status === "KeyRequested"} className={className} data-status={status}>
       {STATUS_LABEL[status]}
     </Badge>
   );
@@ -89,7 +87,7 @@ export function LoadingCards({ count = 6 }: { count?: number }) {
 export function Param({ label, children, className, mono = true }: { label: ReactNode; children: ReactNode; className?: string; mono?: boolean }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
-      <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">{label}</dt>
+      <dt className="text-[11px] text-ink-400 font-medium">{label}</dt>
       <dd className={cn("text-[13px] text-ink-100 [overflow-wrap:anywhere]", mono && "tabular")}>{children}</dd>
     </div>
   );

@@ -161,7 +161,7 @@ export function PendingCashDeposits({ token, creditTo, exclude, refreshKey, onRe
   return (
     <section className="flex flex-col gap-3 rounded-md border border-warning-400/40 bg-ink-900 p-3" data-pending-cash>
       <div>
-        <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-200">Cash waiting for registration</h4>
+        <h4 className="text-[12px] text-ink-200 font-medium">Cash waiting for registration</h4>
         <p className="mt-1 text-[12px] text-ink-400">Deposits this browser made into RoseVault whose registration on NEAR did not finish. The tokens are safe in RoseVault; registering credits them and never deposits again.</p>
       </div>
       {rows.length > 0 ? (

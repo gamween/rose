@@ -42,7 +42,7 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
         {nothing ? <p className="text-[13px] text-ink-400">Nothing to claim right now. Claimable tokens appear as your classes unlock; cash appears after a round settles or when you fund a venue.</p> : null}
         {cash.length > 0 ? (
           <section className="flex flex-col gap-2">
-            <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">Cash</h4>
+            <h4 className="text-[12px] text-ink-300 font-medium">Cash</h4>
             <ul className="flex flex-col gap-2">
               {cash.map((row) => (
                 <li key={venueLabel(row.cash.venue)} className="flex items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-900 px-3 py-2" data-cash={row.chain}>
@@ -65,7 +65,7 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
           if (claims.length === 0) return null;
           return (
             <section key={chain} className="flex flex-col gap-2">
-              <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">Tokens on {chain === "base" ? "Base Sepolia" : "Solana devnet"}</h4>
+              <h4 className="text-[12px] text-ink-300 font-medium">Tokens on {chain === "base" ? "Base Sepolia" : "Solana devnet"}</h4>
               <ul className="flex flex-col gap-2">
                 {claims.map((claim) => (
                   <li key={`${claim.source.kind}-${claim.source.classId}-${claim.source.label}`} className="flex items-center justify-between gap-3 rounded-md border border-ink-750 bg-ink-900 px-3 py-2" data-token-claim={chain}>
@@ -89,7 +89,7 @@ export function ClaimsSection({ data, cash, tokens, actions }: { data: Portfolio
         })}
         {pending.length > 0 ? (
           <section className="flex flex-col gap-2">
-            <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">Pending payouts</h4>
+            <h4 className="text-[12px] text-ink-300 font-medium">Pending payouts</h4>
             <ul className="flex flex-col gap-2">
               {pending.map(({ payout, state }) => {
                 const label = STATE_LABEL[state];

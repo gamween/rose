@@ -150,16 +150,16 @@ function LatencyTable({ report, label }: { report: LatencyReport; label: string 
         <caption className="sr-only">{label}</caption>
         <thead className="bg-ink-900">
           <tr>
-            <th scope="col" className="px-3 py-1.5 text-left font-display text-[11px] font-normal uppercase tracking-wide text-ink-400">
+            <th scope="col" className="px-3 py-1.5 text-left text-[12px] text-ink-400 font-medium">
               Round
             </th>
-            <th scope="col" className="px-3 py-1.5 text-left font-display text-[11px] font-normal uppercase tracking-wide text-ink-400">
+            <th scope="col" className="px-3 py-1.5 text-left text-[12px] text-ink-400 font-medium">
               Requested
             </th>
-            <th scope="col" className="px-3 py-1.5 text-left font-display text-[11px] font-normal uppercase tracking-wide text-ink-400">
+            <th scope="col" className="px-3 py-1.5 text-left text-[12px] text-ink-400 font-medium">
               Source
             </th>
-            <th scope="col" className="px-3 py-1.5 text-right font-display text-[11px] font-normal uppercase tracking-wide text-ink-400">
+            <th scope="col" className="px-3 py-1.5 text-right text-[12px] text-ink-400 font-medium">
               Latency
             </th>
           </tr>
@@ -517,7 +517,7 @@ export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
                 <thead className="bg-ink-900">
                   <tr>
                     {["When", "Outcome", "Account", "Detail"].map((label) => (
-                      <th key={label} scope="col" className="px-3 py-1.5 text-left font-display text-[11px] font-normal uppercase tracking-wide text-ink-400">
+                      <th key={label} scope="col" className="px-3 py-1.5 text-left text-[12px] text-ink-400 font-medium">
                         {label}
                       </th>
                     ))}

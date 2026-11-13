@@ -9,7 +9,11 @@
 
 import type { Bid } from "@rose/sdk";
 import { useEffect, useState } from "react";
+import { CardTitle } from "@/components/ui/Card";
+import { CopyButton } from "@/components/ui/CopyButton";
+import { ScrambleText } from "@/components/ui/ScrambleText";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { Term } from "@/components/ui/Term";
 import { nearAccountUrl } from "@/lib/explorer";
 import { ciphertextHash } from "./ibe";
 import { formatQty, formatUsdc, shortAccount } from "./model";
@@ -56,11 +60,11 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
   };
 
   return (
-    <section aria-label="Sealed book" className="rounded-lg border border-ink-750 bg-ink-850" data-sealed-book>
+    <section aria-label="Sealed book" className="ui-surface rounded-lg" data-sealed-book>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
         <div>
-          <h3 className="font-display text-[13px] uppercase tracking-wide text-ink-100">{opened > 0 ? "Book" : "Sealed book"}</h3>
-          <p className="mt-0.5 text-[12px] text-ink-400">
+          <CardTitle>{opened > 0 ? "Book" : <Term term="sealedBook" align="start" />}</CardTitle>
+          <p className="mt-1 text-[12px] leading-snug text-ink-400">
             {opened > 0
               ? `${String(opened)} of ${String(bids.length)} orders opened; prices and quantities below are public. A ciphertext is deleted once its order settles.`
               : "Public: order count, each order's collateral and bond, ciphertext hashes. Hidden: every price and exact quantity."}
@@ -68,7 +72,7 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
         </div>
         <dl className="grid grid-cols-3 gap-x-5 text-right">
           <div>
-            <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Orders</dt>
+            <dt className="text-[11px] text-ink-400 font-medium">Orders</dt>
             <dd className="tabular text-[15px] text-ink-50">
               {String(bids.length)}
               <span className="text-[11px] text-ink-400">
@@ -78,11 +82,13 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
             </dd>
           </div>
           <div>
-            <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Escrowed</dt>
+            <dt className="text-[11px] text-ink-400 font-medium">
+              <Term term="escrow" align="end">Escrowed</Term>
+            </dt>
             <dd className="tabular text-[15px] text-ink-50">{formatUsdc(escrowed)}</dd>
           </div>
           <div>
-            <dt className="font-display text-[10px] uppercase tracking-wide text-ink-400">Locked</dt>
+            <dt className="text-[11px] text-ink-400 font-medium">Locked</dt>
             <dd className="tabular text-[15px] text-ink-50">{formatQty(locked, cls.decimals)}</dd>
           </div>
         </dl>
@@ -117,14 +123,21 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
                     <a href={nearAccountUrl(bid.bidder)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline" title={bid.bidder}>
                       {shortAccount(bid.bidder)}
                     </a>
-                    {mine ? <span className="ml-1.5 font-display text-[10px] uppercase tracking-wide text-ember-300">you</span> : null}
+                    {mine ? <span className="ml-1.5 text-[11px] text-ember-300 font-medium">you</span> : null}
                   </TD>
                   <TD numeric>{collateralOf(bid)}</TD>
                   <TD numeric>{formatUsdc(bid.bond)}</TD>
                   <TD>
-                    <span className="tabular text-[11px] text-ink-400" title={hashes.get(bid.bidId) ?? (bid.ciphertextHex ? undefined : "The engine deletes a ciphertext once its order settles (storage refund).")}>
-                      {hashes.get(bid.bidId)?.slice(0, 16) ?? (bid.ciphertextHex ? "hashing…" : bid.status === "Settled" ? "pruned at settlement" : "—")}
-                    </span>
+                    {hashes.has(bid.bidId) ? (
+                      <span className="inline-flex items-center gap-1 font-mono text-[11px] text-ink-400" title={hashes.get(bid.bidId)}>
+                        <ScrambleText text={hashes.get(bid.bidId)!.slice(0, 16)} />
+                        <CopyButton value={hashes.get(bid.bidId)!} label={`Copy the ciphertext hash of order ${String(bid.bidId)}`} />
+                      </span>
+                    ) : (
+                      <span className="font-mono text-[11px] text-ink-400" title={bid.ciphertextHex ? undefined : "The engine deletes a ciphertext once its order settles (storage refund)."}>
+                        {bid.ciphertextHex ? "hashing…" : bid.status === "Settled" ? "pruned at settlement" : "—"}
+                      </span>
+                    )}
                   </TD>
                   <TD numeric>
                     {bid.opened ? (
@@ -135,7 +148,12 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
                     ) : bid.void ? (
                       <span className="text-[11px] text-danger-400">void: {VOID_LABEL[bid.void] ?? bid.void}</span>
                     ) : (
-                      <span className="text-ink-400">sealed</span>
+                      <span className="inline-flex items-center gap-1.5 text-ink-400">
+                        <svg viewBox="0 0 6 7" width="8" height="9" shapeRendering="crispEdges" aria-hidden>
+                          <path d="M1 0h4v1H1zM0 1h1v2H0zM5 1h1v2H5zM0 3h6v4H0z" fill="currentColor" />
+                        </svg>
+                        sealed
+                      </span>
                     )}
                   </TD>
                 </TR>

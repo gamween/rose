@@ -3,14 +3,20 @@ export type Vec3 = readonly [number, number, number];
 export type Bounds = { min: Vec3; max: Vec3 };
 
 /**
- * Dense voxel grid storing a material id and a scalar per cell. Shapes are rasterized by
- * stamping implicit primitives; `surface()` keeps only cells with an exposed face.
+ * Dense voxel grid storing a material id, a scalar and a part per cell. Shapes are rasterized by
+ * stamping implicit primitives into the current `part`; a stamp never takes a cell from another
+ * part (the first part to fill a cell keeps it), and `surface()` keeps every cell with a face on
+ * empty space or on another part. Each part is then a closed shell of its own, so parts that move
+ * apart never open a hole where they touched.
  */
 export class VoxelGrid {
   readonly min: Vec3;
   readonly size: Vec3;
   readonly material: Uint8Array;
   readonly weight: Float32Array;
+  readonly parts: Uint8Array;
+  /** The part that subsequent stamps fill. */
+  part = 0;
 
   constructor(bounds: Bounds) {
     this.min = bounds.min;
@@ -18,6 +24,7 @@ export class VoxelGrid {
     const cells = this.size[0] * this.size[1] * this.size[2];
     this.material = new Uint8Array(cells);
     this.weight = new Float32Array(cells);
+    this.parts = new Uint8Array(cells);
   }
 
   index(x: number, y: number, z: number): number {
@@ -33,12 +40,25 @@ export class VoxelGrid {
     return i < 0 ? 0 : (this.material[i] ?? 0);
   }
 
+  /** Fills a cell of the current part; `overwrite` lets it replace a filled cell of the same part. */
   set(x: number, y: number, z: number, material: number, weight = 0, overwrite = true): void {
     const i = this.index(x, y, z);
     if (i < 0) return;
-    if (!overwrite && this.material[i] !== 0) return;
+    if (this.material[i] !== 0 && (!overwrite || this.parts[i] !== this.part)) return;
     this.material[i] = material;
     this.weight[i] = weight;
+    this.parts[i] = this.part;
+  }
+
+  /** Empties a cell, whatever part fills it. */
+  clear(x: number, y: number, z: number): void {
+    const i = this.index(x, y, z);
+    if (i >= 0) this.material[i] = 0;
+  }
+
+  private exposed(i: number, x: number, y: number, z: number): boolean {
+    const j = this.index(x, y, z);
+    return j < 0 || this.material[j] === 0 || this.parts[j] !== this.parts[i];
   }
 
   /** Fills an axis-aligned ellipsoid. */
@@ -74,7 +94,10 @@ export class VoxelGrid {
     });
   }
 
-  /** Rasterizes a thin triangle. `keep` can carve the triangle (for scalloped wing edges). */
+  /**
+   * Rasterizes a thin triangle. `keep` can carve the triangle (for scalloped wing edges); `weight`
+   * is either one value for every cell or a function of the cell.
+   */
   triangle(
     a: Vec3,
     b: Vec3,
@@ -82,7 +105,7 @@ export class VoxelGrid {
     material: number,
     keep: (u: number, v: number) => boolean = () => true,
     overwrite = false,
-    weight = 0,
+    weight: number | ((cell: Vec3) => number) = 0,
   ): void {
     const edge = Math.max(distance(a, b), distance(b, c), distance(c, a));
     const steps = Math.ceil(edge * 2.2);
@@ -95,12 +118,12 @@ export class VoxelGrid {
         const x = Math.round(a[0] * w + b[0] * u + c[0] * v);
         const y = Math.round(a[1] * w + b[1] * u + c[1] * v);
         const z = Math.round(a[2] * w + b[2] * u + c[2] * v);
-        this.set(x, y, z, material, weight, overwrite);
+        this.set(x, y, z, material, typeof weight === "number" ? weight : weight([x, y, z]), overwrite);
       }
     }
   }
 
-  /** Calls `visit` for every filled cell with at least one empty face neighbor. */
+  /** Calls `visit` for every filled cell with a face on empty space or on another part. */
   surface(visit: (x: number, y: number, z: number, material: number, weight: number) => void): void {
     const [sx, sy, sz] = this.size;
     for (let iz = 0; iz < sz; iz += 1) {
@@ -113,12 +136,12 @@ export class VoxelGrid {
           const y = iy + this.min[1];
           const z = iz + this.min[2];
           const exposed =
-            this.get(x + 1, y, z) === 0 ||
-            this.get(x - 1, y, z) === 0 ||
-            this.get(x, y + 1, z) === 0 ||
-            this.get(x, y - 1, z) === 0 ||
-            this.get(x, y, z + 1) === 0 ||
-            this.get(x, y, z - 1) === 0;
+            this.exposed(i, x + 1, y, z) ||
+            this.exposed(i, x - 1, y, z) ||
+            this.exposed(i, x, y + 1, z) ||
+            this.exposed(i, x, y - 1, z) ||
+            this.exposed(i, x, y, z + 1) ||
+            this.exposed(i, x, y, z - 1);
           if (exposed) visit(x, y, z, material, this.weight[i] ?? 0);
         }
       }
@@ -128,6 +151,37 @@ export class VoxelGrid {
 
 export function distance(a: Vec3, b: Vec3): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+export function add(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+export function sub(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+export function scale(a: Vec3, factor: number): Vec3 {
+  return [a[0] * factor, a[1] * factor, a[2] * factor];
+}
+
+export function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+export function cross(a: Vec3, b: Vec3): Vec3 {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+export function normalize(a: Vec3): Vec3 {
+  return scale(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
+}
+
+/** Distance from `point` to the segment from `a` to `b`. */
+export function segmentDistance(point: Vec3, a: Vec3, b: Vec3): number {
+  const ab = sub(b, a);
+  const t = Math.min(1, Math.max(0, dot(sub(point, a), ab) / (dot(ab, ab) || 1)));
+  return distance(point, add(a, scale(ab, t)));
 }
 
 /** Uniform Catmull-Rom spline through `points`, `perUnit` samples per unit of chord length. */
@@ -149,7 +203,7 @@ export function sampleCurve(points: readonly Vec3[], perUnit: number): Vec3[] {
   return result;
 }
 
-function catmullRom(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: number): Vec3 {
+export function catmullRom(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: number): Vec3 {
   const t2 = t * t;
   const t3 = t2 * t;
   const axis = (k: 0 | 1 | 2) =>

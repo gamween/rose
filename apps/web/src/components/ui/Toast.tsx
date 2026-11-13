@@ -112,9 +112,10 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
   return (
     <li
       role={toast.tone === "error" ? "alert" : "status"}
-      className="pointer-events-auto relative flex w-full animate-toast-in gap-3 overflow-hidden rounded-md border border-ink-700 bg-ink-850 py-3 pl-4 pr-3 shadow-[0_12px_32px_-12px_rgb(0_0_0/0.8)]"
+      className="pointer-events-auto relative flex w-full animate-toast-in gap-3 overflow-hidden rounded-md border border-ink-700 bg-ink-850 py-3 pl-4 pr-3 shadow-(--shadow-overlay)"
     >
       <span aria-hidden className={cn("absolute inset-y-0 left-0 w-[3px]", style.bar)} />
+      <span aria-hidden className={cn("absolute inset-y-0 left-[3px] w-[2px] [mask-image:var(--dither-50)] [mask-size:2px_2px]", style.bar)} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {toast.tone === "pending" ? <Spinner className={style.icon} label="Pending" /> : null}
@@ -122,14 +123,14 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
         </div>
         {toast.description ? <p className="mt-1 break-words text-[12px] text-ink-300">{toast.description}</p> : null}
         {toast.links && toast.links.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {toast.links.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
                 target="_blank"
                 rel="noreferrer"
-                className="font-display text-[11px] uppercase tracking-wide text-ember-300 underline-offset-2 hover:underline"
+                className="inline-flex h-6 items-center gap-1 rounded-sm border border-ink-700 bg-ink-900 px-2 text-[12px] text-ember-200 transition-colors hover:border-ink-500 hover:text-ink-50 font-medium"
               >
                 {link.label} ↗
               </a>

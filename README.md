@@ -71,15 +71,16 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    through a seeded Tender. You see the sealed book (how many asks, their locked units, their
    ciphertext hashes, no price), the key released by the MPC network a few seconds after the close,
    every ask opened and verified on chain, and the clearing price, each step with its explorer link.
-2. **Connect.** Click **Connect** and, in each of the NEAR, EVM and Solana tabs, **Create a demo
-   wallet**. You see three wallet pills with balances; the keys stay in this browser.
+2. **Connect.** Click **Connect**, choose a network (NEAR first, then Base and Solana), and under
+   **Try without a wallet** use its demo wallet. You see one header button with the connected
+   networks, and its menu lists each wallet with its balance; the keys stay in this browser.
 3. **Get test funds.** Open the testnet banner, then **Get test funds**: **Create the demo account
    with test NEAR**, **Mint 1,000 tUSDC on NEAR**, **Mint 1,000 tUSDC on Base**, **Mint me a demo
    vesting position**, **Create a demo Streamflow position**, and the two actions that send Base
    Sepolia ETH and Solana devnet SOL for gas. You see each action succeed with its explorer link and the balances update.
 4. **Deposit a position.** Open `/app/deposit`, choose Base, pick the demo Sablier stream and
    deposit it. You see the wait for Base's `safe` head (about 3 minutes), then the MPC network's
-   attestation of the deposit (6 to 9 seconds when measured), then your units minted. The Solana tab does the
+   attestation of the deposit (6 to 9 seconds when measured), then your units minted. Choosing Solana does the
    same for the Streamflow position in three engine calls.
 5. **Open a round and sell, sealed.** On `/app/rounds`, **Create Exit round** on the class of your
    position with a short window, then **Place ask**. You see your ask in the sealed book: its locked
@@ -466,6 +467,19 @@ Each script records every transaction under `deployments/` and resumes where it 
 - EVM dependencies: OpenZeppelin Contracts v5.7.0 and forge-std v1.17.0. Sablier's interface is
   copied from `lockup@v4.0.1`.
 - Fonts: Departure Mono (SIL Open Font License 1.1) and Geist (SIL Open Font License).
+- Interface components adapted from MIT-licensed libraries (rewritten without their animation
+  dependency; each source file names its origin, and the licence texts are in
+  [`apps/web/THIRD_PARTY_LICENSES.md`](./apps/web/THIRD_PARTY_LICENSES.md)):
+  - [`AnimatedNumber`](./apps/web/src/components/ui/AnimatedNumber.tsx) from Magic UI's
+    [NumberTicker](https://magicui.design/docs/components/number-ticker)
+    ([magicuidesign/magicui](https://github.com/magicuidesign/magicui), MIT, Copyright (c) Magic UI).
+  - The `.ui-shine` border sweep in [`globals.css`](./apps/web/src/app/globals.css) from Magic UI's
+    [ShineBorder](https://magicui.design/docs/components/shine-border) (same repository and licence).
+  - [`ScrambleText`](./apps/web/src/components/ui/ScrambleText.tsx) from Motion Primitives'
+    [TextScramble](https://motion-primitives.com/docs/text-scramble)
+    ([ibelick/motion-primitives](https://github.com/ibelick/motion-primitives), MIT, Copyright (c) 2024 ibelick).
+  - Design references only, no code copied: React Bits, Aceternity UI, Rare UI, ObsidianUI,
+    shadcn/ui, Origin UI and the Refero style library.
 - **AI assistance:** the code, tests and documents were written during the hackathon with AI coding
   agents (Claude Code, on Fable 5.1 and Opus 5.5), directed and reviewed by the author; independent
   review passes ran on a different model than the one that wrote each part
@@ -480,4 +494,5 @@ Sofiane Ben Taleb ([@gamween](https://github.com/gamween)).
 ## License
 
 [MIT](./LICENSE). Imported code keeps its own licence (`contracts/ibe`: MIT OR Apache-2.0 from
-Sealwell; OpenZeppelin Contracts: MIT; forge-std: MIT OR Apache-2.0).
+Sealwell; OpenZeppelin Contracts: MIT; forge-std: MIT OR Apache-2.0; the adapted Magic UI and
+Motion Primitives components: MIT).

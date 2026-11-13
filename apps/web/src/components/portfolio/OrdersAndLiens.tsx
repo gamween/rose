@@ -88,7 +88,7 @@ export function LiensSection({ held, data, onRelease }: { held: LienProgress[]; 
       <CardHeader title="Liens" description="An Advance encumbers units: their accruals flow to the funders until the claim is delivered, then the units are free again. No oracle, no liquidation." />
       <CardBody className="flex flex-col gap-4">
         <section className="flex flex-col gap-2">
-          <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">As holder</h4>
+          <h4 className="text-[12px] text-ink-300 font-medium">As holder</h4>
           {held.length === 0 ? (
             <p className="text-[13px] text-ink-400">
               No lien on your units.{" "}
@@ -133,7 +133,7 @@ export function LiensSection({ held, data, onRelease }: { held: LienProgress[]; 
           )}
         </section>
         <section className="flex flex-col gap-2">
-          <h4 className="font-display text-[11px] uppercase tracking-wide text-ink-300">As funder</h4>
+          <h4 className="text-[12px] text-ink-300 font-medium">As funder</h4>
           {shares.length === 0 ? (
             <p className="text-[13px] text-ink-400">
               No lien share. Fund an Advance to buy a senior claim on its first unlocks.{" "}

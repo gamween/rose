@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { CASH_TX, cashAttemptJson, cashAttemptScript, withCashResume, type CashResume } from "./fixtures/base-cash";
 import { MOCK, mockChains, type MockOverrides } from "./fixtures/engine-mock";
+import { connectDemoWallet } from "./fixtures/wallets";
 
 /**
  * Issuer console (`/app/issuer`) and the Tender results page: class computation from a schedule
@@ -156,10 +157,7 @@ async function openConsole(page: Page, hash = "", options: { atFixtureTime?: boo
 }
 
 async function connectNearDemo(page: Page): Promise<string> {
-  await page.locator("[data-connect]").click();
-  const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
-  await dialog.getByRole("button", { name: /Create a demo wallet/ }).click();
-  await expect(dialog).toBeHidden();
+  await connectDemoWallet(page, "near");
   const account = await page.evaluate(() => (JSON.parse(localStorage.getItem("rose.demo.near") ?? "{}") as { accountId?: string }).accountId ?? "");
   expect(account).toMatch(/^rose-demo-/);
   await dismissToasts(page);

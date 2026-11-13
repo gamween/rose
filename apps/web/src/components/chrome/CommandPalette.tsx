@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/cn";
 import { REPOSITORY_URL, ROUTES } from "@/lib/routes";
 
@@ -91,11 +92,11 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
         if (event.target === event.currentTarget) onClose();
       }}
       aria-label="Command palette"
-      className="mx-auto mt-[10vh] w-[calc(100%-32px)] max-w-xl rounded-lg border border-ink-700 bg-ink-850 p-0 text-ink-100 shadow-2xl backdrop:bg-ink-950/80 backdrop:backdrop-blur-[2px]"
+      className="mx-auto mt-[10vh] w-[calc(100%-32px)] max-w-xl rounded-lg border border-ink-700 bg-ink-850 p-0 text-ink-100 shadow-(--shadow-overlay) backdrop:bg-ink-950/80 backdrop:backdrop-blur-[2px] open:animate-rise-in"
     >
       {/* The focus ring sits on the search row, flush with it, instead of the global outline offset around the bare input. */}
       <div className="flex items-center gap-2 border-b border-ink-750 px-3 focus-within:shadow-[inset_0_-2px_0_var(--color-ember-400)]" data-palette-row>
-        <span aria-hidden className="font-display text-[11px] uppercase tracking-wide text-ember-300">⌘K</span>
+        <span aria-hidden className="text-[12px] text-ember-300 font-medium">⌘K</span>
         <input
           ref={inputRef}
           value={query}
@@ -130,7 +131,7 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
           if (items.length === 0) return null;
           return (
             <li key={group} role="presentation">
-              <p className="px-4 pb-1 pt-2 font-display text-[11px] uppercase tracking-wide text-ink-400">{group}</p>
+              <p className="px-5 pb-1 pt-2 text-[11px] text-ink-500 font-medium">{group}</p>
               <ul role="group" aria-label={group}>
                 {items.map(({ command, index }) => (
                   <PaletteItem key={command.id} id={`${listId}-${command.id}`} selected={index === active} onHover={() => setActive(index)} onSelect={() => choose(command)}>
@@ -143,7 +144,18 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
           );
         })}
       </ul>
-      <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-400">↑ ↓ to move, Enter to run, Esc to close</p>
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-ink-750 bg-ink-900/60 px-4 py-2 text-[11px] text-ink-400">
+        <span className="flex items-center gap-1">
+          <Kbd>↑</Kbd>
+          <Kbd>↓</Kbd> to move
+        </span>
+        <span className="flex items-center gap-1">
+          <Kbd>Enter</Kbd> to run
+        </span>
+        <span className="flex items-center gap-1">
+          <Kbd>Esc</Kbd> to close
+        </span>
+      </p>
     </dialog>
   );
 }
@@ -156,7 +168,7 @@ function PaletteItem({ id, selected, onHover, onSelect, children }: { id: string
       aria-selected={selected}
       onMouseEnter={onHover}
       onClick={onSelect}
-      className={cn("flex cursor-pointer items-center justify-between gap-3 px-4 py-2", selected ? "bg-ink-800 text-ink-50" : "hover:bg-ink-800/60")}
+      className={cn("relative mx-2 flex cursor-pointer items-center justify-between gap-3 rounded-sm px-3 py-2", selected ? "bg-ink-800 text-ink-50 before:absolute before:inset-y-1.5 before:left-0 before:w-[2px] before:bg-ember-500" : "hover:bg-ink-800/60")}
     >
       {children}
     </li>

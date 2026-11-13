@@ -13,7 +13,7 @@ export function DocsNav({ sections, onNavigate, className }: { sections: DocSect
     <nav aria-label="Docs" className={cn("flex flex-col gap-6", className)}>
       {sections.map((section) => (
         <div key={section.name}>
-          <p className="mb-2 px-2 font-display text-[11px] uppercase tracking-wide text-ink-400">{section.name}</p>
+          <p className="mb-2 px-2 text-[12px] text-ink-400 font-medium">{section.name}</p>
           <ul className="flex flex-col gap-px">
             {section.docs.map((doc) => {
               const active = doc.slug === activeSlug;
@@ -24,8 +24,8 @@ export function DocsNav({ sections, onNavigate, className }: { sections: DocSect
                     onClick={onNavigate}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex min-h-8 items-center rounded-md px-2 py-1 text-[13px] transition-colors",
-                      active ? "bg-ink-800 text-ink-50" : "text-ink-300 hover:bg-ink-850 hover:text-ink-50",
+                      "relative flex min-h-8 items-center rounded-sm px-2 py-1 text-[13px] transition-colors",
+                      active ? "bg-ink-800 text-ink-50 before:absolute before:inset-y-1.5 before:-left-px before:w-[2px] before:bg-ember-500" : "text-ink-300 hover:bg-ink-850 hover:text-ink-50",
                     )}
                   >
                     {doc.title}

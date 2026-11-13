@@ -10,15 +10,15 @@ export function Table({ className, ...rest }: HTMLAttributes<HTMLTableElement>) 
 }
 
 export function THead({ className, ...rest }: HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead className={cn("border-b border-ink-750", className)} {...rest} />;
+  return <thead className={cn("border-b border-ink-750 bg-ink-900/70", className)} {...rest} />;
 }
 
 export function TBody({ className, ...rest }: HTMLAttributes<HTMLTableSectionElement>) {
-  return <tbody className={cn("[&>tr:not(:last-child)]:border-b [&>tr]:border-ink-800", className)} {...rest} />;
+  return <tbody className={cn("[&>tr:not(:last-child)]:border-b [&>tr]:border-(--border-hairline)", className)} {...rest} />;
 }
 
 export function TR({ className, ...rest }: HTMLAttributes<HTMLTableRowElement>) {
-  return <tr className={cn("transition-colors hover:bg-ink-800/60", className)} {...rest} />;
+  return <tr className={cn("transition-colors hover:bg-ink-800/50", className)} {...rest} />;
 }
 
 export function TH({ className, numeric, ...rest }: ThHTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
@@ -26,7 +26,7 @@ export function TH({ className, numeric, ...rest }: ThHTMLAttributes<HTMLTableCe
     <th
       scope="col"
       className={cn(
-        "h-8 px-3 font-display text-[11px] font-normal uppercase tracking-wide text-ink-400",
+        "h-8 px-3 text-[11.5px] whitespace-nowrap text-ink-400 font-medium",
         numeric ? "text-right" : "text-left",
         className,
       )}

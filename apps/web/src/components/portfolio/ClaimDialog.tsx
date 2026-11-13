@@ -3,7 +3,7 @@
 import type { Position } from "@rose/sdk";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
-import { Field, Input, NumberInput } from "@/components/ui/Input";
+import { Field, Input, NumberInput, selectClasses } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { amountToText, formatAmount, isEvmAddress, isSolanaAddress, parseAmount } from "@/lib/amounts";
 import { redeemBlocker } from "./transforms";
@@ -98,7 +98,7 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
                 aria-invalid={invalid || undefined}
                 value={positionId}
                 onChange={(event) => setPositionId(event.target.value)}
-                className="h-9 w-full rounded-md border border-ink-700 bg-ink-900 px-3 text-[13px] text-ink-50 focus:border-ember-500 focus:outline-none"
+                className={selectClasses()}
               >
                 <option value="">Choose…</option>
                 {positions.candidates.map((candidate) => {
@@ -118,12 +118,7 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
         {prompt.amount ? (
           <Field label="Amount" error={amountError} hint={`Claimable: ${formatAmount(prompt.amount.max, prompt.amount.decimals)} ${prompt.amount.unit}`}>
             {({ inputId, invalid }) => (
-              <div className="flex items-center gap-2">
-                <NumberInput id={inputId} value={amount} onValueChange={setAmount} unit={prompt.amount!.unit} decimals={prompt.amount!.decimals} invalid={invalid} className="flex-1" />
-                <Button size="md" variant="ghost" onClick={() => setAmount(amountToText(prompt.amount!.max, prompt.amount!.decimals))}>
-                  Max
-                </Button>
-              </div>
+              <NumberInput id={inputId} value={amount} onValueChange={setAmount} unit={prompt.amount!.unit} decimals={prompt.amount!.decimals} invalid={invalid} max={amountToText(prompt.amount!.max, prompt.amount!.decimals)} />
             )}
           </Field>
         ) : null}
