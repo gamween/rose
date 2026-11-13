@@ -44,7 +44,7 @@ export function EngineKeysBlock({ deployment, refreshKey }: BlockProps) {
     <StatusBlock
       title="Engine account"
       loadingHeight={207}
-      description="The release engine is keyless after init: no key can upgrade, drain or stop it. The check below reads the configured engine's keys live."
+      description="No key can upgrade, drain or stop the engine."
       notDeployedHint="Once the engine is deployed, this block shows its access key list (expected: empty) read live from the RPC."
       badge={({ check }) => (check.keyless ? { tone: "success", label: check.badge } : { tone: "danger", label: check.badge })}
       {...query}
@@ -104,7 +104,7 @@ export function VersionsBlock({ deployment, refreshKey }: BlockProps) {
     <StatusBlock
       title="Contract versions"
       loadingHeight={207}
-      description="The engine is identified by the hash of its wasm; the MPC contract reports its own version."
+      description="The engine wasm hash and the MPC contract version."
       notDeployedHint="The MPC version is read live; the engine hash appears once the engine is deployed."
       {...query}
     >
@@ -198,7 +198,7 @@ export function MpcLatencyBlock({ deployment, refreshKey, className }: BlockProp
     <StatusBlock
       title="MPC latency"
       loadingHeight={334}
-      description="Time from the engine's key request (after a round closes) to the key stored on chain, from event timestamps."
+      description="From a round's key request to the key on chain."
       notDeployedHint="Latencies are computed from the engine's event history (key_requested to key_received) once it is deployed."
       badge={({ keys }) => (keys.stats ? { tone: "success", label: `median ${formatLatency(keys.stats.medianMs)}` } : { tone: "neutral", label: "No request yet" })}
       className={className}
@@ -356,7 +356,7 @@ export function SolanaBlock({ deployment, refreshKey }: BlockProps) {
     <StatusBlock
       title="Solana devnet"
       loadingHeight={136}
-      description="The vault holds deposited streams; gas/sol pays the fees of every engine-built transaction."
+      description="Holds deposited streams; gas/sol pays engine transaction fees."
       notDeployedHint="Vault and gas payer balances are read from the devnet RPC once the engine has derived its Solana addresses."
       badge={({ gas }) => (gas.lamports >= 100_000_000n ? { tone: "success", label: "Gas funded" } : { tone: "warning", label: "Gas low" })}
       {...query}
@@ -423,7 +423,7 @@ export function CashTokensBlock({ deployment, refreshKey }: BlockProps) {
     <StatusBlock
       title="Test USDC"
       loadingHeight={224}
-      description="The cash venues: rose tUSDC on NEAR (NEP-141) and on Base Sepolia (ERC-20), public mint capped per day."
+      description="The cash venues on NEAR and Base Sepolia."
       notDeployedHint="Symbols, decimals and total supply are read live from both chains."
       {...query}
     >
@@ -485,7 +485,7 @@ export function VerificationsBlock({ deployment, refreshKey }: BlockProps) {
     <StatusBlock
       title="Recent ForeignTx verifications"
       loadingHeight={504}
-      description="Deposits, Base cash and payout confirmations are credited only after the MPC network proved the foreign state on Base or Solana."
+      description="Foreign-chain facts the MPC network proved before the engine credited them."
       notDeployedHint="Each ForeignTx outcome (registered, attributed, confirmed, failed or refused) is listed here once the engine is deployed."
       badge={({ counts }) => (counts.failed > 0 ? { tone: "warning", label: `${counts.verified} verified · ${counts.failed} failed` } : { tone: counts.verified > 0 ? "success" : "neutral", label: `${counts.verified} verified in window` })}
       {...query}
