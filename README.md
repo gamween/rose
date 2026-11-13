@@ -74,7 +74,7 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
 2. **Connect.** Click **Connect**, choose a network (NEAR first, then Base and Solana), and under
    **Try without a wallet** use its demo wallet. You see one header button with the connected
    networks, and its menu lists each wallet with its balance; the keys stay in this browser.
-3. **Get test funds.** Open the testnet banner, then **Get test funds**: **Create the demo account
+3. **Get test funds.** Open the wallet menu, then **Get test funds**: **Create the demo account
    with test NEAR**, **Mint 1,000 tUSDC on NEAR**, **Mint 1,000 tUSDC on Base**, **Mint me a demo
    vesting position**, **Create a demo Streamflow position**, and the two actions that send Base
    Sepolia ETH and Solana devnet SOL for gas. You see each action succeed with its explorer link and the balances update.

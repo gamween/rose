@@ -10,7 +10,7 @@ This guide is for anyone who holds a transferable locked position (a VC, an ange
 ## Before you start
 
 - Connect a NEAR testnet wallet, and the wallet of the chain where your position lives: an EVM wallet on Base Sepolia or a Solana wallet (Phantom, Solflare) on devnet. The in-app demo wallets work for all three.
-- Use "Get test funds" in the testnet banner for NEAR, gas and, if you have no position yet, "Mint me a demo vesting position" (a Sablier stream of the demo token on Base, or a Streamflow stream on Solana).
+- Use "Get test funds" in the wallet menu for NEAR, gas and, if you have no position yet, "Mint me a demo vesting position" (a Sablier stream of the demo token on Base, or a Streamflow stream on Solana).
 
 ## Deposit on Base
 
