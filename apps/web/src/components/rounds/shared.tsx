@@ -68,11 +68,13 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry: () 
   );
 }
 
-export function LoadingCards({ count = 6 }: { count?: number }) {
+export function LoadingRows({ count = 6 }: { count?: number }) {
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" aria-busy>
+    <div className="ui-surface flex flex-col divide-y divide-ink-750 rounded-lg" aria-busy>
       {Array.from({ length: count }, (_, index) => (
-        <Skeleton key={index} className="h-[196px] w-full rounded-lg" />
+        <div key={index} className="px-4 py-3.5">
+          <Skeleton className="h-9 w-full" />
+        </div>
       ))}
     </div>
   );

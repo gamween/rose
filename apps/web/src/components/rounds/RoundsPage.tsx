@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * `/app/rounds` (spec 8.3): filterable list (type, class, status) with countdowns, round cards,
- * cursor pagination and the "Create Exit round" action.
+ * `/app/rounds` (spec 8.3), laid out like a launchpad list: the live round first, compact filters
+ * (type, status, class), then one row per round with its status, three numbers and its clock,
+ * cursor pagination, and the "Create Exit round" action.
  */
 
 import type { ConfigView, Limits, RoundKind, RoundStatus } from "@rose/sdk";
@@ -10,7 +11,6 @@ import { useEffect, useMemo, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { HowItWorks } from "@/components/ui/HowItWorks";
 import { selectClasses } from "@/components/ui/Input";
 import { NextStep } from "@/components/ui/NextStep";
 import { Segmented, type SegmentedOption } from "@/components/ui/Segmented";
@@ -22,7 +22,7 @@ import { CreateExitModal } from "./CreateExitModal";
 import { symbolOf } from "./engine";
 import { classShortLabel, formatDate, KIND_LABEL, nextAction, scheduleEndSecs, STATUS_LABEL } from "./model";
 import { RoundCard } from "./RoundCard";
-import { ErrorState, LoadingCards, NotDeployedState } from "./shared";
+import { ErrorState, LoadingRows, NotDeployedState } from "./shared";
 import { EMPTY_FILTER, useRoundsList, type RoundsFilterState } from "./useRoundsList";
 
 const KINDS: RoundKind[] = ["Tender", "Exit", "Advance"];
@@ -74,16 +74,16 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
         <div>
           <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Rounds</h1>
           <p className="mt-1 max-w-2xl text-[13px] text-ink-400">
-            Sealed, <Term term="uniformPrice">uniform-price</Term> auctions over locked token <Term term="class">classes</Term>. Every transition is a public method: whoever cares about the outcome advances the round. <LearnMore topic="sealedRounds" />
+            Sealed, <Term term="uniformPrice">uniform-price</Term> auctions over locked token <Term term="class">classes</Term>. <LearnMore topic="sealedRounds" />
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {demo ? (
-            <ButtonLink href={ROUTES.demo} size="sm" variant="secondary" data-watch-demo>
+            <ButtonLink href={ROUTES.demo} size="sm" variant="ghost" data-watch-demo>
               Watch a full round
             </ButtonLink>
           ) : null}
-          <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!data} data-create-exit>
+          <Button size="sm" variant={openRound ? "secondary" : "primary"} onClick={() => setCreateOpen(true)} disabled={!data} data-create-exit>
             Create Exit round
           </Button>
         </div>
@@ -108,15 +108,6 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
               }
             />
           ) : null}
-          <HowItWorks
-            label="How a sealed round works"
-            steps={[
-              { title: "Seal", body: <>Holders and buyers submit encrypted orders; only their collateral is public in the <Term term="sealedBook">sealed book</Term>.</> },
-              { title: "Close", body: "At the close anyone asks the NEAR MPC network for the round key; nobody had it before." },
-              { title: "Open and clear", body: <>Orders are decrypted and verified on chain, then one <Term term="clearingPrice">clearing price</Term> is computed.</> },
-              { title: "Settle", body: "Units and cash move in the NEAR ledger; tokens and payouts are pulled to Base or Solana." },
-            ]}
-          />
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between" role="group" aria-label="Filters">
             <Segmented
               label="Round type"
@@ -159,7 +150,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
             </div>
           </div>
 
-          {list.state.status === "loading" ? <LoadingCards /> : null}
+          {list.state.status === "loading" ? <LoadingRows /> : null}
           {list.state.status === "not_deployed" ? <NotDeployedState detail={list.state.detail} /> : null}
           {list.state.status === "error" ? <ErrorState message={list.state.message} onRetry={list.retry} /> : null}
           {data ? (
@@ -187,21 +178,21 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
               />
             ) : (
               <>
-                <div className="flex items-center justify-between text-[12px] text-ink-400">
-                  <span className="tabular">
-                    {String(rounds.length)} {rounds.length === 1 ? "round" : "rounds"}
-                    {nextCursor !== null ? " shown" : ""} · engine {data.engine.account}
-                  </span>
-                  <span className={cn("tabular transition-opacity", list.refreshing ? "opacity-100" : "opacity-0")} aria-live="polite">
-                    refreshing…
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="ui-surface divide-y divide-ink-750 overflow-hidden rounded-lg" data-rounds-list>
                   {rounds.map((round) => {
                     const cls = classesById.get(round.classId) ?? null;
                     const book = data.books.get(round.roundId.toString()) ?? list.extraBooks.get(round.roundId.toString()) ?? null;
                     return <RoundCard key={round.roundId.toString()} round={round} cls={cls} symbol={cls ? symbolOf(data.symbols, cls) : null} book={book} nowMs={now} />;
                   })}
+                </div>
+                <div className="flex items-center justify-between text-[12px] text-ink-400">
+                  <span className="tabular">
+                    {String(rounds.length)} {rounds.length === 1 ? "round" : "rounds"}
+                    {nextCursor !== null ? " shown" : ""}
+                  </span>
+                  <span className={cn("tabular transition-opacity", list.refreshing ? "opacity-100" : "opacity-0")} aria-live="polite">
+                    refreshing…
+                  </span>
                 </div>
                 {nextCursor !== null ? (
                   <div className="flex flex-col items-center gap-2">
