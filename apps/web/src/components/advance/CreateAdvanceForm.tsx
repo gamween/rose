@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { dateTimeToSeconds, secondsToDateTime } from "@/components/issuer/class-schedule";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Button } from "@/components/ui/Button";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { Field, Input, NumberInput, selectClasses } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { amountToText, formatAmount, formatFraction, formatUsdc, formatDate, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
@@ -25,6 +26,10 @@ import { holderBond, maxClaim, validateAdvance } from "./math";
 export type AdvanceSubmission = { classId: string; venue: Venue; units: bigint; claim: bigint; minFill: bigint; maxPrice: bigint; reserve: bigint; closesAtNs: bigint; keyTimeoutNs: bigint; revealWindowNs: bigint };
 
 const selectClass = selectClasses();
+
+function formatNearAmount(yocto: bigint): string {
+  return formatAmount(yocto, 24, 5).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+}
 
 /** One day after `nowSec`, as the UTC `datetime-local` text the issuer forms use too. */
 function defaultClose(nowSec: number): string {
@@ -95,25 +100,22 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
         onSubmit({ classId: holding.classId, venue, units: form.units, claim: form.claim, minFill: form.minFill, maxPrice: form.maxPrice, reserve: form.reserve, closesAtNs: closesAtSec * 1_000_000_000n, keyTimeoutNs: form.keyTimeout, revealWindowNs: form.revealWindow });
       }}
     >
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field label="Class" hint={info ? `${formatAmount(holding?.balance ?? 0n, decimals)} free units · ${formatFraction(fractionAt(info, data.blockTimeSec))} unlocked now` : undefined}>
-          {({ inputId }) => (
-            <select id={inputId} value={classId} onChange={(event) => setClassId(event.target.value)} className={selectClass}>
-              {holdings.map((item) => {
-                const cls = data.classes.get(item.classId)!;
-                return (
-                  <option key={item.classId} value={item.classId}>
-                    {classLabel(cls, data.symbols)} · {cls.chain} · {formatAmount(item.balance, cls.decimals)} free
-                  </option>
-                );
-              })}
-            </select>
-          )}
-        </Field>
-        <Field label="Bidding closes at, UTC (settlement time ts)" error={show("closesAtMs")} hint={`${fTs !== null ? `f(ts) = ${formatFraction(fTs, 2)} unlocked at settlement · ` : ""}at most ${formatBound(data.limits.maxRoundHorizon)} from now`}>
-          {({ inputId, invalid }) => <Input id={inputId} type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} invalid={invalid} />}
-        </Field>
-        <Field label="Units to encumber (X)" error={show("units")} hint="Encumbered units cannot be transferred or enter another round until the claim is delivered.">
+      <Field label="Class" hint={info ? `${formatAmount(holding?.balance ?? 0n, decimals)} free units · ${formatFraction(fractionAt(info, data.blockTimeSec))} unlocked now` : undefined}>
+        {({ inputId }) => (
+          <select id={inputId} value={classId} onChange={(event) => setClassId(event.target.value)} className={selectClass}>
+            {holdings.map((item) => {
+              const cls = data.classes.get(item.classId)!;
+              return (
+                <option key={item.classId} value={item.classId}>
+                  {classLabel(cls, data.symbols)} · {cls.chain} · {formatAmount(item.balance, cls.decimals)} free
+                </option>
+              );
+            })}
+          </select>
+        )}
+      </Field>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="Units to encumber (X)" error={show("units")} hint="Locked until the claim is delivered.">
           {({ inputId, invalid }) => (
             <NumberInput id={inputId} value={units} onValueChange={setUnits} decimals={decimals} unit={info ? classLabel(info, data.symbols) : undefined} invalid={invalid} max={holding ? amountToText(holding.balance, decimals) : undefined} />
           )}
@@ -123,44 +125,59 @@ export function CreateAdvanceForm({ data, account, busy, onSubmit, onCashDeposit
             <NumberInput id={inputId} value={claim} onValueChange={setClaim} decimals={decimals} invalid={invalid} max={kMax !== null ? amountToText(kMax, decimals) : undefined} />
           )}
         </Field>
-        <Field label="Sealed reserve price per claimed token" error={show("reserve")} hint="Encrypted in your browser; the floor below which you do not sell. The clearing price can land above it.">
+        <Field label="Sealed reserve price per claimed token" error={show("reserve")} hint="Encrypted in your browser: your floor.">
           {({ inputId, invalid }) => <NumberInput id={inputId} value={reserve} onValueChange={setReserve} decimals={USDC_DECIMALS} unit="USDC" invalid={invalid} />}
         </Field>
-        <Field label="Public price ceiling per claimed token" error={show("maxPrice")} hint={bond !== null ? `Values your bond: ${formatUsdc(bond)} USDC (1% of K at the ceiling, at least ${formatUsdc(data.limits.bondFloor)}); you hold ${formatUsdc(cash)} in the venue.` : "Bids above it stay out of the book; also values your bond."}>
+        <Field label="Public price ceiling per claimed token" error={show("maxPrice")} hint={bond !== null ? `Values your bond: ${formatUsdc(bond)} USDC; you hold ${formatUsdc(cash)}.` : "Bids above it stay out of the book."}>
           {({ inputId, invalid }) => <NumberInput id={inputId} value={maxPrice} onValueChange={setMaxPrice} decimals={USDC_DECIMALS} unit="USDC" invalid={invalid} />}
         </Field>
-        <Field label="Minimum fill (public)" error={show("minFill")} hint="Below this filled volume nothing crosses and the round is cancelled.">
+        <Field label="Bidding closes at (UTC)" error={show("closesAtMs")} hint={`${fTs !== null ? `${formatFraction(fTs, 2)} unlocked then · ` : ""}at most ${formatBound(data.limits.maxRoundHorizon)} away`}>
+          {({ inputId, invalid }) => <Input id={inputId} type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} invalid={invalid} />}
+        </Field>
+        <Field label="Minimum fill (public)" error={show("minFill")} hint="Below it the round is cancelled.">
           {({ inputId, invalid }) => <NumberInput id={inputId} value={minFill} onValueChange={setMinFill} decimals={decimals} invalid={invalid} />}
         </Field>
-        <Field label="Cash venue" hint="Funders escrow, bonds and your proceeds live in this venue.">
-          {({ inputId }) => (
-            <select id={inputId} value={venueKey} onChange={(event) => setVenueKey(event.target.value)} className={selectClass}>
-              {venues.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
       </div>
-      <RoundTimingFields value={timing} onChange={setTiming} errors={{ keyTimeout: show("keyTimeout") ?? null, revealWindow: show("revealWindow") ?? null }} limits={data.limits} />
+      <Disclosure summary={`Advanced: cash venue (${venueLabel(venue, data.symbols)}), key timeout, reveal window`} defaultOpen={Boolean(show("keyTimeout") ?? show("revealWindow"))}>
+        <div className="flex flex-col gap-3">
+          <Field label="Cash venue" hint="Funders' escrow, bonds and your proceeds live here.">
+            {({ inputId }) => (
+              <select id={inputId} value={venueKey} onChange={(event) => setVenueKey(event.target.value)} className={selectClass}>
+                {venues.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <RoundTimingFields value={timing} onChange={setTiming} errors={{ keyTimeout: show("keyTimeout") ?? null, revealWindow: show("revealWindow") ?? null }} limits={data.limits} />
+        </div>
+      </Disclosure>
       {bond !== null && cash < bond ? <BondShortfall venue={venue} shortfall={bond - cash} nearCashToken={data.config.near_cash_token} onDeposited={onCashDeposited} /> : null}
-      <div className="rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-[12px] text-ink-300" data-advance-preview>
-        <p>
-          Round storage deposit 0.05 NEAR (kept with the round record) plus 0.02 NEAR for the sealed ask (refunded at settlement). Key timeout {form.keyTimeout !== null ? formatBound(form.keyTimeout) : "—"}, reveal window {form.revealWindow !== null ? formatBound(form.revealWindow) : "—"}.
-          {Number.isFinite(closesAtMs) ? ` Closes ${formatDate(closesAtMs)}.` : ""}
-        </p>
-        <p className="mt-1">
-          Two transactions: <code className="font-mono">create_advance</code> locks X and opens the round, then <code className="font-mono">place_ask</code> seals your reserve (quantity K) and takes the bond. When demand is short the price follows the Exit rule: the midpoint of the tie interval, possibly above your reserve. <LearnMore topic="clearing" />
-        </p>
-        {fTs !== null && fTs >= ONE ? <p className="mt-1 text-danger-400">The class is fully unlocked at that settlement time.</p> : null}
-      </div>
-      <div className="flex justify-end">
-        <Button type="submit" disabled={busy || (touched && !valid)} loading={busy} loadingLabel="Creating" data-advance-submit>
-          Create the Advance and seal my reserve
-        </Button>
-      </div>
+      {fTs !== null && fTs >= ONE ? <p className="text-[12px] text-danger-400">The class is fully unlocked at that settlement time.</p> : null}
+      <Button type="submit" size="lg" className="w-full" disabled={busy || (touched && !valid)} loading={busy} loadingLabel="Creating" data-advance-submit>
+        Create the Advance and seal my reserve
+      </Button>
+      <details className="group text-[12px] text-ink-400" data-advance-preview>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 hover:text-ink-100 [&::-webkit-details-marker]:hidden">
+          <span className="tabular">
+            Bond {bond !== null ? `${formatUsdc(bond)} USDC` : "—"} · storage {formatNearAmount(data.limits.roundStorageDeposit + data.limits.bidStorageDeposit)} NEAR · 2 transactions
+          </span>
+          <span aria-hidden className="transition-transform group-open:rotate-180">
+            ⌄
+          </span>
+        </summary>
+        <div className="mt-2 flex flex-col gap-1 rounded-md border border-ink-750 bg-ink-900 px-3 py-2 text-ink-300">
+          <p>
+            Round storage deposit {formatNearAmount(data.limits.roundStorageDeposit)} NEAR (kept with the round record) plus {formatNearAmount(data.limits.bidStorageDeposit)} NEAR for the sealed ask (refunded at settlement). Key timeout {form.keyTimeout !== null ? formatBound(form.keyTimeout) : "—"}, reveal window {form.revealWindow !== null ? formatBound(form.revealWindow) : "—"}.
+            {Number.isFinite(closesAtMs) ? ` Closes ${formatDate(closesAtMs)}.` : ""}
+          </p>
+          <p>
+            <code className="font-mono">create_advance</code> locks X and opens the round, then <code className="font-mono">place_ask</code> seals your reserve (quantity K) and takes the bond. When demand is short the price follows the Exit rule: the midpoint of the tie interval, possibly above your reserve. <LearnMore topic="clearing" />
+          </p>
+        </div>
+      </details>
     </form>
   );
 }
@@ -205,7 +222,7 @@ function BondShortfall({ venue, shortfall, nearCashToken, onDeposited }: { venue
         size="sm"
         variant="secondary"
         disabled={wallet !== null && wallet < shortfall}
-        title={wallet !== null && wallet < shortfall ? "Not enough tUSDC in the wallet: use “Get test funds” in the banner." : undefined}
+        title={wallet !== null && wallet < shortfall ? "Not enough tUSDC in the wallet: use Get test funds in the wallet menu." : undefined}
         loading={deposit.state.status === "loading"}
         loadingLabel="Signing…"
         onClick={() =>

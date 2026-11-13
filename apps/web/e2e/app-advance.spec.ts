@@ -227,6 +227,7 @@ test.describe("advance", () => {
     await expect(form).toBeVisible({ timeout: 60_000 });
     await form.getByRole("textbox", { name: /Claim \(K\)/ }).fill("10");
     await form.getByRole("textbox", { name: /Public price ceiling/ }).fill("9");
+    await form.getByText(/^Advanced: cash venue/).click();
     await form.getByRole("combobox", { name: "Cash venue" }).selectOption({ index: 1 });
     const shortfall = form.locator("[data-bond-shortfall]");
     await expect(shortfall).toContainText("short by 1.00 USDC");
@@ -242,6 +243,7 @@ test.describe("advance", () => {
     await connectNearDemo(page);
     const form = page.locator("[data-advance-form]");
     await expect(form).toBeVisible({ timeout: 60_000 });
+    await form.getByText(/^Advanced: cash venue/).click();
     await expect(form.locator("[data-key-timeout]")).toHaveValue("60");
     await expect(form.locator("[data-reveal-window]")).toHaveValue("10");
     await form.locator("[data-reveal-window]").fill("2");
