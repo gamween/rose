@@ -68,6 +68,7 @@ test.describe("guided demo", () => {
     await expect(page.locator("[data-demo-check='match']")).toHaveCount(4);
     await expect(page.locator("[data-demo-opening='4'] [data-demo-check='unopenable']")).toBeVisible();
     await expect(page.locator("[data-demo-opening='0']")).toContainText(DEMO_RECORDING.expected.exitFirstOpeningGas);
+    await page.getByText(/^On-chain record/).click();
     await expect(page.getByText("refused on chain, as intended")).toBeVisible();
 
     await page.keyboard.press("ArrowRight");
