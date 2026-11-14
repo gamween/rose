@@ -1674,3 +1674,29 @@ condition), 4.7 min.
   the builder's home directory in its panic locations. Check: `strings packages/ibe-wasm/pkg/rose_ibe_bg.wasm | grep -c /Users/`
   prints `0`. `rose_ibe_bg.wasm` is now 215,341 bytes (216,109 before); `pnpm --filter @rose/ibe-wasm test`
   (8 tests, live-key round trip) exit 0.
+
+## Audit before submission: NEAR RPC endpoints (2026-11-14)
+
+From the build machine (01:26 to 01:38 UTC), with three other test agents on the same IP. Endpoints from
+the testnet table of https://docs.near.org/api/rpc/providers (FastNEAR, `archival-rpc.testnet.near.org`,
+dRPC, Intear, ZAN; the other providers there publish no public endpoint) plus the two the app used.
+`one.sh <url>` posts `{"jsonrpc":"2.0","id":"x","method":"query","params":{"request_type":"view_account","finality":"final","account_id":"rose-app.testnet"}}`
+with `-H 'origin: https://rose-rounds.vercel.app' -D <headers>`.
+
+| Check | Command | Result |
+|---|---|---|
+| Success answers carry CORS headers | `curl -sS -D - -X POST <url> -H 'content-type: application/json' -H 'origin: https://rose-rounds.vercel.app' -d '{"jsonrpc":"2.0","id":"x","method":"block","params":{"finality":"final"}}'` | `test.rpc.fastnear.com`, `rpc.testnet.fastnear.com`, `near-testnet.drpc.org`, `testnet-rpc.intea.rs` (1.5 s, body note "Requests without an API key are being slowed down for one second"), `archival-rpc.testnet.near.org` (3.1 s): HTTP 200 with `access-control-allow-origin` |
+| Preflights | `curl -sS -X OPTIONS -D - -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' <url>` | FastNEAR 200 (`allow-origin: *`, `allow-headers: *`); dRPC 204 (`allow-origin` echoes the origin, `allow-headers: content-type`); Intear 200 (`allow-origin: *`, `allow-headers: content-type`) |
+| The official RPC is deprecated and refuses | same `block` POST to `https://rpc.testnet.near.org` | HTTP 429, `retry-after: 13`, no `access-control-allow-origin`, body `-429` "WARNING! THIS ENDPOINT IS DEPRECATED! STOP USING IT NOW! Switch to https://fastnear.com …". Removed from the app's read chain |
+| Other listed or known endpoints | same `block` / `status` POST | `api.zan.top/near-testnet` HTTP 429 on the first request (`-32003` "cu limit exceeded", with CORS); `rpc.testnet.pagoda.co` HTTP 403 "deprecated"; `near-testnet.lava.build` HTTP 410 "discontinued"; `near-testnet-rpc.publicnode.com` HTTP 404. None usable |
+| FastNEAR's 429 has no CORS header | `seq 1 60 \| xargs -P 20 -I{} one.sh https://test.rpc.fastnear.com fa{}` at 01:27:59, then `seq 1 6 \| xargs -P 6 -I{} one.sh https://rpc.testnet.fastnear.com fb{}` | 22 × 200 (with CORS) and 38 × HTTP 429 without `access-control-allow-origin` (`retry-after: 0`, body `-429` "Rate limits exceeded"); the twin host then answered 1 × 200 and 5 × 429. A browser cannot read that 429, so it reports a CORS error and `NearRpc` sees a network failure |
+| FastNEAR's limit varies | the same bursts at 01:37:21 (40 to `rpc.testnet.fastnear.com`, then 6 to `test.rpc.fastnear.com`) and 01:37:29 (80, then 6) | 132 × 200: the limit depends on the IP's recent traffic. `rpc.testnet.fastnear.com` is the same provider and was limited together with `test.rpc` once, so it is not a fallback |
+| dRPC and Intear under a burst | `seq 1 80 \| xargs -P 20 -I{} one.sh https://near-testnet.drpc.org da{}`; `seq 1 20 \| xargs -P 10 -I{} one.sh https://testnet-rpc.intea.rs ia{}` | 80 × 200 and 20 × 200, all with CORS. A 429 from either was not observed, so its CORS behaviour on 429 is unknown; dRPC documents about 2,100 CU/s on its free tier |
+| Which endpoints hold a transaction wait | `curl -sS -m 60 -X POST <url> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":"x","method":"tx","params":{"tx_hash":"11111111111111111111111111111111","sender_account_id":"rose-app.testnet","wait_until":"EXECUTED"}}'` (an unknown hash makes the node wait for its own timeout) | FastNEAR: HTTP 408 after 10.1 s with the node's `TIMEOUT_ERROR` (the wait is held to the node's limit); `rpc.testnet.near.org`: the same after 13.1 s; dRPC: HTTP 408 after 2.1 s, `{"code":30,"message":"Request timeout on the free plan, please upgrade to paid plan"}`; Intear: no byte in 60 s. Only FastNEAR, among endpoints that are not deprecated, supports `tx` / `send_tx` waits |
+| How near-api-js sends | `node_modules/near-api-js/lib/index.js` 7.4.0, `fetchJsonRpc` and `retryConfig` | `JsonRpcProvider` retries 12 times (500 ms × 1.5ⁿ) on HTTP 500, 408, 503 and on a fetch that throws "Failed to fetch" (what Chromium reports for a 429 without CORS), on the same URL |
+| A missing access key | `query` `view_access_key` of `rose-app.testnet` / `ed25519:11111111111111111111111111111111` on FastNEAR and dRPC | `result.error` = "access key ed25519:1111… does not exist while viewing" (a result, not a JSON-RPC error); a missing account answers `error.cause.name` `UNKNOWN_ACCOUNT` |
+
+Decision: reads go FastNEAR, then dRPC, then Intear (`NEAR_READ_RPC_ENDPOINTS` in `apps/web/src/lib/deployment.ts`);
+the demo wallet's reads (account check, balances, final head) use the same list, and its sends stay on
+FastNEAR. `NearRpc` passes over an endpoint for 10 s after a 429, a 5xx, a non-JSON answer or a network
+failure (`RPC_COOLDOWN_MS`), so one limited provider costs one failed request, not one per view.

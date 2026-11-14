@@ -25,14 +25,16 @@ describe("deployment config", () => {
     expect(missingDeployments().map((entry) => entry.key)).toContain("roseVault");
   });
 
-  it("reads NEAR through dRPC when FastNEAR and the official RPC both rate limit the visitor", async () => {
-    expect(NEAR_READ_RPC_ENDPOINTS).toEqual(["https://test.rpc.fastnear.com", "https://rpc.testnet.near.org", "https://near-testnet.drpc.org"]);
+  it("reads NEAR through dRPC, then Intear, when FastNEAR rate limits the visitor, and never through the deprecated official RPC", async () => {
+    expect(NEAR_READ_RPC_ENDPOINTS).toEqual(["https://test.rpc.fastnear.com", "https://near-testnet.drpc.org", "https://testnet-rpc.intea.rs"]);
     const fetch = vi.fn((url: string | URL | Request) =>
-      Promise.resolve(String(url).includes("drpc") ? new Response(JSON.stringify({ jsonrpc: "2.0", id: "rose", result: { header: { height: 7, hash: "h", timestamp: 0, timestamp_nanosec: "0" } } })) : new Response("Too Many Requests", { status: 429 })),
+      Promise.resolve(String(url).includes("intea") ? new Response(JSON.stringify({ jsonrpc: "2.0", id: "rose", result: { header: { height: 7, hash: "h", timestamp: 0, timestamp_nanosec: "0" } } })) : new Response("Too Many Requests", { status: 429 })),
     );
     const rpc = new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS, fetch: fetch as unknown as typeof globalThis.fetch });
     await expect(rpc.block("final")).resolves.toMatchObject({ header: { height: 7 } });
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([...NEAR_READ_RPC_ENDPOINTS]);
+    await expect(rpc.block("optimistic")).resolves.toMatchObject({ header: { height: 7 } });
+    expect(fetch.mock.calls.slice(3).map(([url]) => String(url))).toEqual(["https://testnet-rpc.intea.rs"]);
   });
 
   it("exposes the fixed testnet addresses", () => {

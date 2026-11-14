@@ -256,7 +256,7 @@ export async function mockChains(page: Page, overrides: MockOverrides = {}): Pro
     return fulfil(route, { jsonrpc: "2.0", id: request.id, result: viewResult(custom !== undefined ? custom : engineView(params.method_name!, args)) });
   };
   await page.route("https://test.rpc.fastnear.com/**", near);
-  await page.route("https://rpc.testnet.near.org/**", near);
+  await page.route("https://testnet-rpc.intea.rs/**", near);
   await page.route("https://near-testnet.drpc.org/**", near);
   await page.route("https://sepolia.base.org/**", async (route) => {
     const request = route.request().postDataJSON() as { id: number; method: string; params: unknown[] };

@@ -169,8 +169,28 @@ export async function takeRpcBudget(endpoint: string): Promise<void> {
   await bucketOf(endpoint)?.take();
 }
 
-/** The endpoints in failover order, starting with the first one that has budget left now. */
-export function endpointOrder(endpoints: readonly string[], waitMs: (endpoint: string) => number = (endpoint) => bucketOf(endpoint)?.waitMs() ?? 0): string[] {
+/**
+ * How long an endpoint is passed over after it refused a request (429, 5xx, a non-JSON page) or
+ * could not be reached. A browser cannot read a 429 sent without CORS headers, so it cannot honour
+ * `retry-after`; without this pause every later request of the page would hit the limited
+ * endpoint first and fail once more before falling over.
+ */
+export const RPC_COOLDOWN_MS = 10_000;
+
+const cooldowns = new Map<string, number>();
+
+/** Milliseconds before `endpoint` is tried first again (0 when it is not cooling down). */
+export function cooldownMs(endpoint: string, now: number = Date.now()): number {
+  const until = cooldowns.get(endpoint);
+  return until === undefined ? 0 : Math.max(0, until - now);
+}
+
+function coolDown(endpoint: string): void {
+  cooldowns.set(endpoint, Date.now() + RPC_COOLDOWN_MS);
+}
+
+/** The endpoints in failover order, starting with the first one that has budget left now and is not cooling down. */
+export function endpointOrder(endpoints: readonly string[], waitMs: (endpoint: string) => number = (endpoint) => Math.max(bucketOf(endpoint)?.waitMs() ?? 0, cooldownMs(endpoint))): string[] {
   const ready = endpoints.find((endpoint) => waitMs(endpoint) === 0);
   return ready === undefined ? [...endpoints] : [ready, ...endpoints.filter((endpoint) => endpoint !== ready)];
 }
@@ -255,11 +275,15 @@ export class NearRpc {
           );
         } catch (error) {
           lastError = new NearRpcError("unreachable", `${endpoint} could not be reached.`, error);
+          coolDown(endpoint);
           continue;
         }
         if (!response.ok) {
           lastError = new NearRpcError("http", `${endpoint} answered with HTTP ${String(response.status)}.`);
-          if (isRetriable(response.status)) continue;
+          if (isRetriable(response.status)) {
+            coolDown(endpoint);
+            continue;
+          }
           throw lastError;
         }
         let body: RpcEnvelope;
@@ -267,8 +291,10 @@ export class NearRpc {
           body = (await response.json()) as RpcEnvelope;
         } catch {
           lastError = new NearRpcError("invalid_response", `${endpoint} returned a non-JSON body.`);
+          coolDown(endpoint);
           continue;
         }
+        cooldowns.delete(endpoint);
         if (body.error) throw NearRpc.toError(body.error);
         if (body.result === undefined) throw new NearRpcError("invalid_response", "The RPC returned no result.");
         return body.result;

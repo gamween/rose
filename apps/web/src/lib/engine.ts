@@ -40,7 +40,7 @@ function toBase64(text: string): string {
 
 type QueryResult = NonNullable<RpcResponse["result"]>;
 
-/** The shared read client of the page: FastNEAR, then rpc.testnet.near.org, then dRPC, under the page's request budget. */
+/** The shared read client of the page: FastNEAR, then dRPC, then Intear, under the page's request budget. */
 const defaultRpc = new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS });
 
 /**

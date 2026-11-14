@@ -848,7 +848,7 @@ export async function mockRounds(page: Page): Promise<RoundsMockState> {
     return fulfil(route, rpcError(request.id, `unmocked ${request.method}`));
   };
   await page.route("https://test.rpc.fastnear.com/**", handle);
-  await page.route("https://rpc.testnet.near.org/**", handle);
+  await page.route("https://testnet-rpc.intea.rs/**", handle);
   await page.route("https://near-testnet.drpc.org/**", handle);
   await page.route("https://sepolia.base.org/**", async (route) => {
     const request = route.request().postDataJSON() as { id: number; method: string; params: unknown[] };
