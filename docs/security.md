@@ -383,6 +383,18 @@ No other party can move funds, see bids early or stop a round.
 - **Staging data:** on `engine-s3` (since retired), updated in place with a build that changed stored layouts, Solana
   payout records 0 to 2 and one event history entry no longer decode; the app skips the unreadable
   entry. The final engine is never updated in place.
+- **Accepted dependency advisories.** `pnpm audit --prod` reports 12 advisories (7 high, 5
+  moderate) in transitive dependencies of the Solana libraries, none with a fix inside the range
+  its dependent declares, so none is overridden. `toml` 3.0.0 (6 advisories, fixed in 5.0.1;
+  `@coral-xyz/anchor` 0.32.1 through `@streamflow/stream` asks for `^3.0.0`) is only used by
+  Anchor's `workspace` loader to parse a local `Anchor.toml`, which rose never loads.
+  `stream-json` 1.9.1 (3 advisories, fixed in 3.6.0; `jayson` 4.3.0 through `@solana/web3.js`
+  asks for `^1.9.1`) is only used by jayson's TCP and TLS transports; web3.js uses its HTTP
+  client. `uuid` 9.0.1 and 8.3.2 (fixed in 11.1.1; `@solflare-wallet/sdk` asks for `^9.0.0`,
+  jayson for `^8.3.2`) is only called as `v4()`, while the advisory concerns `v3`, `v5` and
+  `v6` with a caller-supplied buffer. `bigint-buffer` 1.1.5 (through `@solana/spl-token`) has
+  no fixed release; it decodes the fixed-size integer fields of SPL accounts read from Solana
+  devnet. The direct `bn.js` advisory is fixed (5.2.3).
 - **Demo conveniences are not part of the protocol:** `/api/faucet` sends testnet gas from
   server-side hot wallets, and the in-app demo wallets keep their keys in the browser.
 
