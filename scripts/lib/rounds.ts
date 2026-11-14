@@ -82,10 +82,6 @@ export function escrowFor(pricing: Pricing, quantity: bigint, price: bigint): bi
   return ((total + 999_999n) / 1_000_000n) * 1_000_000n;
 }
 
-/**
- * Creates the round, or finds the open round the same creator already opened on the class (a
- * run that stopped after the transaction and before recording it).
- */
 /** Time a reused round must still accept orders for: a resumed run places its orders right after. */
 export const REUSE_MARGIN_NANOS = 60_000_000_000n;
 
@@ -98,6 +94,10 @@ export function reusableRound<T extends { closesAt: bigint }>(open: readonly T[]
   return open.find((round) => round.closesAt > nowNanos + REUSE_MARGIN_NANOS);
 }
 
+/**
+ * Creates the round, or finds the open round the same creator already opened on the class (a
+ * run that stopped after the transaction and before recording it).
+ */
 export async function createRound(ctx: Context, scope: StepScope, label: string, creator: NearActor, kind: RoundKind, classId: string, call: FunctionCall): Promise<RoundRecord> {
   const existing = await withRetry("get_rounds", () => ctx.views.getRounds({ kind, class_id: classId, status: "Open", creator: creator.accountId }));
   let round = reusableRound(existing.rounds, BigInt(Date.now()) * 1_000_000n);

@@ -2,7 +2,7 @@ import type { PublicClient } from "viem";
 import { describe, expect, it } from "vitest";
 import { SABLIER_LOCKUP_V4, baseAddressUrl, baseTxUrl, createBaseClient } from "../../src/chains/base/client.js";
 import { must } from "./must.js";
-import { checkEligibility, listOwnedStreams, LockupModel, readStream, withdrawMaxCalldata, type SablierStream } from "../../src/chains/base/sablier.js";
+import { checkEligibility, listOwnedStreams, LockupModel, readStream, type SablierStream } from "../../src/chains/base/sablier.js";
 
 const eligible: SablierStream = {
   streamId: 82n,
@@ -103,10 +103,9 @@ describe("Lockup reads", () => {
 });
 
 describe("constants and calldata", () => {
-  it("builds explorer links and the withdrawMax selector", () => {
+  it("builds explorer links", () => {
     expect(baseTxUrl("0xabc")).toBe("https://sepolia.basescan.org/tx/0xabc");
     expect(baseAddressUrl(SABLIER_LOCKUP_V4)).toBe("https://sepolia.basescan.org/address/0xA65A1ecEf02C2B9BDc604951c6A6D02335D4532e");
-    expect(withdrawMaxCalldata(82n, SABLIER_LOCKUP_V4).startsWith("0xea5ead19")).toBe(true);
   });
 
   it("creates a client on chain 84532 with multicall enabled", () => {

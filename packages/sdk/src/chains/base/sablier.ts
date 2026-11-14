@@ -1,5 +1,4 @@
 import {
-  encodeFunctionData,
   type Account,
   type Address,
   type Chain,
@@ -228,11 +227,6 @@ export const ELIGIBILITY_MESSAGES: Record<EligibilityReason, string> = {
 /** Current Sablier withdrawal fee for the stream (0 today on Base Sepolia, admin-controlled). */
 export function calculateMinFeeWei(client: PublicClient, streamId: bigint, lockup: Address = SABLIER_LOCKUP_V4): Promise<bigint> {
   return client.readContract({ ...lockupContract(lockup), functionName: "calculateMinFeeWei", args: [streamId] });
-}
-
-/** Calldata of `withdrawMax(streamId, to)`. */
-export function withdrawMaxCalldata(streamId: bigint, to: Address): Hex {
-  return encodeFunctionData({ abi: sablierLockupAbi, functionName: "withdrawMax", args: [streamId, to] });
 }
 
 /** The address currently approved for one stream NFT (`getApproved`), the zero address when none. */

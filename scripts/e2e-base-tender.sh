@@ -119,7 +119,7 @@ step_deposit() {
     cast send --rpc-url "$r" "${EVM_WALLET_ARGS[@]}" "$SABLIER_LOCKUP" 'approve(address,uint256)' "$vault" "$stream_id" --json >/dev/null
   fi
   local fee receipt
-  fee="$(cast call --rpc-url "$r" "$SABLIER_LOCKUP" 'calculateMinFeeWei(uint256)(uint256)' "$stream_id")"
+  fee="$(cast call --rpc-url "$r" "$SABLIER_LOCKUP" 'calculateMinFeeWei(uint256)(uint256)' "$stream_id" | awk '{print $1}')"
   receipt="$(cast send --rpc-url "$r" "${EVM_WALLET_ARGS[@]}" "$vault" 'depositStream(address,uint256,string)' \
     "$SABLIER_LOCKUP" "$stream_id" "$holder" --value "$fee" --json)"
   save_deposit_receipt "$receipt" "$stream_id"

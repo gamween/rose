@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeEventLog, decodeEventLogs, describeRoseEvent, nep245Events, roseEvents } from "../../src/engine/events.js";
+import { decodeEventLog, decodeEventLogs, describeRoseEvent, roseEvents, type Nep245Event } from "../../src/engine/events.js";
 import { parseEventsPage } from "../../src/engine/parse.js";
 
 /** Logs exactly as the engine emits them (`events.rs` and `units.rs`). */
@@ -27,7 +27,7 @@ describe("event decoding", () => {
   it("separates rose and NEP-245 events", () => {
     const logs = [ROSE_LOG, MINT_LOG, TRANSFER_LOG];
     expect(roseEvents(logs).map((e) => e.event)).toEqual(["round_created"]);
-    const mt = nep245Events(logs);
+    const mt = decodeEventLogs(logs).flatMap((decoded) => (decoded.standard === "nep245" ? [decoded.event as Nep245Event] : []));
     expect(mt.map((e) => e.event)).toEqual(["mt_mint", "mt_transfer"]);
     expect(mt[1]?.data[0]).toMatchObject({ old_owner_id: "a.testnet", new_owner_id: "b.testnet", memo: "gift" });
   });

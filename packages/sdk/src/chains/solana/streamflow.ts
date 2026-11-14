@@ -257,6 +257,37 @@ export const STREAMFLOW_ELIGIBILITY_MESSAGES: Record<StreamflowEligibilityReason
   ends_too_soon: "The stream ends within an hour: Streamflow's auto-claim would empty it before the deposit completes.",
 };
 
+/**
+ * Whether an in-kind redeem of a vault stream is safe now (spec 7.3), from the stream's metadata
+ * read at `finalized` and the engine's `engine_withdrawn` for it (`get_sol_streams`):
+ *
+ * - `automatic_withdrawal`: the sender switched Streamflow's automatic withdrawal on after the
+ *   deposit (Streamflow lets a sender turn it on at any time, never off; the engine checks it at
+ *   attribution and registration only). Streamflow's withdrawor then moves the stream's unlocked
+ *   tokens into the vault's token account every `withdraw_frequency`, outside the engine's
+ *   accounting. The engine prices a redeem from that accounting, so the redeemer would pay
+ *   again, from its claimable, for tokens already in the vault, and once the release executes no
+ *   sync can book them. A sync right before the redeem still races the next sweep, so the redeem
+ *   is refused; `sync_sol_stream` and a claim from the swept balance pay the same tokens.
+ * - `sync_first`: the stream shows `unbooked` tokens withdrawn beyond the engine's accounting;
+ *   `sync_sol_stream` books them before any redeem or draw.
+ * - `stale_read`: the read shows less withdrawn than the engine proved at finality, so the node
+ *   lags and the read proves nothing; read again.
+ */
+export type SolRedeemSafety =
+  | { kind: "safe" }
+  | { kind: "sync_first"; unbooked: bigint }
+  | { kind: "automatic_withdrawal"; unbooked: bigint }
+  | { kind: "stale_read" };
+
+export function solRedeemSafety(metadata: Pick<StreamflowMetadata, "automaticWithdrawal" | "amountWithdrawn">, engineWithdrawn: bigint): SolRedeemSafety {
+  const unbooked = metadata.amountWithdrawn > engineWithdrawn ? metadata.amountWithdrawn - engineWithdrawn : 0n;
+  if (metadata.automaticWithdrawal) return { kind: "automatic_withdrawal", unbooked };
+  if (unbooked > 0n) return { kind: "sync_first", unbooked };
+  if (metadata.amountWithdrawn < engineWithdrawn) return { kind: "stale_read" };
+  return { kind: "safe" };
+}
+
 /** Associated token account of `owner` for `mint` (classic SPL Token). */
 export function associatedTokenAddress(owner: PublicKey, mint: PublicKey): PublicKey {
   const [address] = PublicKey.findProgramAddressSync(

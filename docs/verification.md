@@ -1674,3 +1674,77 @@ condition), 4.7 min.
   the builder's home directory in its panic locations. Check: `strings packages/ibe-wasm/pkg/rose_ibe_bg.wasm | grep -c /Users/`
   prints `0`. `rose_ibe_bg.wasm` is now 215,341 bytes (216,109 before); `pnpm --filter @rose/ibe-wasm test`
   (8 tests, live-key round trip) exit 0.
+
+## Audit fixes: contracts, SDK and scripts (2026-11-14)
+
+Facts behind the fixes of the contracts, SDK and scripts audit of `be1c1fa`. Nothing was signed,
+sent or deployed: the Streamflow rows are `simulateTransaction` calls with `sigVerify: false`, which
+need no key.
+
+### A stream's sender can switch automatic withdrawal on after the deposit
+
+The simulations build Streamflow's `update` instruction with the pinned `@streamflow/stream` 13.4.0
+(`updateStreamInstruction({ id, ...params }, HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ, { authority,
+metadata, withdrawor: wdrwhnCv4pzW8beKsbPa4S2UDZrXenjg16KJdKSpb5u, systemProgram })`, loaded with
+`createRequire("./scripts/package.json")`), put one or more of them in a transaction whose fee payer
+is the authority, and call `simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true,
+accounts: { encoding: "base64", addresses: [stream] } })` on `https://api.devnet.solana.com`; the
+post-state is read at byte 457 (`cancelable_by_sender`), 459 (`automatic_withdrawal`), 460, 461 and
+527 (`withdraw_frequency`). The audit ran them at Unix time 1,794,618,393; the rows marked "re-run"
+were run again for this fix.
+
+| Fact | Command | Result |
+|---|---|---|
+| The stream is a position of the deployed engine, at the vault | `call_function` `get_sol_deposit {"metadata":"Cg3hynP4CwMe7sTX1hSwiWXJoTFxPDAea8beTXvd7d8A"}` on `engine-v2.rose-app.testnet` (finality `final`, `https://near-testnet.drpc.org`); `getAccountInfo(stream, "finalized")` | `stage: { Registered: { position_id: "1" } }` (block 277,589,312); recipient `EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC` (the engine's `vault/sol`), sender `6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n`, `automatic_withdrawal` 0, `cancelable_by_sender` 0, `transferable_by_sender` 0, `transferable_by_recipient` 1, period 2,592,000 |
+| The sender can switch it on (re-run) | `update { enableAutomaticWithdrawal: true }`, authority = the sender | `err: null` (slot 522,018,900): post-state `automatic_withdrawal` 1, `withdraw_frequency` 2,592,000 (the period) |
+| Not below the period | the same with `withdrawFrequency` 60, 3,600 or 86,400; then 2,592,000 | `InvalidArgument` for the three; `err: null` for 2,592,000 |
+| Not back off (re-run) | `enableAutomaticWithdrawal: true` then `enableAutomaticWithdrawal: false` in one transaction | `InstructionError [1, "InvalidArgument"]`: the second instruction fails |
+| Every other power the engine relies on stays off (re-run for the first) | `cancelableBySender: true`; `transferableBySender: true`; `transferableByRecipient: false` | `InstructionError [0, "InvalidArgument"]` each. Positive controls on other devnet streams: `cancelableBySender: false` on `1Ca8xDHP…YwgN` and `transferableBySender: false` on `12BasSQv…kChS` succeed, `transferableByRecipient: true` on `1NAPDn2u…WcZ` succeeds, and turning any of them back fails |
+| Only the sender, and no rate change | `amountPerPeriod: 1` with the sender; a name-only update with another key (`HWx7jD36…n1Ng`) | error 131 "Authority does not have permission for this action" for both |
+| Nothing was changed (re-run) | `getAccountInfo(stream, "finalized")` after the simulations | identical to the first row |
+| Streamflow's withdrawor acts on the flag before a stream's end | `getProgramAccounts(HqDGZ…CMfMZ, { filters: [{ dataSize: 1104 }, { memcmp: { offset: 459, bytes: "2" } }, { memcmp: { offset: 671, bytes: "1" } }] })` (flag 1, `closed` 0), then `getSignaturesForAddress` and `getTransaction` for the signers | `12gyFvEd…ZRn4` (`end_time` 1,974,712,778, `last_withdrawn_at` 1,793,800,591): 5 of its last 6 transactions signed by `wdrwhnCv…pb5u`, e.g. [66986xnt…SrEw](https://explorer.solana.com/tx/66986xntn3pWrt1z8QkPSSq9Ypbrqs7dSHWv2z7xqTyNuWxxP486GN4nDJCRk7g4nfkXfDMXAzaQ4WzVNnKrSrEw?cluster=devnet); `6FnBaEnR…UbYe`: 6 of 6; `7b8FLsQV…dh4`: 3 of 5 |
+
+What follows on the deployed engine (it checks the flag at attribution and registration only): the
+withdrawor moves the stream's unlocked tokens into the vault's token account every
+`withdraw_frequency` seconds (no shorter than the period), `engine_withdrawn` does not move, and a `redeem` prices the redeemer's payment from
+`engine_withdrawn`, so a redeem made before a `sync_sol_stream` charges the redeemer for tokens
+already in the vault, and after the release no sync can book them. The app and the SDK now check
+the stream at `finalized` before a redeem (`solRedeemSafety`); `docs/security.md` gives the residual.
+
+### NEAR testnet RPC fallback
+
+| Fact | Command | Result |
+|---|---|---|
+| The former SDK fallback is dead | `curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"engine-v2.rose-app.testnet","method_name":"get_sol_deposit","args_base64":"<base64 of {\"metadata\":\"Cg3h…d7d8A\"}>"}}'` | HTTP 429, error -429 "WARNING! THIS ENDPOINT IS DEPRECATED! STOP USING IT NOW!" |
+| FastNEAR's second host shares the primary's per-IP limit | 60 `view_account` of `engine-v2.rose-app.testnet` to `https://test.rpc.fastnear.com` (`seq 1 60 \| xargs -P 12 curl …`), then 10 to `https://rpc.testnet.fastnear.com`, then 5 to the first again | 32 × 200 and 28 × 429; then 2 × 200 and 8 × 429; then 5 × 429 |
+| dRPC answers, with CORS, and is another provider | the `get_sol_deposit` query above at `https://near-testnet.drpc.org`; `curl -s -i -X OPTIONS -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' https://near-testnet.drpc.org` | the deposit record (block 277,589,302); HTTP/2 204 with `access-control-allow-origin: https://rose-rounds.vercel.app`. It is the SDK's fallback (`NEAR_TESTNET_RPC_FALLBACK`); its free plan times out long `tx` waits (above, "Fable pass 1 fixes: web"), and staging deployment 3 already ran `e2e-solana-stream.mjs` through it |
+| Lava's public NEAR testnet endpoints are gone | the same query at `https://neart.lava.build` and `https://near-testnet.lava.build` | HTTP 410 "This endpoint has been discontinued." |
+
+### Engine ABI snapshot for the SDK's binding check
+
+| Fact | Command | Result |
+|---|---|---|
+| The engine source is the deployed one | `git diff --quiet 0524b33 HEAD -- contracts/engine/src ':!contracts/engine/src/tests' contracts/engine/Cargo.toml Cargo.lock` | exit 0 (only test files changed since `0524b33`, the commit deployed as `engine-v2.rose-app.testnet`) |
+| The committed ABI is that engine's | `cargo near abi` in `contracts/engine` (cargo-near 0.22.0, Rust 1.95.0), then `cp target/near/rose_engine/rose_engine_abi.json packages/sdk/test/engine/` | 289,048 bytes, sha256 `b5a5a7f2413a857e4de24529fec4eb631cbf92fdf8682e3f62ad0e70cb6a08a7`, 105 functions, schema 0.4.0; its `body` equals the ABI of the 2026-11-06 `cargo near build` (which only adds `metadata.build` and `metadata.wasm_hash`) |
+| The check runs on a clean clone | `pnpm --filter @rose/sdk exec vitest run test/engine/abi.test.ts` with and without `target/near/rose_engine/rose_engine_abi.json` | 5 passed with a local build (its body equals the snapshot's); 4 passed and the local-build comparison skipped without one |
+
+### Licence of the vendored Sablier interface, and RoseVault's bytecode
+
+| Fact | Command | Result |
+|---|---|---|
+| Upstream licence of every file `contracts/evm/src/interfaces/ISablierLockup.sol` draws from | `gh api repos/sablier-labs/evm-monorepo/git/refs/tags/lockup@v4.0.1`; `curl -s https://raw.githubusercontent.com/sablier-labs/evm-monorepo/lockup%40v4.0.1/<file> \| head -1` for `lockup/src/types/Lockup.sol`, `lockup/src/types/LockupLinear.sol`, `lockup/src/interfaces/ISablierLockup.sol`, `ISablierLockupState.sol`, `ISablierLockupLinear.sol` | tag on commit `fae38dc7e43c6cab6de8f97124c559f42ed5b77a`; all five start with `// SPDX-License-Identifier: GPL-3.0-or-later`, so the vendored file carries that identifier again (it said MIT) |
+| The deployed RoseVault is a build of this repository before that change | `cast code 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe --rpc-url https://sepolia.base.org` against `forge inspect RoseVault deployedBytecode` at `5328268` | 13,255 bytes each; they differ only in 21 immutable slots (the Lockup and signer addresses, the vault's own address and the cached EIP-712 values), and the trailing CBOR metadata is identical (`a2646970667358221220` `5bdec11066f0e57b948fedd6d7514bb076f94d614b75b003a0c6478a0e38fd3d` `64736f6c63430008260033`, solc 0.8.38) |
+| The licence line changes RoseVault's metadata hash, not its code | `forge build`, then `forge inspect RoseVault deployedBytecode` after the change, compared without the trailing CBOR metadata (its length in the last two bytes, 51) | code identical; the metadata's IPFS hash becomes `dc96fb01b4893d3cb8ac3147b1507ccb9d5e03cc944a693db5b9c76de94458d2`, since solc hashes every source file's text. The deployed vault keeps `5bdec110…`: a build of `5328268` or any earlier commit reproduces it in full, a build of a later commit up to that hash |
+
+### Production dependency advisories
+
+| Fact | Command | Result |
+|---|---|---|
+| What `pnpm audit` reports, and which fix fits | `pnpm audit --prod --json`; the declared ranges from each dependent's `package.json` under `node_modules/.pnpm` | 13 advisories before the change. `bn.js` 5.2.2, a direct dependency of `apps/web`, is fixed in 5.2.3 (same major; the scripts already pinned it): bumped. No other fix is in its dependent's range: `toml` `^3.0.0` (`@coral-xyz/anchor` 0.32.1) against 5.0.1, `stream-json` `^1.9.1` (`jayson` 4.3.0) against 3.6.0, `uuid` `^9.0.0` (`@solflare-wallet/sdk` 1.4.2) and `^8.3.2` (jayson) against 11.1.1, and `bigint-buffer` (`@solana/buffer-layout-utils` `^1.1.5`) has no fixed release. After the bump: 12 (7 high, 5 moderate), recorded as accepted in `docs/security.md` |
+| Where the vulnerable code is reached | `grep` in the installed packages: `toml.parse(fs.readFileSync("Anchor.toml"))` in `@coral-xyz/anchor/dist/cjs/workspace.js`; `require('stream-json/…')` in `jayson/lib/utils.js`, used by `parseStream` of `lib/client/tcp.js` and `tls.js` only; `require('uuid').v4` in jayson and `import { v4 as uuidv4 } from 'uuid'` in Solflare's `adapters/iframe.js` | none of the vulnerable paths is on a path rose calls |
+
+### Idempotent NEAR sends in the scripts
+
+| Fact | Command | Result |
+|---|---|---|
+| A transaction the network does not know is told apart from a failed lookup | `curl -s <rpc> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tx","params":{"tx_hash":"4uUzdXnzkMbzzxW2CfkQZYnPMrd1XGsmzzeb2LeU2JW6","sender_account_id":"rose-app.testnet","wait_until":"NONE"}}'` at `https://near-testnet.drpc.org` and `https://test.rpc.fastnear.com` | both answer at once with `error.cause.name` `UNKNOWN_TRANSACTION` ("Transaction … doesn't exist"); `scripts/lib/near.ts` resends a signed transaction only on that answer, after a rate limit or a transport failure, and returns the final outcome when the lookup finds the hash. A transaction older than the nodes' retention also reads `UNKNOWN_TRANSACTION` (the root account's creation, `66SvxXgw…`), so the lookup runs right after the failed send, not later |

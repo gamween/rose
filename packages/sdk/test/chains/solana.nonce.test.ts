@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Keypair, PublicKey, SendTransactionError, SystemProgram, Transaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { broadcastSignedTransaction, classifySolanaError, confirmSignature, sendAndConfirmLegacyTransaction, SolanaBlockhashExpiredError, SolanaTransactionError, waitForSignature } from "../../src/chains/solana/broadcast.js";
+import { classifySolanaError, confirmSignature, sendAndConfirmLegacyTransaction, SolanaBlockhashExpiredError, SolanaTransactionError, waitForSignature } from "../../src/chains/solana/broadcast.js";
 import { must } from "./must.js";
 import { stubConnection } from "./rpc.js";
 import { createNonceAccountTransaction, NONCE_ACCOUNT_LEN, nonceRent, nonceSeedPrefix, payoutNonceAddress, payoutNonceSeed, readNonceAccount } from "../../src/chains/solana/nonce.js";
@@ -83,26 +83,14 @@ describe("nonce accounts", () => {
 });
 
 describe("broadcast", () => {
-  it("sends wire bytes or base64 with preflight and confirms by nonce or blockhash", async () => {
-    const sent: unknown[][] = [];
-    const connection = stubConnection((method, params) => {
-      if (method === "sendTransaction") {
-        sent.push(params);
-        return SIGNATURE;
-      }
+  it("confirms by nonce or blockhash", async () => {
+    const connection = stubConnection((method) => {
       if (method === "getSignatureStatuses") return { context: { slot: 2 }, value: [{ slot: 1, confirmations: 1, err: null, confirmationStatus: "confirmed" }] };
       if (method === "getBlockHeight") return 1;
       if (method === "getAccountInfo") return { context: { slot: 2 }, value: null };
       return null;
     });
-    const wire = new Uint8Array([2, 1, 2, 3]);
-    const signature = await broadcastSignedTransaction(connection, wire);
-    expect(signature).toBe(SIGNATURE);
-    const first = must(sent[0]);
-    expect(first[0]).toBe(Buffer.from(wire).toString("base64"));
-    expect((first[1] as { skipPreflight?: boolean }).skipPreflight).toBeFalsy();
-    await broadcastSignedTransaction(connection, Buffer.from(wire).toString("base64"), { skipPreflight: true });
-    expect((must(sent[1])[1] as { skipPreflight?: boolean }).skipPreflight).toBe(true);
+    const signature = SIGNATURE;
     await expect(confirmSignature(connection, signature, { strategy: "blockhash", blockhash: BLOCKHASH, lastValidBlockHeight: 10 })).resolves.toBeUndefined();
   });
 

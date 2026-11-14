@@ -21,7 +21,19 @@ const ibe = await import(join(pkg, "rose_ibe.js"));
 ibe.initSync({ module: readFileSync(join(pkg, "rose_ibe_bg.wasm")) });
 
 const [command, ...args] = process.argv.slice(2);
+/** The `index`th argument after the command; exits with the usage line when it is missing. */
+const arg = (index) => {
+  const value = args[index];
+  if (value === undefined) usage();
+  return value;
+};
 const hex = (bytes) => Buffer.from(bytes).toString("hex");
+
+/** @returns {never} */
+function usage() {
+  console.error("usage: ibe.mjs encrypt|decrypt|plaintext|unwrap ...");
+  process.exit(2);
+}
 const le128 = (value) => {
   const out = Buffer.alloc(16);
   let n = BigInt(value);
@@ -35,28 +47,20 @@ const le128 = (value) => {
 let result;
 switch (command) {
   case "encrypt": {
-    const [mpk, engine, round, bidder, side, quantity, price] = args;
-    const sealed = ibe.encrypt_bid(mpk, engine, BigInt(round), bidder, Number(side), quantity, price);
+    const sealed = ibe.encrypt_bid(arg(0), arg(1), BigInt(arg(2)), arg(3), Number(arg(4)), arg(5), arg(6));
     result = { ciphertext_hex: hex(sealed.ciphertext), salt: sealed.salt };
     break;
   }
-  case "decrypt": {
-    const [mpk, engine, round, key, ciphertext, bidder, side] = args;
-    result = ibe.decrypt_bid(mpk, engine, BigInt(round), key, Uint8Array.from(Buffer.from(ciphertext, "hex")), bidder, Number(side));
+  case "decrypt":
+    result = ibe.decrypt_bid(arg(0), arg(1), BigInt(arg(2)), arg(3), Uint8Array.from(Buffer.from(arg(4), "hex")), arg(5), Number(arg(6)));
     break;
-  }
-  case "plaintext": {
-    const [quantity, price, salt] = args;
-    result = hex(Buffer.concat([le128(quantity), le128(price), Buffer.from(salt, "hex")]));
+  case "plaintext":
+    result = hex(Buffer.concat([le128(arg(0)), le128(arg(1)), Buffer.from(arg(2), "hex")]));
     break;
-  }
-  case "unwrap": {
-    const [engine, round, bigY, bigC] = args;
-    result = ibe.ckd_unwrap(engine, BigInt(round), bigY, bigC);
+  case "unwrap":
+    result = ibe.ckd_unwrap(arg(0), BigInt(arg(1)), arg(2), arg(3));
     break;
-  }
   default:
-    console.error("usage: ibe.mjs encrypt|decrypt|plaintext|unwrap ...");
-    process.exit(2);
+    usage();
 }
 console.log(typeof result === "string" ? result : JSON.stringify(result));

@@ -1,6 +1,6 @@
 import { ONE, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type StoredEvent } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolClaim, redeemBlocker, settledPayout, solStreamPhase, syncBlocker, tokenClaims } from "./transforms";
+import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolClaim, redeemBlocker, settledPayout, solStreamAttention, solStreamPhase, syncBlocker, tokenClaims } from "./transforms";
 
 const NOW = 1_762_200_000n;
 const DAY = 86_400n;
@@ -206,5 +206,16 @@ describe("Solana stream phases and sync", () => {
     expect(syncBlocker({ engine_withdrawn: "100" }, null)).toContain("could not be read");
     expect(syncBlocker({ engine_withdrawn: "100" }, 100n)).toContain("Nothing to sync yet");
     expect(syncBlocker({ engine_withdrawn: "100", drawing: null }, 1_000n)).toBeUndefined();
+  });
+  it("flags an open stream that withdraws automatically or withdrew beyond the engine's accounting, never one a payout draws on", () => {
+    const row = (phase: "open" | "drawing" | "closing" | "ended", onChainWithdrawn: bigint | null, automaticWithdrawal: boolean | null) => ({ phase, entry: { stream: { engine_withdrawn: "100" } }, onChainWithdrawn, automaticWithdrawal });
+    expect(solStreamAttention(row("open", 100n, false))).toBeNull();
+    expect(solStreamAttention(row("open", 400n, false))).toEqual({ kind: "sync_required", unbooked: 300n });
+    expect(solStreamAttention(row("closing", 400n, false))).toEqual({ kind: "sync_required", unbooked: 300n });
+    expect(solStreamAttention(row("open", 100n, true))).toEqual({ kind: "automatic_withdrawal", unbooked: 0n });
+    expect(solStreamAttention(row("open", 400n, true))).toEqual({ kind: "automatic_withdrawal", unbooked: 300n });
+    expect(solStreamAttention(row("drawing", 400n, true))).toBeNull();
+    expect(solStreamAttention(row("ended", 400n, false))).toBeNull();
+    expect(solStreamAttention(row("open", null, null))).toBeNull();
   });
 });

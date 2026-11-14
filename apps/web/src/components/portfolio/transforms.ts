@@ -3,7 +3,7 @@
  * `f(now)`, claim sources per chain, pending payouts, the account's slice of the event history.
  */
 
-import { ONE, SOL_DRAW_CUTOFF_SECS, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type SolDrawArgs, type StoredEvent } from "@rose/sdk";
+import { ONE, SOL_DRAW_CUTOFF_SECS, solRedeemSafety, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type SolDrawArgs, type StoredEvent } from "@rose/sdk";
 import { RoseActionError } from "@/lib/errors";
 import { tokensAtFraction } from "@/lib/amounts";
 import { fractionAt } from "@/lib/unlock-schedule";
@@ -262,6 +262,25 @@ export function solStreamPhase(stream: { end_time: number; drawing?: string | nu
   if (nowSec >= end) return "ended";
   if (stream.drawing !== undefined && stream.drawing !== null) return "drawing";
   return nowSec + SOL_DRAW_CUTOFF_SECS < end ? "open" : "closing";
+}
+
+/**
+ * What an open vault stream's metadata at finality says against the engine's accounting (spec 7.3,
+ * `solRedeemSafety`): `automatic_withdrawal` when its sender switched Streamflow's automatic
+ * withdrawal on after the deposit (no in-kind redeem; a sync and a claim from the swept balance
+ * pay its tokens), `sync_required` when it withdrew more than the engine booked (a sync first).
+ * Null otherwise, when it could not be read, after its end (the ended stream's own sync covers it)
+ * and while a payout draws on it: a landed payout not confirmed yet shows the same difference, and
+ * the remedy is to confirm it.
+ */
+export type SolStreamAttention = { kind: "automatic_withdrawal" | "sync_required"; unbooked: bigint };
+
+export function solStreamAttention(row: { phase: SolStreamPhase; entry: { stream: { engine_withdrawn: string } }; onChainWithdrawn: bigint | null; automaticWithdrawal: boolean | null }): SolStreamAttention | null {
+  if (row.phase === "drawing" || row.phase === "ended" || row.onChainWithdrawn === null || row.automaticWithdrawal === null) return null;
+  const safety = solRedeemSafety({ automaticWithdrawal: row.automaticWithdrawal, amountWithdrawn: row.onChainWithdrawn }, BigInt(row.entry.stream.engine_withdrawn));
+  if (safety.kind === "automatic_withdrawal") return { kind: "automatic_withdrawal", unbooked: safety.unbooked };
+  if (safety.kind === "sync_first") return { kind: "sync_required", unbooked: safety.unbooked };
+  return null;
 }
 
 /**

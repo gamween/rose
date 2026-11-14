@@ -4,7 +4,7 @@
   "description": "Deployment, demo seed and real-testnet end-to-end scripts. The TypeScript scripts run under Node 22.18 or later (native type stripping): `node scripts/seed.ts`.",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.mjs.json",
     "lint": "eslint .",
     "test": "node --test lib/*.test.ts",
     "seed": "node seed.ts",
@@ -17,7 +17,6 @@
     "@solana/web3.js": "1.99.0",
     "@streamflow/stream": "13.4.0",
     "bn.js": "5.2.3",
-    "bs58": "6.0.0",
     "near-api-js": "7.4.0",
     "viem": "2.57.16"
   },

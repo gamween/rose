@@ -8,7 +8,7 @@
  */
 
 import type { CashDepositedFields, StreamDepositedFields } from "../chains/base/deposit.js";
-import type { AccountId, ClaimSourceArgs, ClassId, ReplayKey, Side, SolDepositArgs, SolDrawArgs, SolNonceProof, Venue } from "./types.js";
+import type { AccountId, ClaimSourceArgs, ClassId, ReplayKey, SolDepositArgs, SolDrawArgs, SolNonceProof, Venue } from "./types.js";
 
 /** One NEAR function call: what every wallet needs to sign it. */
 export interface FunctionCall {
@@ -418,9 +418,4 @@ export function storageDepositCall(token: AccountId, account: AccountId, deposit
 /** rose tUSDC public capped mint (`contracts/tusdc`): 10,000 tUSDC per account per rolling 24 h. */
 export function mintTestUsdcCall(token: AccountId, amount: bigint, storageDeposit: bigint): FunctionCall {
   return { receiverId: token, methodName: "mint", args: { amount: amount.toString() }, gas: GAS.simple, deposit: storageDeposit };
-}
-
-/** The `Buy` or `Sell` side of an order as the engine encodes it in associated data (`side: u8`). */
-export function sideIndex(side: Side): number {
-  return side === "Buy" ? 0 : 1;
 }

@@ -302,7 +302,7 @@ test.describe("portfolio", () => {
     await ended.locator("[data-sync]").click();
     const flow = page.locator("[data-flow-dialog]");
     await expect(flow).toHaveAttribute("data-flow-status", "completed", { timeout: 60_000 });
-    await expect(flow.locator("[data-step='read']")).toContainText("60,000.0000 withdrawn by the auto-claim, not booked yet");
+    await expect(flow.locator("[data-step='read']")).toContainText("60,000.0000 withdrawn into the vault, not booked yet");
     await expect(flow.locator("[data-step='read']").getByRole("link", { name: /explorer\.solana\.com|Solana/ }).first()).toHaveAttribute("href", `https://explorer.solana.com/tx/${AUTO_CLAIM_TX}?cluster=devnet`);
     await expect(flow.locator("[data-step='sync']")).toContainText("60,000.0000 booked in the swept balance");
     await expect(flow.getByRole("link", { name: /near.rocks/ })).toHaveAttribute("href", `https://testnet.near.rocks/tx/${OUTCOME_HASH}`);

@@ -1,12 +1,5 @@
-import { base64ToBytes } from "../../encoding.js";
 import type { Connection, Signer, SignatureStatus, Transaction } from "@solana/web3.js";
 import { SendTransactionError, type Commitment, type TransactionSignature } from "@solana/web3.js";
-
-/** Broadcasts a fully signed transaction (wire bytes or base64) and returns its signature. */
-export function broadcastSignedTransaction(connection: Connection, wire: Uint8Array | string, options: { skipPreflight?: boolean } = {}): Promise<TransactionSignature> {
-  const bytes = typeof wire === "string" ? base64ToBytes(wire) : wire;
-  return connection.sendRawTransaction(bytes, { skipPreflight: options.skipPreflight ?? false });
-}
 
 /**
  * When a blockhash-based transaction can no longer land: the blockhash it was built on and the

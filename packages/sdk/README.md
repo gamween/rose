@@ -26,9 +26,9 @@ depend on none of them.
 | `math` | `src/math.ts`, port of `contracts/engine/src/math.rs` | `ONE = 1e18`, `mulDivFloor`, `mulDivCeil`, `mulDivRem`, `mulDivWide` (512-bit intermediate), `pow10` |
 | `unlock` | `src/unlock.ts`, port of `contracts/engine/src/unlock.rs` | `SablierLinearStream` (Lockup v4 LL with granularity), `StreamflowStream`, `LinearClass`, `SteppedClass`, `accrual` |
 | `clearing` | `src/clearing.ts`, port of `contracts/engine/src/clearing/` | `tender`, `exit`, `advance`, `Pricing` (`charge` up, `payout` down, `affordable`), `fee` (30 bps, ceil) |
-| engine | `src/engine/` | `NearRpc` (endpoint fallback, rate-limit backoff), `EngineViews` (every view, parsed into `bigint`s) and `EngineRawViews` (the JSON as returned), `EngineCalls` (one `FunctionCall` builder per change method, with its gas and deposit), `roseEvents` / `nep245Events` (NEP-297 logs), the engine's JSON types checked against the contract ABI |
-| Base | `src/chains/base/` | `createBaseClient`, Sablier Lockup v4 reads (`readStream`, `listOwnedStreams`, `checkEligibility`, `calculateMinFeeWei`), RoseVault writes (`depositStream`, `createStreams`, `depositCash`, `executeTransfer`, `executeRelease`), log decoding for `register_base_deposit` (`decodeStreamDeposited`, `registerBaseDepositArgs`, `waitForSafeHead`), the demo faucet and TestUSDC, the ABIs generated from the Foundry build, RoseVault error decoding |
-| Solana | `src/chains/solana/` | `createSolanaConnection`, Streamflow metadata decoding and pre-checks (`decodeStreamflowMetadata`, `readStreamflowStream`, `checkStreamflowEligibility`), the `transfer_recipient` transaction to a deposit address, payout nonce accounts (`payoutNonceSeed`, `payoutNonceAddress`, `createNonceAccountTransaction`), broadcast and confirmation of engine-signed transactions |
+| engine | `src/engine/` | `NearRpc` (endpoint fallback, rate-limit backoff), `EngineViews` (every view, parsed into `bigint`s) and `EngineRawViews` (the JSON as returned), `EngineCalls` (one `FunctionCall` builder per change method, with its gas and deposit), `roseEvents` and `decodeEventLogs` (NEP-297 logs), the engine's JSON types checked against the contract ABI |
+| Base | `src/chains/base/` | `createBaseClient`, Sablier Lockup v4 reads (`readStream`, `listOwnedStreams`, `checkEligibility`, `calculateMinFeeWei`), RoseVault writes (`depositStream`, `createStreams`, `depositCash`, `executeTransfer`, `executeRelease`), log decoding for `register_base_deposit` (`decodeStreamDeposited`, `registerBaseDepositArgs`, `waitForSafeHead`), the demo faucet and TestUSDC, the ABIs generated from the Foundry build |
+| Solana | `src/chains/solana/` | Streamflow metadata decoding and pre-checks (`decodeStreamflowMetadata`, `readStreamflowStream`, `checkStreamflowEligibility`), the `transfer_recipient` transaction to a deposit address, payout nonce accounts (`payoutNonceSeed`, `payoutNonceAddress`, `createNonceAccountTransaction`), broadcast and confirmation of engine-signed transactions |
 
 The engine re-checks everything at deposit and refuses what it does not accept: the eligibility
 helpers tell a holder early, they do not replace the engine's checks.
@@ -68,10 +68,10 @@ checkEligibility(stream); // { eligible: true, reasons: [] } or the failing rule
 Read a Streamflow stream on Solana devnet:
 
 ```ts
-import { PublicKey } from "@solana/web3.js";
-import { checkStreamflowEligibility, createSolanaConnection, readStreamflowStream } from "@rose/sdk";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { checkStreamflowEligibility, readStreamflowStream, SOLANA_DEVNET_RPC } from "@rose/sdk";
 
-const connection = createSolanaConnection();
+const connection = new Connection(SOLANA_DEVNET_RPC, "confirmed");
 const { metadata } = await readStreamflowStream(connection, new PublicKey("4rX9gu7zsADqt1B5MpztX8kghx54vHSGcZTLmyYDrNc9"));
 checkStreamflowEligibility(metadata).reasons; // [] when the stream passes the pre-checks
 ```

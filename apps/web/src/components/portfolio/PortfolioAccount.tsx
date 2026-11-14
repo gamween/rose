@@ -32,7 +32,7 @@ import { HistorySection, StorageSection } from "./HistoryAndStorage";
 import { HoldingsSection } from "./HoldingsSection";
 import { LiensSection, OrdersSection } from "./OrdersAndLiens";
 import { SolanaStreamsSection } from "./SolanaStreamsSection";
-import { cashRows, holdingRows, lienProgress, orderRows, settledPayout, tokenClaims, type CashRow, type HoldingRow, type TokenClaim } from "./transforms";
+import { cashRows, holdingRows, lienProgress, orderRows, settledPayout, solStreamAttention, tokenClaims, type CashRow, type HoldingRow, type TokenClaim } from "./transforms";
 
 type PortfolioTab = "holdings" | "claims" | "orders" | "liens" | "streams" | "history" | "storage";
 
@@ -47,7 +47,8 @@ const SOL_REDEEM_UNAVAILABLE = {
 /**
  * Solana positions whose stream takes no redeem now (spec 7.3), with the reason, by position id.
  * A held position missing from its class's `get_sol_streams` had its stream pruned: fully
- * withdrawn by payouts, or ended and synced.
+ * withdrawn by payouts, or ended and synced. A stream whose sender switched automatic withdrawal
+ * on is refused (`solRedeemSafety`); the redeem flow checks every stream again at finality.
  */
 function solRedeemUnavailable(data: PortfolioData): Map<string, string> {
   const reasons = new Map<string, string>();
@@ -56,8 +57,18 @@ function solRedeemUnavailable(data: PortfolioData): Map<string, string> {
   for (const position of data.positions) {
     if (position.source.kind === "SolanaStream" && viewed.has(position.classId) && !listed.has(position.positionId.toString())) reasons.set(position.positionId.toString(), "Its stream is fully withdrawn (ended and synced)");
   }
-  for (const row of data.solClasses.flatMap((view) => view.streams)) if (row.phase !== "open") reasons.set(row.entry.position_id, SOL_REDEEM_UNAVAILABLE[row.phase]);
+  for (const row of data.solClasses.flatMap((view) => view.streams)) {
+    if (row.phase !== "open") reasons.set(row.entry.position_id, SOL_REDEEM_UNAVAILABLE[row.phase]);
+    else if (solStreamAttention(row)?.kind === "automatic_withdrawal") reasons.set(row.entry.position_id, "Its stream withdraws automatically: sync it and claim from the swept balance");
+  }
   return reasons;
+}
+
+/** Solana positions the redeem syncs first: their stream withdrew more than the engine booked. */
+function solRedeemNotes(data: PortfolioData): Map<string, string> {
+  const notes = new Map<string, string>();
+  for (const row of data.solClasses.flatMap((view) => view.streams)) if (solStreamAttention(row)?.kind === "sync_required") notes.set(row.entry.position_id, "sync required: the redeem syncs it first");
+  return notes;
 }
 
 /** `setPrompt` and `setFlow` drive the page's claim and flow dialogs, which outlive this view (a running flow keeps its result on screen). */
@@ -157,20 +168,21 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
       details:
         chain === "base"
           ? "Burns the position's allocation from your free units and authorizes a RoseVault Release: the vault withdraws the vested balance to itself first, then the stream NFT is transferred to you."
-          : "Burns the position's allocation from your free units and pays, from your claimable tokens of the class, what the stream still owes the unit holders (you take its unlocked balance with it). The engine then signs transfer_recipient, which moves the stream to you; nothing is withdrawn into the vault.",
+          : "The app first reads the stream at finality: a stream whose sender switched Streamflow's automatic withdrawal on is not redeemed (sync it and claim from the swept balance instead), and what the stream withdrew beyond the engine's accounting is synced first. The redeem then burns the position's allocation from your free units and pays, from your claimable tokens of the class, what the stream still owes the unit holders (you take its unlocked balance with it). The engine signs transfer_recipient, which moves the stream to you; nothing is withdrawn into the vault.",
       positions: {
         candidates,
         decimals: row.info.decimals,
         freeUnits: row.holding.balance,
         owed: chain === "solana" ? { byPosition: data.redeemOwed, claimable: row.holding.claimable + pendingExcess, unit: symbol } : undefined,
         unavailable: chain === "solana" ? solRedeemUnavailable(data) : undefined,
+        notes: chain === "solana" ? solRedeemNotes(data) : undefined,
       },
       destination: { chain, initial: chain === "base" ? (wallets.evm.address ?? "") : (wallets.solana.publicKey ?? "") },
       confirmLabel: "Redeem",
       onConfirm: ({ destination, position }) => {
         if (!position) return;
         setPrompt(null);
-        setFlow({ title: `Redeem position #${position.positionId.toString()}`, summary: `${formatAmount(position.allocation, row.info.decimals)} units burned · stream to ${destination}`, steps: () => redeemSteps(deps(), position, chain === "base" ? destination.toLowerCase() : destination, row.info.token) });
+        setFlow({ title: `Redeem position #${position.positionId.toString()}`, summary: `${formatAmount(position.allocation, row.info.decimals)} units burned · stream to ${destination}`, steps: () => redeemSteps(deps(), position, chain === "base" ? destination.toLowerCase() : destination, row.info.token, row.info.decimals) });
       },
     });
   };

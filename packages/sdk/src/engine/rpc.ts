@@ -9,8 +9,14 @@ import { base64ToBytes, bytesToBase64, bytesToUtf8, utf8ToBytes } from "../encod
 
 /** FastNEAR testnet RPC, the primary endpoint (spec section 6). */
 export const NEAR_TESTNET_RPC = "https://test.rpc.fastnear.com";
-/** Official testnet RPC, used when FastNEAR is unreachable. */
-export const NEAR_TESTNET_RPC_FALLBACK = "https://rpc.testnet.near.org";
+/**
+ * dRPC's public testnet RPC, used when FastNEAR is unreachable or rate limits the caller. Another
+ * provider on purpose: FastNEAR's second host (`rpc.testnet.fastnear.com`) shares the primary's
+ * per-IP limit, and `rpc.testnet.near.org` answers every request with error -429 "deprecated"
+ * (both measured, docs/verification.md). Its free plan times out long `tx` waits, so a `send_tx`
+ * through it can fail after the transaction was accepted; the transaction still lands.
+ */
+export const NEAR_TESTNET_RPC_FALLBACK = "https://near-testnet.drpc.org";
 
 export type NearRpcErrorKind =
   | "unreachable"
@@ -162,11 +168,6 @@ function bucketOf(endpoint: string): TokenBucket | null {
     buckets.set(endpoint, bucket);
   }
   return bucket;
-}
-
-/** Waits for a request token of `endpoint` (immediate for endpoints without a measured limit), for callers that fetch the RPC themselves. */
-export async function takeRpcBudget(endpoint: string): Promise<void> {
-  await bucketOf(endpoint)?.take();
 }
 
 /** The endpoints in failover order, starting with the first one that has budget left now. */

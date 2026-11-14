@@ -14,7 +14,6 @@ import {
   cohortTotal,
   createStreams,
   DemoClass,
-  demoFaucetSchedule,
   decodePositionMinted,
   depositCash,
   executeTransfer,
@@ -129,12 +128,6 @@ describe("reads", () => {
     expect(reads[0]).toMatchObject({ address: FAUCET, abi: demoStreamFaucetAbi, functionName: "lastMintAt", args: [HOLDER, 1] });
   });
 
-  it("demoFaucetSchedule keeps the schedule fields of scheduleOf", async () => {
-    const onChain = { start: 1, cliff: 2, end: 3, amount: 100n, startUnlock: 0n, cliffUnlock: 25n, extra: "ignored" };
-    const { client, reads } = recordingClient(onChain);
-    await expect(demoFaucetSchedule(client, FAUCET, DemoClass.SEED)).resolves.toEqual({ start: 1, cliff: 2, end: 3, amount: 100n, startUnlock: 0n, cliffUnlock: 25n });
-    expect(reads[0]).toMatchObject({ address: FAUCET, functionName: "scheduleOf", args: [0] });
-  });
 
   it("calculateMinFeeWei reads the canonical Lockup unless another one is given", async () => {
     const { client, reads } = recordingClient(0n);
