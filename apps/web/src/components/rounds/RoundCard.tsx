@@ -104,7 +104,7 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
             <span className="max-sm:hidden"> · {venueLabel(round.venue)}</span>
           </p>
         </div>
-        <StatusBadge status={round.status} className="shrink-0 md:hidden" />
+        <StatusBadge status={round.status} closed={action.kind === "close" || action.kind === "cancel_no_key"} className="shrink-0 md:hidden" />
       </div>
       <dl className="contents">
         <Cell label={money.label}>{money.value}</Cell>
@@ -119,7 +119,7 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
       </dl>
       <div className="col-span-3 flex min-w-0 flex-col gap-1.5 md:col-span-1">
         <span className="flex items-center justify-between gap-2 text-[12px]">
-          <StatusBadge status={round.status} className="max-md:hidden" />
+          <StatusBadge status={round.status} closed={action.kind === "close" || action.kind === "cancel_no_key"} className="max-md:hidden" />
           <span className="flex min-w-0 items-center gap-1.5 text-ink-300 md:justify-end">
             <span className={cn("truncate", action.kind === "close" || action.kind === "clear" || action.kind === "finalize" || action.kind === "settle" ? "text-ember-300" : undefined)}>{line.text}</span>
             {line.countdown !== null ? <Countdown target={line.countdown} endedLabel="now" className="text-ink-50" /> : null}

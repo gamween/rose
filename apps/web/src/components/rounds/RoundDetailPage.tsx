@@ -24,13 +24,13 @@ import { ClearingChart } from "./ClearingChart";
 import { buildBook, roundCurves } from "./curves";
 import { FillsTable } from "./FillsTable";
 import { FinalizePanel } from "./FinalizePanel";
-import { classShortLabel, clearingOf, formatDate, formatQty, formatUsdc, KIND_BLURB, lockedPercent, nextAction, nsToMs, scheduleEndSecs, venueLabel } from "./model";
+import { classShortLabel, clearingOf, formatDate, formatQty, formatUsdc, KIND_BLURB, lockedPercent, msToNs, nextAction, nsToMs, scheduleEndSecs, venueLabel } from "./model";
 import { MyOrders } from "./MyOrders";
 import { OrderForm } from "./OrderForm";
 import { RoundAction, RoundExtraActions } from "./RoundAction";
 import { RoundDetails } from "./RoundDetails";
 import { SealedBook } from "./SealedBook";
-import { ErrorState, KindBadge, NotDeployedState, StatusBadge } from "./shared";
+import { DateTimeText, ErrorState, KindBadge, NotDeployedState, StatusBadge } from "./shared";
 import { RoundProgress, StatusTimeline } from "./StatusTimeline";
 import { useRoundDetail, type RoundDetail } from "./useRoundDetail";
 import { VerifyPanel } from "./VerifyPanel";
@@ -133,7 +133,7 @@ function RoundClock({ detail, nowMs }: { detail: RoundDetail; nowMs: number }) {
       break;
     default:
       label = round.status === "Cancelled" ? "Cancelled" : round.status === "Settled" ? "Ended" : "Closed";
-      value = formatDate(nsToMs(round.endedAt ?? round.closesAt));
+      value = <DateTimeText ms={nsToMs(round.endedAt ?? round.closesAt)} />;
   }
   return (
     <div className="flex flex-col sm:items-end" data-round-clock>
@@ -179,7 +179,7 @@ function RoundHeader({ detail, nowMs, refreshing, onRefresh }: { detail: RoundDe
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Round #{round.roundId.toString()}</h1>
             <KindBadge kind={round.kind} />
-            <StatusBadge status={round.status} />
+            <StatusBadge status={round.status} closed={round.status === "Open" && msToNs(nowMs) >= round.closesAt} />
             {round.cancelReason ? <span className="text-[11px] text-danger-400 font-medium">{round.cancelReason === "NoCrossing" ? "no crossing" : round.cancelReason === "NoKey" ? "no key" : round.cancelReason === "Empty" ? "no orders" : "withdrawn"}</span> : null}
           </div>
           <p className="mt-1 text-[13px] text-ink-300">
