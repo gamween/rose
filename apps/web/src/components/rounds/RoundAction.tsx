@@ -14,6 +14,7 @@ import { LearnMore } from "@/components/chrome/LearnMore";
 import { ActionCard } from "@/components/ui/ActionCard";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Countdown } from "@/components/ui/Countdown";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { ROUTES } from "@/lib/routes";
 import { useNearAction } from "./actions";
@@ -61,6 +62,7 @@ function describe(action: NextAction, round: Round): { title: string; body: stri
 export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { detail: RoundDetail; nowMs: number; onChanged: () => void; onSettle: () => void; children?: ReactNode }) {
   const { round, engine, viewer } = detail;
   const { restoring } = useWallets();
+  const openConnect = useConnectModal();
   const action = nextAction(round, nowMs);
   const text = describe(action, round);
   const { run, status } = useNearAction();
@@ -120,9 +122,15 @@ export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { 
       ) : null}
       <div className="mt-3 flex flex-col gap-2">
         {action.kind === "close" || action.kind === "cancel_no_key" || action.kind === "clear" ? (
-          <Button size="lg" className="w-full" onClick={() => void act()} loading={busy} loadingLabel="Signing…" disabled={!connected} variant={action.kind === "cancel_no_key" ? "danger" : "primary"} data-action={action.kind}>
-            {NEXT_ACTION_LABEL[action.kind]}
-          </Button>
+          !connected && !restoring ? (
+            <Button size="lg" className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
+              Connect a NEAR wallet to {action.kind === "close" ? "close" : action.kind === "clear" ? "clear" : "cancel"} the round
+            </Button>
+          ) : (
+            <Button size="lg" className="w-full" onClick={() => void act()} loading={busy} loadingLabel="Signing…" disabled={!connected} variant={action.kind === "cancel_no_key" ? "danger" : "primary"} data-action={action.kind}>
+              {NEXT_ACTION_LABEL[action.kind]}
+            </Button>
+          )
         ) : null}
         {action.kind === "settle" ? (
           <Button size="lg" className="w-full" onClick={onSettle} data-action="settle">
@@ -140,7 +148,7 @@ export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { 
           </Button>
         ) : null}
         {canCancelNoKey(round, nowMs) && action.kind !== "cancel_no_key" ? <CancelNoKeyButton detail={detail} onChanged={onChanged} /> : null}
-        {!connected && needsWallet ? <p className="text-[11.5px] text-ink-400">{restoring ? "Restoring your wallet…" : "Connect a NEAR wallet to act."}</p> : null}
+        {!connected && needsWallet && (restoring || action.kind === "settle" || retryVisible) ? <p className="text-[11.5px] text-ink-400">{restoring ? "Restoring your wallet…" : "Connect a NEAR wallet to act."}</p> : null}
         {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
       </div>
       {round.status === "KeyRequested" && round.key === null ? <SubmitKeyPanel detail={detail} onChanged={onChanged} /> : null}

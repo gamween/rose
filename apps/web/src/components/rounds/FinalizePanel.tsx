@@ -12,6 +12,7 @@ import type { Bid } from "@rose/sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { cn } from "@/lib/cn";
 import { toActionError } from "@/lib/errors";
@@ -34,6 +35,7 @@ type Step =
 export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
   const { round, bids, engine, config, cls } = detail;
   const { sendNearCall, near, restoring } = useWallets();
+  const openConnect = useConnectModal();
   const toast = useToast();
   const [steps, setSteps] = useState<Map<number, Step>>(() => new Map());
   const [running, setRunning] = useState(false);
@@ -147,9 +149,15 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
         {/* The run button keeps its place and turns into a disabled progress label while the run
             goes, so a second click lands on nothing; pausing is a separate control under the
             progress bar. */}
-        <Button className="w-full" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
-          {steps.size > 0 ? "Resume" : "Open every order"}
-        </Button>
+        {!restoring && near.status !== "connected" && windowOpen && remaining > 0 ? (
+          <Button className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
+            Connect a NEAR wallet to open every order
+          </Button>
+        ) : (
+          <Button className="w-full" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
+            {steps.size > 0 ? "Resume" : "Open every order"}
+          </Button>
+        )}
       </div>
       <div className="pt-3">
         <div className="mb-3 h-1.5 w-full overflow-hidden rounded-sm bg-ink-800" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Orders opened">
@@ -174,7 +182,7 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
         {keyState === "invalid" ? <Notice tone="danger">The stored key does not verify against the CKD public key in this browser. Do not open anything; this should be impossible since the contract verified it with a pairing check.</Notice> : null}
         {keyState === "error" ? <Notice tone="warning">The IBE module could not load in this browser, so orders cannot be decrypted here. Reload the page or use another browser.</Notice> : null}
         {keyState === "valid" ? <p className="mb-2 text-[11px] text-success-400">Round key verified in the browser against the CKD public key.</p> : null}
-        {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or the demo wallet) to pay the opening transactions.</Notice> : null}
+        {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : null}
         {remaining === 0 && steps.size === 0 ? (
           <p className="text-[12px] text-ink-400">{windowOpen ? "Every order is open. Clearing runs after the reveal window." : "Every order was opened; clear the round."}</p>
         ) : (
