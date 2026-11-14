@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { FinalExecutionOutcome } from "@rose/sdk";
-import { failedBeforeSigning, sendOnce, type OneTransaction } from "./near.ts";
+import { InvalidNonceError } from "near-api-js/rpc-errors";
+import { failedBeforeSigning, sendOnce, StaleNonceError, type OneTransaction } from "./near.ts";
 
 function syntaxErrorFrom(frames: string[]): SyntaxError {
   const error = new SyntaxError(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`);
@@ -78,4 +79,18 @@ await test("an error the transaction itself caused is not resent", async () => {
   const transaction = scripted([invalid], [false]);
   await assert.rejects(sendOnce("t", "H", transaction), invalid);
   assert.deepEqual(transaction.calls, ["send", "known"]);
+});
+
+await test("a first send refused for its nonce, unknown to the network, may be signed again", async () => {
+  const refusal = new InvalidNonceError(7, 5, "H", "B");
+  const transaction = scripted([refusal], [false]);
+  await assert.rejects(sendOnce("t", "H", transaction), (error: unknown) => error instanceof StaleNonceError && error.refusal === refusal);
+  assert.deepEqual(transaction.calls, ["send", "known"]);
+});
+
+await test("a nonce refusal after an earlier send of the same bytes is never a reason to sign again", async () => {
+  const refusal = new InvalidNonceError(7, 5, "H", "B");
+  const transaction = scripted([RATE_LIMITED, refusal], [false, false]);
+  await assert.rejects(sendOnce("t", "H", transaction), refusal);
+  assert.deepEqual(transaction.calls, ["send", "known", "send", "known"]);
 });

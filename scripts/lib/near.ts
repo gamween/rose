@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Account, actions, baseEncode, JsonRpcProvider, KeyPairSigner, PublicKey, type Action, type KeyPairString } from "near-api-js";
+import { InvalidNonceError } from "near-api-js/rpc-errors";
 import {
   describeFailure,
   EngineViews,
@@ -160,12 +161,28 @@ export interface OneTransaction {
 }
 
 /**
+ * The first send of a transaction was refused for its nonce (another transaction of the key used
+ * it, or the cached nonce was stale) and the network does not know the transaction: its bytes
+ * never executed, so signing it again with a fresh nonce cannot duplicate it.
+ */
+export class StaleNonceError extends Error {
+  readonly refusal: InvalidNonceError;
+
+  constructor(refusal: InvalidNonceError) {
+    super(refusal.message);
+    this.name = "StaleNonceError";
+    this.refusal = refusal;
+  }
+}
+
+/**
  * Sends one signed transaction without ever executing it twice. An RPC can fail a `send_tx` it
  * already forwarded (FastNEAR answered HTTP 429 to three that executed), so after any failed send
  * the transaction is looked up by its hash, known before sending, on the other endpoint: known, its
  * final outcome is returned; unknown after a rate limit or a transport failure, the same signed
  * bytes are sent again, which the nonce makes harmless; otherwise the error stands. A lookup that
- * fails is retried, and the send is never repeated while the network may know the transaction.
+ * fails is retried, and the send is never repeated while the network may know the transaction. A
+ * first send refused for its nonce throws `StaleNonceError`, the one case the caller may sign again.
  */
 export async function sendOnce(what: string, hash: string, transaction: OneTransaction): Promise<FinalExecutionOutcome> {
   for (let attempt = 0; ; attempt += 1) {
@@ -181,9 +198,33 @@ export async function sendOnce(what: string, hash: string, transaction: OneTrans
         log(`  ${what}: the send failed (${error instanceof Error ? error.message : String(error)}) but the network has ${hash}; waiting for its final outcome`);
         return transaction.final();
       }
+      if (known === false && attempt === 0 && error instanceof InvalidNonceError) throw new StaleNonceError(error);
       if (known === null || !resendable(error) || attempt >= 8) throw error;
       log(`  ${what}: the send failed (${error instanceof Error ? error.message : String(error)}) and the network does not know ${hash}; sending the same signed transaction again in ${5 * (attempt + 1)} s`);
       await transaction.wait(5_000 * (attempt + 1));
+    }
+  }
+}
+
+/** The `cause.name` of a JSON-RPC error answered by the NEAR RPC. */
+function rpcCause(error: unknown): string | undefined {
+  return error instanceof NearRpcError ? (error.data as { cause?: { name?: string } } | undefined)?.cause?.name : undefined;
+}
+
+/**
+ * The final outcome of a transaction the network knows, through the primary endpoint first (dRPC's
+ * free plan times out long `tx` waits). The node's own wait ends after about 10 s with
+ * `TIMEOUT_ERROR` when finality takes longer (an MPC callback), so it asks again.
+ */
+async function finalOutcome(hash: string, senderId: string): Promise<FinalExecutionOutcome> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await rpc.transactionStatus(hash, senderId, "FINAL");
+    } catch (error) {
+      const transient = error instanceof NearRpcError && (error.kind === "unreachable" || error.kind === "http" || rpcCause(error) === "TIMEOUT_ERROR" || /time(d)? ?out/i.test(error.message));
+      if (!transient || attempt >= 20) throw error;
+      log(`  tx ${hash}: not final yet (${error.message}), asking again`);
+      await sleep(3_000);
     }
   }
 }
@@ -194,15 +235,14 @@ async function transactionKnown(hash: string, senderId: string): Promise<boolean
     await lookupRpc.transactionStatus(hash, senderId, "NONE");
     return true;
   } catch (error) {
-    const cause = error instanceof NearRpcError ? (error.data as { cause?: { name?: string } } | undefined)?.cause?.name : undefined;
-    return cause === "UNKNOWN_TRANSACTION" ? false : null;
+    return rpcCause(error) === "UNKNOWN_TRANSACTION" ? false : null;
   }
 }
 
 /** A NEAR account that signs transactions. */
 export class NearActor {
   readonly accountId: string;
-  private readonly account: Account;
+  private account: Account;
   private readonly provider: JsonRpcProvider;
   private readonly signer: KeyPairSigner;
 
@@ -213,19 +253,32 @@ export class NearActor {
     this.account = new Account(accountId, this.provider, this.signer);
   }
 
-  /** Signs one transaction and sends it until it is final, never executing it twice (`sendOnce`). */
+  /**
+   * Signs one transaction and sends it until it is final, never executing it twice (`sendOnce`).
+   * Signs again only on `StaleNonceError`, with a fresh `Account` whose nonce cache reads the key's
+   * nonce from the chain again (near-api-js's own recovery, which this replaces).
+   */
   private async execute(what: string, receiverId: string, transactionActions: Action[]): Promise<FinalExecutionOutcome> {
-    const signed = await retryBeforeSending(what, async () => {
-      const transaction = await this.account.createTransaction({ receiverId, actions: transactionActions, publicKey: await this.signer.getPublicKey() });
-      return this.signer.signTransaction(transaction);
-    });
-    const hash = baseEncode(signed.txHash);
-    return sendOnce(what, hash, {
-      send: async () => (await this.provider.sendTransactionUntil(signed.signedTransaction, "FINAL")) as unknown as FinalExecutionOutcome,
-      known: () => transactionKnown(hash, this.accountId),
-      final: () => withRetry(`tx ${hash}`, () => lookupRpc.transactionStatus(hash, this.accountId, "FINAL")),
-      wait: sleep,
-    });
+    for (let resign = 0; ; resign += 1) {
+      const signed = await retryBeforeSending(what, async () => {
+        const transaction = await this.account.createTransaction({ receiverId, actions: transactionActions, publicKey: await this.signer.getPublicKey() });
+        return this.signer.signTransaction(transaction);
+      });
+      const hash = baseEncode(signed.txHash);
+      try {
+        return await sendOnce(what, hash, {
+          send: async () => (await this.provider.sendTransactionUntil(signed.signedTransaction, "FINAL")) as unknown as FinalExecutionOutcome,
+          known: () => transactionKnown(hash, this.accountId),
+          final: () => finalOutcome(hash, this.accountId),
+          wait: sleep,
+        });
+      } catch (error) {
+        if (!(error instanceof StaleNonceError)) throw error;
+        if (resign >= 5) throw error.refusal;
+        log(`  ${what}: the nonce of ${hash} was already used; signing again with a fresh nonce`);
+        this.account = new Account(this.accountId, this.provider, this.signer);
+      }
+    }
   }
 
   /**
