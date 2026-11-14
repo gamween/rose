@@ -290,7 +290,11 @@ normative version):
   forwards it, so withdrawals and releases keep working); Streamflow's program is upgradeable and
   its on-chain source is not public, and its auto-claim withdraws every ended stream into its
   recipient's token account one second after the end, which rose books (`sync_sol_stream`) and
-  relies on for an ended stream's last tranche.
+  relies on for an ended stream's last tranche. A stream's sender can also switch Streamflow's
+  automatic withdrawal on after the deposit (never off): the swept tokens land in the vault and a
+  sync books them, the app refuses to redeem such a stream in kind and claims no longer draw on
+  unsynced withdrawals, and a direct `redeem` of it without a sync loses what was swept and not
+  synced ([security model](./docs/security.md#redeem-in-kind)).
 - **Gas:** every user-facing method stays under the 300 Tgas wallet cap (the highest, a verified
   opening, burns about 132 Tgas); the 1 PGas protocol limit is used only by the scripts and the
   in-app demo wallet.
@@ -365,9 +369,10 @@ with the real engine wasm, `forge test` (140 tests, fork tests against the live 
 
 ## Deployed contracts
 
-The table lists the deployment the app at https://rose-rounds.vercel.app uses. It is generated
-from [`deployments/testnet.json`](./deployments/testnet.json), which also records every earlier
-deployment; the engine row says whether the engine keeps an access key, and `/status` shows the
+The table lists the deployment the app at https://rose-rounds.vercel.app uses. Its addresses and
+hashes come from [`deployments/testnet.json`](./deployments/testnet.json), which also records every
+earlier deployment (the tUSDC transactions, the MPC version and the base58 code hash come from
+[`docs/verification.md`](./docs/verification.md)); the engine row says whether the engine keeps an access key, and `/status` shows the
 same `view_access_key_list` result live.
 
 **Listed now: the final deployment, keyless.** `engine-v2.rose-app.testnet` has no access key:
@@ -471,7 +476,7 @@ packages/sdk         @rose/sdk: bindings, chain adapters, unlock math, clearing 
 packages/ibe-wasm    the browser build of rose-ibe
 apps/web             Next.js app: landing, app, docs, status, demo faucet route
 scripts              deployment, demo seed, live end-to-end runs
-deployments          addresses, transaction hashes and records of every live run (no secrets)
+deployments          addresses, transaction hashes and records of the scripted live runs (no secrets)
 docs
   spec.md              the specification: what rose is and what done means
   architecture.md      how each part of the spec is implemented
@@ -541,7 +546,8 @@ Each script records every transaction under `deployments/` and resumes where it 
 - `contracts/ibe` is ported from [Sealwell](https://github.com/Godwin-web3/sealwell)'s `sealwell-ibe`
   crate (MIT OR Apache-2.0); the changes are listed in [`contracts/ibe/README.md`](./contracts/ibe/README.md).
 - EVM dependencies: OpenZeppelin Contracts v5.7.0 and forge-std v1.17.0. Sablier's interface is
-  copied from `lockup@v4.0.1`.
+  copied from `lockup@v4.0.1` and keeps its licence, GPL-3.0-or-later
+  ([`ISablierLockup.sol`](./contracts/evm/src/interfaces/ISablierLockup.sol)).
 - Fonts: Departure Mono (SIL Open Font License 1.1) and Geist (SIL Open Font License).
 - Interface components adapted from MIT-licensed libraries (rewritten without their animation
   dependency; each source file names its origin, and the licence texts are in
@@ -570,5 +576,6 @@ Sofiane Ben Taleb ([@gamween](https://github.com/gamween)).
 ## License
 
 [MIT](./LICENSE). Imported code keeps its own licence (`contracts/ibe`: MIT OR Apache-2.0 from
-Sealwell; OpenZeppelin Contracts: MIT; forge-std: MIT OR Apache-2.0; the adapted Magic UI and
-Motion Primitives components: MIT).
+Sealwell; OpenZeppelin Contracts: MIT; forge-std: MIT OR Apache-2.0; the Sablier Lockup types and
+interface in `contracts/evm/src/interfaces/ISablierLockup.sol`: GPL-3.0-or-later; the adapted Magic
+UI and Motion Primitives components: MIT).
