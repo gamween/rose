@@ -294,7 +294,7 @@ Every async action has loading, success and failure states, human-readable error
 - Contracts: Rust unit tests for clearing (property tests against a brute-force reference), unlock function, accrual accounting across transfers and rounds, round state machine; integration tests in a NEAR sandbox using recorded real testnet MPC responses as fixtures; Foundry tests for RoseVault (EIP-712 signature format matching the MPC output, replay bitmap, deposit events); end-to-end scripts on real testnets for every flow.
 - Web: typecheck, lint, unit tests, Playwright end-to-end over the main journeys with demo wallets, Lighthouse performance and accessibility checks, visual review of every page at 1470 px and 375 px.
 - Every external fact (address, version, method name, byte offset, gas) is verified live and recorded in `docs/verification.md` with the command used.
-- Reviews: independent review passes by a different model (Fable) on the spec, contracts, cross-chain flows and UI, focused on correctness, hallucinated APIs and drift from this spec.
+- Reviews: independent review passes by a different model on the spec, contracts, cross-chain flows and UI, focused on correctness, hallucinated APIs and drift from this spec.
 
 ## 11. Day-1 de-risking order
 
