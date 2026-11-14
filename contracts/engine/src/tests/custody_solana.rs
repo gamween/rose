@@ -2209,6 +2209,150 @@ fn unreadable_solana_signatures_are_recovered_by_verified_submissions() {
     );
 }
 
+#[test]
+fn a_missing_fee_payer_signature_is_requested_again_by_resign_sol_gas() {
+    let mut contract = bootstrapped();
+    deposit_stream(&mut contract, STREAM, 0, ts(500));
+    let args2 = attribute_stream(&mut contract, STREAM_2, &sol_spec(deposit_address()));
+    move_stream(&mut contract, &args2.metadata, ts(2_150));
+    register_stream(&mut contract, STREAM_2, 0, ts(2_200));
+    let class = stepped_class_id();
+    let id = request_claim(
+        &mut contract,
+        &class,
+        vec![draw(0, 300)],
+        NONCE_VALUE,
+        ts(4_000),
+    );
+    env_at(&accounts(4), ts(4_001));
+    panics_with("not awaiting the fee payer signature", || {
+        contract.resign_sol_gas(U64(id))
+    });
+
+    // The vault signs, the fee payer's request fails: the vault signature is kept.
+    prove(&mut contract, id, NONCE_VALUE, ts(4_005));
+    let message = message_of(&contract, id);
+    env_with_results(
+        ts(4_010),
+        vec![
+            ed_signature(&vault_sol_key(), &message),
+            PromiseResult::Failed,
+        ],
+    );
+    assert!(!contract.on_sol_signed(U64(id)));
+    assert_eq!(
+        contract.get_payout(U64(id)).unwrap().status,
+        PayoutStatus::AwaitingGasSignature
+    );
+    assert!(events("rose")
+        .iter()
+        .any(|e| e["event"] == "payout_awaiting_gas_signature"));
+
+    // Anyone re-requests the `gas/sol` signature over the stored message, which stays as is.
+    env_at(&accounts(4), ts(4_020));
+    contract.resign_sol_gas(U64(id)).detach();
+    let request = last_call_args("sign");
+    assert_eq!(request["request"]["path"], "gas/sol");
+    assert_eq!(
+        request["request"]["domain_id"],
+        contract.config.sign_ed25519_domain
+    );
+    assert_eq!(
+        request["request"]["payload_v2"],
+        serde_json::to_value(crate::foreign::mpc::SignPayload::Eddsa(message.clone())).unwrap()
+    );
+    assert_eq!(
+        last_call_args("on_sol_gas_resigned")["payout_id"],
+        id.to_string()
+    );
+    assert_eq!(message_of(&contract, id), message);
+
+    // A failed, unreadable or wrong-key answer changes nothing: still awaiting, vault signature
+    // kept, no transaction.
+    for answer in [
+        PromiseResult::Failed,
+        PromiseResult::Successful(br#"{"scheme":"Ed25519"}"#.to_vec()),
+        ed_signature(&vault_sol_key(), &message),
+    ] {
+        env_with_results(ts(4_025), vec![answer]);
+        assert!(!contract.on_sol_gas_resigned(U64(id)));
+        let payout = contract.get_payout(U64(id)).unwrap();
+        assert_eq!(payout.status, PayoutStatus::AwaitingGasSignature);
+        let solana = payout.solana.unwrap();
+        assert!(solana.authority_signature.is_some());
+        assert!(solana.gas_signature.is_none() && solana.transaction.is_none());
+    }
+
+    // The fee payer's signature completes the transaction: `[2] || sig(gas) || sig(vault) || message`.
+    env_with_results(ts(4_030), vec![ed_signature(&gas_sol_key(), &message)]);
+    assert!(contract.on_sol_gas_resigned(U64(id)));
+    let payout = contract.get_payout(U64(id)).unwrap();
+    assert_eq!(payout.status, PayoutStatus::Signed);
+    let solana = payout.solana.unwrap();
+    let transaction = solana.transaction.clone().unwrap().0;
+    assert_eq!(transaction[0], 2);
+    assert_eq!(
+        &transaction[1..65],
+        solana.gas_signature.clone().unwrap().0.as_slice(),
+        "gas/sol signs first"
+    );
+    assert_eq!(
+        &transaction[65..129],
+        solana.authority_signature.clone().unwrap().0.as_slice()
+    );
+    assert_eq!(&transaction[129..], &message[..]);
+    assert!(events("rose").iter().any(|e| e["event"] == "payout_signed"));
+
+    // A late or duplicate answer once signed is ignored, and a new request is refused.
+    env_with_results(ts(4_035), vec![ed_signature(&gas_sol_key(), &message)]);
+    assert!(!contract.on_sol_gas_resigned(U64(id)));
+    assert_eq!(
+        contract
+            .get_payout(U64(id))
+            .unwrap()
+            .solana
+            .unwrap()
+            .transaction,
+        solana.transaction
+    );
+    env_at(&accounts(4), ts(4_036));
+    panics_with("not awaiting the fee payer signature", || {
+        contract.resign_sol_gas(U64(id))
+    });
+
+    // Signed is not settled: the stream carries the payout and both nonce accounts stay
+    // reserved until the confirmation, which then lands it.
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().drawing,
+        Some(U64(id))
+    );
+    payout_env(&accounts(1), ts(4_040));
+    panics_with("is reserved by action", || {
+        contract.claim_sol_tokens(
+            holding(&class),
+            vec![draw(1, 300)],
+            None,
+            fmt(&RETURN_TO),
+            proof(NONCE_NEXT),
+        )
+    });
+    assert!(confirm_payout(
+        &mut contract,
+        id,
+        NONCE_NEXT,
+        true,
+        ts(4_100)
+    ));
+    assert_eq!(
+        contract.get_payout(U64(id)).unwrap().status,
+        PayoutStatus::Landed
+    );
+    assert_eq!(
+        contract.get_sol_stream(U64(0)).unwrap().engine_withdrawn,
+        U64(300)
+    );
+}
+
 /// A claim whose authority signature request failed: returns its id, cancelled.
 fn failed_claim(contract: &mut Contract, class: &str) -> u64 {
     let id = request_claim(contract, class, vec![draw(0, 300)], NONCE_VALUE, ts(4_000));
