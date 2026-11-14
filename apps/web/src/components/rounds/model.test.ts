@@ -1,7 +1,7 @@
-import { ONE, perClaimedToken, type Round } from "@rose/sdk";
+import { ONE, perClaimedToken, type Bid, type Round } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
 import { fractionAt } from "@/lib/unlock-schedule";
-import { bondFor, cancelledOutcome, cancelNoKeyAt, canCancelAsCreator, canCancelNoKey, canClose, clearingOf, formatDateShort, formatDateTime, formatDateTimeShort, formatQty, formatUsdc, KEY_REQUEST_FLIGHT_NS, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, timeline } from "./model";
+import { bondFor, cancelledOutcome, cancelNoKeyAt, canCancelAsCreator, canCancelNoKey, canClose, clearingOf, formatDateShort, formatDateTime, formatDateTimeShort, formatQty, formatUsdc, KEY_REQUEST_FLIGHT_NS, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, settleQueue, timeline } from "./model";
 
 const NOW_MS = 1_762_200_000_000;
 const SEC = 1_000_000_000n;
@@ -164,6 +164,15 @@ describe("next action (spec 5.6)", () => {
     expect(nextAction(lateRetry, NOW_MS + 50_000).kind).toBe("cancel_no_key");
     const early = round({ status: "KeyRequested", closesAt: msToNs(NOW_MS) - 10n * SEC, closeRequestedAt: msToNs(NOW_MS) - 5n * SEC });
     expect(cancelNoKeyAt(early)).toBe(early.closesAt + early.keyTimeout);
+  });
+
+  it("settles the viewer's own pending orders first, then every pending order", () => {
+    const bid = (bidId: number, bidder: string, status: Bid["status"]): Bid => ({ roundId: 1n, bidId, bidder, side: "Buy", status, escrow: 0n, lockedUnits: 0n, bond: 0n, fee: 0n, cash: 0n, fillQuantity: 0n, ciphertextHex: null, placedAt: null, opened: null, void: null });
+    const bids = [bid(0, "me.testnet", "Opened"), bid(1, "other.testnet", "Opened"), bid(2, "me.testnet", "Settled"), bid(3, "third.testnet", "Void")];
+    expect(settleQueue(bids, "me.testnet")).toEqual({ scope: "mine", queue: [bids[0]] });
+    expect(settleQueue(bids, null)).toEqual({ scope: "all", queue: [bids[0], bids[1], bids[3]] });
+    const mineSettled = bids.map((entry) => (entry.bidder === "me.testnet" ? { ...entry, status: "Settled" as const } : entry));
+    expect(settleQueue(mineSettled, "me.testnet")).toEqual({ scope: "all", queue: [mineSettled[1], mineSettled[3]] });
   });
 
   it("lets the creator withdraw only before the first order and the close", () => {

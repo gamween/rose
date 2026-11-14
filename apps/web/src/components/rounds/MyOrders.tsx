@@ -101,7 +101,7 @@ export function MyOrders({ detail, onChanged }: { detail: RoundDetail; onChanged
               {settleable && bid.status !== "Settled" ? (
                 <div>
                   <Button size="sm" variant="secondary" onClick={() => void settle(bid)} loading={status.status === "busy"} loadingLabel="Signing…" data-settle-mine={bid.bidId}>
-                    {bid.fillQuantity > 0n ? "Claim" : "Settle (refund)"}
+                    {bid.fillQuantity > 0n ? "Settle" : "Settle (refund)"}
                   </Button>
                 </div>
               ) : null}

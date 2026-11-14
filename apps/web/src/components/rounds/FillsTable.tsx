@@ -2,7 +2,8 @@
 
 /**
  * Fills after clearing (spec 8.3): one row per order with its opened values, fill, cash and
- * settlement state, plus the issuer line of a Tender. "Settle" is per order and open to anyone.
+ * settlement state, plus the issuer line of a Tender. "Settle" is per order and open to anyone;
+ * the action card's Settle runs every pending order in sequence.
  */
 
 import type { BidOutcome, Round } from "@rose/sdk";
@@ -39,14 +40,6 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
     if (r.ok) onChanged();
   };
 
-  const settleAll = async () => {
-    for (const fill of pending) {
-      const r = await run({ label: `Settling order #${String(fill.bidId)} (${String(pending.indexOf(fill) + 1)}/${String(pending.length)})`, call: engine.calls.settleBid(round.roundId, fill.bidId), success: `Order #${String(fill.bidId)} settled`, receipt: { engine: engine.account, roundId: round.roundId, kind: "settle", label: `settle_bid #${String(fill.bidId)}` } });
-      if (!r.ok) break;
-    }
-    onChanged();
-  };
-
   return (
     <section aria-label="Fills" className="ui-surface rounded-lg" data-fills>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
@@ -64,9 +57,9 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
           )}
         </div>
         {pending.length > 0 ? (
-          <Button size="sm" variant="secondary" onClick={() => void settleAll()} loading={status.status === "busy"} loadingLabel="Signing…" disabled={!viewer} data-settle-all>
-            Settle all · {String(pending.length)}
-          </Button>
+          <span className="text-[11px] font-medium text-ink-300" data-fills-pending>
+            {String(pending.length)} to settle
+          </span>
         ) : (
           <span className="text-[11px] text-success-400 font-medium">all settled</span>
         )}

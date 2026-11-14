@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { ActionLayout } from "@/components/ui/ActionCard";
 import { CardTitle } from "@/components/ui/Card";
@@ -225,11 +225,6 @@ function LoadedRound({ id }: { id: bigint }) {
           ? "results"
           : "book";
   const tabs = useTabs(tabIds, fallback, { hash: true });
-  const { select } = tabs;
-  const showSettlement = useCallback(() => {
-    select(unsettledMine ? "mine" : "results");
-    document.querySelector("[data-round-tabs]")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [select, unsettledMine]);
 
   if (state.status === "loading") return <DetailSkeleton />;
   if (state.status === "not_deployed") {
@@ -276,7 +271,7 @@ function LoadedRound({ id }: { id: bigint }) {
               <RoundExtraActions detail={detail} nowMs={now} onChanged={refresh} />
             </>
           ) : (
-            <RoundAction detail={detail} nowMs={now} onChanged={refresh} onSettle={showSettlement}>
+            <RoundAction detail={detail} nowMs={now} onChanged={refresh}>
               <FinalizePanel detail={detail} onChanged={refresh} />
             </RoundAction>
           )

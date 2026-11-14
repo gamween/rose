@@ -301,14 +301,24 @@ test.describe("rounds with a mocked engine", () => {
     await expect(page.locator("[data-open-status='opened']")).toHaveCount(3, { timeout: 60_000 });
     await expect(page.locator("[data-next-action='clear']")).toBeVisible({ timeout: 30_000 });
     await page.locator("[data-action='clear']").click();
+    // The card keeps the landed step with its explorer link and never offers Clear twice.
+    await expect(page.locator("[data-landed='clear']")).toContainText("Round cleared", { timeout: 30_000 });
     await expect(page.locator("[data-round-status='Settled']")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-action='clear']")).toHaveCount(0);
     await page.locator("[data-tab='results']").click();
     const fills = page.locator("[data-fills]");
     await expect(fills).toContainText("Cleared at 7.00 USDC");
     await expect(fills.locator("tbody tr")).toHaveCount(3);
-    await fills.locator("[data-settle-all]").click();
-    await expect(fills).toContainText("all settled", { timeout: 60_000 });
-    await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 20_000 });
+    await expect(fills.locator("[data-fills-pending]")).toHaveText("3 to settle");
+    // Settle runs the viewer's own order first, then every pending order, each with its link.
+    const settle = page.locator("[data-action='settle']");
+    await expect(settle).toHaveText("Settle my order");
+    await settle.click();
+    await expect(page.locator("[data-settle-step='2'] a")).toHaveAttribute("href", /near\.rocks\/tx\//, { timeout: 30_000 });
+    await expect(settle).toHaveText("Settle every order · 2 left", { timeout: 30_000 });
+    await settle.click();
+    await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 60_000 });
+    await expect(fills).toContainText("all settled", { timeout: 20_000 });
     await page.locator("[data-verify-run]").click();
     await expect(page.locator("[data-verify-status='match']")).toBeVisible();
     await page.locator("[data-tab='mine']").click();
