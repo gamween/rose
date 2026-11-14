@@ -59,13 +59,17 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    // The query is cleared when the palette closes, never after it opens: an opening reset would land
+    // after the input is on screen and wipe what was typed right after the shortcut.
     if (open && !dialog.open) {
       dialog.showModal();
-      setQuery("");
-      setActive(0);
       window.setTimeout(() => inputRef.current?.focus(), 0);
     }
-    if (!open && dialog.open) dialog.close();
+    if (!open && dialog.open) {
+      dialog.close();
+      setQuery("");
+      setActive(0);
+    }
   }, [open]);
 
   useEffect(() => {
