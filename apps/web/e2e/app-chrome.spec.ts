@@ -66,6 +66,8 @@ test.describe("app chrome", () => {
       const at = page.url();
       await page.locator("main a[href^='/']").first().click();
       await expect(menu).toBeHidden();
+      // A client navigation would land within this second; the URL must not change.
+      await page.waitForTimeout(1_000);
       expect(page.url()).toBe(at);
     } else {
       await page.keyboard.press("Escape");
