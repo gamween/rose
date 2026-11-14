@@ -102,7 +102,7 @@ No other party can move funds, see bids early or stop a round.
 
 - One bounded `clear` per round (at most 64 orders, 4 to 11 Tgas) computes the price and every fill
   from opened orders, with deterministic ties and rounding that favors the pool; settlement is one
-  idempotent `settle_bid` per order, callable by anyone.
+  `settle_bid` per order, callable by anyone; each order settles once and a repeat is refused.
 - The rules (spec 5.4) are property-tested against a brute-force reference over every tick, and the
   three seeded rounds cleared on chain at exactly the price and fills of the `@rose/sdk` reference
   run on the opened orders. The Verify panel repeats that recomputation in any browser.
@@ -300,7 +300,7 @@ No other party can move funds, see bids early or stop a round.
   cut at 192 bytes, so every entry fits 448 bytes (measured over every variant with 64-character
   ids) and the full 1,024-entry history at most 458,752 bytes (4.59 NEAR). `new` refuses to
   initialize an engine whose balance does not cover its code and state, that history and the
-  0.5 NEAR MPC reserve (about 15.4 NEAR with a 1.03 MB wasm; the deployment script funds 17 NEAR), so
+  0.5 NEAR MPC reserve (about 15.3 NEAR with the deployed 1.02 MB wasm; the deployment script funds 17 NEAR), so
   filling the history can never eat the reserve, and a zero-deposit `storage_deposit` top-up
   records nothing (before the fix, free zero-deposit calls alone could push a 12 NEAR engine below
   its reserve: review 12 in the history below). Holding, cash and lien share rows are
@@ -379,7 +379,10 @@ No other party can move funds, see bids early or stop a round.
   until anyone sends the token NEAR with a plain transfer (spec 8.4).
 - **Liveness is the participants' job.** There is no keeper: a round advances when someone calls the
   next step, and a signed Solana payout blocks the streams it draws on until someone broadcasts and
-  confirms it (anyone can).
+  confirms it (anyone can). The cost of blocking a stream on purpose is low (reasoned, not
+  tested): a holder with one whole token of claimable names the stream in `claim_sol_tokens` and
+  lets the transaction fail on chain, and the stream takes no draw, redeem or sync until two
+  proofs 150 blocks apart refund it, for the 0.025 NEAR payout deposit per round.
 - **Staging data:** on `engine-s3` (since retired), updated in place with a build that changed stored layouts, Solana
   payout records 0 to 2 and one event history entry no longer decode; the app skips the unreadable
   entry. The final engine is never updated in place.
@@ -423,8 +426,8 @@ milestone unless stated.
 | 14 | Contracts, SDK bindings and deployment scripts before the final deployment (`15316b4`) | Fable 5.1 | 0 blockers, 1 major (`deploy-engine.sh` skipped the RoseVault signer check when the vault was passed with `--rose-vault`, then deleted the keys), 7 minors, 10 nits | Fixed, each with a test: every check before the key deletion read live and never skipped (RoseVault `SIGNER()` and `LOCKUP()`, `get_config` against the init arguments with the CKD key read again from the MPC, the chain id), `LOCKUP()` read back by `deploy-base.sh` from one source, the CKD key subgroup-checked in `new`, `close` checks its gas upfront, the SDK's Streamflow refusals, the mock MPC's request checks, a non-recovering Base signature retryable at once. Documented: the fixed CKD key, the deployed tUSDC's double `ft_burn` and its mint storage |
 | 15 | Contracts, SDK, deployment scripts and the live final engine `engine.rose-app.testnet` (`d5e1e0c`) | Fable 5.1 | 0 blockers, 1 major (an Advance funder's lien share never left its account index, so every Advance funder's NEP-145 storage deposit stayed locked), 6 minors | Fixed in `46358b2`, each with a test: the share leaves the index on its last claim once the lien is satisfied and comes back on a refund; a Solana Tender's `retire_to` refuses the all-zero key; an orderless `cancel_no_key` is recorded as empty. The deployed engine is keyless and cannot be patched, so the fix shipped as `engine-v2.rose-app.testnet` with its own RoseVault; `engine.rose-app.testnet` is superseded |
 | 16 | Engine, RoseVault, `rose-ibe` and the SDK engine bindings before the second final deployment (`46358b2`) | Opus 5.5 | 0 blockers, 0 majors, 3 minors | Fixed in `0524b33`: `withdraw_near_cash` holds the account until its callback, a round takes exactly its 0.05 NEAR deposit. Accepted: an Advance funder who never claims its last tokens leaves an index record of about 133 bytes paid by the engine (bounded by the number of funded lien shares, each of which costs its funder far more). `0524b33` is the commit deployed as `engine-v2.rose-app.testnet` |
-| 17 | Counted full pass: the whole product and the live `engine-v2.rose-app.testnet`, its RoseVault and production (`3044a44`) | Fable 5.1 | 0 blockers, 0 majors, 1 minor | Fixed in `3a99e6e`: this table said the final build came from a public commit while the repository is private |
-| 18 | Counted full pass, independent of 17: the whole product and the live deployment (`3a99e6e`) | Opus 5.5 | 0 blockers, 0 majors, 1 minor | Fixed after the pass: this table named `engine-s1` to `engine-s4` as running an empty contract; `engine-s5` does too since its reclaim |
+| 17 | Counted full pass: the whole product and the live `engine-v2.rose-app.testnet`, its RoseVault and production (`3044a44`) | Fable 5.1 | 0 blockers, 0 majors, 1 minor | Fixed in `3a99e6e`: the trust-model table said the final build came from a public commit while the repository is private |
+| 18 | Counted full pass, independent of 17: the whole product and the live deployment (`3a99e6e`) | Opus 5.5 | 0 blockers, 0 majors, 1 minor | Fixed after the pass: the trust-model table named `engine-s1` to `engine-s4` as running an empty contract; `engine-s5` does too since its reclaim |
 
 The web app was also exercised live through its demo wallets against the staging engines and the
 final engines; the bugs
