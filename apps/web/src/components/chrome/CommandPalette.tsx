@@ -110,7 +110,10 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
               setActive((index) => Math.max(index - 1, 0));
             } else if (event.key === "Enter") {
               event.preventDefault();
-              const command = filtered[active];
+              // Match the text as typed, not the last render's list: a query typed and run in one
+              // go must not run the first command of the unfiltered list.
+              const matches = event.currentTarget.value === query ? filtered : orderedMatches(all, event.currentTarget.value);
+              const command = matches[event.currentTarget.value === query ? active : 0];
               if (command) choose(command);
             }
           }}
