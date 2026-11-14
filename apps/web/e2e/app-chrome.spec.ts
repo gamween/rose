@@ -179,3 +179,53 @@ test.describe("app chrome", () => {
     expect(errors).toEqual([]);
   });
 });
+
+/*
+ * The wallet menu on a touch screen wide enough for it (a tablet). A tap's click is synthesised
+ * after `pointerup`, and a touch scroll ends in `pointercancel` with no click: neither may let the
+ * dismissing press through, nor leave a swallow armed for the next tap.
+ */
+test.describe("wallet menu on a touch screen", () => {
+  test.use({ hasTouch: true, viewport: { width: 1280, height: 800 } });
+
+  test("a tap outside only dismisses the menu, and a touch scroll does not eat the next tap", async ({ page }) => {
+    await page.goto(APP_PAGE);
+    await page.evaluate(() => localStorage.setItem("rose.tour.dismissed", "1"));
+    await page.reload();
+    await connectDemoWallet(page, "near");
+    const walletButton = page.locator("[data-wallets]");
+    const menu = page.locator("[data-wallet-menu]");
+    const link = page.getByRole("link", { name: "Testnet: deployment status" });
+
+    await walletButton.tap();
+    await expect(menu).toBeVisible();
+    const at = page.url();
+    await link.tap();
+    await expect(menu).toBeHidden();
+    // A client navigation would land within this second; the URL must not change.
+    await page.waitForTimeout(1_000);
+    expect(page.url()).toBe(at);
+
+    await walletButton.tap();
+    await expect(menu).toBeVisible();
+    await page.evaluate(() => {
+      document.documentElement.dataset.pointerCancels = "0";
+      document.addEventListener("pointercancel", () => {
+        document.documentElement.dataset.pointerCancels = String(Number(document.documentElement.dataset.pointerCancels) + 1);
+      });
+    });
+    const box = await page.locator("main").boundingBox();
+    if (!box) throw new Error("main is not laid out");
+    const x = box.x + 24;
+    const y = Math.min(box.y + box.height, 760) - 40;
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (let step = 1; step <= 12; step += 1) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y - step * 25 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(menu).toBeHidden();
+    await expect(page.locator("html")).not.toHaveAttribute("data-pointer-cancels", "0");
+
+    await link.tap();
+    await page.waitForURL((url) => url.href !== at);
+  });
+});
