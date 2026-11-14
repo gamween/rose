@@ -10,7 +10,7 @@ full description; every claim in it links a transaction, a test or a file.
 - Testnets only: NEAR testnet, Base Sepolia, Solana devnet. Nothing touches mainnet.
 - The issuer **Cindral Foundation**, its token **Cindral (CINDR)** and its cast of holders are
   fictional. Their streams, deposits, rounds and payouts are real testnet transactions
-  ([`docs/demo.md`](./docs/demo.md), [`docs/verification.md`](./docs/verification.md)).
+  ([`docs/verification.md`](./docs/verification.md)).
 - The engine the app uses is `engine-v2.rose-app.testnet`: a reproducible build with no access key,
   so nobody can upgrade or change it. Its RoseVault on Base Sepolia is
   `0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe`. The NEAR MPC network is `v1.signer-prod.testnet`.
@@ -85,4 +85,4 @@ against a live deployment. The deployment, seed and live end-to-end scripts need
   transactions.
 - [`docs/verification.md`](./docs/verification.md): every external fact the code relies on (addresses,
   method names, byte layouts, gas) with the command that checked it.
-- [`docs/security.md`](./docs/security.md): trust model, known limits and the review history.
+- [`docs/security.md`](./docs/security.md): trust model and known limits.

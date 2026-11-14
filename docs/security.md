@@ -12,7 +12,6 @@ addresses, byte layouts) is recorded with its command in [`verification.md`](./v
 - [Trust model](#trust-model)
 - [Threat model per flow](#threat-model-per-flow)
 - [Known limitations](#known-limitations)
-- [Review history](#review-history)
 - [Tests behind the claims](#tests-behind-the-claims)
 
 ## Trust model
@@ -408,49 +407,6 @@ No other party can move funds, see bids early or stop a round.
   devnet. The direct `bn.js` advisory is fixed (5.2.3).
 - **Demo conveniences are not part of the protocol:** `/api/faucet` sends testnet gas from
   server-side hot wallets, and the in-app demo wallets keep their keys in the browser.
-
-## Review history
-
-The contracts and the engine went through independent review passes by a model other than the one
-that wrote the code (two AI model families, called A and B below; the 14 November passes used a newer version of A), focused on correctness, hallucinated APIs and drift
-from the specification. Counts are as each pass reported them; blockers and majors were fixed before the next
-milestone unless stated.
-
-| # | Scope | Reviewer | Verdict | Outcome |
-|---|---|---|---|---|
-| 1 | EVM contracts (RoseVault, TestUSDC, DemoToken, DemoStreamFaucet) | Model A | 0 blockers, 2 majors (both specification items: the log fields the payload hash covers, Sablier `granularity`) | Specification updated, minors fixed |
-| 2 | RoseVault | Model B | 0 blockers, 5 majors | Fixed before deployment (the vault is immutable): balance-invariance check in `createStreams` (fee-on-transfer drain), `decimals` read on chain and emitted, streams below one whole token refused, vested tokens withdrawn to the issuer and reported as `withdrawn`, units minted equal to the full allocation at checkpoint `f(timestamp)` |
-| 3 | RoseVault, after the fixes | Model A | 0 blockers, 0 majors | |
-| 4 | RoseVault, final pass | Model B | Deploy (0 blockers, 0 majors) | Reentrancy guard on `attest`, solc 0.8.38; 125 Foundry tests |
-| 5 | `rose-ibe`, clearing and unlock math | Model A | Pass (0 blockers, 0 majors) | Preconditions moved into the engine: one sealed order per side, associated data from the stored order, over-escrowed orders void before clearing, no round on a fully unlocked class, key verified before it is stored |
-| 6 | Engine core | Model A | 1 blocker (a late CKD callback could revive a cancelled round), 2 majors (lien rounding, unpaid storage drain), 5 minors | Fixed: late callbacks ignored, cumulative lien accounting, NEP-145 storage |
-| 7 | Full engine with custody (`8fdb5bf`) | Model A | 2 blockers (the first Solana deposit of a class was impossible; an Advance holder could freeze funders' escrow by unregistering its storage), 2 majors (a Solana payout could be stranded by the vault token account's balance; `transferable_by_recipient` unchecked) | Fixed; the Streamflow flow exercised live on staging. The fixes were then verified with tests by model B, which added a storage floor, zero-deposit registration for owed credits, and a guard so a late Base callback after a retry can never double-pay |
-| 8 | Engine custody (`b10bba2`) | Model B | Do not deploy: 2 blockers, 9 majors (a signed Solana durable-nonce payout was treated as landed) | Solana custody redesigned around proof of landing: two-phase payouts and redeems, no vault pool, recipient token account proven, every stored signature verified |
-| 9 | That redesign | Model B (model A was rate-limited) | 0 blockers, 2 majors (a stale read could produce a "did not execute" verdict; refunds on a failed request although a late MPC response is public), 3 minors, 3 nits | All fixed: two proofs 150 blocks apart for a negative verdict, signature requests never refund, Solana actions cancelled by a nonce-only transaction |
-| 10 | Solana custody v2 (`b10bba2..d05f542`) and every value-moving custody path | Model B | 0 blockers, 1 major (a redeem confirmation could be finalized by a stale lower read), 8 minors, 5 nits | Fixed in `f1a8ba5`, each with a test that fails before the fix: monotone redeem verdict, request-height spacing of the two proofs, exact "unchanged" reading (Streamflow `withdraw` verified exact-or-fail on devnet), payout nonce accounts derived with a seed bound to the claimant's NEAR account, freeze-authority mints refused, Tender `retire_to` checks, u64 amounts as strings, accrual remainder kept so a sole holder can always redeem, stored enum order pinned. `engine-s3` ran the reviewed build, without these fixes (its code storage was reclaimed in staging deployment 5) |
-| 11 | Full engine, RoseVault, tUSDC and the SDK bindings (`f1a8ba5`) | Model B | 1 blocker (a bare-hex address spelling let a stranger strand someone's Base cash), 3 majors (unbounded round windows, under-charged storage rows, client ABI drift), 4 minors, 10 nits | Fixed, each with a test that fails before the fix: canonical EVM addresses at every entry point, bounded round windows, rows charged at their measured worst case (cash rows included), per-account class list behind the portfolio view, buy quantities measured against the supply at creation, a refused stream's return keeps its vested tokens (RoseVault `Release` gains `vestedToRecipient`, so the vault is redeployed), custody addresses refused as Base recipients |
-| 12 | Contracts before deployment (`cd00318`) | Model B | 1 blocker (Streamflow's auto-claim of ended streams read as a landed payout: claims destroyed, tokens stranded), 1 major (the free event history could push the engine below its MPC reserve), 4 minors, 6 nits | Fixed: verdicts on a receipt nonce account, `sync_sol_stream` and the swept balance, draws and redeems stop five minutes before a stream's end, attribution refuses streams ending within an hour; event history bounded in bytes and funded at init; non-accepted Base cash listed; Exit bids reserve the buyer's row; RoseVault forwards third-party withdrawals of a returned stream; release fees sent by the SDK |
-| 13 | Contracts, SDK bindings and deployment scripts (`3d48a02`) | Model A | 0 blockers, 1 major (`distribute_units` at 50 receivers exceeded NEAR's 16,384-byte total log limit), 4 minors, 3 nits | Fixed, each with a test: 30 receivers per call (the measured worst case with 64-character ids) and gas sized per receiver in the SDK; `create_tender` escrows from the canonical venue; a moved Streamflow stream registered after its end is registered and its auto-claim booked as swept; a late deposit callback acts only on its own request's mark; the live MPC vectors pinned. Documented: what a Base redeemer bears between the signature and the release, the Solana clock skew on draws, `cancelable_by_recipient` |
-| 14 | Contracts, SDK bindings and deployment scripts before the final deployment (`15316b4`) | Model A | 0 blockers, 1 major (`deploy-engine.sh` skipped the RoseVault signer check when the vault was passed with `--rose-vault`, then deleted the keys), 7 minors, 10 nits | Fixed, each with a test: every check before the key deletion read live and never skipped (RoseVault `SIGNER()` and `LOCKUP()`, `get_config` against the init arguments with the CKD key read again from the MPC, the chain id), `LOCKUP()` read back by `deploy-base.sh` from one source, the CKD key subgroup-checked in `new`, `close` checks its gas upfront, the SDK's Streamflow refusals, the mock MPC's request checks, a non-recovering Base signature retryable at once. Documented: the fixed CKD key, the deployed tUSDC's double `ft_burn` and its mint storage |
-| 15 | Contracts, SDK, deployment scripts and the live final engine `engine.rose-app.testnet` (`d5e1e0c`) | Model A | 0 blockers, 1 major (an Advance funder's lien share never left its account index, so every Advance funder's NEP-145 storage deposit stayed locked), 6 minors | Fixed in `46358b2`, each with a test: the share leaves the index on its last claim once the lien is satisfied and comes back on a refund; a Solana Tender's `retire_to` refuses the all-zero key; an orderless `cancel_no_key` is recorded as empty. The deployed engine is keyless and cannot be patched, so the fix shipped as `engine-v2.rose-app.testnet` with its own RoseVault; `engine.rose-app.testnet` is superseded |
-| 16 | Engine, RoseVault, `rose-ibe` and the SDK engine bindings before the second final deployment (`46358b2`) | Model B | 0 blockers, 0 majors, 3 minors | Fixed in `0524b33`: `withdraw_near_cash` holds the account until its callback, a round takes exactly its 0.05 NEAR deposit. Accepted: an Advance funder who never claims its last tokens leaves an index record of about 133 bytes paid by the engine (bounded by the number of funded lien shares, each of which costs its funder far more). `0524b33` is the commit deployed as `engine-v2.rose-app.testnet` |
-| 17 | Counted full pass: the whole product and the live `engine-v2.rose-app.testnet`, its RoseVault and production (`3044a44`) | Model A | 0 blockers, 0 majors, 1 minor | Fixed in `3a99e6e`: the trust-model table said the final build came from a public commit while the repository is private |
-| 18 | Counted full pass, independent of 17: the whole product and the live deployment (`3a99e6e`) | Model B | 0 blockers, 0 majors, 1 minor | Fixed after the pass: the trust-model table named `engine-s1` to `engine-s4` as running an empty contract; `engine-s5` does too since its reclaim |
-| 19 | Contracts, SDK and scripts before submission (`be1c1fa`) | Model A | 1 blocker, conditional: a Streamflow stream's sender can turn automatic withdrawal on after the deposit, and an in-kind redeem made before a sync then loses what was swept (the redeemer alone loses; no theft); 0 majors, 12 minors | No redeploy: the app and `@rose/sdk` refuse such a redeem and sync first, the residual risk for a direct caller is stated here, in the spec and in the README; minors fixed |
-| 20 | Web front redesign (`8ddd69e..be1c1fa`) | Model A | 2 blockers (README steps named controls the redesign renamed), 1 major (clipped definitions), 10 minors | Fixed |
-| 21 | Click-through of the deployed app at 1470 and 375 px | Model A | 1 blocker (a demo account read as missing on an RPC error), 2 majors (NEAR read failover, a Settle button that did not settle), 16 minors | Fixed |
-| 22 | Audit fixes (`be1c1fa..1d5eb02`) | Model A | 0 blockers, 2 majors (faucet caps set but not deployed; tool and model names in the README), 9 minors | Fixed: caps deployed, names removed, minors fixed |
-| 23 | Audit fixes (`1d5eb02..30900c6`) | Model A | 0 blockers, 0 majors, 6 minors | Fixed |
-| 24 | Final pass on `8a6ba9d` and the live deployment | Model A | 0 blockers, 1 major (commit message trailers in the history, which only a rewrite of history would remove; a rewrite would change commit `0524b33`, which the deployed engine's on-chain metadata names, so it is left to the author), 2 minors | Minors fixed |
-
-Two simulated screenings from a clean clone, following only the README, scored the project 85 of 100
-on 14 November (`be1c1fa`, then `30900c6`); the second reproduced the engine's reproducible build.
-
-The web app was also exercised live through its demo wallets against the staging engines and the
-final engines; the bugs
-found that way were fixed, and each is recorded with its fixing commit in
-[`verification.md`](./verification.md) (a Verify mismatch on a no-crossing cancellation, a stale
-RPC view after the MPC wait, layout overflow at 375 px, among others).
 
 ## Tests behind the claims
 

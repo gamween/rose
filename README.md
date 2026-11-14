@@ -14,7 +14,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/gamween/rose/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/gamween/rose/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
-**[Open the app](https://rose-rounds.vercel.app)** · **[Demo video](https://x.com/dvb_fianso/status/2121674689114444258)** · **[Demo script](./docs/demo.md)** · **[Specification](./docs/spec.md)** · **[Architecture](./docs/architecture.md)** · **[Security model](./docs/security.md)** · **[Verification log](./docs/verification.md)**
+**[Open the app](https://rose-rounds.vercel.app)** · **[Demo video](https://x.com/dvb_fianso/status/2121674689114444258)** · **[Specification](./docs/spec.md)** · **[Architecture](./docs/architecture.md)** · **[Security model](./docs/security.md)** · **[Verification log](./docs/verification.md)**
 
 *What was locked, rose.*
 
@@ -66,7 +66,7 @@ in one ledger. Bids are encrypted in the browser to a key the NEAR MPC network r
 The app is deployed at **https://rose-rounds.vercel.app**. Everything runs on testnets with in-app
 demo wallets, so no wallet extension and no real funds are needed. The demo issuer, **Cindral
 Foundation**, and its token **Cindral (CINDR)** are fictional; their positions, rounds and payouts
-are real testnet transactions ([demo script and cast](./docs/demo.md)).
+are real testnet transactions.
 
 1. **Watch a full round, no wallet needed.** Open `/app/demo` ("Watch a full round") and step
    through a seeded Tender. You see the sealed book (how many asks, their locked units, their
@@ -412,7 +412,7 @@ account. Its RoseVault was deployed for it with `deploy-base.sh --role final`, r
 assets of the earlier engines so positions minted from the app stay in the seeded classes.
 
 **Superseded: `engine.rose-app.testnet`** (RoseVault `0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f`),
-the first final engine, also keyless. The last review pass found that an Advance funder's share of
+the first final engine, also keyless. On it, an Advance funder's share of
 a lien never left its account index, so every Advance funder's NEP-145 storage deposit stays locked
 on it (fixed in `46358b2`). A keyless engine cannot be patched, so the fix shipped as a new account
 with its own RoseVault, as the trust model says new versions do; the old engine still runs, and the
@@ -457,7 +457,7 @@ The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 
 | Limit | Bounded today by | Roadmap |
 |---|---|---|
-| Unaudited, testnet only | Test tokens with no value; tests and the [review passes](./docs/security.md#review-history) | An external audit before any mainnet deployment |
+| Unaudited, testnet only | Test tokens with no value; unit, property and fork tests run in [CI](./.github/workflows/ci.yml) | An external audit before any mainnet deployment |
 | A threshold of MPC nodes could read bids early or sign for the vaults | The MPC network's threshold and TEEs, the same assumption as every Chain Signatures application | None inside rose: it adds no trust beyond the MPC network |
 | A cancelled round's key can still become public through a late MPC response, and anything encrypted to a round is readable after its key is public | No funds move after `Cancelled`; privacy only, stated in the [security model](./docs/security.md#key-release) | None: a property of the scheme (ePrint 2025/2048) |
 | Solana deposits and payouts wait on the MPC network's Solana attestations (ForeignTx `AccountState`) | On 14 November, after the MPC upgrade to 3.19.0, 7 of 9 Solana attestation requests timed out at 120 s between 01:10 and 01:35 UTC; the engine refunded every failed request. Later that morning they worked again but not every time: a Solana payout landed end to end at 02:46 UTC (`claim_sol_tokens` [8n12Gn4x…](https://testnet.near.rocks/tx/8n12Gn4xy5ZdcZ1SHcsJchyGTZTmF1tdwxXMoHyWZsXw), `confirm_sol_payout` [FF5z7gYw…](https://testnet.near.rocks/tx/FF5z7gYweWiPVSQre4DSMFKKFoJKTLEG5pqgobQHYgtS) `Landed`), and a deposit registration timed out twice ([GmAZSMNL…](https://testnet.near.rocks/tx/GmAZSMNLG3VEfeTUwr55mNgNYJMaHHHGsdSpec1AifHr), [HAQ8hxVX…](https://testnet.near.rocks/tx/HAQ8hxVXnrkV8vF7V3w6mb3CaBmT17JVwCPw3unKru3Y), refunded) before it succeeded at 04:13 UTC ([3ekz8u55…](https://testnet.near.rocks/tx/3ekz8u55XogPKtHPDTSKDZyWF43mhUWkVxfETAtHt7B7)). Base attestations, signing and key releases worked throughout | None inside rose: the MPC network's own availability |
@@ -511,7 +511,6 @@ docs
   architecture.md      how each part of the spec is implemented
   security.md          trust model, threats per flow, limitations, review history
   verification.md      every external fact and live run, with the command used
-  demo.md              the demo video script and the published demo post
 ```
 
 ## Getting started
@@ -595,9 +594,7 @@ Each script records every transaction under `deployments/` and resumes where it 
   - Design references only, no code copied: React Bits, Aceternity UI, Rare UI, ObsidianUI,
     shadcn/ui, Origin UI and the Refero style library.
 - **AI assistance:** the code, tests and documents were written during the hackathon with AI coding
-  agents, directed and reviewed by the author; independent review passes ran on a different model
-  than the one that wrote each part
-  ([review history](./docs/security.md#review-history)).
+  agents, directed and reviewed by the author.
 - **Prior work:** none. The repository starts on 4 November 2026 with the specification; there is no
   pre-hackathon code and no earlier product on another chain.
 
