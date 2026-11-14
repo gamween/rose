@@ -164,6 +164,31 @@ Only the reasons that carry weight ([spec section 3](./docs/spec.md#3-why-blockc
 Where a blockchain adds nothing, and rose does not pretend otherwise: finding buyers, and the
 clearing algorithm itself.
 
+### NEAR primitives rose relies on
+
+NEAR's [Chain Signatures page](https://docs.near.org/chain-abstraction/chain-signatures) documents
+only the two signing domains. The MPC network behind it (`v1.signer-prod.testnet`) serves two more,
+and rose uses all four; the [near/mpc README](https://github.com/near/mpc) names them
+("Confidential Key Derivation", "Read RPC", the working name of foreign chain transaction
+verification), and Near One's [CKD article](https://blog.nearone.org/research/2026/02/23/mpc-ckd.html)
+gives time-lock encryption as the use it enables, which is rose's. Each row links a transaction of
+the final engine that only works if the primitive does.
+
+| Primitive (MPC domain) | Method rose calls | What rose does with it | Code | Proof on testnet |
+|---|---|---|---|---|
+| Chain Signatures, domain 0 (secp256k1) | `sign` | Signs the EIP-712 authorizations RoseVault executes on Base: cash payouts, token claims, in-kind releases | [`foreign/mpc.rs`](./contracts/engine/src/foreign/mpc.rs), [`custody/payouts.rs`](./contracts/engine/src/custody/payouts.rs) | `withdraw_base_cash` [9BESbgMJ…](https://testnet.near.rocks/tx/9BESbgMJ85ixAdGiY8XQ1R5rRRFX4wDimkrng9C5cWEu), then `executeTransfer` [0xb403f62a…](https://sepolia.basescan.org/tx/0xb403f62afe5728f748cdbe80a630e3aab7b7d2705eb953e81d2d878117edd432) |
+| Chain Signatures, domain 1 (Ed25519) | `sign` | Signs the durable-nonce Solana transactions that move streams and pay out of the engine's derived vault | [`foreign/solana.rs`](./contracts/engine/src/foreign/solana.rs), [`custody/solana.rs`](./contracts/engine/src/custody/solana.rs) | engine-built transaction [46ZF74WS…](https://explorer.solana.com/tx/46ZF74WSUihFctEX5YYQcTEiBbfUC6dxUXpq6eHFUbf9Hd5zj6ybgd9etxFWCsNqVhy4g18yeeS2LJZHNgxRV4U6?cluster=devnet) |
+| Confidential Key Derivation, domain 2 (BLS12-381) | `request_app_private_key` | Derives each round's decryption key, which the contract can only request after the deadline; browsers seal orders to it with identity-based encryption | [`sealing.rs`](./contracts/engine/src/sealing.rs), [`contracts/ibe`](./contracts/ibe) | `close` of the Tender [82iWCcCj…](https://testnet.near.rocks/tx/82iWCcCjj1Jb9CBNiR4vtsv5Si9tkQRPsB8fv47Ck377): key received 4.8 s later |
+| Foreign chain transaction verification, domain 3 | `verify_foreign_transaction` | Attests Base logs (a stream or cash deposited into RoseVault) and Solana account states (a Streamflow stream, a nonce account, a landed payout) | [`foreign/`](./contracts/engine/src/foreign) | `register_base_deposit` [3B4xGvii…](https://testnet.near.rocks/tx/3B4xGviiUP7aA4KKa9GRPeMJ519S8zWi7TvHeQcZMvvi); `confirm_sol_payout` [Bv9RZpax…](https://testnet.near.rocks/tx/Bv9RZpaxVzX2G9CZqAM8LvpRZoB9QXunYFpCoJ7yji4K) |
+| [NEP-245](https://github.com/near/NEPs/blob/master/neps/nep-0245.md) multi-token | engine | Units of a position class, one token id per class | [`units.rs`](./contracts/engine/src/units.rs) | units minted by the same `register_base_deposit` |
+| [NEP-141](https://github.com/near/NEPs/blob/master/neps/nep-0141.md) and [NEP-145](https://github.com/near/NEPs/blob/master/neps/nep-0145.md) | `tusdc.rose-app.testnet`, engine | tUSDC, the NEAR cash venue; per-account storage paid by the account that uses it | [`contracts/tusdc`](./contracts/tusdc), [`storage.rs`](./contracts/engine/src/storage.rs) | `withdraw_near_cash` [FswYgYh7…](https://testnet.near.rocks/tx/FswYgYh7PC715bmwLNCmseUy9JA7o1g7gw5WqYjw3xfG) |
+| [Sputnik DAO v2](https://github.com/near-daos/sputnik-dao-contract) and [Trezu](https://github.com/NEAR-DevHub/trezu) | `add_proposal` (built by the app) | A treasury files its Tender as a DAO proposal instead of signing it alone | [`DaoPanel.tsx`](./apps/web/src/components/issuer/DaoPanel.tsx) | proposal shapes checked against a live DAO in [`verification.md`](./docs/verification.md#issuer-console-sputnik-dao-v2-and-trezu-2026-11-04) |
+| A contract account with no access key | none | The engine's keys were deleted right after init: no upgrade, no admin | [`deploy-engine.sh`](./scripts/deploy-engine.sh) | `view_access_key_list` returns `[]`, read live on `/status` (command in [`verification.md`](./docs/verification.md#final-proofs-on-3a99e6e-2026-11-06)) |
+
+rose does not use NEAR Intents: positions move in kind and nothing is swapped, and Intents has no
+testnet. Paying sale proceeds out in any asset on any chain through Intents is on the
+[roadmap](#limits-and-roadmap).
+
 ### Positions, classes and units
 
 A **class** groups positions that are economically identical (same chain, protocol, token and
