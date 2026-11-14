@@ -40,6 +40,9 @@ const SOURCE_TABS = [
   { id: "schedule", label: "From a schedule" },
 ] as const;
 
+/** `ownerOf` of a stream id that was never minted reverts with OpenZeppelin's `ERC721NonexistentToken(uint256)`, selector `0x7e273289`. */
+const NONEXISTENT_TOKEN = /0x7e273289|ERC721NonexistentToken/;
+
 function scheduleMessage(error: unknown): string {
   if (error instanceof ScheduleError) return `The engine refuses this schedule: ${error.message}`;
   return toActionError(error).message;
@@ -91,7 +94,9 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
     try {
       if (chain === "Base") {
         if (!/^\d+$/.test(streamRef.trim())) throw new Error("Enter the Sablier stream id (a number).");
-        const stream = await readStream(baseClient(), BigInt(streamRef.trim()), base.config.sablier_lockup as `0x${string}`);
+        const stream = await readStream(baseClient(), BigInt(streamRef.trim()), base.config.sablier_lockup as `0x${string}`).catch((error: unknown) => {
+          throw NONEXISTENT_TOKEN.test(String(error)) ? new Error(`Stream #${streamRef.trim()} does not exist on the Sablier Lockup on Base Sepolia (${shortHex(base.config.sablier_lockup)}).`) : error;
+        });
         const input = linearInputOfStream(stream);
         const schedule = normalizeLinear(input, stream.decimals);
         const symbol = base.symbols.get(stream.token.toLowerCase()) ?? null;
