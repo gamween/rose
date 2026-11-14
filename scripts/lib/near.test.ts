@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { FinalExecutionOutcome } from "@rose/sdk";
 import { InvalidNonceError } from "near-api-js/rpc-errors";
-import { failedBeforeSigning, sendOnce, StaleNonceError, type OneTransaction } from "./near.ts";
+import { failedBeforeSigning, sendOnce, singleSendProvider, StaleNonceError, type OneTransaction } from "./near.ts";
 
 function syntaxErrorFrom(frames: string[]): SyntaxError {
   const error = new SyntaxError(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`);
@@ -93,4 +93,19 @@ await test("a nonce refusal after an earlier send of the same bytes is never a r
   const transaction = scripted([RATE_LIMITED, refusal], [false, false]);
   await assert.rejects(sendOnce("t", "H", transaction), refusal);
   assert.deepEqual(transaction.calls, ["send", "known", "send", "known"]);
+});
+
+await test("the send provider posts a send once, even on an answer near-api-js would retry: sendOnce owns every resend", async () => {
+  const realFetch = globalThis.fetch;
+  let posts = 0;
+  globalThis.fetch = () => {
+    posts += 1;
+    return Promise.resolve(new Response("unavailable", { status: 503 }));
+  };
+  try {
+    await assert.rejects(singleSendProvider("https://rpc.invalid").sendJsonRpc("send_tx", { signed_tx_base64: "AA==", wait_until: "FINAL" }));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(posts, 1);
 });

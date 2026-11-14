@@ -25,6 +25,13 @@ export const ONE_NEAR = 10n ** 24n;
 export const TGAS = 10n ** 12n;
 
 export const rpc = new NearRpc({ endpoints: NEAR_RPC_ENDPOINTS, timeoutMs: 60_000 });
+/**
+ * The primary endpoint alone, for the waits on a transaction's final outcome: FastNEAR holds a `tx`
+ * wait to the node's own limit, dRPC's free plan cuts it after about 2 s (docs/verification.md,
+ * "Which endpoints hold a transaction wait"), and `rpc` passes an endpoint over for 10 s after it
+ * refused a request, so a wait through `rpc` could land on dRPC.
+ */
+const waitRpc = new NearRpc({ endpoints: NEAR_RPC_ENDPOINTS.slice(0, 1), timeoutMs: 60_000 });
 /** The same endpoints, the fallback first: a sent transaction is looked up on another provider than the one that took it. */
 const lookupRpc = new NearRpc({ endpoints: [...NEAR_RPC_ENDPOINTS].reverse(), timeoutMs: 20_000 });
 
@@ -105,7 +112,7 @@ function resultOf(outcome: FinalExecutionOutcome): NearResult {
 
 /** The final outcome of a transaction sent earlier (for example by a run that stopped before recording its result). */
 export async function nearOutcome(hash: string, senderId: string): Promise<NearResult> {
-  return resultOf(await withRetry(`tx ${hash}`, () => rpc.transactionStatus(hash, senderId, "FINAL")));
+  return resultOf(await finalOutcome(hash, senderId));
 }
 
 /** True for an RPC answer that rejected the request before it reached the chain (HTTP or JSON-RPC 429). */
@@ -212,14 +219,14 @@ function rpcCause(error: unknown): string | undefined {
 }
 
 /**
- * The final outcome of a transaction the network knows, through the primary endpoint first (dRPC's
- * free plan times out long `tx` waits). The node's own wait ends after about 10 s with
- * `TIMEOUT_ERROR` when finality takes longer (an MPC callback), so it asks again.
+ * The final outcome of a transaction the network knows, through the primary endpoint only
+ * (`waitRpc`). The node's own wait ends after about 10 s with `TIMEOUT_ERROR` when finality takes
+ * longer (an MPC callback), so it asks again.
  */
 async function finalOutcome(hash: string, senderId: string): Promise<FinalExecutionOutcome> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await rpc.transactionStatus(hash, senderId, "FINAL");
+      return await waitRpc.transactionStatus(hash, senderId, "FINAL");
     } catch (error) {
       const transient = error instanceof NearRpcError && (error.kind === "unreachable" || error.kind === "http" || rpcCause(error) === "TIMEOUT_ERROR" || /time(d)? ?out/i.test(error.message));
       if (!transient || attempt >= 20) throw error;
@@ -239,16 +246,30 @@ async function transactionKnown(hash: string, senderId: string): Promise<boolean
   }
 }
 
+/**
+ * A provider that posts each request exactly once, for `send_tx`: near-api-js 7.4.0 posts the same
+ * request again on HTTP 500, 408 or 503 and on a fetch that throws, up to `retries` attempts in
+ * all, so a send it repeated after the node forwarded the first one would happen inside one
+ * `sendOnce` attempt, out of its sight. `retries` counts attempts: 0 would post nothing.
+ */
+export function singleSendProvider(url: string): JsonRpcProvider {
+  return new JsonRpcProvider({ url }, { retries: 1 });
+}
+
 /** A NEAR account that signs transactions. */
 export class NearActor {
   readonly accountId: string;
   private account: Account;
+  /** Reads made while building a transaction (access key nonce, recent block hash), retried by near-api-js: nothing is sent yet. */
   private readonly provider: JsonRpcProvider;
+  /** Sends through the primary endpoint, the only public one that holds a `send_tx` wait; `sendOnce` owns every resend. */
+  private readonly sendProvider: JsonRpcProvider;
   private readonly signer: KeyPairSigner;
 
   constructor(accountId: string, secretKey: KeyPairString) {
     this.accountId = accountId;
     this.provider = new JsonRpcProvider({ url: NEAR_RPC_ENDPOINTS[0] ?? "" }, { retries: 6, wait: 2_000, backoff: 1.6 });
+    this.sendProvider = singleSendProvider(NEAR_RPC_ENDPOINTS[0] ?? "");
     this.signer = KeyPairSigner.fromSecretKey(secretKey);
     this.account = new Account(accountId, this.provider, this.signer);
   }
@@ -267,7 +288,7 @@ export class NearActor {
       const hash = baseEncode(signed.txHash);
       try {
         return await sendOnce(what, hash, {
-          send: async () => (await this.provider.sendTransactionUntil(signed.signedTransaction, "FINAL")) as unknown as FinalExecutionOutcome,
+          send: async () => (await this.sendProvider.sendTransactionUntil(signed.signedTransaction, "FINAL")) as unknown as FinalExecutionOutcome,
           known: () => transactionKnown(hash, this.accountId),
           final: () => finalOutcome(hash, this.accountId),
           wait: sleep,

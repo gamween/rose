@@ -1856,3 +1856,9 @@ Two facts the issuer console states (2026-11-14):
 |---|---|---|
 | A Sablier stream id that was never minted reverts with OpenZeppelin's `ERC721NonexistentToken(uint256)` | `cast sig "ERC721NonexistentToken(uint256)"` | `0x7e273289`, the selector in the raw revert the console now turns into "Stream #N does not exist" |
 | Sputnik DAO v2's default policy keeps a proposal open 7 days, and a DAO can set its own | `curl -s https://raw.githubusercontent.com/near-daos/sputnik-dao-contract/main/sputnikdao2/src/policy.rs`, `default_policy`; `call_function cindral-treasury.sputnikv2.testnet get_policy {}` and `version {}` on `https://near-testnet.drpc.org` | `proposal_period: U64::from(1_000_000_000 * 60 * 60 * 24 * 7)`; the live treasury answers `proposal_period` `86400000000000` (one day), bond 0.1 NEAR, version `"2.3.1"` (block 277,596,669). Run via DAO shows the read period |
+
+## Audit delta fixes (2026-11-14)
+
+| Fact | Command | Result |
+|---|---|---|
+| near-api-js 7.4.0 `JsonRpcProvider` counts attempts, not retries, and resends the same POST on its own | `grep -n "async function backOff" -A17 node_modules/near-api-js/lib/index.cjs` and `retryConfig`; then a `sendJsonRpc("send_tx", {})` through `new JsonRpcProvider({ url }, { retries })` with `globalThis.fetch` stubbed to answer HTTP 503, for `retries` 0, 1 and 3 | `backOff` loops `attempt <= numOfAttempts` with `numOfAttempts = retries`, retrying HTTP 500, 408, 503 and a fetch that throws "FetchError" or "Failed to fetch" (not 429, which `fetchJsonRpc` turns into an error that is not retried). Posts counted: `retries` 0 → 0 posts and "Exceeded 10 attempts"; 1 → 1 post; 3 → 3 posts. The scripts' send provider uses `retries: 1` (`singleSendProvider`, covered by `scripts/lib/near.test.ts`) |
