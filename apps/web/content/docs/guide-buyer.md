@@ -44,7 +44,7 @@ You cannot change or withdraw a bid once placed.
 
 ## Claim
 
-Click "Claim" on the round or in your portfolio.
+Once the round has cleared, click "Settle my order" in the round's action card (settlement is open to anyone, so another participant's "Settle every order" may already have done it), then "Claim" in your portfolio to pull what it credited.
 
 - Exit: you receive the units, accruing to you from `ts = closes_at`. Your unused escrow and your bond are refunded in the venue.
 - Advance: you receive lien shares. Accruals of the encumbered units flow to you in proportion to your share until the claim is delivered.
