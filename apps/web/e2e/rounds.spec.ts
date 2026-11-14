@@ -297,6 +297,13 @@ test.describe("rounds with a mocked engine", () => {
     await page.reload();
     await expect(form.getByText("Create the demo account: get test funds")).toBeVisible({ timeout: 20_000 });
     await expect(form.locator("[data-order-submit]")).toHaveCount(0);
+    // An account this browser saw on chain never reads as missing again (a read before its creation was final, a lagging node).
+    await page.evaluate((account) => localStorage.setItem("rose.demo.near.onchain", JSON.stringify(account)), ROUNDS_MOCK.demoAccount);
+    await page.reload();
+    await expect(form.locator("[data-order-submit]")).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(3_000);
+    await expect(form.locator("[data-order-submit]")).toBeVisible();
+    await expect(form.getByText("Create the demo account: get test funds")).toHaveCount(0);
   });
 
   test("full round from a sealed bid to the claim with the demo wallet", async ({ page }) => {

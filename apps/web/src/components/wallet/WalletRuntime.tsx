@@ -129,12 +129,15 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
 
   /**
    * Records what the chain said about a demo account id. `unknown` never overwrites a known
-   * value, and `exists` is remembered for the next page load.
+   * value, and `exists` is remembered for the next page load and never downgraded: an account
+   * seen on chain does not go away, so a later "missing" is a read at a block before its creation
+   * or from a lagging node.
    */
   const applyDemoPresence = useCallback((accountId: string, presence: NearAccountPresence) => {
     if (presence === "unknown") return;
+    if (presence === "missing" && nearDemoKnownOnChain(accountId)) return;
     if (presence === "exists") rememberNearDemoOnChain(accountId);
-    setNear((state) => (state.demo?.accountId === accountId && state.demoAccount !== presence ? { ...state, demoAccount: presence } : state));
+    setNear((state) => (state.demo?.accountId === accountId && state.demoAccount !== presence && !(presence === "missing" && state.demoAccount === "exists") ? { ...state, demoAccount: presence } : state));
   }, []);
 
   /* Restore persisted sessions once on the client. */
