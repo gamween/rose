@@ -222,7 +222,7 @@ export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: {
             <Hint>At most {formatBound(base.limits.maxRoundHorizon)} after creation.</Hint>
             {showDao ? (
               <Hint tone="warning">
-                The DAO must approve and execute the proposal before this time: the engine refuses a close time already past when the proposal executes. Sputnik&apos;s default policy gives members 7 days to vote, so the close defaults to 14 days ahead.
+                The DAO must approve and execute the proposal before this time: the engine refuses a close time already past when the proposal executes. Sputnik&apos;s default policy keeps a proposal open 7 days (Read the DAO shows its own period), so the close defaults to 14 days ahead.
               </Hint>
             ) : null}
           </div>

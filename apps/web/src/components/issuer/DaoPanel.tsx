@@ -29,10 +29,18 @@ const TUSDC_STORAGE_DEPOSIT = 1_250_000_000_000_000_000_000n;
 /** `add_proposal` stores the proposal; 100 Tgas is what the console and the near-cli command attach. */
 export const ADD_PROPOSAL_GAS = 100n * 10n ** 12n;
 
+/** A Sputnik `proposal_period` (ns) in days or hours. */
+function formatVotePeriod(ns: bigint): string {
+  const hours = Number(ns / 3_600_000_000_000n);
+  return hours >= 24 && hours % 24 === 0 ? `${String(hours / 24)} ${hours === 24 ? "day" : "days"}` : `${String(hours)} h`;
+}
+
 type DaoState = {
   account: string;
   venue: Venue;
   proposalBond: bigint;
+  /** How long a proposal stays open to votes (`get_policy().proposal_period`, ns). */
+  proposalPeriodNs: bigint;
   version: string | null;
   /** The DAO's engine cash in the Tender's venue. */
   cash: bigint;
@@ -111,7 +119,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
     try {
       const rpc = nearRpc();
       const [policy, version, cash, need, token] = await Promise.all([
-        rpc.viewFunction<{ proposal_bond: string }>(account, "get_policy", {}),
+        rpc.viewFunction<{ proposal_bond: string; proposal_period: string }>(account, "get_policy", {}),
         rpc
           .viewFunction<string>(account, "version", {})
           .then((result) => result.value)
@@ -123,7 +131,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
           : Promise.resolve(null),
       ]);
       const inVenue = cash.find((entry) => sameVenue(entry.venue, venue))?.amount ?? 0n;
-      setState({ account, venue, proposalBond: BigInt(policy.value.proposal_bond), version, cash: inVenue, storage: need, token });
+      setState({ account, venue, proposalBond: BigInt(policy.value.proposal_bond), proposalPeriodNs: BigInt(policy.value.proposal_period), version, cash: inVenue, storage: need, token });
       rememberDaoAccount(account);
     } catch (error) {
       setState(null);
@@ -193,7 +201,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
           </div>
           {current ? (
             <Hint>
-              Proposal bond {formatNear(current.proposalBond)} NEAR (attached exactly, refunded on approval){current.version ? ` · contract version ${current.version}` : ""}.
+              Proposal bond {formatNear(current.proposalBond)} NEAR (attached exactly, refunded on approval) · votes stay open {formatVotePeriod(current.proposalPeriodNs)}: the Tender must close after its execution{current.version ? ` · contract version ${current.version}` : ""}.
             </Hint>
           ) : readError ? (
             <Hint tone="danger">{readError}</Hint>

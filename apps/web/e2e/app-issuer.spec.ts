@@ -267,6 +267,7 @@ test.describe("issuer console", () => {
     await page.locator("[data-read-policy]").scrollIntoViewIfNeeded();
     await page.locator("[data-read-policy]").click();
     await expect(panel.getByText(/Proposal bond 1 NEAR/)).toBeVisible({ timeout: 30_000 });
+    await expect(panel.getByText(/votes stay open 7 days: the Tender must close after its execution/)).toBeVisible();
     const funding = panel.locator("[data-dao-funding]");
     await expect(funding.locator("[data-preview]")).toContainText("952.85 USDC");
     await expect(funding).toContainText("0.00619 NEAR is missing");
