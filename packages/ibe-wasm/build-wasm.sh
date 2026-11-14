@@ -4,6 +4,10 @@
 # needs the wasm32-unknown-unknown target.
 set -eu
 cd "$(dirname "$0")/../.."
+# Strip local paths (home directory, cargo registry, checkout) from the panic locations the
+# committed binary embeds, so the output does not depend on who built it or where.
+RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$(pwd)=/rose"
+export RUSTFLAGS
 cargo rustc -p rose-ibe --lib --crate-type cdylib --target wasm32-unknown-unknown --release \
   --no-default-features --features wasm
 wasm-bindgen --target web --typescript --out-dir packages/ibe-wasm/pkg --out-name rose_ibe \

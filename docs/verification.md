@@ -1666,3 +1666,11 @@ condition), 4.7 min.
 - `cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1` against it: 145 passed, 25 skipped by their own conditions, exit 0.
 - Keyless: `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"engine-v2.rose-app.testnet"}}' | jq -c .result.keys` returns `[]`.
 - Two consecutive counted full review passes, Fable 5.1 on `3044a44` then Opus 5.5 on `3a99e6e`: 0 blockers and 0 majors each (`docs/security.md`, review history rows 17 and 18); their one minor each is fixed.
+
+## Audit before submission (2026-11-14)
+
+- IBE wasm rebuilt with local paths remapped: `packages/ibe-wasm/build-wasm.sh` now passes
+  `--remap-path-prefix` for the cargo home and the checkout, so the committed binary no longer embeds
+  the builder's home directory in its panic locations. Check: `strings packages/ibe-wasm/pkg/rose_ibe_bg.wasm | grep -c /Users/`
+  prints `0`. `rose_ibe_bg.wasm` is now 215,341 bytes (216,109 before); `pnpm --filter @rose/ibe-wasm test`
+  (8 tests, live-key round trip) exit 0.
