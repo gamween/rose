@@ -342,7 +342,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
       {selected && flow.steps.length > 0 ? (
         <Card data-deposit-flow>
           <CardHeader
-            title={`Depositing Streamflow stream ${shortHex(selected.metadataPubkey, 6, 6)}`}
+            title={`${flow.completed ? "Deposited" : "Depositing"} Streamflow stream ${shortHex(selected.metadataPubkey, 6, 6)}`}
             description={`Units are minted to ${nearAccount ?? "your NEAR account"}.`}
             action={
               flow.completed ? (

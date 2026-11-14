@@ -45,8 +45,9 @@ export function FlowSteps({ steps, onRetry, running, className, footer }: { step
           key={step.id}
           className={cn(
             "relative flex items-start gap-3",
+            /* Only a step with a next one draws the connector: any `before:` class creates the pseudo-element, which on the last step would sit in the row as a flex item and indent its marker. */
             index < steps.length - 1 && "before:absolute before:top-7 before:-bottom-2.5 before:left-[11.5px] before:w-px",
-            step.status === "done" ? "before:bg-success-500/40" : "before:bg-ink-700 before:[mask-image:var(--dither-50)] before:[mask-size:2px_2px]",
+            index < steps.length - 1 && (step.status === "done" ? "before:bg-success-500/40" : "before:bg-ink-700 before:[mask-image:var(--dither-50)] before:[mask-size:2px_2px]"),
           )}
           data-step={step.id}
           data-status={step.status}

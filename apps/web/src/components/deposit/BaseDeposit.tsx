@@ -369,7 +369,7 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
       {selected && flow.steps.length > 0 ? (
         <Card data-deposit-flow>
           <CardHeader
-            title={`${selected.resumed ? "Registering" : "Depositing"} Sablier stream #${selected.streamId.toString()}`}
+            title={flow.completed ? `Sablier stream #${selected.streamId.toString()} deposited` : `${selected.resumed ? "Registering" : "Depositing"} Sablier stream #${selected.streamId.toString()}`}
             description={`Units are minted to ${nearAccount ?? "your NEAR account"}; the vested part goes to your EVM address.`}
             action={
               flow.completed ? (
