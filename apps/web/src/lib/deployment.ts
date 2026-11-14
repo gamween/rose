@@ -15,7 +15,7 @@ export const NEAR_RPC_URL = "https://test.rpc.fastnear.com";
 /**
  * dRPC's public NEAR testnet endpoint: CORS headers on every answer, no limit reached at 80
  * parallel requests. Reads only: its free plan cuts waits after 2 s (HTTP 408), so wallets never
- * send through it (docs/verification.md, "Audit before submission: NEAR RPC endpoints").
+ * send through it (docs/verification.md, "NEAR RPC endpoints").
  */
 export const NEAR_RPC_READ_FALLBACK_URL = "https://near-testnet.drpc.org";
 /**

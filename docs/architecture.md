@@ -62,7 +62,7 @@ All amounts are integers. Token amounts are base units of the token. Cash amount
 State is Borsh: an enum is stored as its variant index and a struct as its fields in order. Rules for every type that reaches storage (records, the event ring buffer, storage-key prefixes, the class schedule) or the MPC payload hash:
 
 - An enum only gains variants at the end; a variant is never inserted, reordered or removed. `tests::layout::borsh_enums_only_gain_variants_at_the_end` pins the stored order of every Borsh enum of the engine and fails on anything but an append.
-- A struct field, or a variant's fields, never change in a deployed engine. A change that needs one deploys to a new account (the final engine is deployed keyless and never upgraded; a staging engine updated in place with an incompatible layout cannot read what it wrote before, which is how `get_events` failed on `engine-s3`).
+- A struct field, or a variant's fields, never change in a deployed engine. A change that needs one deploys to a new account (the final engine is deployed keyless and never upgraded; a staging engine updated in place with an incompatible layout cannot read what it wrote before).
 
 ## Round state machine
 

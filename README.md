@@ -2,38 +2,42 @@
 
 # 🌹 rose
 
-**Sealed, uniform-price liquidity rounds for locked token allocations: a project buys back its insiders' locked tokens without guessing a price, holders of one allocation exit together without dumping, and nobody, not even the operator, can read a bid before the round closes.**
+**Sealed, uniform-price liquidity rounds for locked token allocations: a project buys back its insiders' locked tokens without guessing a price, holders of one allocation exit together without dumping, and nobody, rose's operator included, can read a bid before the round closes.**
 
 [![NEAR Hackathon 2026](https://img.shields.io/badge/NEAR%20HACKATHON-2026-00ec97?style=flat-square)](https://nearhackathon.com)
 [![Live demo](https://img.shields.io/badge/demo-rose--rounds.vercel.app-000?style=flat-square)](https://rose-rounds.vercel.app)
 [![Testnet only](https://img.shields.io/badge/network-testnet%20only-e8590c?style=flat-square)](#limits-and-roadmap)
-[![Chain Signatures](https://img.shields.io/badge/NEAR-Chain%20Signatures-000?style=flat-square)](#how-it-works)
+[![Chain Signatures](https://img.shields.io/badge/NEAR-Chain%20Signatures-000?style=flat-square)](#why-near)
 [![Confidential Key Derivation](https://img.shields.io/badge/NEAR%20MPC-Confidential%20Key%20Derivation-000?style=flat-square)](#sealed-rounds)
 [![Base Sepolia](https://img.shields.io/badge/Base%20Sepolia-Sablier%20v4-0052ff?style=flat-square)](#cross-chain-custody)
 [![Solana devnet](https://img.shields.io/badge/Solana%20devnet-Streamflow-9945ff?style=flat-square)](#cross-chain-custody)
 [![CI](https://img.shields.io/github/actions/workflow/status/gamween/rose/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/gamween/rose/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
-**[Open the app](https://rose-rounds.vercel.app)** · **[Demo video](https://x.com/dvb_fianso/status/2121674689114444258)** · **[Demo script](./docs/demo.md)** · **[Specification](./docs/spec.md)** · **[Architecture](./docs/architecture.md)** · **[Security model](./docs/security.md)** · **[Verification log](./docs/verification.md)**
+**[Open the app](https://rose-rounds.vercel.app)** · **[Demo video](https://x.com/dvb_fianso/status/2121674689114444258)** · **[Watch a round, no wallet](https://rose-rounds.vercel.app/app/demo)** · **[Specification](./docs/spec.md)** · **[Architecture](./docs/architecture.md)** · **[Security model](./docs/security.md)** · **[Verification log](./docs/verification.md)**
 
 *What was locked, rose.*
 
 </div>
 
-rose runs sealed auctions over locked token positions. An issuer (a foundation, a treasury, a DAO)
-publishes a budget and a maximum price; holders of a locked allocation submit sealed asks; one
-uniform clearing price is computed on chain and every filled seller receives it. The same engine
-runs **Exit** rounds (sealed asks against sealed bids from buyers) and **Advance** rounds (a holder
-sells a senior claim on its first unlocks). Positions stay where they live, as Sablier streams on
-Base or Streamflow streams on Solana: a NEAR contract holds them through **Chain Signatures**, proves
-their state through the MPC network's **foreign transaction verification**, and settles everything
-in one ledger. Bids are encrypted in the browser to a key the NEAR MPC network releases through
-**Confidential Key Derivation** only after the deadline.
+rose runs sealed, uniform-price auctions over locked token positions. In a **Tender buyback**, an
+issuer (a foundation, a treasury, a DAO) publishes a budget and a maximum price, holders of a locked
+allocation submit sealed asks, and every filled seller receives the one clearing price computed on
+chain. The same engine runs **Exit** rounds (sealed asks against sealed bids from buyers) and
+**Advance** rounds (a holder sells a senior claim on its first unlocks). Positions stay where they
+live, as Sablier streams on Base or Streamflow streams on Solana: a NEAR contract with no access key
+holds them through **Chain Signatures**, proves their state through the MPC network's **foreign
+transaction verification**, and settles everything in one ledger. Bids are encrypted in the browser
+to a key the NEAR MPC network releases through **Confidential Key Derivation** only after the
+deadline.
 
-> Foundations already buy back locked allocations from their early investors, one investor at a
-> time and at a fixed, unpublished price: Omni, LayerZero, Ethena and Monad did it in 2025 and 2026.
-> A fixed price only finds the few holders whose own valuation is below it. Monad Foundation's offer,
-> capped at $60 million, ended with "nearly all holders approached declined to participate"
+> Locked allocations turn into supply on a schedule everyone can read: of 16,000+ token unlocks
+> studied by [Keyrock](https://keyrock.com/from-locked-to-liquidity-what-16000-token-unlocks-teach-us/),
+> 90% created negative price pressure, which often started about 30 days before the unlock. Foundations already buy
+> back locked allocations from their early investors, one investor at a time and at a fixed,
+> unpublished price: Omni, LayerZero, Ethena and Monad did it in 2025 and 2026. A fixed price only
+> finds the few holders whose own valuation is below it. Monad Foundation's offer, capped at $60
+> million, ended with "nearly all holders approached declined to participate"
 > ([its own announcement](https://monad.xyz/blog/early-investor-liquidity-program)). Corporate
 > finance solved this decades ago with the modified Dutch auction tender offer: sealed asks, one
 > uniform price. No live sealed tender exists in crypto. Locked tokens meanwhile trade OTC at 20 to
@@ -44,11 +48,34 @@ in one ledger. Bids are encrypted in the browser to a key the NEAR MPC network r
 > Solana devnet; nothing touches mainnet. **Unaudited.** Every external fact the code relies on is
 > verified live and recorded with its command in [`docs/verification.md`](./docs/verification.md).
 
+## In 60 seconds
+
+| Do | See |
+|---|---|
+| Watch the [demo video](https://x.com/dvb_fianso/status/2121674689114444258) | The demo post on X, with its video |
+| Open [`/app/demo`](https://rose-rounds.vercel.app/app/demo) ("Watch a full round"), no wallet needed | A seeded Tender, step by step: the sealed book with no price in it, the round key released by the MPC network a few seconds after the close, every ask opened and verified on chain, one clearing price, each step with its explorer link |
+| Run the two lines below from any directory (Node 22.18 or later, nothing to install or build) | `PASS: 10 of 10 checks passed`, in a few seconds, read from NEAR testnet and Base Sepolia |
+| Open [`/status`](https://rose-rounds.vercel.app/status) | The engine's access-key list read live (`[]`), the RoseVault signer next to the engine's MPC-derived address, the MPC contract version and recent key-release latencies |
+| Follow [Try it yourself](#try-it-yourself) | A full round between two in-app demo wallets on NEAR, Base and Solana: seal, close, open, clear, settle, claim |
+
+```sh
+git clone https://github.com/gamween/rose && cd rose
+node scripts/verify.ts   # or pnpm verify; signs and sends nothing, exits 0 only if every check passes
+```
+
+Its ten read-only checks: the engine and test USDC run their recorded code with no access key; the
+engine's code hash and NEP-330 metadata match the reproducible build of `0524b33`; its MPC network,
+RoseVault, Base signer and MPC-derived Solana keys are the ones in [Deployed contracts](#deployed-contracts);
+and the settled rounds 0, 1, 2 and 7 (round 7 created by a Sputnik DAO) cleared exactly as the
+`@rose/sdk` clearing reference recomputes from their on-chain openings. [`AGENTS.md`](./AGENTS.md)
+gives some of these reads as raw RPC calls.
+
 ## Table of contents
 
+- [For reviewers](#for-reviewers)
+- [Why NEAR](#why-near)
 - [Try it yourself](#try-it-yourself)
 - [How rose fits the tracks](#how-rose-fits-the-tracks)
-- [For reviewers](#for-reviewers)
 - [How it works](#how-it-works)
 - [Trust model](#trust-model)
 - [Every claim, verified](#every-claim-verified)
@@ -61,14 +88,68 @@ in one ledger. Bids are encrypted in the browser to a key the NEAR MPC network r
 - [Team](#team)
 - [License](#license)
 
+## For reviewers
+
+Previous NEAR hackathons judged technical implementation, design, impact, originality and
+sustainability; AI screening checks that the project runs and does what this README says.
+
+| Criterion | Where to check it |
+|---|---|
+| Runs as described | [In 60 seconds](#in-60-seconds): `node scripts/verify.ts` (or `pnpm verify`) from a fresh clone; [Try it yourself](#try-it-yourself) on the deployed app; [Getting started](#getting-started) reproduces every test and the seeded story; every proof below links a testnet transaction |
+| Technical implementation | A NEAR contract that holds Base and Solana positions through Chain Signatures and ForeignTx, IBE sealing against the MPC CKD key with fully verified on-chain openings, two-phase Solana payouts settled on proof of landing ([NEAR primitives](#near-primitives-rose-relies-on), [architecture](./docs/architecture.md), [security model](./docs/security.md)); an engine wasm anyone can rebuild to the on-chain hash ([Deployed contracts](#deployed-contracts)) |
+| Design | The app ([`/app`](https://rose-rounds.vercel.app/app), [`/app/rounds/8`](https://rose-rounds.vercel.app/app/rounds/8), [`/app/issuer`](https://rose-rounds.vercel.app/app/issuer), [`/status`](https://rose-rounds.vercel.app/status), [`/docs`](https://rose-rounds.vercel.app/docs)), reviewed at 1470 px and 375 px; the landing's scroll sequence |
+| Impact | The problem and its evidence in [spec section 1](./docs/spec.md#1-problem-evidence); users and jobs in [spec section 2](./docs/spec.md#2-users-and-jobs). No real issuer, holder or buyer has used rose or been approached yet; the first pilot it is built for is in [Limits and roadmap](#limits-and-roadmap) |
+| Originality | No live sealed tender for locked tokens exists in crypto ([spec section 1](./docs/spec.md#1-problem-evidence)); [What is new here](#what-is-new-here) compares rose with the usual sealed-bid designs and with Sealwell, whose sealing scheme rose ports |
+| Sustainability | The engine has no upgrade path and no access key (see [Deployed contracts](#deployed-contracts)) and `@rose/sdk` reaches it without the app, so it keeps running without its authors. If the hosted app goes away, rounds and funds stay reachable: the app runs locally from this repository ([Getting started](#getting-started)) and every next step of a round is a public method anyone can call. The author keeps the hosted app and its testnet faucets funded until at least 25 November 2026 and keeps building rose after the hackathon: a NEAR grant application to fund an external audit, then a mainnet engine ([Limits and roadmap](#limits-and-roadmap)) |
+
+## Why NEAR
+
+rose needs four things from one chain ([spec section 3](./docs/spec.md#3-why-blockchain-why-near-only-load-bearing-reasons)),
+and NEAR gives all four to a contract that has no access key:
+
+1. **Bids nobody can read early.** The MPC network's **Confidential Key Derivation** derives the
+   round key for the round contract alone, and the contract can only request it after the deadline.
+2. **Delivery versus payment across chains, with no escrow agent and no bridge.** The contract signs
+   for its Base and Solana vaults through **Chain Signatures** and proves deposits and payouts there
+   through **foreign transaction verification**.
+3. **One ledger for positions on several chains.** Units of a position class are NEP-245 tokens on
+   NEAR while the stream never moves, so holders on Base and on Solana trade one class at one price.
+4. **A public, verifiable result.** Clearing price, allocations and fills are computed on chain from
+   opened bids, by a contract whose keys were deleted after init.
+
+Where a blockchain adds nothing, and rose does not pretend otherwise: finding buyers, and the
+clearing algorithm itself.
+
+### NEAR primitives rose relies on
+
+NEAR's [Chain Signatures page](https://docs.near.org/chain-abstraction/chain-signatures) documents
+only the two signing domains. The MPC network behind it (`v1.signer-prod.testnet`) also serves two
+more kinds of domain, and rose uses one of each kind, domains 0 to 3 (the live contract lists eight,
+each kind twice); the [near/mpc README](https://github.com/near/mpc) names the other two
+("Confidential Key Derivation", and "Read RPC", known in the code under the working name foreign
+chain transaction verification), and Near One's [CKD article](https://blog.nearone.org/research/2026/02/23/mpc-ckd.html)
+gives time-lock encryption as a use it enables, which is rose's. Each MPC row links a transaction
+of the final engine that only works if the primitive does.
+
+| Primitive (MPC domain) | Method rose calls | What rose does with it | Code | Proof on testnet |
+|---|---|---|---|---|
+| Chain Signatures, domain 0 (secp256k1) | `sign` | Signs the EIP-712 authorizations RoseVault executes on Base: cash payouts, token claims, in-kind releases | [`foreign/mpc.rs`](./contracts/engine/src/foreign/mpc.rs), [`custody/payouts.rs`](./contracts/engine/src/custody/payouts.rs) | `withdraw_base_cash` [9BESbgMJ…](https://testnet.near.rocks/tx/9BESbgMJ85ixAdGiY8XQ1R5rRRFX4wDimkrng9C5cWEu), then `executeTransfer` [0xb403f62a…](https://sepolia.basescan.org/tx/0xb403f62afe5728f748cdbe80a630e3aab7b7d2705eb953e81d2d878117edd432) |
+| Chain Signatures, domain 1 (Ed25519) | `sign` | Signs the durable-nonce Solana transactions that move streams and pay out of the engine's derived vault | [`foreign/solana.rs`](./contracts/engine/src/foreign/solana.rs), [`custody/solana.rs`](./contracts/engine/src/custody/solana.rs) | engine-built transaction [46ZF74WS…](https://explorer.solana.com/tx/46ZF74WSUihFctEX5YYQcTEiBbfUC6dxUXpq6eHFUbf9Hd5zj6ybgd9etxFWCsNqVhy4g18yeeS2LJZHNgxRV4U6?cluster=devnet) |
+| Confidential Key Derivation, domain 2 (BLS12-381) | `request_app_private_key` | Derives each round's decryption key, which the contract can only request after the deadline; browsers seal orders to it with identity-based encryption | [`sealing.rs`](./contracts/engine/src/sealing.rs), [`contracts/ibe`](./contracts/ibe) | `close` of the Tender [82iWCcCj…](https://testnet.near.rocks/tx/82iWCcCjj1Jb9CBNiR4vtsv5Si9tkQRPsB8fv47Ck377): key received 4.8 s later |
+| Foreign chain transaction verification, domain 3 | `verify_foreign_transaction` | Attests Base logs (a stream or cash deposited into RoseVault) and Solana account states (a Streamflow stream, a nonce account, a landed payout) | [`foreign/`](./contracts/engine/src/foreign) | `register_base_deposit` [3B4xGvii…](https://testnet.near.rocks/tx/3B4xGviiUP7aA4KKa9GRPeMJ519S8zWi7TvHeQcZMvvi); `confirm_sol_payout` [Bv9RZpax…](https://testnet.near.rocks/tx/Bv9RZpaxVzX2G9CZqAM8LvpRZoB9QXunYFpCoJ7yji4K) |
+| [NEP-245](https://github.com/near/NEPs/blob/master/neps/nep-0245.md) multi-token | engine | Units of a position class, one token id per class | [`units.rs`](./contracts/engine/src/units.rs) | units minted by the same `register_base_deposit` |
+| [NEP-141](https://github.com/near/NEPs/blob/master/neps/nep-0141.md) and [NEP-145](https://github.com/near/NEPs/blob/master/neps/nep-0145.md) | `tusdc.rose-app.testnet`, engine | tUSDC, the NEAR cash venue; per-account storage paid by the account that uses it | [`contracts/tusdc`](./contracts/tusdc), [`storage.rs`](./contracts/engine/src/storage.rs) | `withdraw_near_cash` [FswYgYh7…](https://testnet.near.rocks/tx/FswYgYh7PC715bmwLNCmseUy9JA7o1g7gw5WqYjw3xfG) |
+| [Sputnik DAO v2](https://github.com/near-daos/sputnik-dao-contract) and [Trezu](https://github.com/NEAR-DevHub/trezu) | `add_proposal` (built by the app) | A treasury files its Tender as a DAO proposal instead of signing it alone | [`DaoPanel.tsx`](./apps/web/src/components/issuer/DaoPanel.tsx), [`dao.ts`](./apps/web/src/components/issuer/dao.ts) | the DAO `cindral-treasury.sputnikv2.testnet` executes the `create_tender` proposal [CxcrHTMZ…](https://testnet.near.rocks/tx/CxcrHTMZkcqWdVfqLf46iYV6xhVYR1uRLc1U2ssnfHPd) and becomes round 7's creator |
+| A contract account with no access key | none | The engine's keys were deleted right after init: no upgrade, no admin | [`deploy-engine.sh`](./scripts/deploy-engine.sh) | `view_access_key_list` returns `[]`, read live on `/status` (command in [`verification.md`](./docs/verification.md#final-proofs-on-3a99e6e-2026-11-06)) |
+
 ## Try it yourself
 
 The app is deployed at **https://rose-rounds.vercel.app**. Everything runs on testnets with in-app
 demo wallets, so no wallet extension and no real funds are needed. The demo issuer, **Cindral
 Foundation**, and its token **Cindral (CINDR)** are fictional; their positions, rounds and payouts
-are real testnet transactions ([demo script and cast](./docs/demo.md)).
+are real testnet transactions.
 
-1. **Watch a full round, no wallet needed.** Open `/app/demo` ("Watch a full round") and step
+1. **Watch a full round, no wallet needed.** Open [`/app/demo`](https://rose-rounds.vercel.app/app/demo) ("Watch a full round") and step
    through a seeded Tender. You see the sealed book (how many asks, their locked units, their
    ciphertext hashes, no price), the key released by the MPC network a few seconds after the close,
    every ask opened and verified on chain, and the clearing price, each step with its explorer link.
@@ -107,10 +188,10 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    tUSDC cash. In your portfolio (`/app`, **Claims** tab), claim the cash and, for the KOL cohort
    position, the CINDR your units unlocked on Base: you see the MPC signature on NEAR and the
    `executeTransfer` on Basescan.
-9. **Check the trust claims.** Open `/status`. You see the engine's raw access-key list, the RoseVault
+9. **Check the trust claims.** Open [`/status`](https://rose-rounds.vercel.app/status). You see the engine's raw access-key list, the RoseVault
    signer compared with the engine's MPC-derived address, the MPC contract version and the latency
    of recent key releases.
-10. **Run a Tender buyback as an issuer.** Open `/app/issuer` and follow **New Tender** to its
+10. **Run a Tender buyback as an issuer.** Open [`/app/issuer`](https://rose-rounds.vercel.app/app/issuer) and follow **New Tender** to its
     **Launch Tender** step: set a budget and a maximum price, then **Create the Tender** to sign it
     yourself, or set **Signed by** to **A DAO** and enter a Sputnik DAO account (for example
     `cindral-treasury.sputnikv2.testnet`): the **Run via DAO** panel then shows the DAO proposals
@@ -120,7 +201,7 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
 Rounds left open for reviewers: **#8** (Exit, Seed Round, closes 16 November 15:00 UTC) and **#10**
 (Exit, KOL Round, closes 17 November 15:00 UTC) each hold a sealed ask at 0.002 tUSDC per locked
 token, so any bid at or above it fills, and have a 10-minute reveal window; **#4** (Exit, Seed
-Round, closes 20 November 16:05 UTC, 24-hour reveal window) holds Halden Ventures' sealed ask. There
+Round, closes 20 November 16:05 UTC, 24-hour reveal window) holds a sealed ask from the fictional holder Halden Ventures. There
 is no keeper: after the close, whoever is there clicks **Close round**, then **Open every order**
 right away (orders still sealed when the reveal window ends are void and their bond is slashed),
 then **Clear**.
@@ -131,13 +212,12 @@ then **Clear**.
   bridge. A seller is paid only if its position actually changes hands; the position lives on Base
   or Solana and the NEAR contract controls the vault holding it through **Chain Signatures**
   (EIP-712 authorizations on Base, durable-nonce transactions on Solana). rose does not use NEAR
-  Intents: nothing is swapped, positions are moved in kind.
+  Intents: nothing is swapped, positions are moved in kind, and Intents has no testnet.
 - **Privacy & Private AI** (`privacy`): private finance, pre-trade. Bids are encrypted to a round
-  identity whose key the NEAR MPC network derives through **Confidential Key Derivation** only when
-  the round contract asks, and the contract can only ask after the deadline. Releasing a key takes a
-  threshold of the network's nodes, so no single node, and not rose's operator, can open the book
-  early; the nodes also run in TEEs, a second layer rather than the root of trust. After the close
-  every opening is verified on chain. rose does not use NEAR AI Cloud.
+  key the NEAR MPC network derives through **Confidential Key Derivation** only when the round
+  contract asks, after the deadline. Releasing it takes a threshold of the network's nodes, which
+  also run in TEEs, so no single node, and not rose's operator, can open the book early; every
+  opening is then verified on chain. rose does not use NEAR AI Cloud.
 - **Social Money** (`social`): a treasury that needs approval runs its buyback through a **Sputnik
   DAO** function-call proposal or a **Trezu** custom template generated by the issuer console
   ("Run via DAO"), and the published tender report shows the community what was paid to whom, at
@@ -150,33 +230,6 @@ then **Clear**.
 - **Open Innovation** (`open`): chain abstraction in practice. One keyless NEAR contract holds
   positions that never leave Base or Solana, proves their state through the MPC network, and pays
   out on each chain, so holders on two chains trade one class of units at one price.
-
-## For reviewers
-
-The organizers name technical implementation, design, impact, originality and sustainability as the
-criteria of previous NEAR hackathons, and AI screening checks that the project runs and does what
-this README says.
-
-**Check the live deployment in one command.** From a fresh clone, with Node 22.18 or later and
-nothing installed, run `node scripts/verify.ts` (or `pnpm verify`). It reads NEAR testnet and Base
-Sepolia, signs and sends nothing, takes a few seconds and exits 0 only if all 10 checks pass: the
-engine and test USDC exist, run their recorded code and have no access key; the engine's code hash
-is the one the reproducible build of `0524b33` produces, and its NEP-330 metadata names that commit
-and build image; its configuration names the MPC network, the RoseVault and its Base signer, and the
-MPC network derives its Solana vault and fee payer; the RoseVault on Base Sepolia obeys only that
-signer; and the settled rounds 0, 1, 2 and 7 (round 7 created by a Sputnik DAO) cleared exactly as
-the `@rose/sdk` clearing reference recomputes from their on-chain openings.
-
-Where to look for each criterion:
-
-| Criterion | Where to check it |
-|---|---|
-| Runs as described | [Try it yourself](#try-it-yourself) on the deployed app; [Getting started](#getting-started) reproduces every test and the seeded story; every proof below links a testnet transaction |
-| Technical implementation | A NEAR contract that holds Base and Solana positions through Chain Signatures and ForeignTx, IBE sealing against the MPC CKD key with fully verified on-chain openings, two-phase Solana payouts settled on proof of landing ([architecture](./docs/architecture.md), [security model](./docs/security.md)) |
-| Design | The app (`/app`, `/app/rounds/<id>`, `/app/issuer`, `/status`, `/docs`), reviewed at 1470 px and 375 px; the landing's scroll sequence |
-| Impact | The problem and its evidence in [spec section 1](./docs/spec.md#1-problem-evidence); users and jobs in [spec section 2](./docs/spec.md#2-users-and-jobs). No real issuer, holder or buyer has used rose or been approached yet; the first pilot it is built for is in [Limits and roadmap](#limits-and-roadmap) |
-| Originality | No live sealed tender for locked tokens exists in crypto ([spec section 1](./docs/spec.md#1-problem-evidence)); [What is new here](#what-is-new-here) compares rose with the usual sealed-bid designs |
-| Sustainability | [Limits and roadmap](#limits-and-roadmap); the engine has no upgrade path, its final deployment `engine-v2.rose-app.testnet` deleted every access key after init (see [Deployed contracts](#deployed-contracts)) and `@rose/sdk` reaches it without the app, so a keyless engine keeps running without its authors. If the hosted app goes away, rounds and funds stay reachable: the app runs locally from this repository ([Getting started](#getting-started)) and every next step of a round is a public method anyone can call. The author keeps the hosted app and its testnet faucets funded until at least 25 November 2026 and keeps building rose after the hackathon: a NEAR grant application to fund an external audit, then a mainnet engine |
 
 ## How it works
 
@@ -195,8 +248,7 @@ issuer / holder / buyer (browser: bids sealed with IBE against the MPC CKD key)
 
 ### What is new here
 
-Sealed bids and a uniform clearing price are an old idea. What rose adds is what is sold, who buys,
-and who can open the bids:
+Sealed bids and a uniform clearing price are an old idea. How rose differs from the usual designs:
 
 | | Usual sealed-bid designs | rose |
 |---|---|---|
@@ -205,51 +257,12 @@ and who can open the bids:
 | Who can open the bids, and when | A timelock beacon (the key appears at a fixed time whatever the contract says), a single TEE (one machine's promise), or commit-reveal (a bidder sees the others and may decline to reveal) | A threshold of the NEAR MPC network derives the round key only when the contract asks, and the contract can only ask after the deadline. Then anyone can open any order and the contract verifies each opening in full, so nobody can withhold a bid, and a malformed one is opened by nobody and its bond slashed |
 | Settlement | On one chain | Delivery versus payment across NEAR, Base and Solana by one contract with no access key |
 
-The identity-based encryption itself is not new: rose ports it from Sealwell's `sealwell-ibe`
-crate (see [Third-party code](#third-party-code-and-ai-assistance)). What rose adds is the release
-of its key by the MPC network under the contract's control, the on-chain verification of every
-opening, and the use of both on locked positions.
-
-### Why NEAR
-
-Only the reasons that carry weight ([spec section 3](./docs/spec.md#3-why-blockchain-why-near-only-load-bearing-reasons)):
-
-1. **Delivery versus payment across chains without an escrow agent**, through Chain Signatures and
-   the MPC network's foreign transaction verification.
-2. **Bids nobody can read early**, through Confidential Key Derivation gated by contract state.
-3. **A public, verifiable result**: clearing price, allocations and fills computed on chain from
-   opened bids.
-4. **One ledger for positions on several chains**: units of a position class are NEP-245 tokens on
-   NEAR while the underlying stream never moves.
-
-Where a blockchain adds nothing, and rose does not pretend otherwise: finding buyers, and the
-clearing algorithm itself.
-
-### NEAR primitives rose relies on
-
-NEAR's [Chain Signatures page](https://docs.near.org/chain-abstraction/chain-signatures) documents
-only the two signing domains. The MPC network behind it (`v1.signer-prod.testnet`) also serves two
-more kinds of domain, and rose uses one of each kind, domains 0 to 3 (the live contract lists eight,
-each kind twice); the [near/mpc README](https://github.com/near/mpc) names the other two
-("Confidential Key Derivation", "Read RPC", the working name of foreign chain transaction
-verification), and Near One's [CKD article](https://blog.nearone.org/research/2026/02/23/mpc-ckd.html)
-gives time-lock encryption as the use it enables, which is rose's. Each row links a transaction of
-the final engine that only works if the primitive does.
-
-| Primitive (MPC domain) | Method rose calls | What rose does with it | Code | Proof on testnet |
-|---|---|---|---|---|
-| Chain Signatures, domain 0 (secp256k1) | `sign` | Signs the EIP-712 authorizations RoseVault executes on Base: cash payouts, token claims, in-kind releases | [`foreign/mpc.rs`](./contracts/engine/src/foreign/mpc.rs), [`custody/payouts.rs`](./contracts/engine/src/custody/payouts.rs) | `withdraw_base_cash` [9BESbgMJ…](https://testnet.near.rocks/tx/9BESbgMJ85ixAdGiY8XQ1R5rRRFX4wDimkrng9C5cWEu), then `executeTransfer` [0xb403f62a…](https://sepolia.basescan.org/tx/0xb403f62afe5728f748cdbe80a630e3aab7b7d2705eb953e81d2d878117edd432) |
-| Chain Signatures, domain 1 (Ed25519) | `sign` | Signs the durable-nonce Solana transactions that move streams and pay out of the engine's derived vault | [`foreign/solana.rs`](./contracts/engine/src/foreign/solana.rs), [`custody/solana.rs`](./contracts/engine/src/custody/solana.rs) | engine-built transaction [46ZF74WS…](https://explorer.solana.com/tx/46ZF74WSUihFctEX5YYQcTEiBbfUC6dxUXpq6eHFUbf9Hd5zj6ybgd9etxFWCsNqVhy4g18yeeS2LJZHNgxRV4U6?cluster=devnet) |
-| Confidential Key Derivation, domain 2 (BLS12-381) | `request_app_private_key` | Derives each round's decryption key, which the contract can only request after the deadline; browsers seal orders to it with identity-based encryption | [`sealing.rs`](./contracts/engine/src/sealing.rs), [`contracts/ibe`](./contracts/ibe) | `close` of the Tender [82iWCcCj…](https://testnet.near.rocks/tx/82iWCcCjj1Jb9CBNiR4vtsv5Si9tkQRPsB8fv47Ck377): key received 4.8 s later |
-| Foreign chain transaction verification, domain 3 | `verify_foreign_transaction` | Attests Base logs (a stream or cash deposited into RoseVault) and Solana account states (a Streamflow stream, a nonce account, a landed payout) | [`foreign/`](./contracts/engine/src/foreign) | `register_base_deposit` [3B4xGvii…](https://testnet.near.rocks/tx/3B4xGviiUP7aA4KKa9GRPeMJ519S8zWi7TvHeQcZMvvi); `confirm_sol_payout` [Bv9RZpax…](https://testnet.near.rocks/tx/Bv9RZpaxVzX2G9CZqAM8LvpRZoB9QXunYFpCoJ7yji4K) |
-| [NEP-245](https://github.com/near/NEPs/blob/master/neps/nep-0245.md) multi-token | engine | Units of a position class, one token id per class | [`units.rs`](./contracts/engine/src/units.rs) | units minted by the same `register_base_deposit` |
-| [NEP-141](https://github.com/near/NEPs/blob/master/neps/nep-0141.md) and [NEP-145](https://github.com/near/NEPs/blob/master/neps/nep-0145.md) | `tusdc.rose-app.testnet`, engine | tUSDC, the NEAR cash venue; per-account storage paid by the account that uses it | [`contracts/tusdc`](./contracts/tusdc), [`storage.rs`](./contracts/engine/src/storage.rs) | `withdraw_near_cash` [FswYgYh7…](https://testnet.near.rocks/tx/FswYgYh7PC715bmwLNCmseUy9JA7o1g7gw5WqYjw3xfG) |
-| [Sputnik DAO v2](https://github.com/near-daos/sputnik-dao-contract) and [Trezu](https://github.com/NEAR-DevHub/trezu) | `add_proposal` (built by the app) | A treasury files its Tender as a DAO proposal instead of signing it alone | [`DaoPanel.tsx`](./apps/web/src/components/issuer/DaoPanel.tsx), [`dao.ts`](./apps/web/src/components/issuer/dao.ts) | the DAO `cindral-treasury.sputnikv2.testnet` executes the `create_tender` proposal [CxcrHTMZ…](https://testnet.near.rocks/tx/CxcrHTMZkcqWdVfqLf46iYV6xhVYR1uRLc1U2ssnfHPd) and becomes round 7's creator |
-| A contract account with no access key | none | The engine's keys were deleted right after init: no upgrade, no admin | [`deploy-engine.sh`](./scripts/deploy-engine.sh) | `view_access_key_list` returns `[]`, read live on `/status` (command in [`verification.md`](./docs/verification.md#final-proofs-on-3a99e6e-2026-11-06)) |
-
-rose does not use NEAR Intents: positions move in kind and nothing is swapped, and Intents has no
-testnet. Paying sale proceeds out in any asset on any chain through Intents is on the
-[roadmap](#limits-and-roadmap).
+The third row is not new to rose: [Sealwell](https://github.com/Godwin-web3/sealwell) (sealed-bid
+batch auctions for NEAR Intents solver quotes) already has its contract request the batch key through
+CKD after the close and check every opening on chain, and rose ports its `sealwell-ibe` crate (see
+[Third-party code](#third-party-code-and-ai-assistance)). What rose adds is the rest of the table:
+locked positions that stay on Base and Solana, the Tender buyback and Advance formats, and delivery
+versus payment across three chains by one contract with no access key.
 
 ### Positions, classes and units
 
@@ -291,22 +304,18 @@ Details: [spec section 7](./docs/spec.md#7-cross-chain-flows) and
 
 ## Trust model
 
-In short ([`docs/security.md`](./docs/security.md) has the full model, the threats per flow and the
-review history; [spec section 7.4](./docs/spec.md#74-trust-model-readme-must-state-it-plainly) is the
-normative version):
+In short ([`docs/security.md`](./docs/security.md) has the full model and the threats per flow;
+[spec section 7.4](./docs/spec.md#74-trust-model-readme-must-state-it-plainly) is the normative
+version):
 
 - **NEAR MPC network:** no single node holds a key. Signing, releasing a round key (CKD) and
   attesting foreign state each need 11 of the network's 16 nodes on testnet, and the nodes also run
   in TEEs, a second layer rather than the root of trust. A threshold of colluding nodes breaks
   custody and sealing; foreign state is trusted to the nodes' RPC quorum.
 - **rose-engine:** no upgrade, migrate, delete-account or generic call method, and the CKD request
-  reachable only after the deadline. The final deployment deletes every access key after init:
-  `deploy-engine.sh --role final` refuses to run without `--keyless`, checks the deployed code
-  hash before deleting any key, and records the engine as keyless only once
-  `view_access_key_list` at `final` returns `[]`. New versions deploy to new accounts.
-  The engine the app uses, `engine-v2.rose-app.testnet` in [Deployed contracts](#deployed-contracts),
-  is that keyless deployment; the first final engine `engine.rose-app.testnet` is superseded by it
-  and the earlier staging engines kept a key: both are history only.
+  reachable only after the deadline. The final deployment deletes every access key after init
+  (`deploy-engine.sh --role final` refuses to run without `--keyless`), so new versions deploy to
+  new accounts. The app's engine, `engine-v2.rose-app.testnet`, is that deployment ([Deployed contracts](#deployed-contracts)).
 - **RoseVault:** immutable, no owner, no pause, no upgrade; Sablier Lockup and the signer fixed in
   the constructor. A stream sent with a plain `transferFrom` is unattributed and can only leave
   through a Release authorization.
@@ -314,13 +323,12 @@ normative version):
   balance or its transfers to a claimant; rose cannot remove that trust. On Solana, mints with a
   freeze authority and Token-2022 mints are refused at deposit.
 - **Third-party programs:** Sablier's withdrawal fee is admin-controlled (0 today; RoseVault
-  forwards it, so withdrawals and releases keep working); Streamflow's program is upgradeable and
-  its on-chain source is not public, and its auto-claim withdraws every ended stream into its
-  recipient's token account one second after the end, which rose books (`sync_sol_stream`) and
-  relies on for an ended stream's last tranche. A stream's sender can also switch Streamflow's
-  automatic withdrawal on after the deposit (never off): the swept tokens land in the vault and a
-  sync books them, the app refuses to redeem such a stream in kind and claims no longer draw on
-  unsynced withdrawals, and a direct `redeem` of it without a sync loses what was swept and not
+  forwards it, so withdrawals and releases keep working). Streamflow's program is upgradeable and its
+  on-chain source is not public; its auto-claim sweeps every ended stream into its recipient's token
+  account one second after the end, which rose books (`sync_sol_stream`) and relies on for an ended
+  stream's last tranche. A sender can also switch automatic withdrawal on after the deposit (never
+  off): a sync books the swept tokens, claims no longer draw on unsynced withdrawals, the app refuses
+  to redeem that stream in kind, and a direct `redeem` without a sync loses what was swept and not
   synced ([security model](./docs/security.md#redeem-in-kind)).
 - **Gas:** every user-facing method stays under the 300 Tgas wallet cap (the highest, a verified
   opening, burns about 132 Tgas); the 1 PGas protocol limit is used only by the scripts and the
@@ -366,11 +374,11 @@ auto-claim empties an ended stream whether or not a payout drew on it
 ### Measured once, relied on everywhere
 
 - **CKD from a contract:** 19 Tgas is the live minimum for the key request (the engine attaches 25);
-  the close-to-key round trip took 4.2 to 4.8 s in the spike.
+  the close-to-key round trip took 4.2 to 4.8 s, measured on testnet.
 - **Browser sealing:** 11.7 to 16.5 ms per encryption (Node and headless Chromium) against the live
   CKD key, 192-byte ciphertexts.
 - **Sablier port:** 197 of 197 live `streamedAmountOf` reads reproduced exactly by the Rust unlock
-  function in the spike (a scratch binary, command in `docs/verification.md`), including cliffs and
+  function on testnet (a throwaway binary, command in `docs/verification.md`), including cliffs and
   a stream with a one-day granularity; twelve of those streams are replayed on every test run by
   `contracts/engine/tests/sablier_live.rs` and by the TypeScript port's tests.
 - **ForeignTx:** a mismatch with `expected_payload_hash` is a silent 2-minute timeout, so the engine
@@ -378,17 +386,13 @@ auto-claim empties an ended stream whether or not a payout drew on it
 - **A failing durable-nonce transaction still advances its nonce** and rolls back every other
   instruction (measured on devnet), which is why Solana payouts are two-phase and settle on a
   receipt nonce account the transaction advances last.
-- **Keyless Test USDC:** keys deleted [EjiBFUNB…](https://testnet.near.rocks/tx/EjiBFUNB8CmiY8qTERPvaqYc8jFkBds51iTSAGShq1MG);
-  `view_access_key_list` on `tusdc.rose-app.testnet` returns `[]`.
-- **Keyless deployment, rehearsed:** the exact helpers of `deploy-engine.sh --keyless` ran on a
-  throwaway account with two full-access keys: code hash checked, both keys deleted in one
-  transaction [LajMMx8z…](https://testnet.near.rocks/tx/LajMMx8zpF2HRvnYsDA4WMikPCnM75z52DBowXUSbTC),
-  then `view_access_key_list` at `final` returned `[]` on
-  `keyless-rehearsal-1793801863.rose-app.testnet`.
-- **Keyless final engine:** the same helpers deleted every key of `engine-v2.rose-app.testnet` in
-  [2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3);
-  `view_access_key_list` at `final` returns `[]`, read live by the app's `/status` page.
-- **Gas:** every user-facing call measured live and in the sandbox stays under 300 Tgas.
+- **Keyless deployments:** the exact helpers of `deploy-engine.sh --keyless` were rehearsed on
+  `keyless-rehearsal-1793801863.rose-app.testnet`, which had two full-access keys: code hash checked,
+  both keys deleted in one transaction [LajMMx8z…](https://testnet.near.rocks/tx/LajMMx8zpF2HRvnYsDA4WMikPCnM75z52DBowXUSbTC),
+  then `view_access_key_list` at `final` returned `[]`. The same helpers deleted every key of
+  `engine-v2.rose-app.testnet` in [2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3)
+  and Test USDC's in [EjiBFUNB…](https://testnet.near.rocks/tx/EjiBFUNB8CmiY8qTERPvaqYc8jFkBds51iTSAGShq1MG);
+  `node scripts/verify.ts` reads `[]` on both.
 
 Tests: `cargo test --workspace` (unit, property and recorded live vectors), the NEAR sandbox suites
 with the real engine wasm, `forge test` (140 tests, fork tests against the live Sablier Lockup),
@@ -396,30 +400,25 @@ with the real engine wasm, `forge test` (140 tests, fork tests against the live 
 
 ## Deployed contracts
 
-The table lists the deployment the app at https://rose-rounds.vercel.app uses. Its addresses and
-hashes come from [`deployments/testnet.json`](./deployments/testnet.json), which also records every
-earlier deployment (the tUSDC transactions, the MPC version and the base58 code hash come from
-[`docs/verification.md`](./docs/verification.md)); the engine row says whether the engine keeps an access key, and `/status` shows the
-same `view_access_key_list` result live.
+The deployment the app uses, from [`deployments/testnet.json`](./deployments/testnet.json) (which
+records every earlier one too) and [`docs/verification.md`](./docs/verification.md) (the tUSDC
+transactions, the MPC version and the base58 code hash).
 
-**Listed now: the final deployment, keyless.** `engine-v2.rose-app.testnet` has no access key:
-`view_access_key_list` at `final` returns `[]` (the keys were deleted in
-[2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3), after
+**Listed: the final deployment, keyless.** `engine-v2.rose-app.testnet` has no access key, so nobody
+can upgrade, drain or stop it; a new version would be a new account. Its keys were deleted in
+[2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3) after
 `deploy-engine.sh --role final --keyless` checked the deployed code hash of the reproducible
-artifact, every `get_config` value against its init arguments and the bound RoseVault's
-`SIGNER()` and `LOCKUP()` live). Nobody can upgrade, drain or stop it; a new version would be a new
-account. Its RoseVault was deployed for it with `deploy-base.sh --role final`, reusing the demo
-assets of the earlier engines so positions minted from the app stay in the seeded classes.
+artifact, every `get_config` value against its init arguments and the bound RoseVault's `SIGNER()`
+and `LOCKUP()` live; it records an engine as keyless only once `view_access_key_list` at `final`
+returns `[]`. Its RoseVault was deployed for it with `deploy-base.sh --role final`, reusing
+the demo assets of the earlier engines so positions minted from the app stay in the seeded classes.
 
 **Superseded: `engine.rose-app.testnet`** (RoseVault `0x9b7182033d3f4bc017a8776c8bc55f6a261ac95f`),
-the first final engine, also keyless. The last review pass found that an Advance funder's share of
-a lien never left its account index, so every Advance funder's NEP-145 storage deposit stays locked
-on it (fixed in `46358b2`). A keyless engine cannot be patched, so the fix shipped as a new account
-with its own RoseVault, as the trust model says new versions do; the old engine still runs, and the
-app no longer uses it. The staging deployments before it, `engine-s1` to `engine-s5`, kept a
-full-access key and are retired (code replaced by an empty module, balance reclaimed). Every
-earlier record stays in [`deployments/testnet.json`](./deployments/testnet.json) and
-[`docs/verification.md`](./docs/verification.md).
+the first final engine, also keyless and still running. On it, an Advance funder's share of a lien
+never left its account index, so every Advance funder's NEP-145 storage deposit stays locked (fixed
+in `46358b2`). A keyless engine cannot be patched, so the fix shipped as a new account with its own
+RoseVault. The staging deployments before it, `engine-s1` to `engine-s5`, kept a full-access key
+and are retired (code replaced by an empty module, balance reclaimed).
 
 | Chain | Contract | Address | Deployment |
 |---|---|---|---|
@@ -457,7 +456,7 @@ The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 
 | Limit | Bounded today by | Roadmap |
 |---|---|---|
-| Unaudited, testnet only | Test tokens with no value; tests and the [review passes](./docs/security.md#review-history) | An external audit before any mainnet deployment |
+| Unaudited, testnet only | Test tokens with no value; unit, property and fork tests run in [CI](./.github/workflows/ci.yml) | An external audit before any mainnet deployment |
 | A threshold of MPC nodes could read bids early or sign for the vaults | The MPC network's threshold and TEEs, the same assumption as every Chain Signatures application | None inside rose: it adds no trust beyond the MPC network |
 | A cancelled round's key can still become public through a late MPC response, and anything encrypted to a round is readable after its key is public | No funds move after `Cancelled`; privacy only, stated in the [security model](./docs/security.md#key-release) | None: a property of the scheme (ePrint 2025/2048) |
 | Solana deposits and payouts wait on the MPC network's Solana attestations (ForeignTx `AccountState`) | On 14 November, after the MPC upgrade to 3.19.0, 7 of 9 Solana attestation requests timed out at 120 s between 01:10 and 01:35 UTC; the engine refunded every failed request. Later that morning they worked again but not every time: a Solana payout landed end to end at 02:46 UTC (`claim_sol_tokens` [8n12Gn4x…](https://testnet.near.rocks/tx/8n12Gn4xy5ZdcZ1SHcsJchyGTZTmF1tdwxXMoHyWZsXw), `confirm_sol_payout` [FF5z7gYw…](https://testnet.near.rocks/tx/FF5z7gYweWiPVSQre4DSMFKKFoJKTLEG5pqgobQHYgtS) `Landed`), and a deposit registration timed out twice ([GmAZSMNL…](https://testnet.near.rocks/tx/GmAZSMNLG3VEfeTUwr55mNgNYJMaHHHGsdSpec1AifHr), [HAQ8hxVX…](https://testnet.near.rocks/tx/HAQ8hxVXnrkV8vF7V3w6mb3CaBmT17JVwCPw3unKru3Y), refunded) before it succeeded at 04:13 UTC ([3ekz8u55…](https://testnet.near.rocks/tx/3ekz8u55XogPKtHPDTSKDZyWF43mhUWkVxfETAtHt7B7)). Base attestations, signing and key releases worked throughout | None inside rose: the MPC network's own availability |
@@ -509,9 +508,8 @@ deployments          addresses, transaction hashes and records of the scripted l
 docs
   spec.md              the specification: what rose is and what done means
   architecture.md      how each part of the spec is implemented
-  security.md          trust model, threats per flow, limitations, review history
+  security.md          trust model, threats per flow, known limitations, tests behind the claims
   verification.md      every external fact and live run, with the command used
-  demo.md              the demo video script and the published demo post
 ```
 
 ## Getting started
@@ -595,9 +593,7 @@ Each script records every transaction under `deployments/` and resumes where it 
   - Design references only, no code copied: React Bits, Aceternity UI, Rare UI, ObsidianUI,
     shadcn/ui, Origin UI and the Refero style library.
 - **AI assistance:** the code, tests and documents were written during the hackathon with AI coding
-  agents, directed and reviewed by the author; independent review passes ran on a different model
-  than the one that wrote each part
-  ([review history](./docs/security.md#review-history)).
+  agents, directed and reviewed by the author.
 - **Prior work:** none. The repository starts on 4 November 2026 with the specification; there is no
   pre-hackathon code and no earlier product on another chain.
 

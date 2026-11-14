@@ -33,7 +33,7 @@ const messages = JSON.parse(readFileSync(new URL("./fixtures/solana_messages.jso
 const bytes = Uint8Array.from(Buffer.from(fixture.dataBase64, "base64"));
 
 describe("decodeStreamflowMetadata", () => {
-  it("decodes the spike stream created with distinctive values (scratchpad/findings/foreigntx.md section 6.2)", () => {
+  it("decodes the spike stream created with distinctive values", () => {
     const metadata = decodeStreamflowMetadata(bytes);
     expect(metadata.sender.toBase58()).toBe("6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n");
     expect(metadata.recipient.toBase58()).toBe("2uhcVxvU947Yvp8rq1WChqqvkxrTeNZFR58MsS1t2d3w");
