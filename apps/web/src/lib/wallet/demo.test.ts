@@ -141,11 +141,15 @@ describe("NEAR demo account presence", () => {
     expect(calls.count).toBe(3);
   });
 
-  it("remembers an account seen on chain per id and forgets it with the wallet", () => {
+  it("remembers the demo account seen on chain per id, ignores any other account and forgets it with the wallet", () => {
+    saveNearDemoWallet(generateNearDemoWallet("rose-demo-aaaaaa.testnet"));
     expect(nearDemoKnownOnChain("rose-demo-aaaaaa.testnet")).toBe(false);
     rememberNearDemoOnChain("rose-demo-aaaaaa.testnet");
     expect(nearDemoKnownOnChain("rose-demo-aaaaaa.testnet")).toBe(true);
     expect(nearDemoKnownOnChain("rose-demo-bbbbbb.testnet")).toBe(false);
+    rememberNearDemoOnChain("someone.testnet");
+    expect(nearDemoKnownOnChain("rose-demo-aaaaaa.testnet")).toBe(true);
+    expect(nearDemoKnownOnChain("someone.testnet")).toBe(false);
     forgetNearDemoWallet();
     expect(nearDemoKnownOnChain("rose-demo-aaaaaa.testnet")).toBe(false);
   });

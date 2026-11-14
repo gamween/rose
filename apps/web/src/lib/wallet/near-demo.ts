@@ -49,8 +49,13 @@ export function forgetNearDemoWallet(): void {
   removeStored(DEMO_STORAGE_KEYS.nearOnChain);
 }
 
-/** Remembers that this account id was seen on chain, so a later page load starts from that instead of "unknown". */
+/**
+ * Remembers that the demo account was seen on chain, so a later page load starts from that instead
+ * of "unknown". Another account (an external wallet's) is not recorded: it would replace the demo
+ * account's memory.
+ */
 export function rememberNearDemoOnChain(accountId: string): void {
+  if (loadNearDemoWallet()?.accountId !== accountId) return;
   writeStored(DEMO_STORAGE_KEYS.nearOnChain, accountId);
 }
 
