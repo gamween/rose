@@ -1,6 +1,6 @@
 # rose: product and technical specification
 
-Version 1.2, 2026-11-04. This document is the source of truth for what rose is and what "done" means. Every claim about an external system (address, version, gas figure, API) must be re-verified live before it is relied on in code; figures marked "measured" come from testnet reads on 2026-11-03 and from testnet measurements of 2026-11-04, recorded with their commands in `docs/verification.md`.
+Version 1.3, 2026-11-14. This document is the source of truth for what rose is and what "done" means. Every claim about an external system (address, version, gas figure, API) must be re-verified live before it is relied on in code; figures marked "measured" come from testnet reads on 2026-11-03 and from testnet measurements of 2026-11-04, recorded with their commands in `docs/verification.md`.
 
 ## 0. One line
 
