@@ -2,6 +2,9 @@
   "name": "rose",
   "private": true,
   "license": "MIT",
+  "scripts": {
+    "verify": "node scripts/verify.ts"
+  },
   "packageManager": "pnpm@10.34.9",
   "engines": {
     "node": ">=22.18"

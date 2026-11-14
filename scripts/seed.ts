@@ -72,12 +72,13 @@ import {
   type RegisterBaseDepositArgs,
 } from "@rose/sdk";
 import { registerCash, registerStream, sendBase, waitSafe } from "./lib/base.ts";
+import { pricingOf } from "./lib/clearing.ts";
 import { createContext, type Context } from "./lib/context.ts";
 import { DEFAULT_ENV_FILE, log, NEAR_CASH_TOKEN, numberFlag, parseArgs, ROOT, sleep } from "./lib/env.ts";
 import { accountOf, CAST, COHORTS, EVERYONE, GAS_SOL_FUNDED, NADIA_ETH, OPEN_ROUND, ROUNDS, STRATEGIC_HOLDER_SOL, usdc, whole, type CohortKey, type Who } from "./lib/identity.ts";
 import { txRef } from "./lib/journal.ts";
 import { accountBalance, formatNear, near, nearRef, rpc, withRetry } from "./lib/near.ts";
-import { createRound, escrowFor, placeOrder, pricingOf, getRound, type OrderRecord, type RoundRecord } from "./lib/rounds.ts";
+import { createRound, escrowFor, placeOrder, getRound, type OrderRecord, type RoundRecord } from "./lib/rounds.ts";
 import { cindrMint, createStrategicStream, depositStrategicStream, fundSol, type SolPosition } from "./lib/solana.ts";
 
 const USAGE =

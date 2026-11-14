@@ -11,6 +11,7 @@
 [![Confidential Key Derivation](https://img.shields.io/badge/NEAR%20MPC-Confidential%20Key%20Derivation-000?style=flat-square)](#sealed-rounds)
 [![Base Sepolia](https://img.shields.io/badge/Base%20Sepolia-Sablier%20v4-0052ff?style=flat-square)](#cross-chain-custody)
 [![Solana devnet](https://img.shields.io/badge/Solana%20devnet-Streamflow-9945ff?style=flat-square)](#cross-chain-custody)
+[![CI](https://img.shields.io/github/actions/workflow/status/gamween/rose/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/gamween/rose/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 **[Open the app](https://rose-rounds.vercel.app)** · **[Demo script](./docs/demo.md)** · **[Specification](./docs/spec.md)** · **[Architecture](./docs/architecture.md)** · **[Security model](./docs/security.md)** · **[Verification log](./docs/verification.md)**
@@ -154,16 +155,27 @@ then **Clear**.
 
 The organizers name technical implementation, design, impact, originality and sustainability as the
 criteria of previous NEAR hackathons, and AI screening checks that the project runs and does what
-this README says. Where to look for each:
+this README says.
+
+**Check the live deployment in one command.** From a fresh clone, with Node 22.18 or later and
+nothing installed, run `node scripts/verify.ts` (or `pnpm verify`). It reads NEAR testnet and Base
+Sepolia, signs and sends nothing, takes a few seconds and exits 0 only if all 10 checks pass: the
+engine and test USDC have no access key; the engine's code is the reproducible build of `0524b33`;
+its configuration names the MPC network, the RoseVault and the MPC-derived Base and Solana signers;
+the RoseVault on Base Sepolia obeys only that signer; and the settled rounds 0, 1, 2 and 7 (round 7
+created by a Sputnik DAO) cleared exactly as the `@rose/sdk` clearing reference recomputes from
+their on-chain openings.
+
+Where to look for each criterion:
 
 | Criterion | Where to check it |
 |---|---|
 | Runs as described | [Try it yourself](#try-it-yourself) on the deployed app; [Getting started](#getting-started) reproduces every test and the seeded story; every proof below links a testnet transaction |
 | Technical implementation | A NEAR contract that holds Base and Solana positions through Chain Signatures and ForeignTx, IBE sealing against the MPC CKD key with fully verified on-chain openings, two-phase Solana payouts settled on proof of landing ([architecture](./docs/architecture.md), [security model](./docs/security.md)) |
 | Design | The app (`/app`, `/app/rounds/<id>`, `/app/issuer`, `/status`, `/docs`), reviewed at 1470 px and 375 px; the landing's scroll sequence |
-| Impact | The problem and its evidence in [spec section 1](./docs/spec.md#1-problem-evidence); users and jobs in [spec section 2](./docs/spec.md#2-users-and-jobs) |
+| Impact | The problem and its evidence in [spec section 1](./docs/spec.md#1-problem-evidence); users and jobs in [spec section 2](./docs/spec.md#2-users-and-jobs). No real issuer, holder or buyer has used rose or been approached yet; the first pilot it is built for is in [Limits and roadmap](#limits-and-roadmap) |
 | Originality | No live sealed tender for locked tokens exists in crypto ([spec section 1](./docs/spec.md#1-problem-evidence)); [What is new here](#what-is-new-here) compares rose with the usual sealed-bid designs |
-| Sustainability | [Limits and roadmap](#limits-and-roadmap); the engine has no upgrade path, its final deployment `engine-v2.rose-app.testnet` deleted every access key after init (see [Deployed contracts](#deployed-contracts)) and `@rose/sdk` reaches it without the app, so a keyless engine keeps running without its authors |
+| Sustainability | [Limits and roadmap](#limits-and-roadmap); the engine has no upgrade path, its final deployment `engine-v2.rose-app.testnet` deleted every access key after init (see [Deployed contracts](#deployed-contracts)) and `@rose/sdk` reaches it without the app, so a keyless engine keeps running without its authors. If the hosted app goes away, rounds and funds stay reachable: the app runs locally from this repository ([Getting started](#getting-started)) and every next step of a round is a public method anyone can call. The author keeps the hosted app and its testnet faucets funded until at least 25 November 2026 and keeps building rose after the hackathon: a NEAR grant application to fund an external audit, then a mainnet engine |
 
 ## How it works
 
@@ -454,7 +466,8 @@ The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 | Proceeds are paid in the round's cash token (tUSDC on NEAR or test USDC on Base) | Positions move in kind; nothing is swapped | Paying proceeds out in any asset on any chain through NEAR Intents' 1Click API, on mainnet only (Intents has no testnet) |
 | ERC-20 issuer pause or blacklist powers | Stated trust assumption; Solana freeze-authority and Token-2022 mints refused | A per-class token risk note in the app |
 | No keeper: rounds, Solana payouts and Streamflow syncs advance when someone calls the next step | The app shows the next action to whoever looks; anyone can call it | None needed |
-| One author; the hosted demo, its faucet hot wallets and the fee recipient (`rose-app.testnet`, fixed at init on this engine) are the author's | The engine needs nobody to keep running: no key, no upgrade, every step a public method, `@rose/sdk` usable without the app | An external audit, then a mainnet engine whose fees (30 bps of settled notional) go to an account the issuers' community controls |
+| One author; the hosted demo, its faucet hot wallets and the fee recipient (`rose-app.testnet`, fixed at init on this engine) are the author's | The engine needs nobody to keep running: no key, no upgrade, every step a public method, `@rose/sdk` usable without the app; the author keeps the hosted demo and its faucets funded until at least 25 November 2026 | A NEAR grant application to fund an external audit, then a mainnet engine whose fees (30 bps of settled notional) go to an account the issuers' community controls |
+| No real issuer, holder or buyer yet | The demo issuer, its token and its holders are fictional; every position, round and payout is a real testnet transaction; no issuer has been approached yet | Approaching issuers after the hackathon for a first pilot after the audit: one issuer-run Tender buyback of its own locked allocations, where the buyer is known and the sellers are its early holders |
 | Finding buyers is a cold-start problem | Exit rounds are open to anyone; prices are published per class | Issuer-run Tenders first, where the buyer is known, filed from the treasury the issuer already uses (a Sputnik DAO or Trezu today; NEAR Business, a confidential multisig on NEAR Intents, is a natural next front) |
 
 ## Tech stack
@@ -519,6 +532,9 @@ pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build
 # NEAR sandbox suites: the real engine wasm against a signing mock MPC
 ROSE_SANDBOX=1 cargo test -p rose-engine --test sandbox_lifecycle -- --test-threads=1
 ```
+
+[CI](./.github/workflows/ci.yml) runs the same `cargo test`, `forge test` and `pnpm -r` gate on every
+push to `main` and every pull request; the opt-in sandbox suites run locally.
 
 Run the app locally against the final engine:
 

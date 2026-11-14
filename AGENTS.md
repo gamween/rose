@@ -34,6 +34,13 @@ full description; every claim in it links a transaction, a test or a file.
 
 ## Check the live deployment in a minute, no build
 
+`node scripts/verify.ts` (Node 22.18 or later, nothing to install; `pnpm verify` runs the same) runs
+10 read-only checks against NEAR testnet and Base Sepolia and exits 0 only if every one passes: no
+access key on the engine and on test USDC, the reproducible code hash, `get_config`, the RoseVault's
+`SIGNER()` and `LOCKUP()`, the MPC-derived Solana keys, and the clearing of the settled rounds 0, 1, 2
+and 7 recomputed with the `@rose/sdk` clearing reference. The raw calls below are the same checks by
+hand.
+
 Any NEAR testnet RPC works. `rpc.testnet.near.org` is deprecated and can answer HTTP 429 "THIS
 ENDPOINT IS DEPRECATED"; if it or FastNEAR answers HTTP 429, use `https://near-testnet.drpc.org`.
 
@@ -66,6 +73,7 @@ Without secrets, a clean clone runs:
 | `forge test` | RoseVault and the demo contracts, including fork tests against the live Sablier Lockup |
 | `pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build` | SDK, IBE wasm wrapper, scripts and web app |
 
+[CI](./.github/workflows/ci.yml) runs these on every push to `main` and every pull request.
 Opt-in suites, each documented where it lives: `ROSE_SANDBOX=1` for the NEAR sandbox suites (real
 engine wasm, mock MPC), `ROSE_LIVE_SMOKE=1` with `PLAYWRIGHT_BASE_URL` for the Playwright smoke tests
 against a live deployment. The deployment, seed and live end-to-end scripts need funded testnet keys

@@ -40,12 +40,13 @@ import {
   type Side,
 } from "@rose/sdk";
 import { sendBase } from "./lib/base.ts";
+import { checkClearing, type ClearingCheck } from "./lib/clearing.ts";
 import { createContext, type Context } from "./lib/context.ts";
 import { DEFAULT_ENV_FILE, log, NEAR_CASH_TOKEN, parseArgs } from "./lib/env.ts";
 import { accountOf, CAST, usdc, whole, type Who } from "./lib/identity.ts";
 import type { StepScope } from "./lib/journal.ts";
 import { nearOutcome, nearRef, rpc, withRetry, type NearActor, type NearResult } from "./lib/near.ts";
-import { checkClearing, classDecimals, createRound, getRound, placeOrder, usdcText, waitUntil, type ClearingCheck, type OrderRecord, type OrderSecret, type RoundRecord } from "./lib/rounds.ts";
+import { classDecimals, createRound, getRound, placeOrder, usdcText, waitUntil, type OrderRecord, type OrderSecret, type RoundRecord } from "./lib/rounds.ts";
 import { open, unwrap } from "./lib/sealed.ts";
 import { waitSigned } from "./lib/solana.ts";
 
