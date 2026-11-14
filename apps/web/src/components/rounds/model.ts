@@ -7,6 +7,7 @@
 
 import { charge, fee, ONE, perClaimedToken, type Bid, type ClassInfo, type Pricing, type Round, type RoundKind, type RoundResult, type RoundStatus, type Venue } from "@rose/sdk";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
+import type { ActionErrorKind } from "@/lib/errors";
 import { formatCash, formatUnits } from "@/lib/format";
 import { deployedCashSymbol } from "@/lib/token-symbols";
 
@@ -303,6 +304,17 @@ export function settleQueue(bids: readonly Bid[], viewer: string | null): { scop
   const pending = bids.filter((bid) => bid.status !== "Settled");
   const mine = viewer === null ? [] : pending.filter((bid) => bid.bidder === viewer);
   return mine.length > 0 ? { scope: "mine", queue: mine } : { scope: "all", queue: pending };
+}
+
+/**
+ * Failures that stop a per-order run (opening or settling): every later order would fail the same
+ * way (the wallet refused or has no balance, the RPC is unreachable or the demo account's presence
+ * could not be checked), so the run ends instead of failing each remaining order in turn.
+ */
+const RUN_STOPPING_KINDS: ReadonlySet<ActionErrorKind> = new Set(["rejected", "no_wallet", "insufficient_balance", "rate_limited", "rpc"]);
+
+export function stopsRun(kind: ActionErrorKind): boolean {
+  return RUN_STOPPING_KINDS.has(kind);
 }
 
 /** Whether the creator can still withdraw the round (before any order and before the close). */

@@ -152,8 +152,9 @@ const SERVER_FAILURES: readonly unknown[] = [408, 500, 502, 503];
 /**
  * True for a failed send after which the transaction may simply not have arrived: a rate limit
  * (FastNEAR answers 429 to some `send_tx` it forwarded, seen live), a server or gateway failure
- * (the resends near-api-js would make on its own, which `sendOnce` makes instead), a non-JSON page
- * from a proxy, or a transport failure (connection reset, timeout).
+ * (500, 408 and 503 are the resends near-api-js would make on its own, which `sendOnce` makes
+ * instead; 502 is resent the same way), a non-JSON page from a proxy, or a transport failure
+ * (connection reset, timeout).
  */
 function resendable(error: unknown): boolean {
   if (rateLimited(error) || error instanceof SyntaxError || error instanceof TypeError) return true;
@@ -253,9 +254,10 @@ async function transactionKnown(hash: string, senderId: string): Promise<boolean
 
 /**
  * A provider that posts each request exactly once, for `send_tx`: near-api-js 7.4.0 posts the same
- * request again on HTTP 500, 408 or 503 and on a fetch that throws, up to `retries` attempts in
- * all, so a send it repeated after the node forwarded the first one would happen inside one
- * `sendOnce` attempt, out of its sight. `retries` counts attempts: 0 would post nothing.
+ * request again on HTTP 500, 408 or 503 and on a fetch error whose text contains "FetchError" or
+ * "Failed to fetch" (Node's "fetch failed" is not one), up to `retries` attempts in all, so a
+ * send it repeated after the node forwarded the first one would happen inside one `sendOnce`
+ * attempt, out of its sight. `retries` counts attempts: 0 would post nothing.
  */
 export function singleSendProvider(url: string): JsonRpcProvider {
   return new JsonRpcProvider({ url }, { retries: 1 });
@@ -267,7 +269,7 @@ export class NearActor {
   private account: Account;
   /** Reads made while building a transaction (access key nonce, recent block hash), retried by near-api-js: nothing is sent yet. */
   private readonly provider: JsonRpcProvider;
-  /** Sends through the primary endpoint, the only public one that holds a `send_tx` wait; `sendOnce` owns every resend. */
+  /** Sends through the primary endpoint, the only public one that holds a `tx` wait (measured; `send_tx` inferred); `sendOnce` owns every resend. */
   private readonly sendProvider: JsonRpcProvider;
   private readonly signer: KeyPairSigner;
 

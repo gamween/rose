@@ -12,6 +12,7 @@ import { addressUrl, CHAIN_LABEL, shortAddress, type ChainId } from "@/lib/explo
 import { formatUnits } from "@/lib/format";
 import { exportEvmDemoWallet, exportNearDemoWallet, exportSolanaDemoWallet } from "@/lib/wallet/export";
 import { connectedWallets, missingNetworks, networkInfo, type ConnectedWallet } from "@/lib/wallet/networks";
+import { swallowClickOf } from "@/lib/swallow-click";
 import { downloadText } from "@/lib/wallet/storage";
 import { useAppActions } from "@/components/chrome/AppActions";
 import { ChainLogo } from "./ChainLogo";
@@ -129,11 +130,7 @@ export function WalletPills({ className }: { className?: string }) {
   const connected = connectedWallets({ near: wallets.near.accountId, base: wallets.evm.address, solana: wallets.solana.publicKey });
   const primary = connected[0];
 
-  /*
-   * The menu closes on Escape (focus back on its button) and on any press outside it. That press
-   * only dismisses: the click it ends in is swallowed, so dismissing over a round card does not
-   * also open the round.
-   */
+  /* The menu closes on Escape (focus back on its button) and on any press outside it, which only dismisses (`swallowClickOf`). */
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (event: KeyboardEvent) => {
@@ -144,13 +141,7 @@ export function WalletPills({ className }: { className?: string }) {
     const onPointer = (event: PointerEvent) => {
       if (rootRef.current?.contains(event.target as Node)) return;
       setMenuOpen(false);
-      const swallow = (click: MouseEvent) => {
-        click.preventDefault();
-        click.stopPropagation();
-      };
-      document.addEventListener("click", swallow, { capture: true, once: true });
-      /* A press that ends without a click (a drag, a scroll) must not eat the next real click. */
-      document.addEventListener("pointerup", () => window.setTimeout(() => document.removeEventListener("click", swallow, { capture: true }), 0), { once: true });
+      swallowClickOf(event);
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointer);

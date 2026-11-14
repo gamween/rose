@@ -73,7 +73,7 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    every ask opened and verified on chain, and the clearing price, each step with its explorer link.
 2. **Connect.** Click **Connect**, choose a network (NEAR first, then Base and Solana), and under
    **No wallet?** click **Create a demo wallet**. The dialog closes after each network: add the next
-   one from the wallet menu (**Connect another network**). You see one header button with the
+   one from the wallet menu, where **Connect another network** lists **Base** and **Solana**. You see one header button with the
    connected networks, and its menu lists each wallet with its balance; the keys stay in this browser.
 3. **Get test funds.** Open the wallet menu, then **Get test funds**: **Create the demo account
    with test NEAR**, **Mint 1,000 tUSDC on NEAR**, **Mint 1,000 tUSDC on Base**, **Mint me a demo
@@ -85,13 +85,17 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
 4. **Deposit a position.** Open `/app/deposit`, choose Base, pick the demo Sablier stream and
    deposit it. You see the wait for Base's `safe` head (3 to 5 minutes), then the MPC network's
    attestation of the deposit (seconds), then your units minted. Choosing Solana does the same for
-   the Streamflow position in three engine calls.
+   the Streamflow position in three engine calls; if the MPC network's Solana verification times out
+   (see [Limits](#limits-and-roadmap)), the step is refunded and its **Retry** runs it again.
 5. **Open a round and sell, sealed.** On `/app/rounds`, **Create Exit round** on the class of your
-   position with a short window. In the round's order card, **Deposit cash** for the seller's bond
-   (a few tUSDC), then **Seal and place ask**. You see your ask in the **Sealed book** tab: its
+   position with a short window. In the round's order card, type the quantity and the price; when
+   the card says the cash is short, click **Deposit cash** for the seller's bond (a few tUSDC), then
+   **Seal and place ask**. You see your ask in the **Sealed book** tab: its
    locked units and its ciphertext hash, never its price.
 6. **Buy from a second identity.** In a private window, repeat steps 2 and 3, open the same round,
-   **Deposit cash** for the escrow and **Seal and place bid**. The round now shows two sealed orders.
+   type a quantity and a price, **Deposit cash** for the escrow, then **Seal and place bid** (a
+   first order adds the engine storage: **Add storage, seal and place bid**). The round now shows two
+   sealed orders.
 7. **Close, open, clear.** After the deadline the round's action card shows the next step: **Close
    round** (the key arrives within seconds), **Open every order** (your browser decrypts every order
    and opens each one on chain), then **Clear** once the reveal window (10 minutes by default) is
@@ -106,10 +110,11 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    signer compared with the engine's MPC-derived address, the MPC contract version and the latency
    of recent key releases.
 10. **Run a Tender buyback as an issuer.** Open `/app/issuer` and follow **New Tender** to its
-    **Launch Tender** step: set a budget and a maximum price and sign it yourself, or set **Signed
-    by** to **A DAO** and enter a Sputnik DAO account: the **Run via DAO** panel then shows the DAO
-    proposal and the Trezu template that file the same call from the treasury. After settlement the
-    **Results** tab exports the tender report.
+    **Launch Tender** step: set a budget and a maximum price, then **Create the Tender** to sign it
+    yourself, or set **Signed by** to **A DAO** and enter a Sputnik DAO account (for example
+    `cindral-treasury.sputnikv2.testnet`): the **Run via DAO** panel then shows the DAO proposals
+    and the Trezu template that file the same call from the treasury. After settlement, **Results**
+    opens the tender report, with **Download CSV**.
 
 Rounds left open for reviewers: **#8** (Exit, Seed Round, closes 16 November 15:00 UTC) and **#10**
 (Exit, KOL Round, closes 17 November 15:00 UTC) each hold a sealed ask at 0.002 tUSDC per locked
@@ -186,6 +191,11 @@ and who can open the bids:
 | Who buys | Anyone | The issuer, buying back with a budget and a maximum price (Tender buyback); any buyer (Exit); or funders of a senior claim on a holder's first unlocks (Advance) |
 | Who can open the bids, and when | A timelock beacon (the key appears at a fixed time whatever the contract says), a single TEE (one machine's promise), or commit-reveal (a bidder sees the others and may decline to reveal) | A threshold of the NEAR MPC network derives the round key only when the contract asks, and the contract can only ask after the deadline. Then anyone can open any order and the contract verifies each opening in full, so nobody can withhold a bid, and a malformed one is opened by nobody and its bond slashed |
 | Settlement | On one chain | Delivery versus payment across NEAR, Base and Solana by one contract with no access key |
+
+The identity-based encryption itself is not new: rose ports it from Sealwell's `sealwell-ibe`
+crate (see [Third-party code](#third-party-code-and-ai-assistance)). What rose adds is the release
+of its key by the MPC network under the contract's control, the on-chain verification of every
+opening, and the use of both on locked positions.
 
 ### Why NEAR
 
@@ -437,13 +447,14 @@ The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 | Unaudited, testnet only | Test tokens with no value; tests and the [review passes](./docs/security.md#review-history) | An external audit before any mainnet deployment |
 | A threshold of MPC nodes could read bids early or sign for the vaults | The MPC network's threshold and TEEs, the same assumption as every Chain Signatures application | None inside rose: it adds no trust beyond the MPC network |
 | A cancelled round's key can still become public through a late MPC response, and anything encrypted to a round is readable after its key is public | No funds move after `Cancelled`; privacy only, stated in the [security model](./docs/security.md#key-release) | None: a property of the scheme (ePrint 2025/2048) |
-| Solana deposits and payouts wait on the MPC network's Solana attestations (ForeignTx `AccountState`) | On 14 November, after the MPC upgrade to 3.19.0, 7 of 9 Solana attestation requests timed out at 120 s between 01:10 and 01:35 UTC; the engine refunded every failed request, and by 02:46 UTC a Solana payout landed end to end again (`claim_sol_tokens` [8n12Gn4x…](https://testnet.near.rocks/tx/8n12Gn4xy5ZdcZ1SHcsJchyGTZTmF1tdwxXMoHyWZsXw), `confirm_sol_payout` [FF5z7gYw…](https://testnet.near.rocks/tx/FF5z7gYweWiPVSQre4DSMFKKFoJKTLEG5pqgobQHYgtS) `Landed`). Base attestations, signing and key releases worked throughout | None inside rose: the MPC network's own availability |
+| Solana deposits and payouts wait on the MPC network's Solana attestations (ForeignTx `AccountState`) | On 14 November, after the MPC upgrade to 3.19.0, 7 of 9 Solana attestation requests timed out at 120 s between 01:10 and 01:35 UTC; the engine refunded every failed request. Later that morning they worked again but not every time: a Solana payout landed end to end at 02:46 UTC (`claim_sol_tokens` [8n12Gn4x…](https://testnet.near.rocks/tx/8n12Gn4xy5ZdcZ1SHcsJchyGTZTmF1tdwxXMoHyWZsXw), `confirm_sol_payout` [FF5z7gYw…](https://testnet.near.rocks/tx/FF5z7gYweWiPVSQre4DSMFKKFoJKTLEG5pqgobQHYgtS) `Landed`), and a deposit registration timed out twice (03:50 and 03:56 UTC) before it succeeded at 04:13 UTC. Base attestations, signing and key releases worked throughout | None inside rose: the MPC network's own availability |
 | Collateral is public, so each order's size is bounded in public | Over-collateralize to hide it | None planned |
 | At most 64 orders per round, no sybil resistance | Bond and storage deposit per order; a new round | Larger rounds with paginated clearing |
 | Positions: Sablier Lockup v4 Linear on Base, fee-free Streamflow on Solana | Everything else refused at deposit, with the reason | Sablier Tranched and Dynamic, other vesting contracts (Magna, Hedgey), more chains served by ForeignTx |
 | Proceeds are paid in the round's cash token (tUSDC on NEAR or test USDC on Base) | Positions move in kind; nothing is swapped | Paying proceeds out in any asset on any chain through NEAR Intents' 1Click API, on mainnet only (Intents has no testnet) |
 | ERC-20 issuer pause or blacklist powers | Stated trust assumption; Solana freeze-authority and Token-2022 mints refused | A per-class token risk note in the app |
 | No keeper: rounds, Solana payouts and Streamflow syncs advance when someone calls the next step | The app shows the next action to whoever looks; anyone can call it | None needed |
+| One author; the hosted demo, its faucet hot wallets and the fee recipient (`rose-app.testnet`, fixed at init on this engine) are the author's | The engine needs nobody to keep running: no key, no upgrade, every step a public method, `@rose/sdk` usable without the app | An external audit, then a mainnet engine whose fees (30 bps of settled notional) go to an account the issuers' community controls |
 | Finding buyers is a cold-start problem | Exit rounds are open to anyone; prices are published per class | Issuer-run Tenders first, where the buyer is known, filed from the treasury the issuer already uses (a Sputnik DAO or Trezu today; NEAR Business, a confidential multisig on NEAR Intents, is a natural next front) |
 
 ## Tech stack
@@ -567,8 +578,8 @@ Each script records every transaction under `deployments/` and resumes where it 
   - Design references only, no code copied: React Bits, Aceternity UI, Rare UI, ObsidianUI,
     shadcn/ui, Origin UI and the Refero style library.
 - **AI assistance:** the code, tests and documents were written during the hackathon with AI coding
-  agents (Claude Code, on Fable 5.1, Fable 5.2 and Opus 5.5), directed and reviewed by the author;
-  independent review passes ran on a different model than the one that wrote each part
+  agents, directed and reviewed by the author; independent review passes ran on a different model
+  than the one that wrote each part
   ([review history](./docs/security.md#review-history)).
 - **Prior work:** none. The repository starts on 4 November 2026 with the specification; there is no
   pre-hackathon code and no earlier product on another chain.

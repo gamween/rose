@@ -1326,11 +1326,11 @@ NEAR: `rose-app.testnet` 7.907 (26.671 after the reclaim: 17 to the engine, 1 to
 
 ### Review of the staging 5 changes
 
-An independent review pass (Opus 5.5; the Fable 5.1 pass stopped on its usage limit) of `14098a3..12edcbb` found no blocker and two majors, both fixed in `b9b70e8` and the two commits before it: a retried Solana claim resent a plan the engine had refused (it now plans again right before each request), and a held position whose stream was pruned (fully withdrawn, ended and synced) still looked redeemable (now disabled with the reason). Minors fixed: a refused sync resent the same proof; a payout refunded meanwhile was reported as an MPC failure in the submit steps; the ended-stream state was read at `confirmed` instead of `finalized`; `deploy-engine.sh` left the clone and the image after an interrupt (now an `EXIT` trap), could rebuild a different artifact on resume (`--reproducible --skip-create` is refused), and did not check that a final artifact's commit is pushed (`git branch -r --contains`, after `git fetch`); the source snapshot is now recorded in `deployments/testnet.json` (`scripts/deploy-engine.sh engine-s5.rose-app.testnet --role staging --wasm target/near/reproducible/rose_engine-b32248e….wasm --verify-only`: sends nothing, exit 0); `e2e-solana-stream.mjs` refuses to attribute within the one-hour margin. Left as is: a releasing position's stream is not marked (the engine refuses its sync with "The position is not held"), and the app does not check `recipient_tokens` before a sync (the engine refuses it with "The stream does not pay the vault's token account").
+An independent review pass (model B; the model A pass stopped on its usage limit) of `14098a3..12edcbb` found no blocker and two majors, both fixed in `b9b70e8` and the two commits before it: a retried Solana claim resent a plan the engine had refused (it now plans again right before each request), and a held position whose stream was pruned (fully withdrawn, ended and synced) still looked redeemable (now disabled with the reason). Minors fixed: a refused sync resent the same proof; a payout refunded meanwhile was reported as an MPC failure in the submit steps; the ended-stream state was read at `confirmed` instead of `finalized`; `deploy-engine.sh` left the clone and the image after an interrupt (now an `EXIT` trap), could rebuild a different artifact on resume (`--reproducible --skip-create` is refused), and did not check that a final artifact's commit is pushed (`git branch -r --contains`, after `git fetch`); the source snapshot is now recorded in `deployments/testnet.json` (`scripts/deploy-engine.sh engine-s5.rose-app.testnet --role staging --wasm target/near/reproducible/rose_engine-b32248e….wasm --verify-only`: sends nothing, exit 0); `e2e-solana-stream.mjs` refuses to attribute within the one-hour margin. Left as is: a releasing position's stream is not marked (the engine refuses its sync with "The position is not held"), and the app does not check `recipient_tokens` before a sync (the engine refuses it with "The stream does not pay the vault's token account").
 
 Production redeployed with these fixes: `dpl_4bmG9g8W3LLYyhjtZFqmCnuapbHX` (commit `b9b70e8`); the full Playwright suite against it (`ROSE_LIVE_SMOKE=1`, `--workers=1`): exit 0, 135 passed, 25 skipped by their own conditions.
 
-## Fable review 1 fixes: contracts and SDK (2026-11-06)
+## Review 1 fixes: contracts and SDK (2026-11-06)
 
 | Fact | Command | Result |
 |---|---|---|
@@ -1343,11 +1343,11 @@ Production redeployed with these fixes: `dpl_4bmG9g8W3LLYyhjtZFqmCnuapbHX` (comm
 | The SDK suite is hermetic | `npx vitest run test/chains/solana.nonce.test.ts` from `packages/sdk`: the test connection's HTTP and websocket endpoints are the local discard port `127.0.0.1:9` and every JSON-RPC call goes through the stubbed `fetch` | 11 passed in 226 ms; the confirmation tests assert that only `getSignatureStatuses` (with `searchTransactionHistory`) and `getBlockHeight` are called |
 | The recorded live MPC vectors run in the default gate | `cargo test --workspace -- --list` lists the `foreign_mpc` live-vector tests; `live_vectors_reproduce_the_signed_payload_hash` now pins the count | 10 vectors (6 Base, 4 Solana) recorded from `v1.signer-prod.testnet` 3.18.0 |
 
-Gates on `fix/fable1-contracts-sdk`: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (266 passed), `forge test` (139 passed), then after `cargo near build non-reproducible-wasm` in `contracts/engine` (wasm 1,030,517 bytes) `pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build` (sdk 212, ibe-wasm 8, web 364): all exit 0. `ROSE_SANDBOX=1 cargo test -p rose-engine --test <suite> -- --nocapture --test-threads=1`: `sandbox_lifecycle` 8/8 (330.9 s, `distribute_units_at_the_cap_with_the_longest_ids` included), `sandbox_recorded` 1/1 (32.6 s), `sandbox_staging` 1/1 (41.9 s), each exit 0; `pgrep -f near-sandbox` counts 0 processes after each suite.
+Gates on the review-fix branch: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (266 passed), `forge test` (139 passed), then after `cargo near build non-reproducible-wasm` in `contracts/engine` (wasm 1,030,517 bytes) `pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build` (sdk 212, ibe-wasm 8, web 364): all exit 0. `ROSE_SANDBOX=1 cargo test -p rose-engine --test <suite> -- --nocapture --test-threads=1`: `sandbox_lifecycle` 8/8 (330.9 s, `distribute_units_at_the_cap_with_the_longest_ids` included), `sandbox_recorded` 1/1 (32.6 s), `sandbox_staging` 1/1 (41.9 s), each exit 0; `pgrep -f near-sandbox` counts 0 processes after each suite.
 
-## Fable pass 1 fixes: docs (2026-11-06)
+## Review pass 1 fixes: docs (2026-11-06)
 
-Facts behind the documentation changes of the Fable 5.1 web, scripts and docs review (pass 1). Testnets only; nothing was sent.
+Facts behind the documentation changes of the web, scripts and docs review (pass 1). Testnets only; nothing was sent.
 
 | Fact | Command | Result |
 |---|---|---|
@@ -1358,13 +1358,13 @@ Facts behind the documentation changes of the Fable 5.1 web, scripts and docs re
 | Demo identity, DexScreener (demo.md) | `curl "https://api.dexscreener.com/latest/dex/search?q=cindral"`, `…?q=cindr`, `curl https://api.dexscreener.com/latest/dex/tokens/0xF4918b947b7e9819eB813dF276F54AD95D20417a` | `cindral`: 0 pairs. `cindr`: 1 pair, Ethereum Uniswap `0x40Bca4985Df93F71a72b9Ef9483b07025e549E62`, base token "CINDR" (`0xF4918b94…417a`), created 2023-08-29, market cap 8,542 USD, 24 h volume 11.91 USD. No project named Cindral; the ticker collides with that one inactive Ethereum token, now stated in demo.md (not a notable token in the sense of spec 9) |
 | Demo identity, CoinGecko re-checked | `curl "https://api.coingecko.com/api/v3/search?query=cindr"` and `…?query=cindral` | no coin for either |
 | near-cli-rs takes an exact yoctoNEAR deposit (the scripts no longer convert deposits through floating point) | `near contract call-function as-transaction tusdc.rose-app.testnet ft_metadata json-args '{}' prepaid-gas '30 Tgas' attached-deposit '16500000000000000000000 yoctoNEAR' sign-as rose-app.testnet network-config testnet sign-later` (near 0.30.1; stops at the signing prompt, nothing sent) | parsed as `deposit: 0.0165 NEAR` |
-| The `engine-s5` proofs the security model now cites (`cancel_no_key`, refund, the malformed bid's refused opening and its slashed bond) | the review's RPC check of 53 documented transactions (`scratchpad/review-fable-1-web/docs/table.md`) | `3Lh9SkF1…` fails with "Key timeout reached …", `FzHeiPW7…` and `C1wTSQTc…` succeed, `EE9vC4QR…` fails with "Opening does not match the ciphertext", `Gq2uLUZu…` succeeds |
+| The `engine-s5` proofs the security model now cites (`cancel_no_key`, refund, the malformed bid's refused opening and its slashed bond) | the review's RPC check of 53 documented transactions (the review's own table of results) | `3Lh9SkF1…` fails with "Key timeout reached …", `FzHeiPW7…` and `C1wTSQTc…` succeed, `EE9vC4QR…` fails with "Opening does not match the ciphertext", `Gq2uLUZu…` succeeds |
 
 Claims reworded rather than backed: the security model no longer gives a count of web bugs found live (each is recorded above with its fixing commit) nor a call count for the pre-fix event-history drain (the finding is review 12 of the security model's history).
 
-## Fable pass 1 fixes: web (2026-11-06)
+## Review pass 1 fixes: web (2026-11-06)
 
-Facts behind the web changes of the Fable 5.1 web, scripts and docs review (pass 1). Testnets only; nothing was sent.
+Facts behind the web changes of the web, scripts and docs review (pass 1). Testnets only; nothing was sent.
 
 | Fact | Command | Result |
 |---|---|---|
@@ -1376,11 +1376,11 @@ Facts behind the web changes of the Fable 5.1 web, scripts and docs review (pass
 | Trezu custom proposal amounts are unscaled base units (the DAO panel passes digit strings through) | `curl -s https://raw.githubusercontent.com/NEAR-DevHub/trezu/7b063ddbddc7b8202ab680b44cc8f461504aa869/docs/CUSTOM_PROPOSAL_TEMPLATES.md` | line 87: "`amount` \| a whole-number string, u128-safe (base units — no decimals)"; lines 98-99: `uint` / `amount` values "stay digit strings end-to-end" |
 | The two accepted Base cash venues have 6 decimals; any other Base cash token is formatted with its own `decimals()` | `eth_call` `decimals()` (`0x313ce567`) at `https://sepolia.base.org` on `0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01` (rose tUSDC) and `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (Circle USDC) | `0x…06` for both |
 
-Web gates on `fix/fable1-web-docs`: unit tests for every fix (Base cash attempts and their filters, venue decimals, narrow date formats, the price domain, storage bytes, the CSV, the retire-to and self-receiver refusals, the ERC-20 revert decoding, the Solana claim plan, the mint-read failure); Playwright with mocks for the Base cash resume from the Fund tab and from the order form, the 404 page, the landing hint, and a 375 px check that no number or date is cut on the rounds list, a round, the Tender report, prices, the landing stats and the docs.
+Web gates on the review-fix branch: unit tests for every fix (Base cash attempts and their filters, venue decimals, narrow date formats, the price domain, storage bytes, the CSV, the retire-to and self-receiver refusals, the ERC-20 revert decoding, the Solana claim plan, the mint-read failure); Playwright with mocks for the Base cash resume from the Fund tab and from the order form, the 404 page, the landing hint, and a 375 px check that no number or date is cut on the rounds list, a round, the Tender report, prices, the landing stats and the docs.
 
-## Fable pass 2 fixes: contracts, SDK and deployment scripts (2026-11-06)
+## Review pass 2 fixes: contracts, SDK and deployment scripts (2026-11-06)
 
-Facts behind the fixes of the Fable 5.1 contracts review before the final deployment (pass 2). Testnets only; nothing was sent and nothing was deployed.
+Facts behind the fixes of the contracts review before the final deployment (pass 2). Testnets only; nothing was sent and nothing was deployed.
 
 | Fact | Command | Result |
 |---|---|---|
@@ -1410,7 +1410,7 @@ Production runs on `engine-s5`; `engine-s4` keeps only historical records. Its c
 
 ## Final deployment (2026-11-06)
 
-The engine and the RoseVault are deployed once, keyless and immutable, after the Fable passes 2 and 3 (`docs/security.md`, review history).
+The engine and the RoseVault are deployed once, keyless and immutable, after review passes 2 and 3 (`docs/security.md`, review history).
 
 | Step | Command | Result |
 |---|---|---|
@@ -1474,7 +1474,7 @@ same scripts as on the staging engines. Full transaction tables: `deployments/e2
 
 - Run 1 (`dpl_5bu2KBVE…`): exit 1, 143 passed, 2 failed, 25 skipped. Both failures were the mocked
   Solana deposit spec on desktop and mobile: its RPC mock answered `getSignatureStatuses` (polled
-  over HTTP since the Fable pass 1 fixes) with the default balance shape, so the transfer step
+  over HTTP since the review pass 1 fixes) with the default balance shape, so the transfer step
   errored instead of waiting. A test fixture bug, not an app bug: fixed in `4861f6a`; the spec
   alone then exit 0 locally (12 passed).
 - Run 2 (`dpl_772AGKiJF2C4N2kYjB1wd5tqB9Pg`, `3d7f397`, the docs on the final engine): exit 1,
@@ -1537,7 +1537,7 @@ same scripts as on the staging engines. Full transaction tables: `deployments/e2
 
 ## Reclaim of engine-s5 for the second final deployment (2026-11-06)
 
-The final Fable review found that an Advance funder's lien share never left its account index, so
+The final review of model A found that an Advance funder's lien share never left its account index, so
 every funder's NEP-145 deposit stays locked on `engine.rose-app.testnet` (fixed in `46358b2`; the
 keyless engine cannot be patched, and new versions deploy to new accounts). `engine-s5`, which no
 build uses any more, funds the next final engine.
@@ -1665,7 +1665,7 @@ condition), 4.7 min.
 - Production `vercel deploy --prod --yes`, exit 0: `dpl_7j36nRVDGwVB8ZPt1LiyjTDSzstP`, aliased to https://rose-rounds.vercel.app (includes `3044a44`, the Base safe-head stall error).
 - `cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1` against it: 145 passed, 25 skipped by their own conditions, exit 0.
 - Keyless: `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"engine-v2.rose-app.testnet"}}' | jq -c .result.keys` returns `[]`.
-- Two consecutive counted full review passes, Fable 5.1 on `3044a44` then Opus 5.5 on `3a99e6e`: 0 blockers and 0 majors each (`docs/security.md`, review history rows 17 and 18); their one minor each is fixed.
+- Two consecutive counted full review passes, model A on `3044a44` then model B on `3a99e6e`: 0 blockers and 0 majors each (`docs/security.md`, review history rows 17 and 18); their one minor each is fixed.
 
 ## Audit before submission (2026-11-14)
 
@@ -1717,7 +1717,7 @@ the stream at `finalized` before a redeem (`solRedeemSafety`); `docs/security.md
 |---|---|---|
 | The former SDK fallback is deprecated and refused this query (14 November, before 01:28 UTC; it answered again at 02:48 UTC, see "Audit delta fixes") | `curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"engine-v2.rose-app.testnet","method_name":"get_sol_deposit","args_base64":"<base64 of {\"metadata\":\"Cg3h…d7d8A\"}>"}}'` | HTTP 429, error -429 "WARNING! THIS ENDPOINT IS DEPRECATED! STOP USING IT NOW!" |
 | FastNEAR's second host shares the primary's per-IP limit | 60 `view_account` of `engine-v2.rose-app.testnet` to `https://test.rpc.fastnear.com` (`seq 1 60 \| xargs -P 12 curl …`), then 10 to `https://rpc.testnet.fastnear.com`, then 5 to the first again | 32 × 200 and 28 × 429; then 2 × 200 and 8 × 429; then 5 × 429 |
-| dRPC answers, with CORS, and is another provider | the `get_sol_deposit` query above at `https://near-testnet.drpc.org`; `curl -s -i -X OPTIONS -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' https://near-testnet.drpc.org` | the deposit record (block 277,589,302); HTTP/2 204 with `access-control-allow-origin: https://rose-rounds.vercel.app`. It is the SDK's fallback (`NEAR_TESTNET_RPC_FALLBACK`); its free plan times out long `tx` waits (above, "Fable pass 1 fixes: web"), and staging deployment 3 already ran `e2e-solana-stream.mjs` through it |
+| dRPC answers, with CORS, and is another provider | the `get_sol_deposit` query above at `https://near-testnet.drpc.org`; `curl -s -i -X OPTIONS -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' https://near-testnet.drpc.org` | the deposit record (block 277,589,302); HTTP/2 204 with `access-control-allow-origin: https://rose-rounds.vercel.app`. It is the SDK's fallback (`NEAR_TESTNET_RPC_FALLBACK`); its free plan times out long `tx` waits (above, "Review pass 1 fixes: web"), and staging deployment 3 already ran `e2e-solana-stream.mjs` through it |
 | Lava's public NEAR testnet endpoints are gone | the same query at `https://neart.lava.build` and `https://near-testnet.lava.build` | HTTP 410 "This endpoint has been discontinued." |
 
 ### Engine ABI snapshot for the SDK's binding check
@@ -1767,6 +1767,7 @@ re-checked on the live engine.
 | Domain 1 (Ed25519) on 3.19.0 | `move_sol_deposit` [HMar1kmX…](https://testnet.near.rocks/tx/HMar1kmXeJ3gDGJBGG5nMc1HQnCi74Qm76W6azBUpaJ8), broadcast on devnet [4QCoEcjn…](https://explorer.solana.com/tx/4QCoEcjnU8ZmW31tEupKSBDTz7xVogVvhnMqUNiije9HnGGrVQZ7LSQq7KDDQ4e75NJXd9GmUqTq2Jdw9CPPJsGC?cluster=devnet) | two Ed25519 signatures (deposit key and `gas/sol`) in 4.8 s; finalized without error |
 | Domain 3 (ForeignTx, Solana `AccountState`) on 3.19.0 | `claim_sol_tokens` and `attribute_sol_deposit` requests, 01:10Z to 01:35Z | degraded: 7 of 9 requests timed out at the 120 s yield; every failed claim (payouts 14 to 18) refunded by the engine; one attribution passed in 37 s |
 | Domain 3 (Solana) and domain 1 again, 02:45Z | one `claim_sol_tokens` of a Streamflow test position held by `b1.rose-ckd-1793753433.testnet` [8n12Gn4x…](https://testnet.near.rocks/tx/8n12Gn4xy5ZdcZ1SHcsJchyGTZTmF1tdwxXMoHyWZsXw) (nonce proof, then two Ed25519 signatures), broadcast [39rXLfjG…](https://explorer.solana.com/tx/39rXLfjGxBc9cUeg6LmGNu73eW5vky7nAeQ9YfSsrGTmU8gCe2KYKWrFnR2wwFe41b4WNgVsvziyqPyxq16cotdv?cluster=devnet), `confirm_sol_payout` [FF5z7gYw…](https://testnet.near.rocks/tx/FF5z7gYweWiPVSQre4DSMFKKFoJKTLEG5pqgobQHYgtS) | payout 20 `Landed`, 5,760 test tokens: Solana attestations recovered |
+| Domain 3 (Solana), 03:48Z to 04:13Z | a Solana deposit from the app with a demo wallet, during a simulated screening: `register_sol_deposit` sent at 03:48:27Z and 03:54:27Z, then again later | the first two timed out at the MPC (refunded about 120 s later, "MPC verification timed out … Retry this step"), the third registered the position at 04:13Z: Solana attestations work on 3.19.0 but not every time |
 
 ## Hosted demo: faucet capacity for the judging period (2026-11-14)
 

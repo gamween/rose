@@ -60,7 +60,14 @@ export function DaoWithdrawal({ base, dao }: { base: IssuerBase; dao: string }) 
       {read.status === "error" ? (
         <p className="flex flex-wrap items-center gap-2 text-[12px] text-danger-400" role="alert">
           {read.message}
-          <button type="button" className="text-ember-300 underline-offset-2 hover:underline" onClick={() => setAttempt((value) => value + 1)}>
+          <button
+            type="button"
+            className="text-ember-300 underline-offset-2 hover:underline"
+            onClick={() => {
+              setRead({ status: "loading" });
+              setAttempt((value) => value + 1);
+            }}
+          >
             Retry
           </button>
         </p>

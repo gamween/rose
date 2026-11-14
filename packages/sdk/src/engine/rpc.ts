@@ -182,20 +182,32 @@ function bucketOf(endpoint: string): TokenBucket | null {
  * How long an endpoint is passed over after it refused a request (429, 5xx, a non-JSON page) or
  * could not be reached. A browser cannot read a 429 sent without CORS headers, so it cannot honour
  * `retry-after`; without this pause every later request of the page would hit the limited
- * endpoint first and fail once more before falling over.
+ * endpoint first and fail once more before falling over. An answer ends the pause early only when
+ * its request left after the refusal: a provider that limits part of a burst still answers the
+ * requests it let through, and those must not reopen it.
  */
 export const RPC_COOLDOWN_MS = 10_000;
 
-const cooldowns = new Map<string, number>();
+/** Per cooling endpoint: when it may be tried first again, and the number of the last request sent before it refused. */
+const cooldowns = new Map<string, { until: number; lastSent: number }>();
+
+/** Requests sent so far, numbered in the order they leave (see `RPC_COOLDOWN_MS`). */
+let sentRequests = 0;
 
 /** Milliseconds before `endpoint` is tried first again (0 when it is not cooling down). */
 export function cooldownMs(endpoint: string, now: number = Date.now()): number {
-  const until = cooldowns.get(endpoint);
-  return until === undefined ? 0 : Math.max(0, until - now);
+  const cooldown = cooldowns.get(endpoint);
+  return cooldown === undefined ? 0 : Math.max(0, cooldown.until - now);
 }
 
 function coolDown(endpoint: string): void {
-  cooldowns.set(endpoint, Date.now() + RPC_COOLDOWN_MS);
+  cooldowns.set(endpoint, { until: Date.now() + RPC_COOLDOWN_MS, lastSent: sentRequests });
+}
+
+/** Ends the pause of `endpoint` on an answer to request number `sent`, unless that request left before the refusal. */
+function warmUp(endpoint: string, sent: number): void {
+  const cooldown = cooldowns.get(endpoint);
+  if (cooldown !== undefined && sent > cooldown.lastSent) cooldowns.delete(endpoint);
 }
 
 /** The endpoints in failover order, starting with the first one that has budget left now and is not cooling down. */
@@ -265,8 +277,11 @@ export class NearRpc {
 
   private async send(method: string, params: unknown): Promise<unknown> {
     let lastError: NearRpcError | null = null;
-    for (const endpoint of endpointOrder(this.endpoints)) {
+    /* A transaction goes to the endpoints in the caller's order, whatever their pause or budget. */
+    const order = method === "send_tx" ? [...this.endpoints] : endpointOrder(this.endpoints);
+    for (const endpoint of order) {
       await bucketOf(endpoint)?.take();
+      let sent = 0;
       const controller = new AbortController();
       const timer = setTimeout(() => {
         controller.abort();
@@ -274,14 +289,16 @@ export class NearRpc {
       try {
         let response: Response;
         try {
-          response = await withRpcSlot(() =>
-            this.fetchImpl(endpoint, {
+          response = await withRpcSlot(() => {
+            sentRequests += 1;
+            sent = sentRequests;
+            return this.fetchImpl(endpoint, {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ jsonrpc: "2.0", id: "rose", method, params }),
               signal: controller.signal,
-            }),
-          );
+            });
+          });
         } catch (error) {
           lastError = new NearRpcError("unreachable", `${endpoint} could not be reached.`, error);
           coolDown(endpoint);
@@ -303,7 +320,7 @@ export class NearRpc {
           coolDown(endpoint);
           continue;
         }
-        cooldowns.delete(endpoint);
+        warmUp(endpoint, sent);
         if (body.error) throw NearRpc.toError(body.error);
         if (body.result === undefined) throw new NearRpcError("invalid_response", "The RPC returned no result.");
         return body.result;

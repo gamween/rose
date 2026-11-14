@@ -19,8 +19,17 @@ export class NotDeployedError extends Error {
 
 const NOT_DEPLOYED_KINDS = new Set(["account_missing", "no_contract", "method_missing"]);
 
-/** `refresh` re-reads the same query, `query` reads a new one (the fetcher changed), `retry` starts over. */
-type RunMode = "refresh" | "query" | "retry";
+/** `read` reads the current query (on mount, on a new fetcher and on each refresh), `retry` starts over. */
+export type RunMode = "read" | "retry";
+
+/**
+ * Whether a failed read leaves the previous value on screen. A retry never does. A read of a query
+ * that has not answered yet (a new filter, even when a poll restarted its first read) does only
+ * without `replaceOnNewQuery`; a refresh of a query that has answered always does.
+ */
+export function keepsValueOnFailure(mode: RunMode, answered: boolean, replaceOnNewQuery: boolean): boolean {
+  return mode === "read" && (answered || !replaceOnNewQuery);
+}
 
 /**
  * Runs `fetcher` on mount, again every time `refreshKey` changes, and on `retry`. A previous
@@ -41,6 +50,8 @@ export function useLiveQuery<T>(
   const [answered, setAnswered] = useState<((signal: AbortSignal) => Promise<T>) | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
+  /** The fetcher whose answer is on screen, read by `run` without making it a dependency. */
+  const answeredRef = useRef<((signal: AbortSignal) => Promise<T>) | null>(null);
 
   const run = useCallback(
     async (mode: RunMode) => {
@@ -53,6 +64,7 @@ export function useLiveQuery<T>(
         const value = await fetcher(controller.signal);
         if (controller.signal.aborted) return;
         setState({ status: "ok", value, fetchedAt: Date.now() });
+        answeredRef.current = fetcher;
         setAnswered(() => fetcher);
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -62,7 +74,7 @@ export function useLiveQuery<T>(
           setState({ status: "not_deployed", detail: error.message });
         } else {
           const message = error instanceof Error ? error.message : "Unknown error";
-          const keep = mode === "refresh" || (mode === "query" && !replaceOnNewQuery);
+          const keep = keepsValueOnFailure(mode, answeredRef.current === fetcher, replaceOnNewQuery);
           setState((previous) => (previous.status === "ok" && keep ? previous : { status: "error", message, fetchedAt: Date.now() }));
         }
       } finally {
@@ -72,11 +84,8 @@ export function useLiveQuery<T>(
     [fetcher, replaceOnNewQuery],
   );
 
-  const queriedRef = useRef(run);
   useEffect(() => {
-    const mode: RunMode = queriedRef.current === run ? "refresh" : "query";
-    queriedRef.current = run;
-    const timer = window.setTimeout(() => void run(mode), 0);
+    const timer = window.setTimeout(() => void run("read"), 0);
     return () => {
       window.clearTimeout(timer);
       controllerRef.current?.abort();

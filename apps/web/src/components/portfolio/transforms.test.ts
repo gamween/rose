@@ -1,6 +1,6 @@
 import { ONE, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type StoredEvent } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolClaim, redeemBlocker, settledPayout, solRedeemNote, solStreamAttention, solStreamPhase, syncBlocker, tokenClaims } from "./transforms";
+import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutHoldsStorage, payoutState, pendingHint, planSolClaim, redeemBlocker, settledPayout, solRedeemNote, solStreamAttention, solStreamPhase, syncBlocker, tokenClaims } from "./transforms";
 
 const NOW = 1_762_200_000n;
 const DAY = 86_400n;
@@ -90,6 +90,18 @@ describe("payoutState", () => {
     expect(payoutState(ret, "pending", 700n)).toBe("signed");
     expect(["submitted", "failed", "lapsed"].every((state) => settledPayout(state as "submitted"))).toBe(true);
     expect(["requested", "stale", "signed", "unconfirmed", "awaiting_gas"].some((state) => settledPayout(state as "signed"))).toBe(false);
+  });
+
+  it("holds the storage deposit only while the engine does: until signed, or until a durable-nonce action lands", () => {
+    expect(payoutHoldsStorage(payout({ status: "Requested" }))).toBe(true);
+    expect(payoutHoldsStorage(payout({ status: "AwaitingGasSignature" }))).toBe(true);
+    expect(payoutHoldsStorage(payout({}))).toBe(false);
+    const nonce = { message: "", draws: [], swept: "0", authority_path: "vault/sol", authority: "v", cancel: false };
+    const solTransfer = payout({ chain: "Solana", kind: { SolTransfer: { mint: "m", to_owner: "o", amount: "1" } }, solana: { ...nonce, nonce_account: "n" } });
+    expect(payoutHoldsStorage(solTransfer)).toBe(true);
+    expect(payoutHoldsStorage({ ...solTransfer, status: "Landed" })).toBe(false);
+    expect(payoutHoldsStorage({ ...solTransfer, status: { Failed: { reason: "expired" } } })).toBe(false);
+    expect(payoutHoldsStorage(payout({ chain: "Solana", kind: { SolMove: { metadata: "m", from: "f", to_owner: "o" } }, solana: { ...nonce, nonce_account: null } }))).toBe(false);
   });
 
   it("explains when a pending payout's next action opens", () => {

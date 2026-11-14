@@ -1,7 +1,7 @@
 import { ONE, perClaimedToken, type Bid, type Round } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
 import { fractionAt } from "@/lib/unlock-schedule";
-import { bondFor, cancelledOutcome, cancelNoKeyAt, canCancelAsCreator, canCancelNoKey, canClose, clearingOf, formatDateShort, formatDateTime, formatDateTimeShort, formatQty, formatUsdc, KEY_REQUEST_FLIGHT_NS, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, settleQueue, timeline } from "./model";
+import { bondFor, cancelledOutcome, cancelNoKeyAt, canCancelAsCreator, canCancelNoKey, canClose, clearingOf, formatDateShort, formatDateTime, formatDateTimeShort, formatQty, formatUsdc, KEY_REQUEST_FLIGHT_NS, lockedPercent, msToNs, nextAction, parseDecimal, previewBuy, previewSell, roundPricing, roundProgress, settleQueue, stopsRun, timeline } from "./model";
 
 const NOW_MS = 1_762_200_000_000;
 const SEC = 1_000_000_000n;
@@ -256,5 +256,12 @@ describe("narrow date formats", () => {
     expect(formatDateTimeShort(ms)).toBe("4 Nov 26, 16:50 UTC");
     expect(formatDateTimeShort(Date.UTC(2026, 0, 9, 0, 5))).toBe("9 Jan 26, 00:05 UTC");
     expect(formatDateShort(Date.UTC(2027, 6, 25))).toBe("Jul 2027");
+  });
+});
+
+describe("per-order runs", () => {
+  it("stop on a failure every later order would repeat, and go on past one order's own refusal", () => {
+    for (const kind of ["rejected", "no_wallet", "insufficient_balance", "rate_limited", "rpc"] as const) expect(stopsRun(kind)).toBe(true);
+    for (const kind of ["contract", "mpc_timeout", "expired_blockhash", "not_deployed"] as const) expect(stopsRun(kind)).toBe(false);
   });
 });

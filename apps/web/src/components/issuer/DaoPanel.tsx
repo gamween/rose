@@ -20,7 +20,7 @@ import { nearTxUrl, txLinks } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { useAction } from "@/lib/use-action";
 import { BaseCashFunding } from "./BaseCashFunding";
-import { daoNearFundingCall, daoShortfall, ftTransferCall, sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, type SputnikProposal } from "./dao";
+import { daoNearFundingCall, daoShortfall, formatVotePeriod, ftTransferCall, sputnikCliCommand, sputnikProposal, trezuSlug, trezuTemplate, type SputnikProposal } from "./dao";
 import { isNearAccountId, readDaoAccounts, rememberDaoAccount } from "./dao-accounts";
 import { ActionFeedback, classSymbol, CopyButton, FieldLabel, formatNear, Hint, Preview, type IssuerBase } from "./shared";
 
@@ -28,12 +28,6 @@ import { ActionFeedback, classSymbol, CopyButton, FieldLabel, formatNear, Hint, 
 const TUSDC_STORAGE_DEPOSIT = 1_250_000_000_000_000_000_000n;
 /** `add_proposal` stores the proposal; 100 Tgas is what the console and the near-cli command attach. */
 export const ADD_PROPOSAL_GAS = 100n * 10n ** 12n;
-
-/** A Sputnik `proposal_period` (ns) in days or hours. */
-function formatVotePeriod(ns: bigint): string {
-  const hours = Number(ns / 3_600_000_000_000n);
-  return hours >= 24 && hours % 24 === 0 ? `${String(hours / 24)} ${hours === 24 ? "day" : "days"}` : `${String(hours)} h`;
-}
 
 type DaoState = {
   account: string;

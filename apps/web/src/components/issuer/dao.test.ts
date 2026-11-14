@@ -1,6 +1,6 @@
 import { base64ToBytes, bytesToUtf8, GAS } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { daoNearFundingCall, daoShortfall, ftTransferCall, sputnikProposal } from "./dao";
+import { daoNearFundingCall, daoShortfall, formatVotePeriod, ftTransferCall, sputnikProposal } from "./dao";
 import { DAO_ACCOUNTS_KEY, endedDaoCreators, forgetDaoAccount, isNearAccountId, readDaoAccounts, rememberDaoAccount, resultCreators } from "./dao-accounts";
 
 class MemoryStorage implements Storage {
@@ -91,5 +91,16 @@ describe("Results tab creators", () => {
       { creator: "me.testnet", venue: "Near" as const, status: "Settled" as const },
     ];
     expect(endedDaoCreators(rounds, "me.testnet")).toEqual(["dao.sputnikv2.testnet"]);
+  });
+});
+
+describe("formatVotePeriod", () => {
+  it("shows a Sputnik proposal period in days, hours, or minutes below an hour", () => {
+    const minute = 60_000_000_000n;
+    expect(formatVotePeriod(1_440n * minute)).toBe("1 day");
+    expect(formatVotePeriod(7n * 1_440n * minute)).toBe("7 days");
+    expect(formatVotePeriod(90n * minute)).toBe("1 h");
+    expect(formatVotePeriod(30n * minute)).toBe("30 min");
+    expect(formatVotePeriod(0n)).toBe("0 min");
   });
 });
