@@ -138,8 +138,6 @@ export const ROUNDS = {
   advance: { cohort: CohortKey; holder: Who; units: number; claim: number; minFill: number; maxPrice: number; reserve: number; bids: readonly SealedOrder[] };
 };
 
-export type RoundKey = keyof typeof ROUNDS;
-
 /**
  * The Exit left open after the story (`seed.ts open-round`) so that anyone can bid from the app:
  * Halden Ventures asks part of its Seed Round position against NEAR tUSDC. The window defaults to

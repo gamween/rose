@@ -210,9 +210,6 @@ importers:
       bn.js:
         specifier: 5.2.3
         version: 5.2.3
-      bs58:
-        specifier: 6.0.0
-        version: 6.0.0
       near-api-js:
         specifier: 7.4.0
         version: 7.4.0
