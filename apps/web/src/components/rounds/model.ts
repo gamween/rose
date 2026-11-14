@@ -235,7 +235,7 @@ export const NEXT_ACTION_LABEL: Record<NextAction["kind"], string> = {
   close: "Close round",
   waiting_key: "Waiting for the MPC key",
   cancel_no_key: "Cancel (no key)",
-  finalize: "Finalize",
+  finalize: "Open every order",
   wait_reveal: "Reveal window",
   clear: "Clear",
   settle: "Settle",
