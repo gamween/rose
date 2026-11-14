@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import { toActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
 import { addReceipt } from "./localOrders";
-import { settleQueue, shortAccount } from "./model";
+import { settleQueue, shortAccount, stopsRun } from "./model";
 import type { RoundDetail } from "./useRoundDetail";
 
 /** `hash` is null when someone else settled the order first. */
@@ -24,9 +24,6 @@ type Step = { status: "queued" } | { status: "sending" } | { status: "settled"; 
 
 /** The engine's refusal of a second settlement ("Bid already settled or unknown"). */
 const ALREADY_SETTLED = /already settled/i;
-
-/** Failures that stop the run: every later order would fail the same way. */
-const STOPPING = new Set(["rejected", "no_wallet", "insufficient_balance", "rate_limited"]);
 
 export function SettlePanel({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
   const { round, bids, engine, viewer } = detail;
@@ -75,7 +72,7 @@ export function SettlePanel({ detail, onChanged }: { detail: RoundDetail; onChan
           continue;
         }
         setStep(bidId, { status: "failed", reason: described.message });
-        if (STOPPING.has(described.kind)) {
+        if (stopsRun(described.kind)) {
           toast.show({ tone: "error", title: described.title, description: described.message });
           break;
         }

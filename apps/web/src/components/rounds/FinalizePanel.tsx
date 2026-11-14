@@ -3,9 +3,10 @@
 /**
  * "Open every order" (spec 5.2 step 2): with the round key public, this browser decrypts every sealed
  * order that is still unopened and submits `open_bid` for each one in sequence, one transaction
- * per order prepaid with 200 Tgas. Progress is per order, failures do not stop the run (a
- * malformed ciphertext can be opened by nobody and is void at clearing), and the run resumes
- * from the chain's own `opened` flags after a reload.
+ * per order prepaid with 200 Tgas. Progress is per order; one order's own failure does not stop
+ * the run (a malformed ciphertext can be opened by nobody and is void at clearing), a failure
+ * every later order would repeat does (`stopsRun`), and the run resumes from the chain's own
+ * `opened` flags after a reload.
  */
 
 import type { Bid } from "@rose/sdk";
@@ -19,7 +20,7 @@ import { toActionError } from "@/lib/errors";
 import { txLinks } from "@/lib/explorer";
 import { checkRoundKey, openOrder, orderIdentity } from "./ibe";
 import { addReceipt } from "./localOrders";
-import { formatQty, formatUsdc, OPENING_COST_NEAR, shortAccount } from "./model";
+import { formatQty, formatUsdc, OPENING_COST_NEAR, shortAccount, stopsRun } from "./model";
 import { Notice } from "./shared";
 import type { RoundDetail } from "./useRoundDetail";
 
@@ -124,7 +125,7 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
           continue;
         }
         setStep(bid.bidId, { status: "failed", reason: described.message, retryable: described.retryable || described.kind === "contract" });
-        if (described.kind === "rejected" || described.kind === "no_wallet" || described.kind === "insufficient_balance") {
+        if (stopsRun(described.kind)) {
           toast.show({ tone: "error", title: described.title, description: described.message });
           break;
         }
