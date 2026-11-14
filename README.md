@@ -160,11 +160,12 @@ this README says.
 **Check the live deployment in one command.** From a fresh clone, with Node 22.18 or later and
 nothing installed, run `node scripts/verify.ts` (or `pnpm verify`). It reads NEAR testnet and Base
 Sepolia, signs and sends nothing, takes a few seconds and exits 0 only if all 10 checks pass: the
-engine and test USDC have no access key; the engine's code is the reproducible build of `0524b33`;
-its configuration names the MPC network, the RoseVault and the MPC-derived Base and Solana signers;
-the RoseVault on Base Sepolia obeys only that signer; and the settled rounds 0, 1, 2 and 7 (round 7
-created by a Sputnik DAO) cleared exactly as the `@rose/sdk` clearing reference recomputes from
-their on-chain openings.
+engine and test USDC exist, run their recorded code and have no access key; the engine's code hash
+is the one the reproducible build of `0524b33` produces, and its NEP-330 metadata names that commit
+and build image; its configuration names the MPC network, the RoseVault and its Base signer, and the
+MPC network derives its Solana vault and fee payer; the RoseVault on Base Sepolia obeys only that
+signer; and the settled rounds 0, 1, 2 and 7 (round 7 created by a Sputnik DAO) cleared exactly as
+the `@rose/sdk` clearing reference recomputes from their on-chain openings.
 
 Where to look for each criterion:
 

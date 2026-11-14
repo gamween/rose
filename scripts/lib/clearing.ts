@@ -27,6 +27,8 @@ function validOrders(round: Round, result: RoundResult): { buys: Order[]; sells:
 
 export interface ClearingCheck {
   matches: boolean;
+  /** The opened, valid orders fed to the reference. */
+  orders: number;
   engine: { price: string; volume: string; notional: string; fee: string; fills: { bidId: number; qty: string; cash: string }[] };
   reference: { price: string; volume: string; notional: string; fee: string; fills: { bidId: number; qty: string; cash: string }[] } | "no_crossing";
 }
@@ -80,5 +82,5 @@ export function checkClearing(round: Round, decimals: number): ClearingCheck {
     }
   }
   const matches = reference !== "no_crossing" && round.status === "Settled" && JSON.stringify(reference) === JSON.stringify(engine);
-  return { matches: reference === "no_crossing" ? round.status === "Cancelled" : matches, engine, reference };
+  return { matches: reference === "no_crossing" ? round.status === "Cancelled" : matches, orders: buys.length + sells.length, engine, reference };
 }

@@ -6,8 +6,8 @@
  * state is read (the keyless engine, its code and configuration, the RoseVault bound to it, the
  * MPC network's derivation, settled rounds); nothing is signed or sent.
  *
- * The clearing checks run the `@rose/sdk` clearing reference, the code the app's Verify panel and
- * `e2e-live.ts` run, from its TypeScript sources in this clone.
+ * The clearing checks run the same `@rose/sdk` clearing reference the app's Verify panel runs,
+ * through the comparison `e2e-live.ts` uses, from the SDK's TypeScript sources in this clone.
  *
  * Endpoints: NEAR testnet through dRPC, then FastNEAR (`rpc.testnet.near.org` is deprecated);
  * Base Sepolia through sepolia.base.org, then PublicNode. `NEAR_RPC_URL` or
@@ -36,6 +36,8 @@ const SABLIER_LOCKUP = "0xa65a1ecef02c2b9bdc604951c6a6d02335d4532e";
 const VAULT_SOL = "EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC";
 const GAS_SOL = "HWx7jD36pAzB1Bo83bCvRYtnW5SHLcfdEZw4x4Zdn1Ng";
 const NEAR_TUSDC = "tusdc.rose-app.testnet";
+/** The recorded tUSDC deployment (docs/verification.md). */
+const NEAR_TUSDC_CODE_HASH = "7JHPYMQ1o7QVhVyMwmzzxS3vVhyqEkcWQrGJUcmubizP";
 const BASE_SEPOLIA_CHAIN_ID = "0x14a34";
 /** `cast sig 'SIGNER()'` and `cast sig 'LOCKUP()'`. */
 const SIGNER_SELECTOR = "0x582abd12";
@@ -131,9 +133,15 @@ function engineConfig(): Promise<{ value: ConfigView; source: Source }> {
   return config;
 }
 
-async function keyless(account: string): Promise<Outcome> {
-  const { result, source } = await nearQuery({ request_type: "view_access_key_list", account_id: account });
-  return outcome([equal("view_access_key_list", result.keys, [])], [source], `https://testnet.near.rocks/account/${account}`);
+/** No access key on an account that exists and runs the expected code: an absent account also lists no keys. */
+async function keyless(account: string, codeHash: string): Promise<Outcome> {
+  const state = await nearQuery({ request_type: "view_account", account_id: account });
+  const keys = await nearQuery({ request_type: "view_access_key_list", account_id: account });
+  return outcome(
+    [equal("code_hash", state.result.code_hash, codeHash), equal("view_access_key_list", keys.result.keys, [])],
+    [state.source, keys.source],
+    `https://testnet.near.rocks/account/${account}`,
+  );
 }
 
 async function reproducibleCode(): Promise<Outcome> {
@@ -208,14 +216,13 @@ async function settledRound(expected: SettledRound): Promise<Outcome> {
   if (round.result === null) return outcome([...facts, { ok: false, text: "no clearing result" }], sources, link);
   const check = checkClearing(round, decimals);
   const agrees = check.matches && check.reference !== "no_crossing";
-  const opened = round.result.fills.filter((fill) => fill.opened !== null).length;
   facts.push(
     equal("price", tusdc(round.result.price), tusdc(expected.price)),
     {
       ok: agrees,
       text: agrees
-        ? `@rose/sdk reference on the ${opened} opened orders: same price, volume, notional, fee and ${check.engine.fills.length} fills`
-        : `@rose/sdk reference on the ${opened} opened orders differs: ${JSON.stringify(check.reference)} vs engine ${JSON.stringify(check.engine)}`,
+        ? `@rose/sdk reference on the ${check.orders} opened, valid orders: same price, volume, notional, fee and ${check.engine.fills.length} fills`
+        : `@rose/sdk reference on the ${check.orders} opened, valid orders differs: ${JSON.stringify(check.reference)} vs engine ${JSON.stringify(check.engine)}`,
     },
   );
   if (expected.tokens !== undefined) {
@@ -231,16 +238,16 @@ async function settledRound(expected: SettledRound): Promise<Outcome> {
 }
 
 const CHECKS: readonly { title: string; run: () => Promise<Outcome> }[] = [
-  { title: `${ENGINE} has no access key, so nobody can change its code`, run: () => keyless(ENGINE) },
-  { title: `the engine's code is the reproducible build of commit ${ENGINE_COMMIT.slice(0, 7)}`, run: reproducibleCode },
-  { title: "get_config names the MPC network, the RoseVault and the derived Base signer", run: engineConfiguration },
+  { title: `${ENGINE} has no access key, so nobody can change its code`, run: () => keyless(ENGINE, ENGINE_CODE_HASH) },
+  { title: `the engine's code hash is the one the reproducible build of commit ${ENGINE_COMMIT.slice(0, 7)} produces (docs/verification.md), and its NEP-330 metadata names that commit and image`, run: reproducibleCode },
+  { title: "get_config names the MPC network, the RoseVault and its Base signer", run: engineConfiguration },
   { title: "the RoseVault on Base Sepolia is bound to that signer and the Sablier Lockup", run: roseVault },
   { title: "the MPC network derives the engine's Solana vault and fee payer", run: mpcDerivation },
   ...SETTLED_ROUNDS.map((round) => ({
     title: `round ${round.id} (${round.kind}${round.creator === undefined ? "" : `, created by ${round.creator}`}) settled as the @rose/sdk clearing reference computes`,
     run: () => settledRound(round),
   })),
-  { title: `${NEAR_TUSDC} (Test USDC) has no access key`, run: () => keyless(NEAR_TUSDC) },
+  { title: `${NEAR_TUSDC} (Test USDC) has no access key and runs its recorded code`, run: () => keyless(NEAR_TUSDC, NEAR_TUSDC_CODE_HASH) },
 ];
 
 console.log(`rose live deployment check: read-only, nothing is signed or sent; expected values are the README's.`);

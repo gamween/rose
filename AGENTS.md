@@ -35,11 +35,11 @@ full description; every claim in it links a transaction, a test or a file.
 ## Check the live deployment in a minute, no build
 
 `node scripts/verify.ts` (Node 22.18 or later, nothing to install; `pnpm verify` runs the same) runs
-10 read-only checks against NEAR testnet and Base Sepolia and exits 0 only if every one passes: no
-access key on the engine and on test USDC, the reproducible code hash, `get_config`, the RoseVault's
-`SIGNER()` and `LOCKUP()`, the MPC-derived Solana keys, and the clearing of the settled rounds 0, 1, 2
-and 7 recomputed with the `@rose/sdk` clearing reference. The raw calls below are the same checks by
-hand.
+10 read-only checks against NEAR testnet and Base Sepolia and exits 0 only if every one passes: the
+engine and test USDC run their recorded code with no access key, the engine's code hash and NEP-330
+metadata, `get_config`, the RoseVault's chain, `SIGNER()` and `LOCKUP()`, the MPC-derived Solana keys,
+and the clearing of the settled rounds 0, 1, 2 and 7 recomputed with the `@rose/sdk` clearing
+reference. The raw calls below reproduce some of these reads by hand.
 
 Any NEAR testnet RPC works. `rpc.testnet.near.org` is deprecated and can answer HTTP 429 "THIS
 ENDPOINT IS DEPRECATED"; if it or FastNEAR answers HTTP 429, use `https://near-testnet.drpc.org`.
