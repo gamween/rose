@@ -221,6 +221,13 @@ test.describe("rounds with a mocked engine", () => {
     await form.locator("[data-order-submit]").click();
     await expect(page.getByRole("status").filter({ hasText: "Sealed ask #0 placed" })).toBeVisible({ timeout: 30_000 });
     expect(state.sent.map((s) => [s.method, s.args.units])).toEqual([["place_ask", (100n * 10n ** 18n).toString()]]);
+    // The card then says the order is placed, with its transaction, instead of a form it would refuse.
+    const placed = form.locator("[data-order-placed='0']");
+    await expect(placed).toContainText("Your sealed ask #0 is placed", { timeout: 20_000 });
+    await expect(placed.getByRole("link", { name: /Transaction/ })).toHaveAttribute("href", /near\.rocks\/tx\//);
+    await expect(form.locator("[data-order-submit]")).toHaveCount(0);
+    await placed.scrollIntoViewIfNeeded();
+    await shot(page, "order-placed");
 
     await page.goto("/app/rounds/7");
     await expect(page.locator("[data-order-form='issuer']")).toContainText("You are the buyer of this Tender", { timeout: 20_000 });
@@ -322,9 +329,6 @@ test.describe("rounds with a mocked engine", () => {
     await form.locator("[data-order-submit]").click();
     await expect(page.getByRole("status").filter({ hasText: "Sealed bid #2 placed" })).toBeVisible({ timeout: 30_000 });
     expect(state.sent.map((s) => s.method)).toEqual(["storage_deposit", "ft_transfer_call", "place_bid"]);
-    await expect(form.locator("[data-order-placed='2']")).toContainText("Your sealed bid #2 is placed", { timeout: 20_000 });
-    await form.locator("[data-order-placed='2']").scrollIntoViewIfNeeded();
-    await shot(page, "order-placed");
     expect(state.sent[0]?.deposit).toBe(619n * BYTE_COST);
     const mine = page.locator("[data-my-order='2']");
     await page.locator("[data-tab='mine']").click();
