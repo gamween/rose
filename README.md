@@ -14,7 +14,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/gamween/rose/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/gamween/rose/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
-**[Open the app](https://rose-rounds.vercel.app)** · **[Demo script](./docs/demo.md)** · **[Specification](./docs/spec.md)** · **[Architecture](./docs/architecture.md)** · **[Security model](./docs/security.md)** · **[Verification log](./docs/verification.md)**
+**[Open the app](https://rose-rounds.vercel.app)** · **[Demo video](https://x.com/dvb_fianso/status/2121674689114444258)** · **[Demo script](./docs/demo.md)** · **[Specification](./docs/spec.md)** · **[Architecture](./docs/architecture.md)** · **[Security model](./docs/security.md)** · **[Verification log](./docs/verification.md)**
 
 *What was locked, rose.*
 
@@ -511,7 +511,7 @@ docs
   architecture.md      how each part of the spec is implemented
   security.md          trust model, threats per flow, limitations, review history
   verification.md      every external fact and live run, with the command used
-  demo.md              the demo video script and the draft announcement
+  demo.md              the demo video script and the published demo post
 ```
 
 ## Getting started

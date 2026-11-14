@@ -156,40 +156,7 @@ own sealed bid from the app.
 - **Screen:** "What was locked, rose." with the app URL and the repository URL.
 - **Say:** "rose. Sealed rounds for locked tokens, settled on NEAR. Try it on testnet."
 
-## DRAFT, not posted: X thread for the owner
+## The demo post
 
-> **Status: draft, not posted.** This text is a proposal for the owner. Only the owner reviews,
-> edits and posts it, from their own account, once the repository is public and the video is
-> uploaded. No agent or script posts it, schedules it or sends it anywhere. The links are the
-> deployed app, the public repository and the video the owner attaches.
-
-> 1/ In August 2026 a foundation offered to buy its early investors' locked tokens at a price it set.
-> Its own post: "Nearly all holders approached declined."
-> One fixed price only finds the few sellers who value their lock below it.
->
-> We built rose at NEAR HACKATHON to fix that. 🌹 @NEARProtocol #NEARHackathon
-
-> 2/ rose runs sealed, uniform-price rounds for locked token allocations.
-> A project buys back its insiders' locked tokens without guessing a price. Holders of the same
-> allocation exit together instead of dumping at the unlock. One clearing price for everyone.
-
-> 3/ What NEAR does here, concretely:
-> - Bids are encrypted to a key the NEAR MPC network releases only after the deadline (Confidential
->   Key Derivation). Nobody, not even us, reads a bid early.
-> - The positions stay on Base (Sablier) and Solana (Streamflow); a NEAR contract holds them
->   through Chain Signatures and pays out on each chain.
-
-> 4/ In the video: a fictional issuer runs a buyback against two seed investors. The key arrives
-> 4.8 s after close, every opening is verified on chain, and it clears at one price, recomputed in
-> your browser. A malformed bid can't be opened by anyone, its author included, and its bond is
-> slashed.
-
-> 5/ Everything is on testnet with real transactions and explorer links, and every claim in the
-> README points to the transaction that proves it.
-> App: https://rose-rounds.vercel.app
-> Code: https://github.com/gamween/rose
->
-> If you have run an OTC buyback or sold a locked allocation: what would make you use a sealed round
-> instead? @NearLegion @NearBuilders
-
-End of the draft. Not posted.
+The author posted the demo video on X on 14 November 2026:
+https://x.com/dvb_fianso/status/2121674689114444258
