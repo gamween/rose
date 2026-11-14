@@ -46,6 +46,8 @@ q '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_acces
 q '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"engine-v2.rose-app.testnet"}}'
 # The engine's configuration, including its MPC-derived vault addresses (derived_addresses.vault_base)
 q '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"engine-v2.rose-app.testnet","method_name":"get_config","args_base64":"e30="}}'
+# A round's public terms (round ids are strings: {"round_id":"8"}, not 8)
+q '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"engine-v2.rose-app.testnet","method_name":"get_round","args_base64":"'"$(printf '{"round_id":"8"}' | base64)"'"}}'
 # RoseVault only obeys that address (needs Foundry's cast): prints 0xC345e592C6Db18c162c6225BFb6F6c92b425b7cb
 cast call 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe "SIGNER()(address)" --rpc-url https://sepolia.base.org
 ```
