@@ -363,7 +363,8 @@ No other party can move funds, see bids early or stop a round.
   `Log` and Solana `AccountState` attestations, both signature schemes, the CKD key), since the
   engine recomputes each attestation's payload hash and refuses a mismatch; on 14 November most
   Solana attestation requests timed out between 01:10 and 01:35 UTC, an availability problem of
-  the network, not a layout one, and a Solana payout landed end to end again at 02:46 UTC (results in
+  the network, not a layout one; a Solana payout landed end to end again at 02:46 UTC and later
+  requests were intermittent, a timed-out one being refunded (results in
   [`verification.md`](./verification.md#mpc-network-3190-re-verified-live-2026-11-14)). The mock does
   refuse what the live contract refuses in a request's own fields: a CKD request off the CKD
   domain or with an inconsistent `AppPublicKeyPV`, a ForeignTx payload version other than 1, an
