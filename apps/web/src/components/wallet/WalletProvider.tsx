@@ -16,7 +16,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Connector } from "wagmi";
 import { RoseActionError } from "@/lib/errors";
 import type { EvmDemoWallet } from "@/lib/wallet/evm-demo";
-import type { NearDemoWallet } from "@/lib/wallet/near-demo";
+import type { NearAccountPresence, NearDemoWallet } from "@/lib/wallet/near-demo";
 import type { SolanaDemoWallet } from "@/lib/wallet/solana-demo";
 import { hasStoredWalletSession } from "@/lib/wallet/storage";
 
@@ -29,8 +29,11 @@ export type NearWalletState = {
   /** Name of the external wallet (from the NEAR Connect manifest) when connected through it. */
   walletName: string | null;
   demo: NearDemoWallet | null;
-  /** Whether the demo account exists on testnet yet (false until the faucet creates it). */
-  demoAccountExists: boolean;
+  /**
+   * Whether the demo account exists on testnet: `missing` only on the RPC's definite answer,
+   * `unknown` while no endpoint answered (the last known value is kept across rate limits).
+   */
+  demoAccount: NearAccountPresence;
 };
 
 /** A NEAR wallet from the NEAR Connect manifest (testnet wallets only). */
@@ -130,7 +133,7 @@ export function useWallets(): WalletContextValue {
   return value;
 }
 
-const IDLE_NEAR: NearWalletState = { status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccountExists: false };
+const IDLE_NEAR: NearWalletState = { status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccount: "unknown" };
 const IDLE_EVM: EvmWalletState = { status: "idle", address: null, kind: null, walletName: null, demo: null, wrongChain: false };
 const IDLE_SOLANA: SolanaWalletState = { status: "idle", publicKey: null, kind: null, walletName: null, demo: null };
 const NO_BALANCES: Balances = { nearYocto: null, nearTusdc: null, baseEthWei: null, baseTusdc: null, solLamports: null, loading: false, updatedAt: null };

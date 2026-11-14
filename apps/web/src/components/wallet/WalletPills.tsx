@@ -368,7 +368,7 @@ function WalletDrawer({ open, onClose, onConnect }: { open: boolean; onClose: ()
             { label: "NEAR", value: <Amount value={wallets.balances.nearYocto} decimals={24} unit="NEAR" /> },
             { label: "tUSDC", value: <Amount value={wallets.balances.nearTusdc} decimals={6} unit="tUSDC" /> },
           ]}
-          note={wallets.near.kind === "demo" && !wallets.near.demoAccountExists ? "Account not created on testnet yet: open Get test funds." : null}
+          note={wallets.near.kind === "demo" && wallets.near.demoAccount === "missing" ? "Account not created on testnet yet: open Get test funds." : null}
           onConnect={connect("near")}
           onDisconnect={() => void guard(wallets.disconnectNear, "NEAR wallet disconnected")}
           onExport={wallets.near.demo ? () => downloadText(`${wallets.near.demo?.accountId ?? "rose-demo"}.json`, exportNearDemoWallet(wallets.near.demo as NonNullable<typeof wallets.near.demo>)) : null}

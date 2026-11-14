@@ -311,7 +311,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
             <Button size="lg" className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
               Connect a NEAR wallet
             </Button>
-          ) : open && near.kind === "demo" && !near.demoAccountExists ? (
+          ) : open && near.kind === "demo" && near.demoAccount === "missing" ? (
             <GetTestFundsButton size="lg" variant="primary" className="w-full">
               Create the demo account: get test funds
             </GetTestFundsButton>
