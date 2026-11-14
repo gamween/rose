@@ -567,8 +567,8 @@ Each script records every transaction under `deployments/` and resumes where it 
   - Design references only, no code copied: React Bits, Aceternity UI, Rare UI, ObsidianUI,
     shadcn/ui, Origin UI and the Refero style library.
 - **AI assistance:** the code, tests and documents were written during the hackathon with AI coding
-  agents (Claude Code, on Fable 5.1, Fable 5.2 and Opus 5.5), directed and reviewed by the author;
-  independent review passes ran on a different model than the one that wrote each part
+  agents, directed and reviewed by the author; independent review passes ran on a different model
+  than the one that wrote each part
   ([review history](./docs/security.md#review-history)).
 - **Prior work:** none. The repository starts on 4 November 2026 with the specification; there is no
   pre-hackathon code and no earlier product on another chain.
