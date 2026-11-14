@@ -7,8 +7,8 @@
 
 /**
  * FastNEAR, the primary NEAR testnet endpoint (spec section 6) and the only public one that holds
- * a transaction wait (`tx` / `send_tx` with `wait_until`) without cutting it: the demo wallet
- * sends through it. It answers about 30 requests per IP, then HTTP 429 without CORS headers
+ * a transaction wait without cutting it (`tx` with `wait_until`, measured; `send_tx` inferred from
+ * it): the demo wallet sends through it. It answers about 30 requests per IP, then HTTP 429 without CORS headers
  * (`rpc.testnet.fastnear.com` shares the same limit), so reads fall over to the endpoints below.
  */
 export const NEAR_RPC_URL = "https://test.rpc.fastnear.com";
