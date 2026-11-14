@@ -34,8 +34,8 @@ full description; every claim in it links a transaction, a test or a file.
 
 ## Check the live deployment in a minute, no build
 
-Any NEAR testnet RPC works; if `rpc.testnet.near.org` or FastNEAR answer HTTP 429, use
-`https://near-testnet.drpc.org`.
+Any NEAR testnet RPC works. `rpc.testnet.near.org` is deprecated and can answer HTTP 429 "THIS
+ENDPOINT IS DEPRECATED"; if it or FastNEAR answers HTTP 429, use `https://near-testnet.drpc.org`.
 
 ```sh
 RPC=https://near-testnet.drpc.org

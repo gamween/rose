@@ -21,7 +21,8 @@ export const NEAR_RPC_READ_FALLBACK_URL = "https://near-testnet.drpc.org";
 /**
  * Intear's public testnet RPC, the last resort of reads: CORS headers, slowed by about a second
  * per request without an API key, and a transaction wait never answers. `rpc.testnet.near.org`
- * is not in the list: it answers "THIS ENDPOINT IS DEPRECATED" with HTTP 429 and no CORS headers.
+ * is not in the list: it is deprecated, and on 2026-11-14 it answered "THIS ENDPOINT IS DEPRECATED"
+ * with HTTP 429 and no CORS headers before answering again, about 3 s per request, later that day.
  */
 export const NEAR_RPC_READ_LAST_RESORT_URL = "https://testnet-rpc.intea.rs";
 /** Failover order of every read-only NEAR client of the app: one list, so identical reads in flight share one round trip. */
