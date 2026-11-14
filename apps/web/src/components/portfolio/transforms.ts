@@ -120,6 +120,17 @@ export function settledPayout(state: PayoutState): boolean {
   return state === "submitted" || state === "failed" || state === "lapsed";
 }
 
+/**
+ * Whether the engine still holds the requester's storage deposit for this payout (`storage_withdraw`
+ * refuses meanwhile): from the request until it is signed or failed, and for a durable-nonce
+ * Solana action until it lands or fails (`complete_payout`). A signed Base authorization or
+ * blockhash-signed Solana transaction holds nothing, broadcast or not.
+ */
+export function payoutHoldsStorage(payout: PayoutView): boolean {
+  if (payout.status === "Requested" || payout.status === "AwaitingGasSignature") return true;
+  return payout.status === "Signed" && Boolean(payout.solana?.nonce_account);
+}
+
 /** Blocks after which a signature request that never answered can be retried (the engine's `PENDING_EXPIRY_BLOCKS`). */
 const PENDING_EXPIRY_BLOCKS = 600n;
 /** Blocks between a first "did not execute" proof's answer and the second proof (the engine's `CONFIRM_FAILURE_DELAY_BLOCKS`). */

@@ -16,7 +16,7 @@ import { eventAmountFormat } from "@/lib/event-format";
 import { describePayout, payoutExplorerLink } from "@/lib/payouts";
 import { ROUTES } from "@/lib/routes";
 import type { PayoutEntry, PortfolioData } from "./data";
-import { settledPayout } from "./transforms";
+import { payoutHoldsStorage, settledPayout } from "./transforms";
 
 const NEAR_DECIMALS = 24;
 
@@ -115,8 +115,12 @@ export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: Po
   const [amount, setAmount] = useState(amountToText(data.storageMinimum, NEAR_DECIMALS));
   const parsed = parseAmount(amount, NEAR_DECIMALS);
   const registered = data.storage !== null;
-  /* The engine refuses `storage_withdraw` while the account has live bids, liens or custody actions in flight. */
-  const pendingPayouts = data.payouts.filter((entry) => !settledPayout(entry.state)).length;
+  /*
+   * The engine refuses `storage_withdraw` while the account has live bids, liens or custody actions
+   * in flight. Units locked in an Advance and a stream deposit being verified are not in these
+   * views: the engine's refusal is shown for them.
+   */
+  const pendingPayouts = data.payouts.filter((entry) => payoutHoldsStorage(entry.payout)).length;
   const obligations = [
     data.portfolio.bids.length > 0 ? `${String(data.portfolio.bids.length)} unsettled ${data.portfolio.bids.length === 1 ? "order" : "orders"}` : null,
     data.portfolio.liensHeld.length + data.portfolio.lienShares.length > 0 ? "open liens" : null,
