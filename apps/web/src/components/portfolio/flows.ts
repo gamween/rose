@@ -539,7 +539,7 @@ export function syncSolStreamSteps(deps: FlowDeps, entry: SolStreamStateView, de
 }
 
 /** Why a Solana stream cannot be redeemed in kind once its sender switched automatic withdrawal on (`solRedeemSafety`). */
-export const AUTOMATIC_WITHDRAWAL_REFUSAL =
+const AUTOMATIC_WITHDRAWAL_REFUSAL =
   "The stream's sender switched Streamflow's automatic withdrawal on after the deposit, so Streamflow moves its unlocked tokens into the vault outside the engine's accounting. Redeeming it in kind would make you pay again for tokens already in the vault, and they would be lost. Keep the units: sync the stream (Solana streams tab) and claim your tokens from the swept balance instead.";
 
 /**
