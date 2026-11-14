@@ -1719,3 +1719,11 @@ the stream at `finalized` before a redeem (`solRedeemSafety`); `docs/security.md
 | FastNEAR's second host shares the primary's per-IP limit | 60 `view_account` of `engine-v2.rose-app.testnet` to `https://test.rpc.fastnear.com` (`seq 1 60 \| xargs -P 12 curl …`), then 10 to `https://rpc.testnet.fastnear.com`, then 5 to the first again | 32 × 200 and 28 × 429; then 2 × 200 and 8 × 429; then 5 × 429 |
 | dRPC answers, with CORS, and is another provider | the `get_sol_deposit` query above at `https://near-testnet.drpc.org`; `curl -s -i -X OPTIONS -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' https://near-testnet.drpc.org` | the deposit record (block 277,589,302); HTTP/2 204 with `access-control-allow-origin: https://rose-rounds.vercel.app`. It is the SDK's fallback (`NEAR_TESTNET_RPC_FALLBACK`); its free plan times out long `tx` waits (above, "Fable pass 1 fixes: web"), and staging deployment 3 already ran `e2e-solana-stream.mjs` through it |
 | Lava's public NEAR testnet endpoints are gone | the same query at `https://neart.lava.build` and `https://near-testnet.lava.build` | HTTP 410 "This endpoint has been discontinued." |
+
+### Engine ABI snapshot for the SDK's binding check
+
+| Fact | Command | Result |
+|---|---|---|
+| The engine source is the deployed one | `git diff --quiet 0524b33 HEAD -- contracts/engine/src ':!contracts/engine/src/tests' contracts/engine/Cargo.toml Cargo.lock` | exit 0 (only test files changed since `0524b33`, the commit deployed as `engine-v2.rose-app.testnet`) |
+| The committed ABI is that engine's | `cargo near abi` in `contracts/engine` (cargo-near 0.22.0, Rust 1.95.0), then `cp target/near/rose_engine/rose_engine_abi.json packages/sdk/test/engine/` | 289,048 bytes, sha256 `b5a5a7f2413a857e4de24529fec4eb631cbf92fdf8682e3f62ad0e70cb6a08a7`, 105 functions, schema 0.4.0; its `body` equals the ABI of the 2026-11-06 `cargo near build` (which only adds `metadata.build` and `metadata.wasm_hash`) |
+| The check runs on a clean clone | `pnpm --filter @rose/sdk exec vitest run test/engine/abi.test.ts` with and without `target/near/rose_engine/rose_engine_abi.json` | 5 passed with a local build (its body equals the snapshot's); 4 passed and the local-build comparison skipped without one |
