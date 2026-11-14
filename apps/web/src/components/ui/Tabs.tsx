@@ -30,8 +30,9 @@ export function Tabs<T extends string>({
   const baseId = idBase ?? autoId;
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const list = useRef<HTMLDivElement>(null);
-  // On a narrow screen the row scrolls sideways: fade the edge that hides tabs.
-  const edgeFade = useEdgeFade(list);
+  // On a narrow screen the row scrolls sideways: fade the edge that hides tabs, measured again when
+  // a tab or a count changes.
+  const edgeFade = useEdgeFade(list, items.map((item) => `${item.id}:${item.count ?? ""}`).join("|"));
 
   // Keep the selected tab inside the row (a deep link such as `#storage` may select one that starts
   // off screen), scrolling the row only, never the page.
