@@ -110,10 +110,10 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
     proposal and the Trezu template that file the same call from the treasury. After settlement the
     **Results** tab exports the tender report.
 
-Rounds left open for reviewers, each with a sealed ask at 0.002 tUSDC per locked token, so any bid
-at or above it fills: **#4** (Exit, Seed Round, closes 20 November 16:05 UTC), **#8** (Exit, Seed
-Round, closes 16 November 15:00 UTC) and **#10** (Exit, KOL Round, closes 17 November 15:00 UTC),
-the last two with a 10-minute reveal window. There is no keeper: after the close, whoever is there
+Rounds left open for reviewers: **#8** (Exit, Seed Round, closes 16 November 15:00 UTC) and **#10**
+(Exit, KOL Round, closes 17 November 15:00 UTC) each hold a sealed ask at 0.002 tUSDC per locked
+token, so any bid at or above it fills, and have a 10-minute reveal window; **#4** (Exit, Seed
+Round, closes 20 November 16:05 UTC, 24-hour reveal window) holds Halden Ventures' sealed ask. There is no keeper: after the close, whoever is there
 clicks **Close round**, then **Open every order** right away (orders still sealed when the reveal
 window ends are void and their bond is slashed), then **Clear**.
 
