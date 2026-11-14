@@ -9,7 +9,7 @@
  */
 
 import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { GetTestFundsButton } from "@/components/chrome/AppActions";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
@@ -22,11 +22,12 @@ import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { readStorageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { formatUnits } from "@/lib/format";
+import { txLinks } from "@/lib/explorer";
 import { formatStorageNear } from "@/lib/near-cash";
 import { useNearAction } from "./actions";
 import { CashDeposit } from "./CashDeposit";
 import { orderIdentity, sealOrder } from "./ibe";
-import { saveLocalOrder } from "./localOrders";
+import { orderKey, rawSnapshot, saveLocalOrder, subscribeLocal, type LocalOrder } from "./localOrders";
 import { formatQty, formatUsdc, parseDecimal, previewBuy, previewSell, roundPricing, sameVenue, USDC_DECIMALS, venueLabel } from "./model";
 import { Notice } from "./shared";
 import type { RoundDetail } from "./useRoundDetail";
@@ -79,6 +80,12 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   const existing = side === "Buy" ? viewer?.buyOrderId : viewer?.sellOrderId;
   /* The viewer's order on this side is on chain: the card says so instead of a form that cannot be sent. */
   const placed = open && viewer !== null && existing !== null && existing !== undefined;
+  /* The placing transaction, when this browser sent it, for the placed card's explorer link. */
+  const rawLocal = useSyncExternalStore(subscribeLocal, () => rawSnapshot(orderKey(engine.account, round.roundId, viewer?.account ?? "", side)), () => "null");
+  const placedTx = useMemo(() => {
+    const local = JSON.parse(rawLocal) as LocalOrder | null;
+    return local && local.bidId === existing && local.txHash ? local.txHash : null;
+  }, [existing, rawLocal]);
   const venueCash = viewer?.cash.find((c) => sameVenue(c.venue, round.venue))?.amount ?? 0n;
   const bondFloor = limits.bondFloor;
 
@@ -225,6 +232,14 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
           <div className="flex flex-col gap-3" data-order-placed={existing}>
             <Notice tone="success">
               Your sealed {side === "Buy" ? "bid" : "ask"} #{String(existing)} is placed. One sealed order per side per account: it stays sealed until the close.
+              {placedTx ? (
+                <>
+                  {" "}
+                  <a href={txLinks("near", placedTx)[0]?.href} target="_blank" rel="noreferrer" className="font-medium text-ember-300 underline-offset-2 hover:underline">
+                    Transaction ↗
+                  </a>
+                </>
+              ) : null}
             </Notice>
             <Button
               type="button"
