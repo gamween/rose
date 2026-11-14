@@ -1748,3 +1748,68 @@ the stream at `finalized` before a redeem (`solRedeemSafety`); `docs/security.md
 | Fact | Command | Result |
 |---|---|---|
 | A transaction the network does not know is told apart from a failed lookup | `curl -s <rpc> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tx","params":{"tx_hash":"4uUzdXnzkMbzzxW2CfkQZYnPMrd1XGsmzzeb2LeU2JW6","sender_account_id":"rose-app.testnet","wait_until":"NONE"}}'` at `https://near-testnet.drpc.org` and `https://test.rpc.fastnear.com` | both answer at once with `error.cause.name` `UNKNOWN_TRANSACTION` ("Transaction … doesn't exist"); `scripts/lib/near.ts` resends a signed transaction only on that answer, after a rate limit or a transport failure, and returns the final outcome when the lookup finds the hash. A transaction older than the nodes' retention also reads `UNKNOWN_TRANSACTION` (the root account's creation, `66SvxXgw…`), so the lookup runs right after the failed send, not later |
+
+## MPC network 3.19.0, re-verified live (2026-11-14)
+
+The testnet MPC contract moved from 3.18.0 (the version rose was built and recorded against) to
+3.19.0 (release of 12 November: presignatures removed from ECDSA signing, foreign-chain whitelist
+enforcement, attestation expiry taken from the collateral). The engine is keyless, so each domain was
+re-checked on the live engine.
+
+| Fact | Command | Result |
+|---|---|---|
+| Contract version | `call_function v1.signer-prod.testnet version {}` (any NEAR RPC; `https://near-testnet.drpc.org` when FastNEAR answers 429) | `"3.19.0"` |
+| Domains and threshold | `call_function v1.signer-prod.testnet state {}` | `Running`: domains 0 Sign CaitSith, 1 Sign Frost, 2 ConfidentialKeyDerivation, 3 ForeignTx, each `reconstruction_threshold` 11; 16 participants |
+| Release notes | `gh api repos/near/mpc/releases/tags/3.19.0 --jq .body` | the breaking item is node-side (attestation expiry); `sign`, `request_app_private_key` and `verify_foreign_transaction` arguments unchanged |
+| Domain 2 (CKD) on 3.19.0 | `get_events` of `engine-v2.rose-app.testnet` from seq 196 | rounds 5 and 6: `key_requested` 00:54:00Z / 00:54:17Z, `key_received` (source `Callback`) 00:54:06Z / 00:54:22Z; round 7 key 4.36 s after its request |
+| Domain 3 (ForeignTx, Base `Log`) on 3.19.0 | same events | `deposit_verification_requested` then `position_registered` at 00:38Z and 00:46Z (two Sablier deposits from the app) |
+| Domain 0 (secp256k1) on 3.19.0 | `withdraw_base_cash` of 10 tUSDC by `tessaro-capital.rose-app.testnet` [DUVW9EiQ…](https://testnet.near.rocks/tx/DUVW9EiQH48u37pdCrcz4zDdHAco1U77yrpwNT7PYtn2), then `RoseVault.executeTransfer` [0xe3b65667…](https://sepolia.basescan.org/tx/0xe3b65667ef2147bbe421a62a0ddeba81622e98e6d3cb222eb450f810541cfbbc) | payout 11 signed 4.81 s after the request (MPC part 3.7 s); the vault accepted the signature, +10 tUSDC to the holder |
+| Domain 1 (Ed25519) on 3.19.0 | `move_sol_deposit` [HMar1kmX…](https://testnet.near.rocks/tx/HMar1kmXeJ3gDGJBGG5nMc1HQnCi74Qm76W6azBUpaJ8), broadcast on devnet [4QCoEcjn…](https://explorer.solana.com/tx/4QCoEcjnU8ZmW31tEupKSBDTz7xVogVvhnMqUNiije9HnGGrVQZ7LSQq7KDDQ4e75NJXd9GmUqTq2Jdw9CPPJsGC?cluster=devnet) | two Ed25519 signatures (deposit key and `gas/sol`) in 4.8 s; finalized without error |
+| Domain 3 (ForeignTx, Solana `AccountState`) on 3.19.0 | `claim_sol_tokens` and `attribute_sol_deposit` requests, 01:10Z to 01:35Z | degraded: 7 of 9 requests timed out at the 120 s yield; every failed claim (payouts 14 to 18) refunded by the engine; one attribution passed in 37 s |
+
+## Hosted demo: faucet capacity for the judging period (2026-11-14)
+
+| Change | Command | Result |
+|---|---|---|
+| Base faucet hot wallet | `cast send 0xe87366B9a546D8F1B30631a20F8F079eb85dc59e --value 0.25ether` from the deployer | [0x930a5feb…](https://sepolia.basescan.org/tx/0x930a5feb979d3b44f07aad4c3b18a612ce9b554c0c8183f74c312b3a33ce850a); 0.29 ETH |
+| Solana faucet hot wallet | `SystemProgram.transfer` from the ops key to `DJgWSMB3D8sKyJNoQJqsCKpD4H4c3tm2NhG9EXumnzxV`, 2.5 then 2 SOL | 4GY2K3pY…, 4Mkfd9EQ…; 4.75 SOL and 998,000 CINDR |
+| Shared hourly and daily caps | `vercel env add` on Production: `SOLANA_FAUCET_HOURLY_CAP=10`, `SOLANA_FAUCET_DAILY_CAP=24`, `BASE_FAUCET_HOURLY_CAP=10`, `BASE_FAUCET_DAILY_CAP=40`, `SOLANA_DEMO_TOKEN_FAUCET_HOURLY_CAP=10`, `SOLANA_DEMO_TOKEN_FAUCET_DAILY_CAP=30` | was 3/6 (Solana), 5/15 (Base), 3/6 (CINDR): a screening run waited 57 minutes for a capped SOL send |
+
+## Primary sources for the MPC domains (2026-11-14)
+
+| Fact | Command | Result |
+|---|---|---|
+| NEAR's Chain Signatures page lists only domains 0 and 1 | `curl -sL https://docs.near.org/chain-abstraction/chain-signatures` | "only the two signing domains are currently supported: 0 for Secp256k1 or 1 for Ed25519" |
+| near/mpc names CKD and foreign-chain verification | `curl -sL https://raw.githubusercontent.com/near/mpc/main/README.md` | "Confidential Key Derivation — derives application-specific keys without revealing the master secret (BLS12-381)"; "Read RPC — nodes independently verify transactions on foreign chains (Ethereum, Solana, Aptos, …) … Known under the working name foreign chain transaction verification" |
+| Near One names time-lock encryption as a CKD use | `curl -sL https://blog.nearone.org/research/2026/02/23/mpc-ckd.html` | "it can be used to enable time-lock encryption. A smart contract could encrypt data under a key that is only derivable once certain on-chain conditions …" |
+| Live facts quoted in `AGENTS.md` | `view_account` and `get_config` of `engine-v2.rose-app.testnet`; `cast call 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe "SIGNER()(address)"` | code hash `gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`; `derived_addresses.vault_base` `0xc345e592c6db18c162c6225bfb6f6c92b425b7cb` = `SIGNER()` |
+
+## Sputnik DAO run and judging rounds (2026-11-14)
+
+New Sputnik DAOs on testnet are created by the factory `sputnikv2.testnet` and run DAO contract
+version 2.3.1 (the DAO `test.sputnikv2.testnet` recorded above runs 2.0.0).
+
+### Issuer console: a Sputnik DAO v2 runs a Tender end to end (2026-11-14, engine-v2)
+
+The issuer console's own builders (`dao.ts` `sputnikProposal`, `daoNearFundingCall`, `ftTransferCall`; `tender-form.ts` `tenderArgsFromForm`; `EngineCalls.createTender`), called in the order `TenderTab.tsx` and `DaoPanel.tsx` use them, against a DAO created for the purpose. Round 7 of `engine-v2.rose-app.testnet` has the DAO as its creator.
+
+| Fact | Command | Result |
+|---|---|---|
+| Live Sputnik factory2 on testnet | `call_function sputnikv2.testnet get_number_daos / get_default_code_hash / get_default_version / get_contracts_metadata {}` | 5,666 DAOs; default code `AA4nA45vauiac3jdVwJTzSdUP3oj2r1fDaPAb2mHdgcH`, version `[3,31]`, commit `7764926cfd3c47f62b5fcde231c251f3c3892887`; `sputnik-v2.testnet` answers `MethodNotFound` to these (older factory) |
+| `create` signature | `curl -s https://raw.githubusercontent.com/near-daos/sputnik-dao-contract/main/sputnikdao-factory2/src/lib.rs` | `#[payable] create(name: AccountId, args: Base64VecU8)`: deploys the default code to `<name>.sputnikv2.testnet`, calls `new(args)`, `on_create` returns `true` or refunds the deposit |
+| DAO created | `sputnikv2.testnet.create {"name":"cindral-treasury","args":<base64 of {config, policy}>}`, 7 NEAR, 300 Tgas, from a helper-funded council account | [F5ghEw2q…](https://testnet.near.rocks/tx/F5ghEw2qVuvTNfS3xgWUHdpnAZ1j4QvayNNtira2jzTq) (88.98 Tgas): `cindral-treasury.sputnikv2.testnet`, code `AA4nA45v…`, `version` "2.3.1", council of two (`cindral-council-a-011346.testnet`, `cindral-council-b-011346.testnet`), threshold 1/2 by role weight (both votes), bond 0.1 NEAR |
+| Proposal outcome is reported | `sputnikdao2/src/proposals.rs` at `7764926` | a FunctionCall proposal executes as a promise followed by `on_proposal_callback`, which sets `Failed` when the call failed; so `get_proposal(id).status` = `Approved` proves the DAO's call succeeded |
+| Funding proposal (DAO's own `ft_transfer_call` into the engine) | member: engine `storage_deposit` for the DAO [9mYVaXRX…](https://testnet.near.rocks/tx/9mYVaXRXSLQegNcFovri4iPYyMWuVSo6PGoE6XMaNGGQ), tUSDC `storage_deposit` for the DAO [AiBVMckx…](https://testnet.near.rocks/tx/AiBVMckxzqmTACnVsEUA4wE3bMtZ52SpiBai7mN4kR9x), `ft_transfer` 100.30 tUSDC to the DAO [HVfEqFvH…](https://testnet.near.rocks/tx/HVfEqFvHNYwkLdoCuxBZu9BXvJeVHcgd6ASq1VRuwTqV); `add_proposal` [2utQ7Cv9…](https://testnet.near.rocks/tx/2utQ7Cv94ym8HpYDHpip2yrd9vuX4nhDYfTm7Xst4y6R), votes [G2YLK3Tn…](https://testnet.near.rocks/tx/G2YLK3TnZ3v851y43VSrQyNLgiXaNad1rx4eQiNgtm8n), [7HJzxCFc…](https://testnet.near.rocks/tx/7HJzxCFc6rubKhTczsX9fFbaRPrP8WgmvQY1LXEjAP2C) | proposal 0 `Approved` (FunctionCall `ft_transfer_call`, 60 Tgas, 1 yocto), DAO engine cash 0 → 100.30 tUSDC (budget + 30 bps) |
+| Tender proposal (DAO `create_tender`) | `add_proposal` [H7tG5GjZ…](https://testnet.near.rocks/tx/H7tG5GjZTrXAzHwYoRFuXaXakcLZdQ68WDUwDh72C1wy) with the bond read from `get_policy`, votes [9K5zADCh…](https://testnet.near.rocks/tx/9K5zADCh18RAwk8NMQNyPL24HkyHiMpmws3ympsMvCnu), [CxcrHTMZ…](https://testnet.near.rocks/tx/CxcrHTMZkcqWdVfqLf46iYV6xhVYR1uRLc1U2ssnfHPd) | proposal 1 `Approved` (FunctionCall `create_tender`, 30 Tgas, 0.05 NEAR), no receipt failure; round 7: Tender, Seed Round, NEAR tUSDC, budget 100 tUSDC, max 0.04, `creator` `cindral-treasury.sputnikv2.testnet`, `retire_to` `0x763726327e9f8da47d2e7432dc6e8f72f2121e0b` |
+| Sealed asks | Halden Ventures moves 5,000 Seed units to Nadia Solvik (`distribute_units`) [FH8VF5DZ…](https://testnet.near.rocks/tx/FH8VF5DZyzpfDSG9pzktggN2CJvjvPfpDxqZsVvepUWT); `place_ask` Halden 1,000 at 0.030 [ERvMnDuz…](https://testnet.near.rocks/tx/ERvMnDuziGa661CyYqqk2GD3phKL6h8t3jmLWctstS1j), Nadia 1,000 at 0.036 [CfNcFYWk…](https://testnet.near.rocks/tx/CfNcFYWkwWhMVSu8rM9Hkc1Bgsq4u3iNPw7BiP55vkoQ) | two ciphertexts sealed with `scripts/lib/sealed.ts` to the live CKD key |
+| Key release and openings | `close` [FBb23wTh…](https://testnet.near.rocks/tx/FBb23wThJpKLhhj7GgaMhYBwxpx6YhrZPCWju3unQ18s) (38.19 Tgas); `open_bid` [BcgMvFyk…](https://testnet.near.rocks/tx/BcgMvFykaWM7Y3trghSLWRo37a6PjUE7qe2UeUdTSKmM), [EqTmcDwe…](https://testnet.near.rocks/tx/EqTmcDwea3cYhyyCdmccpk9Y2o65M5cu8rZuVfEASqHL) (132.1 Tgas each) | key by callback 4.36 s after the request, equal to the offline unwrap of `(big_y, big_c)`; both openings equal the sealed values |
+| Clearing = reference | `clear` [ESarBAbY…](https://testnet.near.rocks/tx/ESarBAbYgU7BraxenYXjTmx3rcFWFuGjZAFVqAL3mugp) | `Settled`, 0.036 tUSDC, 2,000 units, notional 72, fee 0.216, fills 1,000 / 1,000: equal to `@rose/sdk` `tender()` on every field |
+| Settlement and retirement | `settle_bid` [2w8qdwp8…](https://testnet.near.rocks/tx/2w8qdwp8KpUVSawZ29PqjLNM6ypxVQUsJMaXK5pqJ5WA), [457c7mHt…](https://testnet.near.rocks/tx/457c7mHtqPifbmHRn2mf8NU3DHApcFErR8hVxbJHWXtB); `get_retired_lot {"round_id":"7"}` | 36 tUSDC to each seller, bonds refunded; retired lot 2,000 units payable only to `0x7637…1e0b`, `claimable` 0 until the Seed Round cliff (2027-05-08); the DAO's unspent 28.084 tUSDC back in its engine cash |
+| Unspent escrow back to the treasury | `add_proposal` wrapping `withdraw_near_cash(28084000)` with `sputnikProposal` [A2XZjREw…](https://testnet.near.rocks/tx/A2XZjREwtoj1YNpMyvSRBFVEcRLE4zafrhQz3vJH5ibh), votes [Dqqp1eoD…](https://testnet.near.rocks/tx/Dqqp1eoDaMGZ81dr4KP2YsEsSnSpb8FZWPSTSzBo6pxr), [6eSfCbVN…](https://testnet.near.rocks/tx/6eSfCbVNrZv4dZ6JhHKjCaxEm7vf5WQAvLUaDvMgjhTf) | proposal 2 `Approved`; DAO engine cash 0, DAO tUSDC wallet 0 → 28.084 |
+
+### Rounds left open for judging (2026-11-14)
+
+| Round | Command | Result |
+|---|---|---|
+| 8 | `create_exit` by Halden Ventures [9tyRWSug…](https://testnet.near.rocks/tx/9tyRWSugaPhXvrbzTTeNbdT12ti55q1GYiMThY8MvkvF), sealed ask [8bB44rLK…](https://testnet.near.rocks/tx/8bB44rLKxztzgEwYZtnursqu9NP2fP9TQuQzEBBBvHbc) | Exit, Seed Round, NEAR tUSDC, max 0.05, closes 2026-11-16T15:00:00Z, key timeout 72 h, reveal 10 min; 10,000 units asked at 0.002 |
+| 10 | `create_exit` by Nadia Solvik [9FT6iEia…](https://testnet.near.rocks/tx/9FT6iEiaBLb95BWbMtzFpySbDpBD8AKZH8Quzkxpum1S), sealed ask [8MVL88us…](https://testnet.near.rocks/tx/8MVL88usy4zF6WwJHNwsY7YPsEP4VtEvC3htqNB2isAL) | Exit, KOL Round, NEAR tUSDC, max 0.05, closes 2026-11-17T15:00:00Z, key timeout 72 h, reveal 10 min; 5,000 units asked at 0.002 |
