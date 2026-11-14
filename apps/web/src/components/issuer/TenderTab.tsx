@@ -52,6 +52,12 @@ export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: {
   const [cash, setCash] = useState<Cash[] | null>(null);
   const launch = useAction();
   const [now, setNow] = useState(() => Date.now());
+  /* The signer comes from the page's hash too (Back and Forward between `#tender` and `#dao`), not only from the control. */
+  const [closesFor, setClosesFor] = useState(showDao);
+  if (closesFor !== showDao) {
+    setClosesFor(showDao);
+    if (!closesTouched) setClosesAt(secondsToDateTime(Math.floor(now / 1000) + (showDao ? DAO_CLOSE_SECS : WALLET_CLOSE_SECS)));
+  }
 
   const venue = venues.find((option) => option.id === venueId)?.venue ?? "Near";
 
@@ -142,10 +148,7 @@ export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: {
                 { value: "dao", label: "A DAO" },
               ]}
               value={showDao ? "dao" : "wallet"}
-              onChange={(value) => {
-                if (!closesTouched) setClosesAt(secondsToDateTime(Math.floor(Date.now() / 1000) + (value === "dao" ? DAO_CLOSE_SECS : WALLET_CLOSE_SECS)));
-                onSigner?.(value === "dao");
-              }}
+              onChange={(value) => onSigner?.(value === "dao")}
               data-tender-signer
             />
           </div>
