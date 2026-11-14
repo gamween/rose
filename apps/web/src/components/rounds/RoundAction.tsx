@@ -171,7 +171,7 @@ export function RoundAction({ detail, nowMs, onChanged, children }: { detail: Ro
             Claim in the Portfolio
           </ButtonLink>
         ) : null}
-        {retryVisible && !pending ? (
+        {retryVisible ? (
           <Button variant="secondary" size="sm" onClick={() => void act()} loading={busy} loadingLabel="Signing…" disabled={!connected} data-action="retry-close">
             Retry the key request
           </Button>
