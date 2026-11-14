@@ -1705,8 +1705,8 @@ were run again for this fix.
 | Streamflow's withdrawor acts on the flag before a stream's end | `getProgramAccounts(HqDGZ…CMfMZ, { filters: [{ dataSize: 1104 }, { memcmp: { offset: 459, bytes: "2" } }, { memcmp: { offset: 671, bytes: "1" } }] })` (flag 1, `closed` 0), then `getSignaturesForAddress` and `getTransaction` for the signers | `12gyFvEd…ZRn4` (`end_time` 1,974,712,778, `last_withdrawn_at` 1,793,800,591): 5 of its last 6 transactions signed by `wdrwhnCv…pb5u`, e.g. [66986xnt…SrEw](https://explorer.solana.com/tx/66986xntn3pWrt1z8QkPSSq9Ypbrqs7dSHWv2z7xqTyNuWxxP486GN4nDJCRk7g4nfkXfDMXAzaQ4WzVNnKrSrEw?cluster=devnet); `6FnBaEnR…UbYe`: 6 of 6; `7b8FLsQV…dh4`: 3 of 5 |
 
 What follows on the deployed engine (it checks the flag at attribution and registration only): the
-withdrawor moves the stream's unlocked tokens into the vault's token account at most one period
-apart, `engine_withdrawn` does not move, and a `redeem` prices the redeemer's payment from
+withdrawor moves the stream's unlocked tokens into the vault's token account every
+`withdraw_frequency` seconds (no shorter than the period), `engine_withdrawn` does not move, and a `redeem` prices the redeemer's payment from
 `engine_withdrawn`, so a redeem made before a `sync_sol_stream` charges the redeemer for tokens
 already in the vault, and after the release no sync can book them. The app and the SDK now check
 the stream at `finalized` before a redeem (`solRedeemSafety`); `docs/security.md` gives the residual.

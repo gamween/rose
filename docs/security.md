@@ -175,7 +175,8 @@ No other party can move funds, see bids early or stop a round.
   sender switch `automatic_withdrawal` on at any time and never off (simulated on devnet on the
   vault's own stream, `verification.md`), and the engine checks the flag at attribution and
   registration only. Streamflow's withdrawor then moves the stream's unlocked tokens into the
-  vault's token account at most one period apart, outside any payout: `engine_withdrawn` does not
+  vault's token account every `withdraw_frequency` seconds (no shorter than the stream's period),
+  outside any payout: `engine_withdrawn` does not
   move, so `get_sol_streams` overstates what the stream can pay until anyone calls
   `sync_sol_stream`, which books the tokens in the class's swept balance as it does an ended
   stream's auto-claim. Nothing leaves the vault and the other holders stay whole; a draw sized
