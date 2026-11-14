@@ -8,10 +8,19 @@ import { cn } from "@/lib/cn";
 const EDGE = 8;
 
 /**
+ * Where the panel is mounted: the `<dialog>` holding the anchor, otherwise `document.body`. A modal
+ * dialog sits in the top layer, above anything in `body` whatever its `z-index`, and makes the rest
+ * of the page inert, so a panel in `body` would open hidden behind it.
+ */
+function portalHost(anchor: HTMLElement | null): HTMLElement {
+  return anchor?.closest("dialog") ?? document.body;
+}
+
+/**
  * Tooltip shown on hover (after a short delay), keyboard focus and tap, linked with
  * `aria-describedby` and mounted only while shown (its text never leaks into the surrounding
  * content); Escape hides it. `interactive` keeps it open while the pointer is over the
- * panel, for tooltips holding a link. The panel is portalled to `document.body` and placed with
+ * panel, for tooltips holding a link. The panel is portalled (see `portalHost`) and placed with
  * fixed coordinates, so an ancestor with `overflow: hidden` never clips it; it flips to the other
  * side when the preferred one has no room and stays inside the viewport horizontally.
  */
@@ -31,7 +40,9 @@ export function Tooltip({
   className?: string;
 }) {
   const id = useId();
-  const [open, setOpen] = useState(false);
+  /** Where the open panel is mounted; null while it is closed. */
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const open = host !== null;
   const [place, setPlace] = useState<{ left: number; top: number; side: "top" | "bottom" } | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const pointer = useRef<string>("mouse");
@@ -61,11 +72,11 @@ export function Tooltip({
   }, [open, side, align]);
   const show = (delay: number) => {
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setOpen(true), delay);
+    timer.current = window.setTimeout(() => setHost(portalHost(anchor.current)), delay);
   };
   const hide = () => {
     window.clearTimeout(timer.current);
-    setOpen(false);
+    setHost(null);
   };
   return (
     <span
@@ -81,7 +92,7 @@ export function Tooltip({
         pointer.current = event.pointerType;
       }}
       onClick={(event) => {
-        if (pointer.current !== "mouse" && !(event.target instanceof Element && event.target.closest("[role=tooltip]"))) setOpen((value) => !value);
+        if (pointer.current !== "mouse" && !(event.target instanceof Element && event.target.closest("[role=tooltip]"))) setHost((current) => (current === null ? portalHost(anchor.current) : null));
       }}
       onFocus={(event) => {
         if (event.target.matches(":focus-visible")) show(0);
@@ -94,7 +105,7 @@ export function Tooltip({
       }}
     >
       {children({ "aria-describedby": id })}
-      {open
+      {host
         ? createPortal(
             <span
               ref={panel}
@@ -111,7 +122,7 @@ export function Tooltip({
                 {content}
               </span>
             </span>,
-            document.body,
+            host,
           )
         : null}
     </span>
