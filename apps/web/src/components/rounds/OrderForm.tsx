@@ -9,7 +9,7 @@
  */
 
 import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { GetTestFundsButton } from "@/components/chrome/AppActions";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
@@ -47,6 +47,7 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   const { round, cls, viewer, engine, limits, config } = detail;
   const { near, restoring } = useWallets();
   const openConnect = useConnectModal();
+  const sideTabs = useId();
   const { run, status } = useNearAction();
   const isCreator = viewer?.account === round.creator;
   const sides = useMemo<Side[]>(() => {
@@ -204,10 +205,12 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
           ]}
           value={side}
           onChange={setSide}
+          idBase={sideTabs}
           className="-mx-4 px-4"
         />
       ) : null}
       <form
+        {...(sides.length > 1 ? { role: "tabpanel", id: `${sideTabs}-panel-${side}`, "aria-labelledby": `${sideTabs}-tab-${side}` } : {})}
         className="flex flex-col gap-4 pt-4"
         onSubmit={(event) => {
           event.preventDefault();
