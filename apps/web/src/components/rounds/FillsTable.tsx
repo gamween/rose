@@ -10,6 +10,7 @@ import type { BidOutcome, Round } from "@rose/sdk";
 import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { useWallets } from "@/components/wallet/WalletProvider";
 import { nearAccountUrl } from "@/lib/explorer";
 import { useNearAction } from "./actions";
 import { cancelledOutcome, clearingOf, formatQty, formatUsdc, shortAccount } from "./model";
@@ -28,6 +29,7 @@ function orderBy(round: Round, fills: readonly BidOutcome[]): BidOutcome[] {
 
 export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
   const { round, cls, engine, viewer } = detail;
+  const { near } = useWallets();
   const { run, status } = useNearAction();
   if (!round.result) return null;
   const result = round.result;
@@ -119,7 +121,7 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
                   {fill.settled ? (
                     <span className="text-[11px] text-success-400 font-medium">settled</span>
                   ) : (
-                    <Button size="sm" variant="ghost" onClick={() => void settleOne(fill.bidId)} disabled={!viewer || status.status === "busy"} data-settle={fill.bidId}>
+                    <Button size="sm" variant="ghost" onClick={() => void settleOne(fill.bidId)} disabled={near.status !== "connected" || status.status === "busy"} data-settle={fill.bidId}>
                       Settle
                     </Button>
                   )}

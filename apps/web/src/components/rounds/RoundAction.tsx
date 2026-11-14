@@ -66,14 +66,15 @@ type Landed = { kind: NextAction["kind"]; title: string; hash: string };
  * click would only send a transaction the engine refuses).
  */
 export function RoundAction({ detail, nowMs, onChanged, children }: { detail: RoundDetail; nowMs: number; onChanged: () => void; children?: ReactNode }) {
-  const { round, engine, viewer } = detail;
-  const { restoring } = useWallets();
+  const { round, engine } = detail;
+  const { restoring, near } = useWallets();
   const openConnect = useConnectModal();
   const action = nextAction(round, nowMs);
   const text = describe(action, round);
   const { run, status } = useNearAction();
   const busy = status.status === "busy";
-  const connected = viewer !== null;
+  /* The wallet, not the round's viewer read: that read lands a refetch after the wallet restores. */
+  const connected = near.status === "connected";
   const receipt = (kind: "close" | "clear" | "cancel", label: string) => ({ engine: engine.account, roundId: round.roundId, kind, label });
   const [landed, setLanded] = useState<Landed | null>(null);
   /** The step whose failure is on screen: an error never follows the card into the next step. */
@@ -187,7 +188,8 @@ export function RoundAction({ detail, nowMs, onChanged, children }: { detail: Ro
 }
 
 function CancelNoKeyButton({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
-  const { round, engine, viewer } = detail;
+  const { round, engine } = detail;
+  const { near } = useWallets();
   const { run, status } = useNearAction();
   return (
     <>
@@ -196,7 +198,7 @@ function CancelNoKeyButton({ detail, onChanged }: { detail: RoundDetail; onChang
         size="sm"
         onClick={() => void run({ label: "Cancelling (no key)", call: engine.calls.cancelNoKey(round.roundId), success: "Round cancelled", receipt: { engine: engine.account, roundId: round.roundId, kind: "cancel", label: "cancel_no_key" } }).then((r) => r.ok && onChanged())}
         loading={status.status === "busy"}
-        disabled={viewer === null}
+        disabled={near.status !== "connected"}
       >
         Cancel (no key)
       </Button>
