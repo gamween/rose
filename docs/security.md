@@ -359,8 +359,10 @@ No other party can move funds, see bids early or stop a round.
   engine and the live nodes would pass the sandbox suites. The ten recorded live responses in
   `tests/vectors/foreign/mpc_live_vectors.json` are the check: `cargo test --workspace` replays
   them, pinned at ten. They were recorded on 3.18.0; when the live contract moved to 3.19.0, the
-  deployed engine's own requests re-checked the byte layout on every domain, since the engine
-  recomputes each response's payload hash and refuses a mismatch (results in
+  deployed engine's own requests re-checked the byte layout of every response kind it uses (Base
+  `Log` and Solana `AccountState` attestations, both signature schemes, the CKD key), since the
+  engine recomputes each attestation's payload hash and refuses a mismatch; on 14 November most
+  Solana attestation requests timed out, an availability problem of the network, not a layout one (results in
   [`verification.md`](./verification.md#mpc-network-3190-re-verified-live-2026-11-14)). The mock does
   refuse what the live contract refuses in a request's own fields: a CKD request off the CKD
   domain or with an inconsistent `AppPublicKeyPV`, a ForeignTx payload version other than 1, an

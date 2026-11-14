@@ -13,7 +13,7 @@ All addresses are testnet. Nothing is deployed on any mainnet. Live checks (engi
 |---|---|---|
 | rose-engine | `{{ENGINE_ACCOUNT}}` | Rust, near-sdk 5.x. Classes, positions, NEP-245 units, liens, rounds, sealed bids, opening, clearing, settlement, cash ledger, foreign custody. No upgrade method, no delete-account path, no generic call method; new versions deploy to new accounts. The final engine, `engine-v2.rose-app.testnet`, is keyless after init (`view_access_key_list` returns `[]`); the engines before it are history, see below. |
 | rose tUSDC | `tusdc.rose-app.testnet` | NEP-141 "Test USDC", 6 decimals, public mint capped at 10,000 tUSDC per account per 24 h. The NEAR cash venue. Keyless. |
-| NEAR MPC | `v1.signer-prod.testnet` | Version 3.19.0 (3.18.0 when rose was built; every domain re-verified live on 3.19.0). Domains: 0 Sign, CaitSith (secp256k1); 1 Sign, Frost (Ed25519); 2 Confidential Key Derivation (BLS12-381); 3 ForeignTx, CaitSith (secp256k1). Threshold 11. Foreign chains served include Base and Solana. |
+| NEAR MPC | `v1.signer-prod.testnet` | Version 3.19.0 (3.18.0 when rose was built; signing, key release and Base attestations re-verified live on 3.19.0 on 14 November, Solana attestations then timing out intermittently). Domains used by rose: 0 Sign, CaitSith (secp256k1); 1 Sign, Frost (Ed25519); 2 Confidential Key Derivation (BLS12-381); 3 ForeignTx, CaitSith (secp256k1). Threshold 11. Foreign chains served include Base and Solana. |
 
 Circle's USDC on NEAR testnet exists but is minted only through a captcha-gated faucet, so the NEAR cash venue is rose tUSDC.
 

@@ -9,7 +9,7 @@ section: Mechanism
 
 Positions never leave their chain. A Sablier stream stays on Base; a Streamflow stream stays on Solana. What moves is the ownership of the stream: into a vault that only the NEAR engine can instruct. The engine controls each vault through NEAR Chain Signatures (the MPC network signs for addresses derived for the engine) and learns about foreign state through the same network's foreign transaction verification (ForeignTx). There is no custodian, bridge, relayer or keeper.
 
-MPC contract: `v1.signer-prod.testnet`, version 3.19.0 (3.18.0 when rose was built; every domain re-verified live on 3.19.0). Domains: 0 Sign (secp256k1, for Base), 1 Sign (Ed25519, for Solana), 2 Confidential Key Derivation (BLS12-381, for sealing), 3 ForeignTx (foreign state verification). Threshold 11.
+MPC contract: `v1.signer-prod.testnet`, version 3.19.0 (3.18.0 when rose was built; signing, key release and Base attestations re-verified live on 3.19.0 on 14 November, Solana attestations then timing out intermittently). Domains: 0 Sign (secp256k1, for Base), 1 Sign (Ed25519, for Solana), 2 Confidential Key Derivation (BLS12-381, for sealing), 3 ForeignTx (foreign state verification). Threshold 11.
 
 ## Base Sepolia
 

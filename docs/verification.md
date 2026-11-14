@@ -1759,7 +1759,7 @@ re-checked on the live engine.
 | Fact | Command | Result |
 |---|---|---|
 | Contract version | `call_function v1.signer-prod.testnet version {}` (any NEAR RPC; `https://near-testnet.drpc.org` when FastNEAR answers 429) | `"3.19.0"` |
-| Domains and threshold | `call_function v1.signer-prod.testnet state {}` | `Running`: domains 0 Sign CaitSith, 1 Sign Frost, 2 ConfidentialKeyDerivation, 3 ForeignTx, each `reconstruction_threshold` 11; 16 participants |
+| Domains and threshold | `call_function v1.signer-prod.testnet state {}` | `Running`: eight domains, each `reconstruction_threshold` 11, 16 participants: 0 Sign CaitSith, 1 Sign Frost, 2 ConfidentialKeyDerivation, 3 ForeignTx CaitSith (the four rose's `get_config` names), and 4 to 7 with the same four purposes and protocols |
 | Release notes | `gh api repos/near/mpc/releases/tags/3.19.0 --jq .body` | the breaking item is node-side (attestation expiry); `sign`, `request_app_private_key` and `verify_foreign_transaction` arguments unchanged |
 | Domain 2 (CKD) on 3.19.0 | `get_events` of `engine-v2.rose-app.testnet` from seq 196 | rounds 5 and 6: `key_requested` 00:54:00Z / 00:54:17Z, `key_received` (source `Callback`) 00:54:06Z / 00:54:22Z; round 7 key 4.36 s after its request |
 | Domain 3 (ForeignTx, Base `Log`) on 3.19.0 | same events | `deposit_verification_requested` then `position_registered` at 00:38Z and 00:46Z (two Sablier deposits from the app) |
@@ -1782,12 +1782,19 @@ re-checked on the live engine.
 | NEAR's Chain Signatures page lists only domains 0 and 1 | `curl -sL https://docs.near.org/chain-abstraction/chain-signatures` | "only the two signing domains are currently supported: 0 for Secp256k1 or 1 for Ed25519" |
 | near/mpc names CKD and foreign-chain verification | `curl -sL https://raw.githubusercontent.com/near/mpc/main/README.md` | "Confidential Key Derivation — derives application-specific keys without revealing the master secret (BLS12-381)"; "Read RPC — nodes independently verify transactions on foreign chains (Ethereum, Solana, Aptos, …) … Known under the working name foreign chain transaction verification" |
 | Near One names time-lock encryption as a CKD use | `curl -sL https://blog.nearone.org/research/2026/02/23/mpc-ckd.html` | "it can be used to enable time-lock encryption. A smart contract could encrypt data under a key that is only derivable once certain on-chain conditions …" |
+| MPC nodes run in TEEs | `curl -sL https://raw.githubusercontent.com/near/mpc/main/README.md` | "signatures produced jointly by t-of-n nodes running in TEEs, with no single party ever holding the complete key"; "Nodes run inside trusted execution environments (TEEs) and attest what they run on chain" |
+| NEAR Intents has no testnet | `curl -sS https://nearhackathon.com/HACKATHON.md`, Q-007 | "Testnet for Intents? None exists or is planned. Mainnet, separate dev accounts, tiny amounts, dry: true quotes." |
+| NEAR Intents' 1Click API | `curl -sL https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart` (HTTP 308 to the page) | the 1Click API (`https://1click.chaindefuser.com/docs/v0/openapi.yaml`) creates cross-chain swap orders; with no Intents testnet it runs on mainnet only |
+| NEAR Business | `curl -sS https://nearhackathon.com/HACKATHON.md`, partner notes | "NEAR Business (business.near.com): a confidential multisig built on NEAR Intents. It keeps treasury balances and transfers hidden from the public, manages assets on 35+ chains from one dashboard" |
 | Live facts quoted in `AGENTS.md` | `view_account` and `get_config` of `engine-v2.rose-app.testnet`; `cast call 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe "SIGNER()(address)"` | code hash `gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`; `derived_addresses.vault_base` `0xc345e592c6db18c162c6225bfb6f6c92b425b7cb` = `SIGNER()` |
 
 ## Sputnik DAO run and judging rounds (2026-11-14)
 
 New Sputnik DAOs on testnet are created by the factory `sputnikv2.testnet` and run DAO contract
-version 2.3.1 (the DAO `test.sputnikv2.testnet` recorded above runs 2.0.0).
+version 2.3.1 (the DAO `test.sputnikv2.testnet` recorded above runs 2.0.0). The run below was a
+one-off: a script outside the repository imported the issuer console's builders (`dao.ts`,
+`tender-form.ts`, `@rose/sdk` `EngineCalls`) and filed what they built from the DAO's two council
+accounts; it is not one of the recorded scripts under `deployments/`, so this table is its record.
 
 ### Issuer console: a Sputnik DAO v2 runs a Tender end to end (2026-11-14, engine-v2)
 
@@ -1813,3 +1820,4 @@ The issuer console's own builders (`dao.ts` `sputnikProposal`, `daoNearFundingCa
 |---|---|---|
 | 8 | `create_exit` by Halden Ventures [9tyRWSug…](https://testnet.near.rocks/tx/9tyRWSugaPhXvrbzTTeNbdT12ti55q1GYiMThY8MvkvF), sealed ask [8bB44rLK…](https://testnet.near.rocks/tx/8bB44rLKxztzgEwYZtnursqu9NP2fP9TQuQzEBBBvHbc) | Exit, Seed Round, NEAR tUSDC, max 0.05, closes 2026-11-16T15:00:00Z, key timeout 72 h, reveal 10 min; 10,000 units asked at 0.002 |
 | 10 | `create_exit` by Nadia Solvik [9FT6iEia…](https://testnet.near.rocks/tx/9FT6iEiaBLb95BWbMtzFpySbDpBD8AKZH8Quzkxpum1S), sealed ask [8MVL88us…](https://testnet.near.rocks/tx/8MVL88usy4zF6WwJHNwsY7YPsEP4VtEvC3htqNB2isAL) | Exit, KOL Round, NEAR tUSDC, max 0.05, closes 2026-11-17T15:00:00Z, key timeout 72 h, reveal 10 min; 5,000 units asked at 0.002 |
+| 4 | seeded by `node scripts/seed.ts open-round` on 2026-11-06 (see "Live end-to-end, engine-v2") and read with `get_round {"round_id":"4"}` on 2026-11-14 | Exit, Seed Round, created by Halden Ventures, closes 2026-11-20T16:05Z, reveal window 24 h, key timeout 168 h |
