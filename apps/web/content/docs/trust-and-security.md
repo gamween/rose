@@ -82,4 +82,4 @@ Every lifecycle step is a public method, so a round only stalls if nobody calls 
 
 ## Unaudited
 
-The engine, the IBE crate, RoseVault and the web app have not been audited. The code has unit, property and integration tests and independent review passes, but that is not an audit. Do not use this code with assets of value.
+The engine, the IBE crate, RoseVault and the web app have not been audited. The code has unit, property and integration tests, but that is not an audit. Do not use this code with assets of value.

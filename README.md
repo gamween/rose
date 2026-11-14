@@ -126,10 +126,10 @@ NEAR's [Chain Signatures page](https://docs.near.org/chain-abstraction/chain-sig
 only the two signing domains. The MPC network behind it (`v1.signer-prod.testnet`) also serves two
 more kinds of domain, and rose uses one of each kind, domains 0 to 3 (the live contract lists eight,
 each kind twice); the [near/mpc README](https://github.com/near/mpc) names the other two
-("Confidential Key Derivation", "Read RPC", the working name of foreign chain transaction
-verification), and Near One's [CKD article](https://blog.nearone.org/research/2026/02/23/mpc-ckd.html)
-gives time-lock encryption as the use it enables, which is rose's. Each row links a transaction of
-the final engine that only works if the primitive does.
+("Confidential Key Derivation", and "Read RPC", known in the code under the working name foreign
+chain transaction verification), and Near One's [CKD article](https://blog.nearone.org/research/2026/02/23/mpc-ckd.html)
+gives time-lock encryption as a use it enables, which is rose's. Each MPC row links a transaction
+of the final engine that only works if the primitive does.
 
 | Primitive (MPC domain) | Method rose calls | What rose does with it | Code | Proof on testnet |
 |---|---|---|---|---|
@@ -201,7 +201,7 @@ are real testnet transactions.
 Rounds left open for reviewers: **#8** (Exit, Seed Round, closes 16 November 15:00 UTC) and **#10**
 (Exit, KOL Round, closes 17 November 15:00 UTC) each hold a sealed ask at 0.002 tUSDC per locked
 token, so any bid at or above it fills, and have a 10-minute reveal window; **#4** (Exit, Seed
-Round, closes 20 November 16:05 UTC, 24-hour reveal window) holds Halden Ventures' sealed ask. There
+Round, closes 20 November 16:05 UTC, 24-hour reveal window) holds a sealed ask from the fictional holder Halden Ventures. There
 is no keeper: after the close, whoever is there clicks **Close round**, then **Open every order**
 right away (orders still sealed when the reveal window ends are void and their bond is slashed),
 then **Clear**.
@@ -374,11 +374,11 @@ auto-claim empties an ended stream whether or not a payout drew on it
 ### Measured once, relied on everywhere
 
 - **CKD from a contract:** 19 Tgas is the live minimum for the key request (the engine attaches 25);
-  the close-to-key round trip took 4.2 to 4.8 s in the spike.
+  the close-to-key round trip took 4.2 to 4.8 s, measured on testnet.
 - **Browser sealing:** 11.7 to 16.5 ms per encryption (Node and headless Chromium) against the live
   CKD key, 192-byte ciphertexts.
 - **Sablier port:** 197 of 197 live `streamedAmountOf` reads reproduced exactly by the Rust unlock
-  function in the spike (a scratch binary, command in `docs/verification.md`), including cliffs and
+  function on testnet (a throwaway binary, command in `docs/verification.md`), including cliffs and
   a stream with a one-day granularity; twelve of those streams are replayed on every test run by
   `contracts/engine/tests/sablier_live.rs` and by the TypeScript port's tests.
 - **ForeignTx:** a mismatch with `expected_payload_hash` is a silent 2-minute timeout, so the engine

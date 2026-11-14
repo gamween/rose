@@ -9,7 +9,7 @@ This guide is for a foundation, project treasury or DAO that wants to buy back l
 
 ## Before you start
 
-- Connect a NEAR testnet wallet (top bar, "Connect"). Judges can use the in-app demo wallet.
+- Connect a NEAR testnet wallet (top bar, "Connect"). Visitors can use the in-app demo wallet.
 - Open the wallet menu and use "Get test funds" to get NEAR, test USDC (tUSDC on NEAR or on Base Sepolia) and Base Sepolia gas. See [Buyer guide](/docs/guide-buyer#get-test-funds) for details.
 - Decide the cash venue of your Tender: NEAR tUSDC, or a Base ERC-20 the engine accepts (rose Base tUSDC or Circle USDC), held by RoseVault. A round has exactly one venue and every escrow, fee and payout of that round lives there.
 

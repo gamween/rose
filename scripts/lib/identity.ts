@@ -4,7 +4,7 @@
  * live against CoinGecko, DefiLlama and DexScreener (docs/verification.md, "Demo identity").
  *
  * Schedules. `seed-base` and `kol-base` use the exact schedules of the deployed DemoStreamFaucet
- * (read live, so positions judges mint from the app land in the same classes); the Seed Round
+ * (read live, so positions visitors mint from the app land in the same classes); the Seed Round
  * cliff is in May 2027, which is why the Advance, whose repayment must be visible during the
  * hackathon, sits on the KOL Round (linear since its TGE). `strategic-sol` is a Streamflow cohort:
  * 10% at the February 2027 cliff, then 5% every 30 days.
