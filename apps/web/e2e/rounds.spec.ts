@@ -73,7 +73,7 @@ test.describe("rounds with a mocked engine", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText("0.05 NEAR");
     await expect(dialog.getByRole("combobox").first()).toContainText("CINDR");
-    await dialog.getByPlaceholder("8.50").fill("9");
+    await dialog.getByLabel("Max price").fill("9");
     await expect(dialog.locator("[data-key-timeout]")).toHaveValue("60");
     await expect(dialog.locator("[data-reveal-window]")).toHaveValue("10");
     await expect(dialog.locator("[data-round-timing]")).toContainText("Key timeout 1 min to 7 d; reveal window 5 min to 7 d.");
