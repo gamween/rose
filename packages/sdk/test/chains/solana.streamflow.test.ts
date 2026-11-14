@@ -11,6 +11,7 @@ import {
   decodeStreamflowMetadata,
   listStreamflowStreamsForRecipient,
   readStreamflowStream,
+  solRedeemSafety,
   STREAMFLOW_TRANSFER_RECIPIENT_DISCRIMINATOR,
   transferRecipientInstruction,
 } from "../../src/chains/solana/streamflow.js";
@@ -89,6 +90,29 @@ describe("checkStreamflowEligibility", () => {
     expect(checkStreamflowEligibility(bad).reasons).toEqual(["automatic_withdrawal", "modified", "fees"]);
     expect(checkStreamflowEligibility(metadata, metadata.endTime - 3_600n).reasons).toEqual(["ends_too_soon"]);
     expect(checkStreamflowEligibility(metadata, metadata.endTime - 3_601n).reasons).toEqual([]);
+  });
+});
+
+describe("solRedeemSafety", () => {
+  const metadata = { ...decodeStreamflowMetadata(bytes), canTopup: false, amountWithdrawn: 500n };
+
+  it("accepts a stream the engine's accounting matches", () => {
+    expect(solRedeemSafety(metadata, 500n)).toEqual({ kind: "safe" });
+  });
+
+  it("asks for a sync first when the stream withdrew more than the engine booked", () => {
+    expect(solRedeemSafety(metadata, 200n)).toEqual({ kind: "sync_first", unbooked: 300n });
+  });
+
+  it("refuses a stream whose sender switched automatic withdrawal on, synced or not", () => {
+    const swept = { ...metadata, automaticWithdrawal: true };
+    expect(solRedeemSafety(swept, 200n)).toEqual({ kind: "automatic_withdrawal", unbooked: 300n });
+    expect(solRedeemSafety(swept, 500n)).toEqual({ kind: "automatic_withdrawal", unbooked: 0n });
+    expect(solRedeemSafety(swept, 900n)).toEqual({ kind: "automatic_withdrawal", unbooked: 0n });
+  });
+
+  it("calls a read behind the engine's proven accounting stale", () => {
+    expect(solRedeemSafety(metadata, 501n)).toEqual({ kind: "stale_read" });
   });
 });
 
