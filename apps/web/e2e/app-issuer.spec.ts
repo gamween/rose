@@ -206,6 +206,9 @@ test.describe("issuer console", () => {
     await openConsole(page, "#distribute");
     state.account = await connectNearDemo(page);
     await expect(page.locator("[data-issuer-tab='distribute']")).toBeVisible({ timeout: 30_000 });
+    // The empty first row asks for a receiver; it is not an error yet.
+    await expect(page.getByText("Add a receiver and its units.")).toBeVisible();
+    await expect(page.getByText("Not a valid NEAR account id.")).toHaveCount(0);
     await page.getByLabel("Paste receivers").fill("halden.testnet,100\ntessaro.testnet,150");
     await page.getByLabel("Paste receivers").blur();
     await expect(page.getByText("Your free balance: 400.0000 units")).toBeVisible({ timeout: 30_000 });
