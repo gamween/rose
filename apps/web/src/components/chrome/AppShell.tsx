@@ -31,14 +31,14 @@ function FundsLoading({ open, failed, onClose, onRetry }: { open: boolean; faile
             Retry
           </Button>
         </div>
-      ) : (
+      ) : open ? (
         <p role="status" className="flex items-center gap-2 text-[12px] text-ink-400">
           <span aria-hidden className="inline-flex">
             <Spinner />
           </span>
           Loading the funds panel…
         </p>
-      )}
+      ) : null}
     </Drawer>
   );
 }

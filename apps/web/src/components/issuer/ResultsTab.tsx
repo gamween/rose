@@ -106,7 +106,7 @@ export function ResultsTab({ base }: { base: IssuerBase }) {
         ) : state.status === "not_deployed" ? (
           <EmptyState illustration="vault" title="Engine not deployed yet" />
         ) : state.value.length === 0 ? (
-          <EmptyState illustration="tender" title="No Tender yet" description="Launch one from the Tender tab: the round appears here with its status, and its report once settled." />
+          <EmptyState illustration="tender" title="No Tender yet" description="Launch one from New Tender (step 5, Launch Tender): the round appears here with its status, and its report once settled." />
         ) : (
           <Table>
             <THead>
