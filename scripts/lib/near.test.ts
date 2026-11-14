@@ -62,6 +62,12 @@ await test("a rate-limited send the network does not know is sent again, the sam
   assert.deepEqual(transaction.calls, ["send", "known", "send", "known", "send"]);
 });
 
+await test("a send that failed on the server (HTTP 503) and that the network does not know is sent again, by sendOnce", async () => {
+  const transaction = scripted([Object.assign(new Error("https://rpc.invalid unavailable"), { cause: 503 }), OUTCOME], [false]);
+  assert.equal(await sendOnce("t", "H", transaction), OUTCOME);
+  assert.deepEqual(transaction.calls, ["send", "known", "send"]);
+});
+
 await test("the send is not repeated while the lookup cannot tell, and stops on the original error", async () => {
   const transaction = scripted([RATE_LIMITED], [null, null, null, null, null]);
   await assert.rejects(sendOnce("t", "H", transaction), RATE_LIMITED);

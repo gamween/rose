@@ -146,13 +146,18 @@ async function retryBeforeSending<T>(what: string, run: () => Promise<T>): Promi
   }
 }
 
+/** HTTP statuses near-api-js turns into an error carrying the status as `cause`, besides 429: the server, its gateway or its own wait failed. */
+const SERVER_FAILURES: readonly unknown[] = [408, 500, 502, 503];
+
 /**
  * True for a failed send after which the transaction may simply not have arrived: a rate limit
- * (FastNEAR answers 429 to some `send_tx` it forwarded, seen live), a non-JSON page from a proxy,
- * or a transport failure (connection reset, timeout).
+ * (FastNEAR answers 429 to some `send_tx` it forwarded, seen live), a server or gateway failure
+ * (the resends near-api-js would make on its own, which `sendOnce` makes instead), a non-JSON page
+ * from a proxy, or a transport failure (connection reset, timeout).
  */
 function resendable(error: unknown): boolean {
   if (rateLimited(error) || error instanceof SyntaxError || error instanceof TypeError) return true;
+  if (error instanceof Error && SERVER_FAILURES.includes((error as Error & { cause?: unknown }).cause)) return true;
   return error instanceof Error && /fetch failed|timed? ?out|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(error.message);
 }
 
