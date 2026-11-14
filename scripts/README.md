@@ -57,7 +57,7 @@ stored); if it stops after deleting the keys,
 result without sending anything.
 
 `deployments/testnet.json` then holds everything the web app needs; `deployments/<engine>.env` is
-the matching `NEXT_PUBLIC_*` snippet for `apps/web/.env` or the Vercel environment.
+the matching `NEXT_PUBLIC_*` snippet for `apps/web/.env.local` or the Vercel environment.
 
 ## Sandbox integration tests
 
