@@ -2,8 +2,9 @@
 
 /**
  * After a DAO's Tender, the unspent budget and any refund sit in the DAO's engine cash in the NEAR
- * venue. Only the DAO itself can take them out (`withdraw_near_cash` pays its caller), so the
- * console builds that call as a Sputnik proposal, as it does for the funding and the Tender.
+ * venue, with any other cash credited to it. Only the DAO itself can take that cash out
+ * (`withdraw_near_cash` pays its caller), so the console builds the call, for the whole balance,
+ * as a Sputnik proposal, as it does for the funding and the Tender.
  */
 
 import { outcomeValue } from "@rose/sdk";
@@ -41,7 +42,7 @@ export function DaoWithdrawal({ base, dao }: { base: IssuerBase; dao: string }) 
     };
   }, [base.engine.views, dao, attempt]);
 
-  const proposal = read.status === "ok" && read.cash > 0n ? sputnikProposal(base.engine.calls.withdrawNearCash(read.cash), `rose: withdraw ${formatUsdc(read.cash)} tUSDC of unspent Tender budget from the engine's NEAR cash to the DAO (withdraw_near_cash)`) : null;
+  const proposal = read.status === "ok" && read.cash > 0n ? sputnikProposal(base.engine.calls.withdrawNearCash(read.cash), `rose: withdraw the DAO's ${formatUsdc(read.cash)} tUSDC of engine cash on NEAR (unspent Tender budget included) to its wallet (withdraw_near_cash)`) : null;
 
   const fileProposal = useCallback(() => {
     if (read.status !== "ok" || !proposal) return;
@@ -54,7 +55,7 @@ export function DaoWithdrawal({ base, dao }: { base: IssuerBase; dao: string }) 
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2.5" data-dao-withdrawal={dao}>
-      <p className="text-[13px] text-ink-50">Unspent budget of {dao}</p>
+      <p className="text-[13px] text-ink-50">Engine cash of {dao}</p>
       {read.status === "loading" ? <Hint>Reading the DAO&apos;s engine cash and proposal bond…</Hint> : null}
       {read.status === "error" ? (
         <p className="flex flex-wrap items-center gap-2 text-[12px] text-danger-400" role="alert">
@@ -68,7 +69,7 @@ export function DaoWithdrawal({ base, dao }: { base: IssuerBase; dao: string }) 
       {read.status === "ok" && proposal ? (
         <>
           <Hint>
-            {formatUsdc(read.cash)} tUSDC sits in the DAO&apos;s engine cash (the part of the escrow the Tender did not spend). Only the DAO can withdraw it: file the proposal, members approve it, and the tUSDC returns to the DAO&apos;s wallet.
+            {formatUsdc(read.cash)} tUSDC sits in the DAO&apos;s engine cash on NEAR: what its Tenders did not spend, and any other cash credited to it. Only the DAO can withdraw it: this proposal withdraws the whole balance once members approve it, back to the DAO&apos;s tUSDC wallet.
           </Hint>
           <ProposalBlock
             name="Withdrawal"
