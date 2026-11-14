@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { BONE_COUNT, CHEST_BONE, FRONT_LEGS, HEAD_BONE, HIND_LEGS, JAW_BONE, KIND, PELVIS_BONE, SPINE, WINGS, buildDragon, buildDragonInSteps } from "./dragon";
 
-describe("procedural voxel dragon", () => {
+/** Building the full model takes seconds on a loaded machine; the default 5 s timeout made the suite flaky. */
+describe("procedural voxel dragon", { timeout: 30_000 }, () => {
   const model = buildDragon();
   const kinds = new Map<number, number>();
   for (let i = 0; i < model.count; i += 1) {
@@ -62,17 +63,19 @@ describe("procedural voxel dragon", () => {
   });
 
   it("skins every voxel to valid bones with weights summing to one", () => {
+    const invalidBones: number[] = [];
+    const badTotals: number[] = [];
     for (let i = 0; i < model.count; i += 1) {
       let total = 0;
       for (let k = 0; k < 4; k += 1) {
         const bone = model.skinBones[i * 4 + k]!;
-        expect(Number.isInteger(bone)).toBe(true);
-        expect(bone).toBeGreaterThanOrEqual(0);
-        expect(bone).toBeLessThan(BONE_COUNT);
+        if (!Number.isInteger(bone) || bone < 0 || bone >= BONE_COUNT) invalidBones.push(i);
         total += model.skinWeights[i * 4 + k]!;
       }
-      expect(total).toBeCloseTo(1, 5);
+      if (Math.abs(total - 1) >= 5e-6) badTotals.push(i);
     }
+    expect(invalidBones).toEqual([]);
+    expect(badTotals).toEqual([]);
   });
 
   it("gives every bone of the spine, the legs and the wings its own voxels", () => {
@@ -100,12 +103,13 @@ describe("procedural voxel dragon", () => {
 
   it("marks how much each voxel follows the torso, so only the chest swells with the breath", () => {
     let torso = 0;
+    const outOfRange: number[] = [];
     for (let i = 0; i < model.count; i += 1) {
       const weight = model.data[i * 4 + 1]!;
-      expect(weight).toBeGreaterThanOrEqual(0);
-      expect(weight).toBeLessThanOrEqual(1);
+      if (weight < 0 || weight > 1) outOfRange.push(i);
       torso += weight;
     }
+    expect(outOfRange).toEqual([]);
     expect(torso).toBeGreaterThan(5000);
   });
 
