@@ -454,9 +454,11 @@ docs
 
 ## Getting started
 
-Requirements: Rust 1.95.0 (pinned in `rust-toolchain.toml`), Foundry 1.4, Node 22.18 or later and
-pnpm 10. Secrets never enter the repository; [`.env.example`](./.env.example) documents every
-variable.
+Requirements: Rust 1.95.0 (pinned in `rust-toolchain.toml`, with the `wasm32-unknown-unknown`
+target), Foundry 1.4, Node 22.18 or later, pnpm 10, `bash` and `jq` (a scripts test runs the deploy
+checks). `forge test` reaches `https://sepolia.base.org` for its fork tests, and the sandbox suite
+downloads the NEAR sandbox binary. Secrets never enter the repository;
+[`.env.example`](./.env.example) documents every variable.
 
 ```sh
 git clone --recurse-submodules https://github.com/gamween/rose && cd rose
@@ -483,7 +485,9 @@ The demo faucet route needs its own testnet hot wallets (`BASE_FAUCET_PRIVATE_KE
 every other page works.
 
 Deploy your own engine and replay the demo story on the real testnets, from your own testnet
-account: its key in the near-cli legacy keychain, `ROSE_ROOT_ACCOUNT` set to it (the cast's
+account. The deployment scripts also need near-cli-rs (`near`), cargo-near 0.22.0, Docker (for the
+reproducible build), `curl`, `shasum`, `python3` and Foundry's `cast`; they use your account's key
+in the near-cli legacy keychain, `ROSE_ROOT_ACCOUNT` set to it (the cast's
 accounts are created under it and funded from it), and your Base and Solana keys in
 `~/.config/rose/` (see [`scripts/README.md`](./scripts/README.md)). The engine account is a
 sub-account of the root account, for example `engine.<your account>`:
