@@ -28,6 +28,44 @@ export function Tabs<T extends string>({
   const autoId = useId();
   const baseId = idBase ?? autoId;
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const list = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+
+  // On a narrow screen the row scrolls sideways: fade the edge that hides tabs, so the row reads as
+  // scrollable without a scrollbar.
+  useEffect(() => {
+    const element = list.current;
+    if (!element) return;
+    const measure = () => {
+      const start = element.scrollLeft > 1;
+      const end = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+      setEdges((previous) => (previous.start === start && previous.end === end ? previous : { start, end }));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    element.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("scroll", measure);
+    };
+  }, []);
+
+  // Keep the selected tab inside the row (a deep link such as `#storage` may select one that starts
+  // off screen), scrolling the row only, never the page.
+  useEffect(() => {
+    const element = list.current;
+    const tab = element?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!element || !tab) return;
+    const left = tab.offsetLeft;
+    const right = left + tab.offsetWidth;
+    if (left < element.scrollLeft) element.scrollLeft = Math.max(0, left - 24);
+    else if (right > element.scrollLeft + element.clientWidth) element.scrollLeft = right - element.clientWidth + 24;
+  }, [value]);
+
+  const fade =
+    edges.start || edges.end
+      ? `linear-gradient(to right, ${edges.start ? "transparent, black 24px" : "black, black"}, ${edges.end ? "black calc(100% - 24px), transparent" : "black, black"})`
+      : undefined;
 
   const focusAt = (index: number) => {
     const count = items.length;
@@ -49,7 +87,14 @@ export function Tabs<T extends string>({
   return (
     // The bottom rule is an inset shadow, not a border: the row scrolls sideways on a narrow screen
     // (labels never wrap) and the selected tab's underline still paints over the rule.
-    <div role="tablist" aria-label={label} className={cn("flex items-center gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--color-ink-750)] [scrollbar-width:none]", className)}>
+    <div
+      ref={list}
+      role="tablist"
+      aria-label={label}
+      style={fade ? { maskImage: fade, WebkitMaskImage: fade } : undefined}
+      data-overflow={edges.start || edges.end ? "true" : undefined}
+      className={cn("relative flex items-center gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--color-ink-750)] [scrollbar-width:none]", className)}
+    >
       {items.map((item, index) => {
         const selected = item.id === value;
         return (
