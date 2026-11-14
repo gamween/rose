@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cooldownMs, describeFailure, endpointOrder, MAX_CONCURRENT_RPC_REQUESTS, RPC_COOLDOWN_MS, NearRpc, NearRpcError, TokenBucket, outcomeFailure, outcomeLogs, outcomeValue, withRpcSlot, type FinalExecutionOutcome } from "../../src/engine/rpc.js";
 
 function bytes(value: unknown): number[] {
@@ -84,6 +84,23 @@ describe("NearRpc", () => {
     expect(result.transaction.hash).toBe("H");
     expect(sent?.method).toBe("send_tx");
     expect(sent?.params).toEqual({ signed_tx_base64: "AAAA", wait_until: "FINAL" });
+  });
+
+  it("sends a transaction to the endpoints in the order given, even to one that is pausing", async () => {
+    const urls: string[] = [];
+    const outcome = { status: { SuccessValue: "" }, transaction: { hash: "H" }, transaction_outcome: { outcome: { logs: [] } }, receipts_outcome: [] };
+    const fetchImpl: typeof globalThis.fetch = (url, init) => {
+      urls.push(url as string);
+      const { method } = JSON.parse(init?.body as string) as { method: string };
+      if (method === "block") return Promise.resolve(new Response("Too Many Requests", { status: 429 }));
+      return Promise.resolve(json({ result: outcome }));
+    };
+    const rpc = new NearRpc({ fetch: fetchImpl, endpoints: ["https://send-a.test", "https://send-b.test"] });
+    await expect(rpc.block("final")).rejects.toThrow(NearRpcError);
+    expect(cooldownMs("https://send-a.test")).toBeGreaterThan(0);
+    urls.length = 0;
+    await rpc.sendTransaction("AAAA");
+    expect(urls).toEqual(["https://send-a.test"]);
   });
 });
 
@@ -177,10 +194,36 @@ describe("RPC request budget", () => {
     expect(cooldownMs("https://cool-a.test")).toBeGreaterThan(RPC_COOLDOWN_MS - 1_000);
     await rpc.block("optimistic");
     expect(urls.slice(2)).toEqual(["https://cool-b.test"]);
+    expect(cooldownMs("https://cool-a.test", Date.now() + RPC_COOLDOWN_MS)).toBe(0);
     limited = false;
     const direct = new NearRpc({ fetch: fetchImpl, endpoints: ["https://cool-a.test"] });
     await direct.block("final");
     expect(cooldownMs("https://cool-a.test")).toBe(0);
+  });
+
+  it("keeps the pause when an answer to a request sent before the refusal lands after it", async () => {
+    const endpoint = "https://cool-burst.test";
+    const answers: ((response: Response) => void)[] = [];
+    const fetchImpl: typeof globalThis.fetch = () => new Promise<Response>((resolve) => answers.push(resolve));
+    const rpc = new NearRpc({ fetch: fetchImpl, endpoints: [endpoint] });
+    const early = rpc.block("final");
+    const limited = rpc.block("optimistic").catch((error: unknown) => error);
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(2);
+    });
+    answers[1]?.(new Response("Too Many Requests", { status: 429 }));
+    expect(await limited).toBeInstanceOf(NearRpcError);
+    expect(cooldownMs(endpoint)).toBeGreaterThan(RPC_COOLDOWN_MS - 1_000);
+    answers[0]?.(json({ result: { header: { height: 1 } } }));
+    await early;
+    expect(cooldownMs(endpoint)).toBeGreaterThan(RPC_COOLDOWN_MS - 1_000);
+    const later = rpc.block("final");
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(3);
+    });
+    answers[2]?.(json({ result: { header: { height: 2 } } }));
+    await later;
+    expect(cooldownMs(endpoint)).toBe(0);
   });
 
   it("shares one round trip between identical requests in flight", async () => {
