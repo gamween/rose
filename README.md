@@ -72,35 +72,43 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    ciphertext hashes, no price), the key released by the MPC network a few seconds after the close,
    every ask opened and verified on chain, and the clearing price, each step with its explorer link.
 2. **Connect.** Click **Connect**, choose a network (NEAR first, then Base and Solana), and under
-   **Try without a wallet** use its demo wallet. You see one header button with the connected
-   networks, and its menu lists each wallet with its balance; the keys stay in this browser.
+   **No wallet?** click **Create a demo wallet**. The dialog closes after each network: add the next
+   one from the wallet menu (**Connect another network**). You see one header button with the
+   connected networks, and its menu lists each wallet with its balance; the keys stay in this browser.
 3. **Get test funds.** Open the wallet menu, then **Get test funds**: **Create the demo account
    with test NEAR**, **Mint 1,000 tUSDC on NEAR**, **Mint 1,000 tUSDC on Base**, **Mint me a demo
-   vesting position**, **Create a demo Streamflow position**, and the two actions that send Base
-   Sepolia ETH and Solana devnet SOL for gas. You see each action succeed with its explorer link and the balances update.
+   vesting position** (pick **KOL cohort** to have unlocked CINDR to claim in step 8; the **Seed
+   cohort** is still in its cliff), **Create a demo Streamflow position**, **Send 0.0020 ETH for gas**
+   and **Send 0.050 SOL**. You see each action succeed with its explorer link and the balances
+   update. The gas sends have hourly caps shared by every visitor; a capped action says when it
+   reopens.
 4. **Deposit a position.** Open `/app/deposit`, choose Base, pick the demo Sablier stream and
-   deposit it. You see the wait for Base's `safe` head (about 3 minutes), then the MPC network's
-   attestation of the deposit (6 to 9 seconds when measured), then your units minted. Choosing Solana does the
-   same for the Streamflow position in three engine calls.
+   deposit it. You see the wait for Base's `safe` head (3 to 5 minutes), then the MPC network's
+   attestation of the deposit (seconds), then your units minted. Choosing Solana does the same for
+   the Streamflow position in three engine calls.
 5. **Open a round and sell, sealed.** On `/app/rounds`, **Create Exit round** on the class of your
-   position with a short window, then **Place ask**. You see your ask in the sealed book: its locked
-   units and its ciphertext hash, never its price.
-6. **Buy from a second identity.** In a private window, repeat steps 2 and 3, open the same round and
-   **Place bid**. The round now shows two sealed orders.
-7. **Close, finalize, clear.** After the deadline, click the round's next action: **Close round**
-   (the key arrives within seconds), **Finalize** (your browser decrypts every order and opens each
-   one on chain), then clear once the reveal window (10 minutes by default) is over. You see the
-   supply and demand curves meet at one price, the fills, and the **Verify** panel recomputing the
-   same price in your browser.
-8. **Claim.** Click **Claim**: proceeds and refunds land in tUSDC; in your portfolio (`/app`), claim
-   the CINDR your units unlocked on Base. You see the MPC signature on NEAR and the `executeTransfer`
-   on Basescan.
+   position with a short window. In the round's order card, **Deposit cash** for the seller's bond
+   (a few tUSDC), then **Seal and place ask**. You see your ask in the **Sealed book** tab: its
+   locked units and its ciphertext hash, never its price.
+6. **Buy from a second identity.** In a private window, repeat steps 2 and 3, open the same round,
+   **Deposit cash** for the escrow and **Seal and place bid**. The round now shows two sealed orders.
+7. **Close, open, clear.** After the deadline the round's action card shows the next step: **Close
+   round** (the key arrives within seconds), **Open every order** (your browser decrypts every order
+   and opens each one on chain), then **Clear** once the reveal window (10 minutes by default) is
+   over. In the **Results** tab you see the supply and demand curves meet at one price, the fills,
+   and the **Verify** panel recomputing the same price in your browser.
+8. **Claim.** In the **My orders** tab, **Claim** settles your order; proceeds and refunds land as
+   tUSDC in your portfolio (`/app`, **Claims** tab), which withdraws them to your wallet. For the
+   KOL cohort position, claim the CINDR your units unlocked on Base: you see the MPC signature on
+   NEAR and the `executeTransfer` on Basescan.
 9. **Check the trust claims.** Open `/status`. You see the engine's raw access-key list, the RoseVault
    signer compared with the engine's MPC-derived address, the MPC contract version and the latency
    of recent key releases.
-10. **Run a buyback as an issuer.** Open `/app/issuer`: launch a Tender with a budget and a maximum
-    price, or **Run via DAO** to get the Sputnik DAO proposal and the Trezu template that file the
-    same call from a treasury. After settlement the results page exports the tender report.
+10. **Run a Tender buyback as an issuer.** Open `/app/issuer` and follow **New Tender** to its
+    **Launch Tender** step: set a budget and a maximum price and sign it yourself, or set **Signed
+    by** to **A DAO** and enter a Sputnik DAO account: the **Run via DAO** panel then shows the DAO
+    proposal and the Trezu template that file the same call from the treasury. After settlement the
+    **Results** tab exports the tender report.
 
 ## How rose fits the tracks
 
@@ -373,7 +381,7 @@ earlier record stays in [`deployments/testnet.json`](./deployments/testnet.json)
 |---|---|---|---|
 | NEAR testnet | rose-engine (final, keyless) | `engine-v2.rose-app.testnet` | create [AzUsL5Bb…](https://testnet.near.rocks/tx/AzUsL5BbbsG3C5s1rcfDqRPQK4YCMUMLVAMG15TRSD5R), deploy and `new` [5y42Nnqc…](https://testnet.near.rocks/tx/5y42Nnqcy58dypq5B6SqqVmfgtM1JsRXTjVeJVJX94Zp), bootstrap [CfnCUcRC…](https://testnet.near.rocks/tx/CfnCUcRCXLHFLLtqhrmVmKBRKRvSnvuyobjW2eekmeaq), keys deleted [2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3) |
 | NEAR testnet | Test USDC (NEP-141, keyless) | `tusdc.rose-app.testnet` | deploy [CekG17rC…](https://testnet.near.rocks/tx/CekG17rCG6MQ1djNH4pnbHaFj3EoXLq8b6hApCwXVsUN), keys deleted [EjiBFUNB…](https://testnet.near.rocks/tx/EjiBFUNB8CmiY8qTERPvaqYc8jFkBds51iTSAGShq1MG) |
-| NEAR testnet | MPC network (external) | `v1.signer-prod.testnet` | contract 3.18.0, domains 0 to 3 |
+| NEAR testnet | MPC network (external) | `v1.signer-prod.testnet` | contract 3.19.0 (rose was built against 3.18.0; signing on domains 0 and 1, CKD and Base attestations re-verified live on 3.19.0 on 14 November, see [Limits](#limits-and-roadmap) for Solana attestations), domains 0 to 3 |
 | Base Sepolia | RoseVault | `0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe` | [0x301ce573…](https://sepolia.basescan.org/tx/0x301ce5737f288a40df02e48ff3da1049bf2c3a5d4fa6f008020bf9512addf126), signer = the engine's derived `vault/base` `0xc345e592c6db18c162c6225bfb6f6c92b425b7cb` |
 | Base Sepolia | TestUSDC | `0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01` | [0xb7dfe548…](https://sepolia.basescan.org/tx/0xb7dfe548dcd5ad2e79484cff19d1c0d8a6a777830ff2ab567969f63643d599f9) |
 | Base Sepolia | DemoToken Cindral (CINDR) | `0x1250554fdbd8e63a75ea9ed0021f2dcae55d3f4b` | [0x9f02fedb…](https://sepolia.basescan.org/tx/0x9f02fedb507f317f9e6fe7834f3605371f1f76a8db99ff5b987d5fdcf39ed954) |
@@ -391,7 +399,14 @@ Engine wasm: the reproducible build of commit
 digest in `contracts/engine/Cargo.toml`; the on-chain `contract_source_metadata` names the commit
 and the image), 1,019,188 bytes, sha256
 `0a0a16ef9cec1916d59b963183eee9a20ded1206e4ec25bbaef759335ae8e46a`, equal to the on-chain code hash
-`gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`.
+`gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK` (its base58 form). To rebuild it (cargo-near 0.22.0,
+Docker running; the image is pinned by digest, so the build is the same on any machine):
+
+```sh
+git clone https://github.com/gamween/rose && cd rose && git checkout 0524b33
+(cd contracts/engine && cargo near build reproducible-wasm)
+shasum -a 256 target/near/rose_engine/rose_engine.wasm   # 0a0a16ef…e46a
+```
 The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 
 ## Limits and roadmap
@@ -401,6 +416,7 @@ The app's `/status` page reads the engine, RoseVault and the Solana vault live.
 | Unaudited, testnet only | Test tokens with no value; tests and the [review passes](./docs/security.md#review-history) | An external audit before any mainnet deployment |
 | A threshold of MPC nodes could read bids early or sign for the vaults | The MPC network's threshold and TEEs, the same assumption as every Chain Signatures application | None inside rose: it adds no trust beyond the MPC network |
 | A cancelled round's key can still become public through a late MPC response, and anything encrypted to a round is readable after its key is public | No funds move after `Cancelled`; privacy only, stated in the [security model](./docs/security.md#key-release) | None: a property of the scheme (ePrint 2025/2048) |
+| Solana deposits and payouts wait on the MPC network's Solana attestations (ForeignTx `AccountState`) | Right after the MPC upgrade to 3.19.0, 7 of 9 Solana attestation requests timed out at 120 s on 14 November between 01:10 and 01:35 UTC; the engine refunded every failed request and the action can be retried from the app. Base attestations, signing and key releases worked throughout | None inside rose: the MPC network's own availability |
 | Collateral is public, so each order's size is bounded in public | Over-collateralize to hide it | None planned |
 | At most 64 orders per round, no sybil resistance | Bond and storage deposit per order; a new round | Larger rounds with paginated clearing |
 | Positions: Sablier Lockup v4 Linear on Base, fee-free Streamflow on Solana | Everything else refused at deposit, with the reason | Sablier Tranched and Dynamic, other vesting contracts (Magna, Hedgey), more chains served by ForeignTx |
@@ -417,7 +433,7 @@ The app's `/status` page reads the engine, RoseVault and the Solana vault live.
   (wasm-bindgen 0.2.130).
 - **Base contracts:** Solidity 0.8.38 with Foundry, OpenZeppelin Contracts v5.7.0; RoseVault,
   TestUSDC, DemoToken, DemoStreamFaucet against Sablier Lockup v4.
-- **MPC:** NEAR `v1.signer-prod.testnet` 3.18.0: `sign` (secp256k1, Ed25519), CKD (BLS12-381),
+- **MPC:** NEAR `v1.signer-prod.testnet` 3.19.0: `sign` (secp256k1, Ed25519), CKD (BLS12-381),
   `verify_foreign_transaction` (Base `Log`, Solana `AccountState`).
 - **SDK:** `@rose/sdk`, TypeScript 6.0.3: engine bindings checked against the contract ABI, Base and
   Solana adapters, unlock math and the clearing reference behind the Verify panel.
