@@ -97,10 +97,11 @@ are real testnet transactions ([demo script and cast](./docs/demo.md)).
    and opens each one on chain), then **Clear** once the reveal window (10 minutes by default) is
    over. In the **Results** tab you see the supply and demand curves meet at one price, the fills,
    and the **Verify** panel recomputing the same price in your browser.
-8. **Claim.** In the **My orders** tab, **Claim** settles your order; proceeds and refunds land as
-   tUSDC in your portfolio (`/app`, **Claims** tab), which withdraws them to your wallet. For the
-   KOL cohort position, claim the CINDR your units unlocked on Base: you see the MPC signature on
-   NEAR and the `executeTransfer` on Basescan.
+8. **Settle, then claim.** In the round's action card click **Settle my order** (settlement is open
+   to anyone; **Settle every order** settles the whole round): proceeds and refunds land in your
+   tUSDC cash. In your portfolio (`/app`, **Claims** tab), claim the cash and, for the KOL cohort
+   position, the CINDR your units unlocked on Base: you see the MPC signature on NEAR and the
+   `executeTransfer` on Basescan.
 9. **Check the trust claims.** Open `/status`. You see the engine's raw access-key list, the RoseVault
    signer compared with the engine's MPC-derived address, the MPC contract version and the latency
    of recent key releases.
