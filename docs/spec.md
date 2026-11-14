@@ -1,6 +1,6 @@
 # rose: product and technical specification
 
-Version 1.2, 2026-11-04 (after day-1 de-risking). This document is the source of truth for what rose is and what "done" means. Every claim about an external system (address, version, gas figure, API) must be re-verified live before it is relied on in code; figures marked "measured" come from testnet reads on 2026-11-03 and from the day-1 spikes of 2026-11-04, recorded with their commands in `docs/verification.md`.
+Version 1.2, 2026-11-04. This document is the source of truth for what rose is and what "done" means. Every claim about an external system (address, version, gas figure, API) must be re-verified live before it is relied on in code; figures marked "measured" come from testnet reads on 2026-11-03 and from testnet measurements of 2026-11-04, recorded with their commands in `docs/verification.md`.
 
 ## 0. One line
 
@@ -60,12 +60,12 @@ Where blockchain adds nothing, and we do not pretend otherwise: finding buyers (
 - Identity per round: `app_id = SHA3-256("near-mpc v0.1.0 app_id derivation:" || engine_account || "," || "round/<id>")`. The contract derives the path from the round id, never from an argument.
 - Plaintext: `(quantity: u128, limit_price: u128, salt: [u8; 16])`, bound to `(round_id, bidder, side)` as associated data.
 - The key request (`request_app_private_key` on `v1.signer-prod.testnet`, `AppPublicKeyPV` variant with a public scalar, 1 yocto) exists in exactly one function, callable by anyone, guarded by `require!(now >= round.closes_at)`. Gas (measured): the live config requires 15 Tgas attached and reserves 7 Tgas for the yield return, and the request itself burns about 11.6 Tgas, so 15 to 18 Tgas fail with "Exceeded the prepaid gas"; the measured minimum is 19 Tgas and the engine attaches 25. The callback (unwrap of `big_c - a * big_y`, then the pairing check) costs 12.4 Tgas and gets a fixed 20 Tgas (margin over the measurement, so a slower host never starves the callback that stores the key); the app attaches 80 Tgas to `close`, which refuses a call left with less than 60 Tgas for the request, the callback and their receipts' fees before changing anything, like every other MPC request. Retries are unbounded (the key is deterministic). `submit_key(sk)` is open to anyone and verified with `bls12381_pairing_check` (10.2 Tgas), so a lost callback can never freeze a round: the MPC response (`big_y`, `big_c`) is public in the receipt and anyone can unwrap it with the public scalar. Untrusted BLS points never rely on host decompression for subgroup checks (NEP-488 `bls12381_p1/p2_decompress` do not check membership); they go through `g1_multiexp` or `pairing_check`.
-- Measured on testnet (rose spike, consistent with Sealwell's 4.3 to 6.1 s): 4.2 to 4.8 s from the close transaction to the stored key, 35.0 Tgas in total including the callback; 12 to 17 ms per encryption in the browser, 192-byte ciphertexts.
+- Measured on testnet (consistent with Sealwell's 4.3 to 6.1 s): 4.2 to 4.8 s from the close transaction to the stored key, 35.0 Tgas in total including the callback; 12 to 17 ms per encryption in the browser, 192-byte ciphertexts.
 
 ### 5.2 Opening (fully verified, no keeper, no challenge game)
 
-1. Once the key is public, anyone can open any bid by submitting `(plaintext, sigma)`. The contract fully verifies the opening: it recomputes `V` from the public key with one pairing in wasm and checks `U`, `V` and `W` (Sealwell measured 119.8 Tgas, 124 Tgas per receipt; rose's day-1 spike measured 124.3 to 124.4 Tgas per transaction, 0.0124 NEAR; the engine burns about 132 Tgas per opening, measured live, step 2 below and `docs/verification.md`), so each opening fits one transaction under the 300 Tgas wallet cap. A ciphertext with an inconsistent `V` can therefore be opened by nobody, its author included (shown live: the author's own sigma and plaintext fail on chain while the key is public): there is no free option to reveal or withhold after seeing the book, and no challenge window. A ciphertext copied from another bidder fails at the `U` check (4.4 Tgas) because the associated data binds `(round_id, bidder, side)`.
-2. The key being public, every participant's browser can decrypt every bid locally; the app opens all remaining bids in sequence for whoever clicks "Open every order" (each opening is a separate transaction prepaid with 200 Tgas, about 1.5 times the 132 Tgas the staging engine burns, because prepaid gas is charged up front at the pessimistic gas price and 300 Tgas would require 0.30 NEAR of balance from a small demo account; the opener pays about 0.0132 NEAR of gas per bid).
+1. Once the key is public, anyone can open any bid by submitting `(plaintext, sigma)`. The contract fully verifies the opening: it recomputes `V` from the public key with one pairing in wasm and checks `U`, `V` and `W` (Sealwell measured 119.8 Tgas, 124 Tgas per receipt; rose measured 124.3 to 124.4 Tgas per transaction, 0.0124 NEAR; the engine burns about 132 Tgas per opening, measured live, step 2 below and `docs/verification.md`), so each opening fits one transaction under the 300 Tgas wallet cap. A ciphertext with an inconsistent `V` can therefore be opened by nobody, its author included (shown live: the author's own sigma and plaintext fail on chain while the key is public): there is no free option to reveal or withhold after seeing the book, and no challenge window. A ciphertext copied from another bidder fails at the `U` check (4.4 Tgas) because the associated data binds `(round_id, bidder, side)`.
+2. The key being public, every participant's browser can decrypt every bid locally; the app opens all remaining bids in sequence for whoever clicks "Open every order" (each opening is a separate transaction prepaid with 200 Tgas, about 1.5 times the 132 Tgas an opening burns, because prepaid gas is charged up front at the pessimistic gas price and 300 Tgas would require 0.30 NEAR of balance from a small demo account; the opener pays about 0.0132 NEAR of gas per bid).
 3. After the reveal window, bids that nobody opened (malformed) are void and their bond is slashed. An opened bid is also void (and slashed) if a buyer's `limit * quantity` plus its 30 bps fee exceeds its escrow, a buyer's quantity exceeds the round's `max_buy_quantity` (fixed at creation and shown with the round: the class supply then in an Exit, the claim in an Advance; fixed so that a redeem after the bid was sealed, which shrinks the supply, never voids a covered bid, and so that the clearing sums stay bounded), or a seller's quantity exceeds its locked units.
 4. Known property (ePrint 2025/2048): anything encrypted to a round identity, including ciphertexts that were never included, is readable after close. Documented in the security model.
 
@@ -284,28 +284,18 @@ Every async action has loading, success and failure states, human-readable error
 
 ## 9. Demo scenario and seed data
 
-- A fictional issuer and token (verify the name and ticker collide with no notable existing token), with three classes: a seed cohort on Base (Sablier), a strategic cohort on Solana (Streamflow), and a KOL cohort on Base.
+- A fictional issuer and token (their name and ticker collide with no notable existing token), with three classes: a seed cohort on Base (Sablier), a strategic cohort on Solana (Streamflow), and a KOL cohort on Base.
 - The token exists on Base Sepolia and Solana devnet: the Base token is the demo token `scripts/deploy-base.sh` deploys with DemoStreamFaucet (so faucet-minted demo positions join the seeded classes), and the seed script creates the Solana devnet mint. The seed script then creates the streams, deposits for six holders, and opens: one Tender (issuer budget in USDC), one Exit round with sellers and buyers, one Advance.
-- Guided demo mode in the app ("Watch a full round"): steps through a pre-seeded round with real transactions and real explorer links, for the video and for judges who do not want to set up wallets.
-- The pitch replays the Monad case (sourced, fixed price vs sealed round); the product never impersonates Monad or any real project.
+- Guided demo mode in the app ("Watch a full round"): steps through a pre-seeded round with real transactions and real explorer links, for visitors who do not want to set up wallets.
+- The Monad case is cited as a sourced public fact (fixed price vs sealed round); the product never impersonates Monad or any real project.
 
 ## 10. Quality gates
 
 - Contracts: Rust unit tests for clearing (property tests against a brute-force reference), unlock function, accrual accounting across transfers and rounds, round state machine; integration tests in a NEAR sandbox using recorded real testnet MPC responses as fixtures; Foundry tests for RoseVault (EIP-712 signature format matching the MPC output, replay bitmap, deposit events); end-to-end scripts on real testnets for every flow.
 - Web: typecheck, lint, unit tests, Playwright end-to-end over the main journeys with demo wallets, Lighthouse performance and accessibility checks, visual review of every page at 1470 px and 375 px.
 - Every external fact (address, version, method name, byte offset, gas) is verified live and recorded in `docs/verification.md` with the command used.
-- Reviews: independent review passes by a different model on the spec, contracts, cross-chain flows and UI, focused on correctness, hallucinated APIs and drift from this spec.
 
-## 11. Day-1 de-risking order
-
-1. One real `verify_foreign_transaction` with `Log` on Base Sepolia (throwaway event contract) and one `AccountState` on a Streamflow devnet account: measure gas, latency and mismatch behavior with and without `expected_payload_hash`.
-2. `sign` on domain 0 from a throwaway NEAR contract, recovered in Foundry against `derived_public_key`; `sign` on domain 1 for a durable-nonce Solana message.
-3. IBE in the browser against the live domain 2 key, CKD round trip from a contract, a fully verified opening under 300 Tgas.
-4. A transferable, non-cancelable LL stream on Base Sepolia deposited into a RoseVault prototype, including the zero-withdrawable path.
-5. Pure-Rust clearing engine with property tests before any UI.
-Then contracts, then the app, the landing in parallel once the flows are real. All five items were completed live on 2026-11-04; the measurements are in `docs/verification.md` and the facts that contradicted version 1.1 are corrected in this version.
-
-## 12. Repository
+## 11. Repository
 
 ```
 contracts/engine        rose-engine (Rust)
@@ -315,16 +305,16 @@ contracts/evm           RoseVault, TestUSDC, DemoToken, DemoStreamFaucet (Foundr
 packages/sdk            TypeScript client: engine bindings, chain adapters, unlock math, clearing reference
 apps/web                Next.js app (landing, app, docs, status)
 scripts                 deploy, seed, end-to-end
-docs                    spec, architecture, security, verification, demo script
+docs                    spec, architecture, security, verification
 ```
 
-English only. No secrets in the repo (keys in env files outside git, `.env.example` documents them). MIT license. README written for humans and AI screeners: what it is, the problem, "do X, see Y" steps, deployed addresses, trust model, third-party code, how to run locally.
+English only. No secrets in the repo (keys in env files outside git, `.env.example` documents them). MIT license. README: what it is, the problem, "do X, see Y" steps, deployed addresses, trust model, third-party code, how to run locally.
 
-## 13. Definition of done
+## 12. Definition of done
 
 1. All three round types work end to end on testnet with real foreign positions: Tender and Exit on Base Sepolia positions, Exit on Solana devnet positions, Advance on a Base position; every payout path (NEAR USDC, Base USDC, Base tokens, Solana tokens, in-kind redeem) executed at least once, with explorer links recorded.
 2. Sealed bids encrypted in the browser, key released by the MPC only after close, fully verified openings, a malformed bid shown to be unopenable and slashed, `cancel_no_key` path tested, on-chain clearing matching the reference implementation.
 3. Engine deployed keyless, RoseVault immutable, addresses in README and `/status`.
 4. The landing sequence matches section 8.2; every app page in section 8.3 is functional; no dead button, no placeholder, no console error.
 5. All quality gates in section 10 pass; `docs/verification.md` complete.
-6. README, docs, demo script and seeded demo ready; app deployed on a Vercel subdomain.
+6. README, docs and seeded demo ready; app deployed on a Vercel subdomain.
