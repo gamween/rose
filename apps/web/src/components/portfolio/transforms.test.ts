@@ -1,6 +1,6 @@
 import { ONE, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type StoredEvent } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
-import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolClaim, redeemBlocker, settledPayout, solStreamAttention, solStreamPhase, syncBlocker, tokenClaims } from "./transforms";
+import { accountEvents, claimSourceArgs, holdingRows, lienProgress, orderRows, payoutState, pendingHint, planSolClaim, redeemBlocker, settledPayout, solRedeemNote, solStreamAttention, solStreamPhase, syncBlocker, tokenClaims } from "./transforms";
 
 const NOW = 1_762_200_000n;
 const DAY = 86_400n;
@@ -216,6 +216,15 @@ describe("Solana stream phases and sync", () => {
     expect(solStreamAttention(row("open", 400n, true))).toEqual({ kind: "automatic_withdrawal", unbooked: 300n });
     expect(solStreamAttention(row("drawing", 400n, true))).toBeNull();
     expect(solStreamAttention(row("ended", 400n, false))).toBeNull();
-    expect(solStreamAttention(row("open", null, null))).toBeNull();
+    expect(solStreamAttention(row("open", null, null))).toEqual({ kind: "not_checked" });
+    expect(solStreamAttention(row("closing", null, null))).toEqual({ kind: "not_checked" });
+    expect(solStreamAttention(row("drawing", null, null))).toBeNull();
+    expect(solStreamAttention(row("ended", null, null))).toBeNull();
+  });
+  it("marks a stream that could not be read as not checked in the redeem picker, never as clean", () => {
+    const row = (onChainWithdrawn: bigint | null, automaticWithdrawal: boolean | null) => ({ phase: "open" as const, entry: { stream: { engine_withdrawn: "100" } }, onChainWithdrawn, automaticWithdrawal });
+    expect(solRedeemNote(solStreamAttention(row(null, null)))).toContain("not checked");
+    expect(solRedeemNote(solStreamAttention(row(400n, false)))).toContain("sync required");
+    expect(solRedeemNote(solStreamAttention(row(100n, false)))).toBeUndefined();
   });
 });

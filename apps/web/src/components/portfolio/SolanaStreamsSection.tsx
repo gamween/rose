@@ -39,9 +39,13 @@ function phaseHint(row: SolStreamRow, nowSec: bigint, decimals: number): string 
 const ATTENTION: Record<SolStreamAttention["kind"], string> = {
   automatic_withdrawal: "Automatic withdrawal on",
   sync_required: "Sync required",
+  not_checked: "Not checked",
 };
 
 function attentionHint(attention: SolStreamAttention, decimals: number): string {
+  if (attention.kind === "not_checked") {
+    return "Not checked: the stream could not be read on Solana, so whether its sender switched automatic withdrawal on, or it withdrew more than the engine booked, is unknown. Refresh in a few seconds.";
+  }
   const unbooked = attention.unbooked > 0n ? ` ${formatAmount(attention.unbooked, decimals)} is in the vault and not booked yet: Sync books it.` : "";
   return attention.kind === "automatic_withdrawal"
     ? `Its sender switched Streamflow's automatic withdrawal on after the deposit: Streamflow moves its unlocked tokens into the vault outside the engine's payouts, and Sync books them in the swept balance, which claims pay from. It cannot be redeemed in kind.${unbooked}`
@@ -53,7 +57,7 @@ function StreamItem({ row, decimals, nowSec, onSync }: { row: SolStreamRow; deci
   const phase = PHASE[row.phase];
   const attention = solStreamAttention(row);
   const blocker = row.phase === "ended" ? syncBlocker(stream, row.onChainWithdrawn) : undefined;
-  const syncable = row.phase === "ended" || (attention !== null && attention.unbooked > 0n);
+  const syncable = row.phase === "ended" || (attention !== null && attention.kind !== "not_checked" && attention.unbooked > 0n);
   return (
     <li className="flex flex-col gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2 sm:flex-row sm:items-center sm:justify-between" data-sol-stream={row.entry.position_id} data-sol-stream-phase={row.phase}>
       <div className="min-w-0">

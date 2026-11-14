@@ -33,7 +33,7 @@ import { HistorySection, StorageSection } from "./HistoryAndStorage";
 import { HoldingsSection } from "./HoldingsSection";
 import { LiensSection, OrdersSection } from "./OrdersAndLiens";
 import { SolanaStreamsSection } from "./SolanaStreamsSection";
-import { cashRows, holdingRows, lienProgress, orderRows, settledPayout, solStreamAttention, tokenClaims, type CashRow, type HoldingRow, type TokenClaim } from "./transforms";
+import { cashRows, holdingRows, lienProgress, orderRows, settledPayout, solRedeemNote, solStreamAttention, tokenClaims, type CashRow, type HoldingRow, type TokenClaim } from "./transforms";
 
 type PortfolioTab = "holdings" | "claims" | "orders" | "liens" | "streams" | "history" | "storage";
 
@@ -65,10 +65,13 @@ function solRedeemUnavailable(data: PortfolioData): Map<string, string> {
   return reasons;
 }
 
-/** Solana positions the redeem syncs first: their stream withdrew more than the engine booked. */
+/** Solana positions the redeem syncs first (their stream withdrew more than the engine booked) or whose stream could not be read. */
 function solRedeemNotes(data: PortfolioData): Map<string, string> {
   const notes = new Map<string, string>();
-  for (const row of data.solClasses.flatMap((view) => view.streams)) if (solStreamAttention(row)?.kind === "sync_required") notes.set(row.entry.position_id, "sync required: the redeem syncs it first");
+  for (const row of data.solClasses.flatMap((view) => view.streams)) {
+    const note = solRedeemNote(solStreamAttention(row));
+    if (note !== undefined) notes.set(row.entry.position_id, note);
+  }
   return notes;
 }
 

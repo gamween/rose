@@ -268,19 +268,31 @@ export function solStreamPhase(stream: { end_time: number; drawing?: string | nu
  * What an open vault stream's metadata at finality says against the engine's accounting (spec 7.3,
  * `solRedeemSafety`): `automatic_withdrawal` when its sender switched Streamflow's automatic
  * withdrawal on after the deposit (no in-kind redeem; a sync and a claim from the swept balance
- * pay its tokens), `sync_required` when it withdrew more than the engine booked (a sync first).
- * Null otherwise, when it could not be read, after its end (the ended stream's own sync covers it)
- * and while a payout draws on it: a landed payout not confirmed yet shows the same difference, and
- * the remedy is to confirm it.
+ * pay its tokens), `sync_required` when it withdrew more than the engine booked (a sync first),
+ * `not_checked` when it could not be read (neither is known). Null otherwise, after its end (the
+ * ended stream's own sync covers it) and while a payout draws on it: a landed payout not confirmed
+ * yet shows the same difference, and the remedy is to confirm it.
  */
-export type SolStreamAttention = { kind: "automatic_withdrawal" | "sync_required"; unbooked: bigint };
+export type SolStreamAttention = { kind: "automatic_withdrawal" | "sync_required"; unbooked: bigint } | { kind: "not_checked" };
 
 export function solStreamAttention(row: { phase: SolStreamPhase; entry: { stream: { engine_withdrawn: string } }; onChainWithdrawn: bigint | null; automaticWithdrawal: boolean | null }): SolStreamAttention | null {
-  if (row.phase === "drawing" || row.phase === "ended" || row.onChainWithdrawn === null || row.automaticWithdrawal === null) return null;
+  if (row.phase === "drawing" || row.phase === "ended") return null;
+  if (row.onChainWithdrawn === null || row.automaticWithdrawal === null) return { kind: "not_checked" };
   const safety = solRedeemSafety({ automaticWithdrawal: row.automaticWithdrawal, amountWithdrawn: row.onChainWithdrawn }, BigInt(row.entry.stream.engine_withdrawn));
   if (safety.kind === "automatic_withdrawal") return { kind: "automatic_withdrawal", unbooked: safety.unbooked };
   if (safety.kind === "sync_first") return { kind: "sync_required", unbooked: safety.unbooked };
   return null;
+}
+
+/**
+ * The remark the redeem picker adds to an open Solana stream it offers: a sync first, or a check
+ * that did not run (the redeem reads the stream again at finality and refuses it if it still
+ * cannot). Undefined for a stream read clean.
+ */
+export function solRedeemNote(attention: SolStreamAttention | null): string | undefined {
+  if (attention?.kind === "sync_required") return "sync required: the redeem syncs it first";
+  if (attention?.kind === "not_checked") return "not checked: the stream could not be read on Solana, the redeem reads it again first";
+  return undefined;
 }
 
 /**
