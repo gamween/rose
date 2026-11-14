@@ -400,11 +400,13 @@ export function describeSolPlan(plan: SolClaimPlan, decimals: number): string {
 }
 
 /**
- * The streams a claim may draw on: a stream whose metadata at finality shows tokens withdrawn
- * beyond the engine's accounting (its sender switched automatic withdrawal on, or a sweep was not
- * synced yet) is left out until a sync books them, since `get_sol_streams` overstates what it can
- * pay and a draw sized from it would fail on chain (Streamflow error 115), blocking the stream
- * until the refund. A stream that cannot be read stays in: a failed draw is refunded.
+ * The streams a claim may draw on. A stream is left out only while its metadata at finality shows
+ * tokens withdrawn beyond the engine's accounting (a sweep of automatic withdrawal, or any
+ * withdrawal not synced yet), until a sync books them: `get_sol_streams` then overstates what it
+ * can pay, and a draw sized from it would fail on chain (Streamflow error 115), blocking the stream
+ * until the refund. Every other stream stays in, a stream with automatic withdrawal on and nothing
+ * unbooked included (a draw on it can still lose the race with the next sweep) and a stream that
+ * cannot be read: a failed draw is refunded (spec 7.3).
  */
 async function drawableStreams(deps: FlowDeps, streams: SolStreamStateView[]): Promise<SolStreamStateView[]> {
   const unbooked = await Promise.all(
