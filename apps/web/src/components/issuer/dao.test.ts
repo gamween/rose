@@ -1,7 +1,7 @@
 import { base64ToBytes, bytesToUtf8, GAS } from "@rose/sdk";
 import { describe, expect, it } from "vitest";
 import { daoNearFundingCall, daoShortfall, ftTransferCall, sputnikProposal } from "./dao";
-import { DAO_ACCOUNTS_KEY, forgetDaoAccount, isNearAccountId, readDaoAccounts, rememberDaoAccount, resultCreators } from "./dao-accounts";
+import { DAO_ACCOUNTS_KEY, endedDaoCreators, forgetDaoAccount, isNearAccountId, readDaoAccounts, rememberDaoAccount, resultCreators } from "./dao-accounts";
 
 class MemoryStorage implements Storage {
   private readonly map = new Map<string, string>();
@@ -80,5 +80,16 @@ describe("Results tab creators", () => {
   it("lists the connected account first and each DAO once", () => {
     expect(resultCreators("me.testnet", ["dao.testnet", "me.testnet"])).toEqual(["me.testnet", "dao.testnet"]);
     expect(resultCreators(null, ["dao.testnet"])).toEqual(["dao.testnet"]);
+  });
+
+  it("offers the unspent-budget withdrawal for each DAO with an ended Tender in the NEAR venue", () => {
+    const rounds = [
+      { creator: "dao.sputnikv2.testnet", venue: "Near" as const, status: "Settled" as const },
+      { creator: "dao.sputnikv2.testnet", venue: "Near" as const, status: "Cancelled" as const },
+      { creator: "open.sputnikv2.testnet", venue: "Near" as const, status: "Open" as const },
+      { creator: "base.sputnikv2.testnet", venue: { Base: { token: "0xabc" } }, status: "Settled" as const },
+      { creator: "me.testnet", venue: "Near" as const, status: "Settled" as const },
+    ];
+    expect(endedDaoCreators(rounds, "me.testnet")).toEqual(["dao.sputnikv2.testnet"]);
   });
 });

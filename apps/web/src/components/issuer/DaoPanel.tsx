@@ -27,7 +27,7 @@ import { ActionFeedback, classSymbol, CopyButton, FieldLabel, formatNear, Hint, 
 /** Storage registration on the tUSDC NEP-141 (`storage_balance_bounds().min`, read live 2026-11-04). */
 const TUSDC_STORAGE_DEPOSIT = 1_250_000_000_000_000_000_000n;
 /** `add_proposal` stores the proposal; 100 Tgas is what the console and the near-cli command attach. */
-const ADD_PROPOSAL_GAS = 100n * 10n ** 12n;
+export const ADD_PROPOSAL_GAS = 100n * 10n ** 12n;
 
 type DaoState = {
   account: string;
@@ -42,7 +42,8 @@ type DaoState = {
   token: { balance: bigint; registered: boolean } | null;
 };
 
-function ProposalBlock({ name, proposal, cli, onFile, filing, disabled, testId }: { name: string; proposal: SputnikProposal; cli: string; onFile: () => void; filing: boolean; disabled: string | null; testId: string }) {
+/** One Sputnik proposal: its `add_proposal` JSON and near-cli command, and a button that files it from the connected wallet. */
+export function ProposalBlock({ name, proposal, cli, onFile, filing, disabled, testId }: { name: string; proposal: SputnikProposal; cli: string; onFile: () => void; filing: boolean; disabled: string | null; testId: string }) {
   const json = JSON.stringify(proposal, null, 2);
   return (
     <div className="flex flex-col gap-2" data-proposal={testId}>
