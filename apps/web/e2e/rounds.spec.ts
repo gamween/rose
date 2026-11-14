@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { BYTE_COST, demoWalletScript, mockRounds, ROUNDS_MOCK } from "./fixtures/rounds-mock";
 
 /**
@@ -9,6 +9,14 @@ import { BYTE_COST, demoWalletScript, mockRounds, ROUNDS_MOCK } from "./fixtures
  */
 
 const MOCK_ENGINE_BUILD = process.env.NEXT_PUBLIC_ENGINE_ACCOUNT === ROUNDS_MOCK.engine;
+const SCREENS = process.env.ROSE_SCREENSHOT_DIR;
+
+/** A viewport screenshot for the page review at 1470 and 375 px, when `ROSE_SCREENSHOT_DIR` is set. */
+async function shot(page: Page, name: string): Promise<void> {
+  if (!SCREENS) return;
+  const width = page.viewportSize()?.width ?? 1470;
+  await page.screenshot({ path: `${SCREENS}/rounds-${name}-${width >= 1000 ? "1470" : "375"}.png` });
+}
 
 async function collectErrors(page: Page): Promise<string[]> {
   const errors: string[] = [];
@@ -84,6 +92,7 @@ test.describe("rounds with a mocked engine", () => {
     await expect(dialog.getByRole("alert")).toHaveText("The key timeout must be at most 7 d.");
     await dialog.locator("[data-key-timeout]").fill("60");
     await dialog.getByRole("button", { name: "Custom" }).click();
+    await shot(page, "create-exit-custom");
     const far = new Date(Date.now() + 31 * 86_400_000);
     const local = new Date(far.getTime() - far.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     await dialog.locator("input[type='datetime-local']").fill(local);
@@ -252,6 +261,37 @@ test.describe("rounds with a mocked engine", () => {
     await expect(form.locator("[data-connect-prompt='near']")).toBeHidden();
   });
 
+  test("a rate-limited RPC never reads as a missing demo account; only the RPC's own answer does", async ({ page }) => {
+    test.setTimeout(90_000);
+    await mockRounds(page);
+    await page.addInitScript(demoWalletScript());
+    let answer: "limited" | "missing" = "limited";
+    // Registered after the mock, so it sees the demo account's view_account first; every other request falls back to the mock.
+    const demoAccount = async (route: Route) => {
+      const request = route.request().postDataJSON() as { id: string; params?: { request_type?: string; account_id?: string } } | null;
+      if (request?.params?.request_type !== "view_account" || request.params.account_id !== ROUNDS_MOCK.demoAccount) return route.fallback();
+      if (answer === "limited") return route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -429, message: "Rate limits exceeded" } }) });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { name: "HANDLER_ERROR", cause: { name: "UNKNOWN_ACCOUNT", info: {} }, code: -32000, message: "Server error", data: `account ${ROUNDS_MOCK.demoAccount} does not exist while viewing` } }),
+      });
+    };
+    for (const host of ["https://test.rpc.fastnear.com/**", "https://near-testnet.drpc.org/**", "https://testnet-rpc.intea.rs/**"]) await page.route(host, demoAccount);
+    await page.goto("/app/rounds/1");
+    const form = page.locator("[data-order-form]");
+    await expect(page.locator("[data-next-action='bid']")).toBeVisible({ timeout: 20_000 });
+    await expect(form.locator("[data-order-submit]")).toBeVisible();
+    // Past every retry of the presence check (0.8 + 1.6 + 3.2 s of backoff): still the order button.
+    await page.waitForTimeout(8_000);
+    await expect(form.locator("[data-order-submit]")).toBeVisible();
+    await expect(form.getByText("Create the demo account: get test funds")).toHaveCount(0);
+    answer = "missing";
+    await page.reload();
+    await expect(form.getByText("Create the demo account: get test funds")).toBeVisible({ timeout: 20_000 });
+    await expect(form.locator("[data-order-submit]")).toHaveCount(0);
+  });
+
   test("full round from a sealed bid to the claim with the demo wallet", async ({ page }) => {
     test.setTimeout(180_000);
     const errors = await collectErrors(page);
@@ -282,6 +322,9 @@ test.describe("rounds with a mocked engine", () => {
     await form.locator("[data-order-submit]").click();
     await expect(page.getByRole("status").filter({ hasText: "Sealed bid #2 placed" })).toBeVisible({ timeout: 30_000 });
     expect(state.sent.map((s) => s.method)).toEqual(["storage_deposit", "ft_transfer_call", "place_bid"]);
+    await expect(form.locator("[data-order-placed='2']")).toContainText("Your sealed bid #2 is placed", { timeout: 20_000 });
+    await form.locator("[data-order-placed='2']").scrollIntoViewIfNeeded();
+    await shot(page, "order-placed");
     expect(state.sent[0]?.deposit).toBe(619n * BYTE_COST);
     const mine = page.locator("[data-my-order='2']");
     await page.locator("[data-tab='mine']").click();
@@ -291,6 +334,9 @@ test.describe("rounds with a mocked engine", () => {
 
     await expect(page.locator("[data-next-action='close']")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("[data-round-action]")).toContainText("80 Tgas prepaid");
+    await expect(page.locator("header [data-status='Open'][data-closed]")).toHaveText("Closed");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await shot(page, "closed-badge");
     await page.locator("[data-action='close']").click();
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 30_000 });
     await page.locator("[data-tab='details']").click();
@@ -316,6 +362,8 @@ test.describe("rounds with a mocked engine", () => {
     await settle.click();
     await expect(page.locator("[data-settle-step='2'] a")).toHaveAttribute("href", /near\.rocks\/tx\//, { timeout: 30_000 });
     await expect(settle).toHaveText("Settle every order · 2 left", { timeout: 30_000 });
+    await page.locator("[data-round-action]").scrollIntoViewIfNeeded();
+    await shot(page, "settle-progress");
     await settle.click();
     await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 60_000 });
     await expect(fills).toContainText("all settled", { timeout: 20_000 });
