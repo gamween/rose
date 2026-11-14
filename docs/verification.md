@@ -1696,7 +1696,16 @@ with `-H 'origin: https://rose-rounds.vercel.app' -D <headers>`.
 | How near-api-js sends | `node_modules/near-api-js/lib/index.js` 7.4.0, `fetchJsonRpc` and `retryConfig` | `JsonRpcProvider` retries 12 times (500 ms × 1.5ⁿ) on HTTP 500, 408, 503 and on a fetch that throws "Failed to fetch" (what Chromium reports for a 429 without CORS), on the same URL |
 | A missing access key | `query` `view_access_key` of `rose-app.testnet` / `ed25519:11111111111111111111111111111111` on FastNEAR and dRPC | `result.error` = "access key ed25519:1111… does not exist while viewing" (a result, not a JSON-RPC error); a missing account answers `error.cause.name` `UNKNOWN_ACCOUNT` |
 
+| The failover in a real browser | `failover.mjs` (session scratchpad): Playwright Chromium on a local production build of `fix/audit-web` (`pnpm exec next start --port 3400`), `context.route("https://test.rpc.fastnear.com/**", (route) => route.abort("failed"))`, then the same with dRPC aborted too; loads `/app/rounds`, `/app/rounds/4`, `/app/prices` and waits for a round card, the round page and the key stats | FastNEAR down: all three pages loaded (0.8 to 1.0 s each), 9 requests tried FastNEAR and 30 went to dRPC (the 10 s cooldown sends the rest of each page straight to dRPC). FastNEAR and dRPC down: all three loaded through Intear (3.8 to 6.9 s), 30 requests to Intear |
+
 Decision: reads go FastNEAR, then dRPC, then Intear (`NEAR_READ_RPC_ENDPOINTS` in `apps/web/src/lib/deployment.ts`);
 the demo wallet's reads (account check, balances, final head) use the same list, and its sends stay on
 FastNEAR. `NearRpc` passes over an endpoint for 10 s after a 429, a 5xx, a non-JSON answer or a network
 failure (`RPC_COOLDOWN_MS`), so one limited provider costs one failed request, not one per view.
+
+Two facts the issuer console states (2026-11-14):
+
+| Fact | Command | Result |
+|---|---|---|
+| A Sablier stream id that was never minted reverts with OpenZeppelin's `ERC721NonexistentToken(uint256)` | `cast sig "ERC721NonexistentToken(uint256)"` | `0x7e273289`, the selector in the raw revert the console now turns into "Stream #N does not exist" |
+| Sputnik DAO v2's default policy keeps a proposal open 7 days, and a DAO can set its own | `curl -s https://raw.githubusercontent.com/near-daos/sputnik-dao-contract/main/sputnikdao2/src/policy.rs`, `default_policy`; `call_function cindral-treasury.sputnikv2.testnet get_policy {}` and `version {}` on `https://near-testnet.drpc.org` | `proposal_period: U64::from(1_000_000_000 * 60 * 60 * 24 * 7)`; the live treasury answers `proposal_period` `86400000000000` (one day), bond 0.1 NEAR, version `"2.3.1"` (block 277,596,669). Run via DAO shows the read period |
