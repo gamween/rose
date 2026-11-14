@@ -30,7 +30,7 @@ full description; every claim in it links a transaction, a test or a file.
 | `packages/ibe-wasm` | The IBE crate compiled to WebAssembly for the browser |
 | `apps/web` | The Next.js app (landing, `/app`, `/status`, `/docs`) |
 | `scripts` | Deployment, seed and live end-to-end scripts; each records its transactions under `deployments/` |
-| `docs` | Specification (source of truth), architecture, security model, verification log, demo script |
+| `docs` | Specification (source of truth), architecture, security model, verification log |
 
 ## Check the live deployment in a minute, no build
 

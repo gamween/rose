@@ -19,7 +19,7 @@
  *   payouts        NEAR tUSDC withdrawal (`withdraw_near_cash`), Base tUSDC withdrawal
  *                  (`withdraw_base_cash` + `executeTransfer`), Advance repayment from unlocks (lien
  *                  share claim + `executeTransfer` of CINDR), in-kind redeem (`redeem` + `executeRelease`)
- *   report         the markdown table of every transaction for docs/verification.md
+ *   report         the markdown table of every transaction of the run
  *
  * Record: `deployments/e2e/<engine>.live.json`. Prerequisite: `node scripts/seed.ts` on the same engine.
  */
