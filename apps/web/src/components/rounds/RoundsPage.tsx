@@ -178,7 +178,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
               />
             ) : (
               <>
-                <div className="ui-surface divide-y divide-ink-750 overflow-hidden rounded-lg" data-rounds-list>
+                <div className={cn("ui-surface divide-y divide-ink-750 overflow-hidden rounded-lg transition-opacity", list.stale && "opacity-50")} aria-busy={list.stale || undefined} data-rounds-list data-stale={list.stale || undefined}>
                   {rounds.map((round) => {
                     const cls = classesById.get(round.classId) ?? null;
                     const book = data.books.get(round.roundId.toString()) ?? list.extraBooks.get(round.roundId.toString()) ?? null;
@@ -191,7 +191,7 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
                     {nextCursor !== null ? " shown" : ""}
                   </span>
                   <span className={cn("tabular transition-opacity", list.refreshing ? "opacity-100" : "opacity-0")} aria-live="polite">
-                    refreshing…
+                    {list.stale ? "applying the filters…" : "refreshing…"}
                   </span>
                 </div>
                 {nextCursor !== null ? (
