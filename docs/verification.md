@@ -1878,3 +1878,21 @@ https://rose-rounds.vercel.app) and Playwright against production
 | `b7ea1a5` (PR #3) | `dpl_8YKxCsVfYhskxD8dTBqq3uKJAzUa` | `/api/faucet` reports the raised caps; Playwright 150 passed, 29 skipped, 1 failed: the mobile palette ran "Connect a wallet" for a query typed and run at once |
 | `30900c6` (PR #4, the palette fix) | `dpl_7L5KV3veEanwRZabVo3ztvp3ARBp` | `e2e/wallet-connect.spec.ts` with `--repeat-each=3`: 18 passed |
 | `8a6ba9d` (PR #5) | `dpl_4UMUazqhfJ61LGpnxmzfNesF7Tat` | the final review's live checks (keys `[]`, `/status`, `/api/faucet`, rounds 4, 8 and 10) |
+| `d13e43e` (PR #7, the palette reset on close) | `dpl_5CRFEkpuMJhhyCbvBvAGGZq8Pttr` | the whole Playwright suite against production: 153 passed, 29 skipped |
+| `d13e43e`, built again once the repository was public, with `NEXT_PUBLIC_REPOSITORY_URL=https://github.com/gamween/rose` added to the production environment (`vercel env add`) | `dpl_2uzgyQdhSCb3DKMfkDghqBHBupru` | `curl -sS https://rose-rounds.vercel.app/` contains the GitHub link; `e2e/landing.spec.ts` 12 passed, `e2e/app-chrome.spec.ts` and `e2e/live-smoke.spec.ts` passed |
+
+## One-command live check and CI (2026-11-14)
+
+`node scripts/verify.ts` (also `pnpm verify`) reads the live deployment and compares it with the values
+the README states. These are the facts it relies on beyond those recorded above, each checked live.
+
+| Fact | Command | Result |
+|---|---|---|
+| PublicNode serves Base Sepolia, as the verifier's second Base endpoint | `curl -s https://base-sepolia-rpc.publicnode.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'` | `0x14a34` (84532) |
+| The RoseVault getters the verifier calls by raw `eth_call` | `cast sig 'SIGNER()'`, `cast sig 'LOCKUP()'` | `0x582abd12`, `0x845aef4b` |
+| The MPC network derives engine-v2's Solana vault and fee payer | `call_function v1.signer-prod.testnet derived_public_key {"path":"vault/sol","predecessor":"engine-v2.rose-app.testnet","domain_id":1}`, then `"gas/sol"` | `ed25519:EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC` and `ed25519:HWx7jD36pAzB1Bo83bCvRYtnW5SHLcfdEZw4x4Zdn1Ng`, the `vault_sol` and `gas_sol` of `get_config` |
+| engine-v2 names its source and build image (NEP-330) | `call_function engine-v2.rose-app.testnet contract_source_metadata {}` | commit `0524b3388f7bf512f39bf521e9af68736482ef9e`, image `sourcescan/cargo-near:0.22.0-rust-1.97.0@sha256:b193c8640a27172f83136a0f0aab2a9bf9d09f6ba0e6afd187addfaa9b92bae0` |
+| `https://sepolia.base.org` and PublicNode both answer JSON-RPC batch requests | a two-call batch (`eth_chainId`, `eth_call`) to each | an array of two results from each |
+| An absent account lists no access key either, so a keyless check alone proves nothing about it | `view_access_key_list` on `this-account-does-not-exist-zzzq.rose-app.testnet` at dRPC and FastNEAR | `"keys":[]` from both; the verifier therefore also reads `view_account` and requires the recorded code hash (engine `gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`, tUSDC `7JHPYMQ1o7QVhVyMwmzzxS3vVhyqEkcWQrGJUcmubizP`), and exits 1 when the account does not exist |
+| The verifier runs with nothing installed | a fresh `git clone`, then `node scripts/verify.ts` on Node 22.18.0 and 22.20.0, and `pnpm verify` on pnpm 10.34.9 | 10 of 10 checks passed in about 1.5 s, no `node_modules` created; with each expected value deliberately wrong, or the endpoints unreachable, it exits 1 with a FAIL line |
+| CI runs the same gate as Getting started | `.github/workflows/ci.yml` on the pull request (#8) and on `main` | runs 43621698154, 43622060603 and 43622328139: success; cargo 280, forge 140, scripts 30 tests passed in the logs |

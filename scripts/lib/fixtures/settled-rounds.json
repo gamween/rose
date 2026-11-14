@@ -1,0 +1,329 @@
+{
+  "engine": "engine-v2.rose-app.testnet",
+  "rounds": [
+    {
+      "block": 277692712,
+      "decimals": 18,
+      "view": {
+        "round_id": "0",
+        "kind": "Tender",
+        "class_id": "0d06a458ae0073d43d0cdc54d8a85d202250bcf33762a17658e84db3c9c3f894",
+        "venue": {
+          "Base": {
+            "token": "0x69fa19ad79c1c890d37cbabaa6fe99d1aa54bc01"
+          }
+        },
+        "creator": "cindral-foundation.rose-app.testnet",
+        "status": "Settled",
+        "opens_at": "1793979328122795298",
+        "closes_at": "1793980046898000000",
+        "key_timeout": "3600000000000",
+        "reveal_window": "300000000000",
+        "max_price": "40000",
+        "reference_price": "80000",
+        "max_buy_quantity": null,
+        "f_ts": "0",
+        "remaining_lock_secs": "78836962",
+        "app_id": "2354cadd77855ef8a21d3b6193ecc1c3574588ff1657e9c4928139647b843990",
+        "key": "bls12381g1:6ck7AjiKFy6p3pRQ9w7pBRd85q36Lb3gMU9zHcFZXAa4uDxHBiaSYqL1YzF6BW1FLo",
+        "key_source": "Callback",
+        "close_requested_at": "1793980051095354455",
+        "key_received_at": "1793980055854004210",
+        "reveal_ends_at": "1793980355854004210",
+        "bid_count": 2,
+        "opened_count": 2,
+        "settled_count": 2,
+        "budget": "1500000000",
+        "issuer_escrow": "1504500000",
+        "retire_to": "0x7d4777cfc6ed48061b0bccae558d29919b412042",
+        "advance_units": null,
+        "advance_claim": null,
+        "advance_min_fill": null,
+        "lien_id": null,
+        "cancel_reason": null,
+        "result": {
+          "price": "36000",
+          "volume": "41666666666666666666666",
+          "notional": "1500000000",
+          "fee": "4500000",
+          "issuer_charged": "1500000000",
+          "issuer_refund": "0",
+          "remaining_lock_secs": "78836962",
+          "fills": [
+            {
+              "bid_id": 0,
+              "bidder": "halden-ventures.rose-app.testnet",
+              "side": "Sell",
+              "escrow": "0",
+              "locked_units": "40000000000000000000000",
+              "bond": "16000000",
+              "opened": {
+                "quantity": "40000000000000000000000",
+                "price": "30000"
+              },
+              "void": null,
+              "fill_quantity": "40000000000000000000000",
+              "cash": "1440000000",
+              "fee": "0",
+              "settled": true
+            },
+            {
+              "bid_id": 1,
+              "bidder": "tessaro-capital.rose-app.testnet",
+              "side": "Sell",
+              "escrow": "0",
+              "locked_units": "30000000000000000000000",
+              "bond": "12000000",
+              "opened": {
+                "quantity": "30000000000000000000000",
+                "price": "36000"
+              },
+              "void": null,
+              "fill_quantity": "1666666666666666666666",
+              "cash": "59999999",
+              "fee": "0",
+              "settled": true
+            }
+          ]
+        },
+        "created_at": "1793979328122795298",
+        "ended_at": "1793980364721256423"
+      }
+    },
+    {
+      "block": 277692712,
+      "decimals": 9,
+      "view": {
+        "round_id": "1",
+        "kind": "Exit",
+        "class_id": "f91b52ceab7a9f40e6578513ddb7478ef251e90dc2ef94c5e08c6db1d04a1a42",
+        "venue": "Near",
+        "creator": "ines-marlow.rose-app.testnet",
+        "status": "Settled",
+        "opens_at": "1793979332342162694",
+        "closes_at": "1793980046898000000",
+        "key_timeout": "3600000000000",
+        "reveal_window": "300000000000",
+        "max_price": "50000",
+        "reference_price": null,
+        "max_buy_quantity": "500000000000000",
+        "f_ts": "0",
+        "remaining_lock_secs": "54115954",
+        "app_id": "5858333b0606ead1213cf21c055b19be9325cb9e33bd5ea0bda1f1d55703cc79",
+        "key": "bls12381g1:7Qx9Ydpq3Q7iT2wXzW7U6z72SwkwEL7zMPrmYGTkCvfyRhRkFqS4fPu11wdwatggd7",
+        "key_source": "Callback",
+        "close_requested_at": "1793980059546829414",
+        "key_received_at": "1793980063774772258",
+        "reveal_ends_at": "1793980363774772258",
+        "bid_count": 5,
+        "opened_count": 4,
+        "settled_count": 5,
+        "budget": null,
+        "issuer_escrow": null,
+        "retire_to": null,
+        "advance_units": null,
+        "advance_claim": null,
+        "advance_min_fill": null,
+        "lien_id": null,
+        "cancel_reason": null,
+        "result": {
+          "price": "27000",
+          "volume": "70000000000000",
+          "notional": "1890000000",
+          "fee": "5670000",
+          "issuer_charged": "0",
+          "issuer_refund": "0",
+          "remaining_lock_secs": "54115954",
+          "fills": [
+            {
+              "bid_id": 0,
+              "bidder": "ines-marlow.rose-app.testnet",
+              "side": "Sell",
+              "escrow": "0",
+              "locked_units": "60000000000000",
+              "bond": "30000000",
+              "opened": {
+                "quantity": "60000000000000",
+                "price": "20000"
+              },
+              "void": null,
+              "fill_quantity": "60000000000000",
+              "cash": "1620000000",
+              "fee": "0",
+              "settled": true
+            },
+            {
+              "bid_id": 1,
+              "bidder": "varick-partners.rose-app.testnet",
+              "side": "Sell",
+              "escrow": "0",
+              "locked_units": "50000000000000",
+              "bond": "25000000",
+              "opened": {
+                "quantity": "50000000000000",
+                "price": "26000"
+              },
+              "void": null,
+              "fill_quantity": "10000000000000",
+              "cash": "270000000",
+              "fee": "0",
+              "settled": true
+            },
+            {
+              "bid_id": 2,
+              "bidder": "halden-ventures.rose-app.testnet",
+              "side": "Buy",
+              "escrow": "1966000000",
+              "locked_units": "0",
+              "bond": "19660000",
+              "opened": {
+                "quantity": "70000000000000",
+                "price": "28000"
+              },
+              "void": null,
+              "fill_quantity": "70000000000000",
+              "cash": "1890000000",
+              "fee": "5670000",
+              "settled": true
+            },
+            {
+              "bid_id": 3,
+              "bidder": "tessaro-capital.rose-app.testnet",
+              "side": "Buy",
+              "escrow": "883000000",
+              "locked_units": "0",
+              "bond": "8830000",
+              "opened": {
+                "quantity": "40000000000000",
+                "price": "22000"
+              },
+              "void": null,
+              "fill_quantity": "0",
+              "cash": "0",
+              "fee": "0",
+              "settled": true
+            },
+            {
+              "bid_id": 4,
+              "bidder": "nadia-solvik.rose-app.testnet",
+              "side": "Buy",
+              "escrow": "100000000",
+              "locked_units": "0",
+              "bond": "1000000",
+              "opened": null,
+              "void": "Unopened",
+              "fill_quantity": "0",
+              "cash": "0",
+              "fee": "0",
+              "settled": true
+            }
+          ]
+        },
+        "created_at": "1793979332342162694",
+        "ended_at": "1793980387025834736"
+      }
+    },
+    {
+      "block": 277692712,
+      "decimals": 18,
+      "view": {
+        "round_id": "2",
+        "kind": "Advance",
+        "class_id": "c5b14256b68d40d7825a58992ec16d7881ecd8e6bf988e6c83f2f51117b58bba",
+        "venue": "Near",
+        "creator": "teodor-vance.rose-app.testnet",
+        "status": "Settled",
+        "opens_at": "1793979336617944416",
+        "closes_at": "1793980046898000000",
+        "key_timeout": "3600000000000",
+        "reveal_window": "300000000000",
+        "max_price": "60000",
+        "reference_price": null,
+        "max_buy_quantity": "3000000000000000000000",
+        "f_ts": "180223687214611871",
+        "remaining_lock_secs": "28724962",
+        "app_id": "143c6110925a6ecdcf44da4727331e3c62c7b82e35ca015d0f05eb443799f9b1",
+        "key": "bls12381g1:7N64A2zN735dEYo5yUi4KUxcYfwgafJW9V62Q1Ch4iHFpdYX8o6zhnWD9qpoZGHo7a",
+        "key_source": "Callback",
+        "close_requested_at": "1793980067473353090",
+        "key_received_at": "1793980072338863669",
+        "reveal_ends_at": "1793980372338863669",
+        "bid_count": 3,
+        "opened_count": 3,
+        "settled_count": 3,
+        "budget": null,
+        "issuer_escrow": null,
+        "retire_to": null,
+        "advance_units": "50000000000000000000000",
+        "advance_claim": "3000000000000000000000",
+        "advance_min_fill": "1500000000000000000000",
+        "lien_id": "0",
+        "cancel_reason": null,
+        "result": {
+          "price": "37500",
+          "volume": "3000000000000000000000",
+          "notional": "112500000",
+          "fee": "337500",
+          "issuer_charged": "0",
+          "issuer_refund": "0",
+          "remaining_lock_secs": "28724962",
+          "fills": [
+            {
+              "bid_id": 0,
+              "bidder": "teodor-vance.rose-app.testnet",
+              "side": "Sell",
+              "escrow": "0",
+              "locked_units": "0",
+              "bond": "1800000",
+              "opened": {
+                "quantity": "3000000000000000000000",
+                "price": "35000"
+              },
+              "void": null,
+              "fill_quantity": "3000000000000000000000",
+              "cash": "112500000",
+              "fee": "0",
+              "settled": true
+            },
+            {
+              "bid_id": 1,
+              "bidder": "varick-partners.rose-app.testnet",
+              "side": "Buy",
+              "escrow": "91000000",
+              "locked_units": "0",
+              "bond": "1000000",
+              "opened": {
+                "quantity": "2000000000000000000000",
+                "price": "45000"
+              },
+              "void": null,
+              "fill_quantity": "2000000000000000000000",
+              "cash": "75000000",
+              "fee": "225000",
+              "settled": true
+            },
+            {
+              "bid_id": 2,
+              "bidder": "ines-marlow.rose-app.testnet",
+              "side": "Buy",
+              "escrow": "81000000",
+              "locked_units": "0",
+              "bond": "1000000",
+              "opened": {
+                "quantity": "2000000000000000000000",
+                "price": "40000"
+              },
+              "void": null,
+              "fill_quantity": "1000000000000000000000",
+              "cash": "37500000",
+              "fee": "112500",
+              "settled": true
+            }
+          ]
+        },
+        "created_at": "1793979336617944416",
+        "ended_at": "1793980399275623852"
+      }
+    }
+  ]
+}
