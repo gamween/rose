@@ -86,6 +86,8 @@ export function SettlePanel({ detail, onChanged }: { detail: RoundDetail; onChan
   };
 
   const count = queue.length;
+  /* Until the round is read with the connected account, the scope ("my order" or "every order") is not known yet. */
+  const readingViewer = near.status === "connected" && viewer?.account !== near.accountId;
   const label = scope === "mine" ? `Settle my ${count === 1 ? "order" : `${String(count)} orders`}` : `Settle every order · ${String(count)} left`;
   const listed = bids.filter((bid) => steps.has(bid.bidId));
 
@@ -96,7 +98,7 @@ export function SettlePanel({ detail, onChanged }: { detail: RoundDetail; onChan
           Connect a NEAR wallet to settle
         </Button>
       ) : (
-        <Button size="lg" className="w-full" onClick={() => void runAll()} loading={running} loadingLabel="Settling orders" disabled={count === 0 || near.status !== "connected"} data-action="settle">
+        <Button size="lg" className="w-full" onClick={() => void runAll()} loading={running || readingViewer} loadingLabel={running ? "Settling orders" : "Reading your orders"} disabled={count === 0 || near.status !== "connected"} data-action="settle">
           {count === 0 ? "Settled · updating the round" : label}
         </Button>
       )}
