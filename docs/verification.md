@@ -1674,3 +1674,48 @@ condition), 4.7 min.
   the builder's home directory in its panic locations. Check: `strings packages/ibe-wasm/pkg/rose_ibe_bg.wasm | grep -c /Users/`
   prints `0`. `rose_ibe_bg.wasm` is now 215,341 bytes (216,109 before); `pnpm --filter @rose/ibe-wasm test`
   (8 tests, live-key round trip) exit 0.
+
+## Audit fixes: contracts, SDK and scripts (2026-11-14)
+
+Facts behind the fixes of the contracts, SDK and scripts audit of `be1c1fa`. Nothing was signed,
+sent or deployed: the Streamflow rows are `simulateTransaction` calls with `sigVerify: false`, which
+need no key.
+
+### A stream's sender can switch automatic withdrawal on after the deposit
+
+The simulations build Streamflow's `update` instruction with the pinned `@streamflow/stream` 13.4.0
+(`updateStreamInstruction({ id, ...params }, HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ, { authority,
+metadata, withdrawor: wdrwhnCv4pzW8beKsbPa4S2UDZrXenjg16KJdKSpb5u, systemProgram })`, loaded with
+`createRequire("./scripts/package.json")`), put one or more of them in a transaction whose fee payer
+is the authority, and call `simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true,
+accounts: { encoding: "base64", addresses: [stream] } })` on `https://api.devnet.solana.com`; the
+post-state is read at byte 457 (`cancelable_by_sender`), 459 (`automatic_withdrawal`), 460, 461 and
+527 (`withdraw_frequency`). The audit ran them at Unix time 1,794,618,393; the rows marked "re-run"
+were run again for this fix.
+
+| Fact | Command | Result |
+|---|---|---|
+| The stream is a position of the deployed engine, at the vault | `call_function` `get_sol_deposit {"metadata":"Cg3hynP4CwMe7sTX1hSwiWXJoTFxPDAea8beTXvd7d8A"}` on `engine-v2.rose-app.testnet` (finality `final`, `https://near-testnet.drpc.org`); `getAccountInfo(stream, "finalized")` | `stage: { Registered: { position_id: "1" } }` (block 277,589,312); recipient `EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC` (the engine's `vault/sol`), sender `6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n`, `automatic_withdrawal` 0, `cancelable_by_sender` 0, `transferable_by_sender` 0, `transferable_by_recipient` 1, period 2,592,000 |
+| The sender can switch it on (re-run) | `update { enableAutomaticWithdrawal: true }`, authority = the sender | `err: null` (slot 522,018,900): post-state `automatic_withdrawal` 1, `withdraw_frequency` 2,592,000 (the period) |
+| Not below the period | the same with `withdrawFrequency` 60, 3,600 or 86,400; then 2,592,000 | `InvalidArgument` for the three; `err: null` for 2,592,000 |
+| Not back off (re-run) | `enableAutomaticWithdrawal: true` then `enableAutomaticWithdrawal: false` in one transaction | `InstructionError [1, "InvalidArgument"]`: the second instruction fails |
+| Every other power the engine relies on stays off (re-run for the first) | `cancelableBySender: true`; `transferableBySender: true`; `transferableByRecipient: false` | `InstructionError [0, "InvalidArgument"]` each. Positive controls on other devnet streams: `cancelableBySender: false` on `1Ca8xDHP…YwgN` and `transferableBySender: false` on `12BasSQv…kChS` succeed, `transferableByRecipient: true` on `1NAPDn2u…WcZ` succeeds, and turning any of them back fails |
+| Only the sender, and no rate change | `amountPerPeriod: 1` with the sender; a name-only update with another key (`HWx7jD36…n1Ng`) | error 131 "Authority does not have permission for this action" for both |
+| Nothing was changed (re-run) | `getAccountInfo(stream, "finalized")` after the simulations | identical to the first row |
+| Streamflow's withdrawor acts on the flag before a stream's end | `getProgramAccounts(HqDGZ…CMfMZ, { filters: [{ dataSize: 1104 }, { memcmp: { offset: 459, bytes: "2" } }, { memcmp: { offset: 671, bytes: "1" } }] })` (flag 1, `closed` 0), then `getSignaturesForAddress` and `getTransaction` for the signers | `12gyFvEd…ZRn4` (`end_time` 1,974,712,778, `last_withdrawn_at` 1,793,800,591): 5 of its last 6 transactions signed by `wdrwhnCv…pb5u`, e.g. [66986xnt…SrEw](https://explorer.solana.com/tx/66986xntn3pWrt1z8QkPSSq9Ypbrqs7dSHWv2z7xqTyNuWxxP486GN4nDJCRk7g4nfkXfDMXAzaQ4WzVNnKrSrEw?cluster=devnet); `6FnBaEnR…UbYe`: 6 of 6; `7b8FLsQV…dh4`: 3 of 5 |
+
+What follows on the deployed engine (it checks the flag at attribution and registration only): the
+withdrawor moves the stream's unlocked tokens into the vault's token account at most one period
+apart, `engine_withdrawn` does not move, and a `redeem` prices the redeemer's payment from
+`engine_withdrawn`, so a redeem made before a `sync_sol_stream` charges the redeemer for tokens
+already in the vault, and after the release no sync can book them. The app and the SDK now check
+the stream at `finalized` before a redeem (`solRedeemSafety`); `docs/security.md` gives the residual.
+
+### NEAR testnet RPC fallback
+
+| Fact | Command | Result |
+|---|---|---|
+| The former SDK fallback is dead | `curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"engine-v2.rose-app.testnet","method_name":"get_sol_deposit","args_base64":"<base64 of {\"metadata\":\"Cg3h…d7d8A\"}>"}}'` | HTTP 429, error -429 "WARNING! THIS ENDPOINT IS DEPRECATED! STOP USING IT NOW!" |
+| FastNEAR's second host shares the primary's per-IP limit | 60 `view_account` of `engine-v2.rose-app.testnet` to `https://test.rpc.fastnear.com` (`seq 1 60 \| xargs -P 12 curl …`), then 10 to `https://rpc.testnet.fastnear.com`, then 5 to the first again | 32 × 200 and 28 × 429; then 2 × 200 and 8 × 429; then 5 × 429 |
+| dRPC answers, with CORS, and is another provider | the `get_sol_deposit` query above at `https://near-testnet.drpc.org`; `curl -s -i -X OPTIONS -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' https://near-testnet.drpc.org` | the deposit record (block 277,589,302); HTTP/2 204 with `access-control-allow-origin: https://rose-rounds.vercel.app`. It is the SDK's fallback (`NEAR_TESTNET_RPC_FALLBACK`); its free plan times out long `tx` waits (above, "Fable pass 1 fixes: web"), and staging deployment 3 already ran `e2e-solana-stream.mjs` through it |
+| Lava's public NEAR testnet endpoints are gone | the same query at `https://neart.lava.build` and `https://near-testnet.lava.build` | HTTP 410 "This endpoint has been discontinued." |

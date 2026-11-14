@@ -26,7 +26,7 @@ addresses, byte layouts) is recorded with its command in [`verification.md`](./v
 | **RoseVault** (Base Sepolia) | Correct code. Immutable: no owner, no pause, no upgrade, no `receive`; Sablier Lockup and the signer are fixed in the constructor | A bug in it is not mitigated by anyone (unaudited) | Release a stream or a token without an EIP-712 authorization recovering to the engine's `vault/base` address (`v` exactly 27 or 28, low `s`, one shared replay bitmap; the id is consumed before any external call) |
 | **The issuer** (whoever runs a Tender or creates a cohort's streams) | Naming the NEAR account that receives each stream in `createStreams`, and `distribute_units` to its holders: holders trust the issuer for their allocation exactly as they do for their vesting today. Choosing the Tender's `retire_to` address | Credit the wrong accounts when it creates the cohort; retire bought units to an address of its choice | Pay less than it promised: the budget plus the 30 bps fee are escrowed at creation. Read asks before close, change the budget or the max price after creation, or cancel once the first ask is placed |
 | **Sablier Lockup v4** (`0xA65A…532e`) | Stream custody and unlock math; rose ports `calculateStreamedAmountLL` of `lockup@v4.0.1` and matched 197 of 197 live `streamedAmountOf` reads | Its comptroller admin can switch on a withdrawal fee at any time (0 today, oracle-based); RoseVault forwards `calculateMinFeeWei` read in the same transaction, so withdrawals keep working and the caller pays | Withdraw a vault stream's tokens anywhere but RoseVault: a third party's `withdrawMax` must pay the recipient |
-| **Streamflow** (`HqDGZ…CMfMZ`) | Stream custody, the 1,104-byte metadata layout and `withdraw` semantics the engine verified on devnet, and its auto-claim: one second after a stream's end its withdrawor (`wdrwh…pb5u`, memo "Auto-Claim") withdraws the remainder into the recipient's token account and closes the escrow, even with `automatic_withdrawal` = 0 (reproduced on devnet). rose books it with `sync_sol_stream` and relies on it for an ended stream's last tranche | The program is upgradeable (BPFLoaderUpgradeable) and its on-chain source is not public: an upgrade could change any behavior rose relies on. If the auto-claim stopped, an ended stream's last tranche would stay in its escrow (draws stop five minutes before the end) | Under its current code, move a vault stream or pay its tokens anywhere but the vault's token account: the sender powers that would allow it (cancel, transfer, pause, rate update, top-up, automatic withdrawal) are refused at deposit, and the auto-claim pays the recipient's own token account. Make a payout look executed or not: verdicts read only the claimant's two nonce accounts (below) |
+| **Streamflow** (`HqDGZ…CMfMZ`) | Stream custody, the 1,104-byte metadata layout and `withdraw` semantics the engine verified on devnet, and its auto-claim: one second after a stream's end its withdrawor (`wdrwh…pb5u`, memo "Auto-Claim") withdraws the remainder into the recipient's token account and closes the escrow, even with `automatic_withdrawal` = 0 (reproduced on devnet). rose books it with `sync_sol_stream` and relies on it for an ended stream's last tranche | The program is upgradeable (BPFLoaderUpgradeable) and its on-chain source is not public: an upgrade could change any behavior rose relies on. If the auto-claim stopped, an ended stream's last tranche would stay in its escrow (draws stop five minutes before the end) | Under its current code, move a vault stream or pay its tokens anywhere but the vault's token account: the sender powers that would allow it (cancel, transfer, pause, rate update, top-up) are refused at deposit, and the sender cannot switch cancel or transfer back on nor change the rate (simulated on devnet), and the auto-claim pays the recipient's own token account. Automatic withdrawal is the exception: refused at deposit, but the sender can switch it on afterwards (never off); its withdrawals still pay only the vault's token account, outside the engine's accounting until a sync (see Redeem in kind). Make a payout look executed or not: verdicts read only the claimant's two nonce accounts (below) |
 | **Token issuers** | The tokens rose holds and pays | On Base, an ERC-20 with pause or blacklist powers can freeze RoseVault's balance or its transfers to a claimant: a trust assumption rose cannot remove. On either chain a mint authority can inflate supply (a price risk, not a custody one) | Freeze the vault's Solana token account: mints with a freeze authority are refused at deposit, and a mint without one can never gain one. Token-2022 mints are refused. Fee-on-transfer and rebasing tokens are unsupported; RoseVault refuses a cash deposit or a cohort funding that does not deliver exactly the amount pulled |
 | **RPC providers** | Serving the app's reads | Mislead what the app displays | Feed the engine: foreign facts reach it only through MPC attestations, never through an RPC the app chose |
 
@@ -171,6 +171,17 @@ No other party can move funds, see bids early or stop a round.
 - **Residual:** `AccountState` signs the account as the nodes read it at request time, so the app
   passes bytes read at `finalized` right before the call; a stream that changed in flight fails the
   hash comparison (about 7 s) and the app retries.
+- **Residual: automatic withdrawal switched on after the deposit.** Streamflow lets a stream's
+  sender switch `automatic_withdrawal` on at any time and never off (simulated on devnet on the
+  vault's own stream, `verification.md`), and the engine checks the flag at attribution and
+  registration only. Streamflow's withdrawor then moves the stream's unlocked tokens into the
+  vault's token account at most one period apart, outside any payout: `engine_withdrawn` does not
+  move, so `get_sol_streams` overstates what the stream can pay until anyone calls
+  `sync_sol_stream`, which books the tokens in the class's swept balance as it does an ended
+  stream's auto-claim. Nothing leaves the vault and the other holders stay whole; a draw sized
+  before the sync fails on chain (Streamflow error 115) and is refunded on its receipt, the stream
+  blocked meanwhile; the app leaves such a stream out of claims until it is synced. The redeem is
+  the case that loses tokens (below).
 
 ### Payouts (two-phase on Solana)
 
@@ -257,6 +268,25 @@ No other party can move funds, see bids early or stop a round.
   to the vault, and Streamflow's auto-claim closes it at its end either way. A release broadcast
   after the auto-claim fails ("Stream closed", error 104, measured), so an executed release always
   moved the stream before its end, and the auto-claim then paid its new owner.
+- **Residual (Solana): a stream whose sender switched automatic withdrawal on.** The deployed
+  engine prices the redeemer's payment from its own `engine_withdrawn`, with no proof of the
+  stream's current state. What the withdrawor moved into the vault and no sync booked is charged
+  to the redeemer as if it were still in the stream; once the release executes the position is
+  `Released`, `sync_sol_stream` refuses it ("The position is not held"), and those tokens stay in
+  the vault's token account booked to no class and no account. The redeemer loses them; nobody
+  gains, and the other holders stay whole (the class's claims fell by what the redeemer paid).
+  **The app's guard:** before the nonce and again right before every `redeem` request, the app
+  reads the stream at `finalized` (`solRedeemSafety` in `@rose/sdk`): a stream with the flag set
+  is refused, with sync and a claim from the swept balance offered instead (a sync right before
+  the redeem would still race the next sweep), and a stream showing `amount_withdrawn` above
+  `engine_withdrawn` is synced first; an unreadable or lagging read refuses. **What the guard does
+  not cover:** a direct caller of `redeem` (the SDK's `EngineCalls.redeem`, near-cli) who redeems
+  such a stream without syncing loses what was withdrawn and not synced; a sender who switches the
+  flag on between the app's last read and the release landing on Solana, with a sweep in that
+  window, causes the same loss. **The next engine** (a new account; this one is keyless) closes it
+  on chain: the Solana `redeem` proves the stream's metadata in its ForeignTx request and refuses
+  when the flag is set or `amount_withdrawn` differs from `engine_withdrawn`, or
+  `sync_sol_stream` books what a released stream had withdrawn up to its release.
 
 ### Storage and gas griefing
 
@@ -314,6 +344,10 @@ No other party can move funds, see bids early or stop a round.
   transfer and rebasing tokens are unsupported.
 - **Third-party programs:** Sablier's withdrawal fee is admin-controlled; Streamflow is upgradeable and
   its on-chain source is not public.
+- **Automatic withdrawal switched on after a Solana deposit.** A Streamflow stream's sender can
+  switch automatic withdrawal on after the deposit, which the deployed engine does not see until a
+  sync. Claims and the app's redeem are guarded (Redeem in kind above); a direct `redeem` of such a
+  stream without a sync loses the unsynced tokens. Fixed on chain only by a new engine.
 - **Solana draws and clock skew.** A draw of everything a stream has unlocked is sized from
   NEAR's block time, and Streamflow checks it against the Solana cluster's clock: broadcast while
   that clock is behind NEAR's across an unlock step, the `withdraw` fails (error 115) and the
