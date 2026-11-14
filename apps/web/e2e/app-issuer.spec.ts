@@ -255,6 +255,7 @@ test.describe("issuer console", () => {
     state.account = await connectNearDemo(page);
     const panel = page.locator("[data-dao-panel]");
     await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/The DAO must approve and execute the proposal before this time/)).toBeVisible();
     await page.locator("#tender-budget").fill("950");
     await page.locator("#tender-max").fill("9");
     await page.locator("#tender-retire").fill("0x000000000000000000000000000000000000dEaD");

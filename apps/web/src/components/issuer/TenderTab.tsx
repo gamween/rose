@@ -25,6 +25,11 @@ const USDC = 6;
 
 type Built = { args: TenderArgs; call: FunctionCall } | { error: string };
 
+/** Default close of a Tender signed by the issuer's own account: one day ahead. */
+const WALLET_CLOSE_SECS = 86_400;
+/** Default close of a Tender filed as a DAO proposal: past a default Sputnik vote (7 days), within the engine's 30-day horizon at execution. */
+const DAO_CLOSE_SECS = 14 * 86_400;
+
 /** The launch step: the Tender form with its live preview, launched directly or wrapped for a Sputnik DAO and Trezu. */
 export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: { base: IssuerBase; initialClassId?: string; showDao: boolean; onSigner?: (dao: boolean) => void; onCash?: (cash: Cash[]) => void }) {
   const wallets = useWallets();
@@ -40,7 +45,9 @@ export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: {
   const [retireTo, setRetireTo] = useState("");
   const [opensNow, setOpensNow] = useState(true);
   const [opensAt, setOpensAt] = useState(() => secondsToDateTime(Math.floor(Date.now() / 1000) + 3600));
-  const [closesAt, setClosesAt] = useState(() => secondsToDateTime(Math.floor(Date.now() / 1000) + 86_400));
+  const [closesAt, setClosesAt] = useState(() => secondsToDateTime(Math.floor(Date.now() / 1000) + (showDao ? DAO_CLOSE_SECS : WALLET_CLOSE_SECS)));
+  /** Until the issuer picks a close time, it follows the signer: a DAO needs room to vote and execute. */
+  const [closesTouched, setClosesTouched] = useState(false);
   const [timing, setTiming] = useState<RoundTimingValue>(() => defaultDurations(base.config));
   const [cash, setCash] = useState<Cash[] | null>(null);
   const launch = useAction();
@@ -135,7 +142,10 @@ export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: {
                 { value: "dao", label: "A DAO" },
               ]}
               value={showDao ? "dao" : "wallet"}
-              onChange={(value) => onSigner?.(value === "dao")}
+              onChange={(value) => {
+                if (!closesTouched) setClosesAt(secondsToDateTime(Math.floor(Date.now() / 1000) + (value === "dao" ? DAO_CLOSE_SECS : WALLET_CLOSE_SECS)));
+                onSigner?.(value === "dao");
+              }}
               data-tender-signer
             />
           </div>
@@ -200,8 +210,21 @@ export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: {
           </div>
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="tender-closes">Closes (UTC)</FieldLabel>
-            <Input id="tender-closes" type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} />
+            <Input
+              id="tender-closes"
+              type="datetime-local"
+              value={closesAt}
+              onChange={(event) => {
+                setClosesTouched(true);
+                setClosesAt(event.target.value);
+              }}
+            />
             <Hint>At most {formatBound(base.limits.maxRoundHorizon)} after creation.</Hint>
+            {showDao ? (
+              <Hint tone="warning">
+                The DAO must approve and execute the proposal before this time: the engine refuses a close time already past when the proposal executes. Sputnik&apos;s default policy gives members 7 days to vote, so the close defaults to 14 days ahead.
+              </Hint>
+            ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="tender-retire">Retired units pay to ({cls?.chain ?? "foreign"} address)</FieldLabel>
