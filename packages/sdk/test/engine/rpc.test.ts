@@ -92,12 +92,13 @@ describe("NearRpc", () => {
     const fetchImpl: typeof globalThis.fetch = (url, init) => {
       urls.push(url as string);
       const { method } = JSON.parse(init?.body as string) as { method: string };
-      if (method === "block") return Promise.resolve(new Response("Too Many Requests", { status: 429 }));
+      if (method === "block") return Promise.resolve(url === "https://send-a.test" ? new Response("Too Many Requests", { status: 429 }) : json({ result: { header: { height: 1 } } }));
       return Promise.resolve(json({ result: outcome }));
     };
     const rpc = new NearRpc({ fetch: fetchImpl, endpoints: ["https://send-a.test", "https://send-b.test"] });
-    await expect(rpc.block("final")).rejects.toThrow(NearRpcError);
+    await rpc.block("final");
     expect(cooldownMs("https://send-a.test")).toBeGreaterThan(0);
+    expect(cooldownMs("https://send-b.test")).toBe(0);
     urls.length = 0;
     await rpc.sendTransaction("AAAA");
     expect(urls).toEqual(["https://send-a.test"]);

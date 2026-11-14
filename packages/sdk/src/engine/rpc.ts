@@ -277,7 +277,7 @@ export class NearRpc {
 
   private async send(method: string, params: unknown): Promise<unknown> {
     let lastError: NearRpcError | null = null;
-    /* A transaction goes to the endpoints in the order given, whatever their pause or budget: the first is the one that holds its wait. */
+    /* A transaction goes to the endpoints in the caller's order, whatever their pause or budget. */
     const order = method === "send_tx" ? [...this.endpoints] : endpointOrder(this.endpoints);
     for (const endpoint of order) {
       await bucketOf(endpoint)?.take();
