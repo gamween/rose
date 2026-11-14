@@ -364,7 +364,12 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
   }, [adapter.connected, adapter.connecting, adapter.publicKey, adapter.wallet?.adapter.name, solanaDemo, solanaPreferred]);
 
   const solanaWallets = useMemo(
-    () => adapter.wallets.map((wallet) => ({ name: wallet.adapter.name, icon: wallet.adapter.icon, installed: wallet.readyState === "Installed" || wallet.readyState === "Loadable" })),
+    () =>
+      adapter.wallets.map((wallet) => ({
+        name: wallet.adapter.name,
+        icon: wallet.adapter.icon,
+        availability: wallet.readyState === "Installed" ? ("extension" as const) : wallet.readyState === "Loadable" ? ("web" as const) : ("missing" as const),
+      })),
     [adapter.wallets],
   );
 

@@ -100,7 +100,8 @@ export type WalletRuntimeValue = {
   switchEvmToBaseSepolia: () => Promise<void>;
   /** The viem wallet client of the connected EVM wallet (demo or injected). */
   getEvmWalletClient: () => Promise<SignerClient>;
-  solanaWallets: { name: string; icon: string; installed: boolean }[];
+  /** `extension`: an installed browser extension; `web`: no extension, but the adapter connects through the wallet's web page (Solflare); `missing`: neither. */
+  solanaWallets: { name: string; icon: string; availability: "extension" | "web" | "missing" }[];
   connectSolana: (walletName: string) => Promise<void>;
   useSolanaDemo: () => Promise<SolanaDemoWallet>;
   disconnectSolana: () => Promise<void>;
