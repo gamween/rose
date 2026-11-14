@@ -123,8 +123,8 @@ function RoundClock({ detail, nowMs }: { detail: RoundDetail; nowMs: number }) {
       value = <Countdown target={action.closesAt} endedLabel="now" />;
       break;
     case "waiting_key":
-      label = "Key requested";
-      value = "seconds";
+      label = "Key requested, arrives in";
+      value = "about 5 s";
       break;
     case "finalize":
     case "wait_reveal":
