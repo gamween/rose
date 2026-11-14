@@ -12,6 +12,7 @@ import {
   outcomeLogs,
   readStream,
   readStreamflowStream,
+  solRedeemSafety,
   tokenBalance,
   withdrawMax,
   type EngineCalls,
@@ -399,6 +400,29 @@ export function describeSolPlan(plan: SolClaimPlan, decimals: number): string {
 }
 
 /**
+ * The streams a claim may draw on: a stream whose metadata at finality shows tokens withdrawn
+ * beyond the engine's accounting (its sender switched automatic withdrawal on, or a sweep was not
+ * synced yet) is left out until a sync books them, since `get_sol_streams` overstates what it can
+ * pay and a draw sized from it would fail on chain (Streamflow error 115), blocking the stream
+ * until the refund. A stream that cannot be read stays in: a failed draw is refunded.
+ */
+async function drawableStreams(deps: FlowDeps, streams: SolStreamStateView[]): Promise<SolStreamStateView[]> {
+  const unbooked = await Promise.all(
+    streams.map(async (entry) => {
+      if (BigInt(entry.withdrawable) === 0n) return false;
+      try {
+        const { metadata } = await readStreamflowStream(deps.solana, new PublicKey(entry.stream.metadata), "finalized");
+        const safety = solRedeemSafety(metadata, BigInt(entry.stream.engine_withdrawn));
+        return (safety.kind === "sync_first" || safety.kind === "automatic_withdrawal") && safety.unbooked > 0n;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return streams.filter((_, index) => !unbooked[index]);
+}
+
+/**
  * Solana tokens: nonce, receipt and recipient token account, then an engine-built durable-nonce
  * payout paid from the class's swept balance and drawing on its streams for the rest, broadcast,
  * confirmation on the receipt.
@@ -415,7 +439,7 @@ export function claimSolTokensSteps(deps: FlowDeps, source: ClaimSource, mint: s
   };
   const planNow = async (context: StepContext): Promise<SolClaimPlan> => {
     const [streams, swept] = await Promise.all([deps.views.getSolStreams(source.classId, { signal: context.signal }), deps.views.getSolSwept(source.classId, { signal: context.signal })]);
-    return planSolClaim(streams, swept.available, source.amount, decimals);
+    return planSolClaim(await drawableStreams(deps, streams), swept.available, source.amount, decimals);
   };
   const steps: StepDefinition[] = [
     nonceStep(deps, nonce, { owner: toOwner, mint }),
@@ -447,38 +471,54 @@ export function claimSolTokensSteps(deps: FlowDeps, source: ClaimSource, mint: s
   return [...steps, mpcWait(deps, payout, "Nonce proof and MPC signatures (about 15 s)", steps), broadcastSolStep(deps, payout, "Broadcast the signed transaction and wait for finality"), confirmSolStep(deps, payout)];
 }
 
+type SyncProof = { anchor: string; metadataData: string; amount: bigint };
+
 /**
- * `sync_sol_stream` of an ended vault stream (spec 7.3): reads its metadata at finality, which
- * must show Streamflow's auto-claim (`amount_withdrawn` above the engine's accounting) into the
- * vault's token account, anchors the proof on the newest successful finalized transaction
- * touching it (the auto-claim), and asks the engine to prove it and book the difference in the
- * class's swept balance. Anyone may sync; the engine refuses while a payout drawing on the stream
- * is unsettled.
+ * Reads a vault stream at finality for `sync_sol_stream`: the metadata, which must show the stream
+ * at the vault with `amount_withdrawn` above `engineWithdrawn`, and the newest successful finalized
+ * transaction touching it as the proof's anchor (the withdrawal itself).
+ */
+async function readSyncProof(deps: FlowDeps, metadataAddress: string, engineWithdrawn: bigint, context: StepContext): Promise<SyncProof> {
+  const metadata = new PublicKey(metadataAddress);
+  const [state, anchor] = await Promise.all([readStreamflowStream(deps.solana, metadata, "finalized"), latestSuccessfulSignature(deps.solana, metadata)]);
+  if (deps.vaultSol && state.metadata.recipient.toBase58() !== deps.vaultSol) {
+    throw new RoseActionError("contract", "Not at the vault", "The stream no longer names the engine's vault as its recipient, so there is nothing for the engine to book.");
+  }
+  if (state.metadata.amountWithdrawn <= engineWithdrawn) {
+    throw new RoseActionError("contract", "Nothing to sync yet", "The stream shows no withdrawal beyond the engine's accounting at finality. An ended stream's auto-claim runs one second after the end and takes about 15 s to be final; retry in a few seconds.", true);
+  }
+  if (!anchor) throw new RoseActionError("contract", "No anchor", "No successful finalized transaction touches the stream yet; retry in a few seconds.", true);
+  context.addLinks(txLinks("solana", anchor));
+  return { anchor, metadataData: bytesToHex(state.raw), amount: state.metadata.amountWithdrawn - engineWithdrawn };
+}
+
+/** Sends `sync_sol_stream` with a proof read at finality and returns what the engine booked in the class's swept balance. */
+async function sendSync(deps: FlowDeps, positionId: string, proof: SyncProof, context: StepContext): Promise<bigint> {
+  const outcome = await deps.sendNearCall(deps.calls.syncSolStream(BigInt(positionId), proof.anchor, proof.metadataData));
+  context.addLinks(txLinks("near", outcome.transaction.hash));
+  const swept = decodeEventLogs(outcomeLogs(outcome)).find((decoded) => decoded.standard === "rose" && decoded.event.event === "sol_stream_swept");
+  if (!swept) {
+    throw new RoseActionError("mpc_timeout", "Proof not accepted", "The engine did not book the sync: the stream changed between the read and the proof, a payout started drawing on it, or the MPC failed. Nothing changed; retry reads the stream again.", true);
+  }
+  return BigInt((swept.event.data as { amount: string }).amount);
+}
+
+/**
+ * `sync_sol_stream` of a vault stream (spec 7.3): books what Streamflow withdrew into the vault's
+ * token account outside any engine payout, the auto-claim of an ended stream or the sweeps of a
+ * stream whose sender switched automatic withdrawal on, in the class's swept balance. Anyone may
+ * sync; the engine refuses while a payout drawing on the stream is unsettled.
  */
 export function syncSolStreamSteps(deps: FlowDeps, entry: SolStreamStateView, decimals: number): StepDefinition[] {
-  type SyncProof = { anchor: string; metadataData: string; amount: bigint };
   const holder = { proof: null as SyncProof | null };
-  const readProof = async (context: StepContext): Promise<SyncProof> => {
-    const metadata = new PublicKey(entry.stream.metadata);
-    const [state, anchor] = await Promise.all([readStreamflowStream(deps.solana, metadata, "finalized"), latestSuccessfulSignature(deps.solana, metadata)]);
-    if (deps.vaultSol && state.metadata.recipient.toBase58() !== deps.vaultSol) {
-      throw new RoseActionError("contract", "Not at the vault", "The stream no longer names the engine's vault as its recipient, so there is nothing for the engine to book.");
-    }
-    const engineWithdrawn = BigInt(entry.stream.engine_withdrawn);
-    if (state.metadata.amountWithdrawn <= engineWithdrawn) {
-      throw new RoseActionError("contract", "Nothing to sync yet", "The stream shows no withdrawal beyond the engine's accounting at finality: Streamflow's auto-claim runs one second after the end and takes about 15 s to be final. Retry in a few seconds.", true);
-    }
-    if (!anchor) throw new RoseActionError("contract", "No anchor", "No successful finalized transaction touches the stream yet; retry in a few seconds.", true);
-    context.addLinks(txLinks("solana", anchor));
-    return { anchor, metadataData: bytesToHex(state.raw), amount: state.metadata.amountWithdrawn - engineWithdrawn };
-  };
+  const engineWithdrawn = BigInt(entry.stream.engine_withdrawn);
   return [
     {
       id: "read",
-      label: "Read the stream at finality: Streamflow's auto-claim into the vault",
+      label: "Read the stream at finality: what Streamflow withdrew into the vault",
       run: async (context) => {
-        holder.proof = await readProof(context);
-        return { message: `${formatAmount(holder.proof.amount, decimals)} withdrawn by the auto-claim, not booked yet` };
+        holder.proof = await readSyncProof(deps, entry.stream.metadata, engineWithdrawn, context);
+        return { message: `${formatAmount(holder.proof.amount, decimals)} withdrawn into the vault, not booked yet` };
       },
     },
     {
@@ -487,34 +527,77 @@ export function syncSolStreamSteps(deps: FlowDeps, entry: SolStreamStateView, de
       run: async (context) => {
         if (!holder.proof) {
           context.setDetail("Reading the stream again at finality…");
-          holder.proof = await readProof(context);
+          holder.proof = await readSyncProof(deps, entry.stream.metadata, engineWithdrawn, context);
         }
         const proof = holder.proof;
         holder.proof = null;
-        const outcome = await deps.sendNearCall(deps.calls.syncSolStream(BigInt(entry.position_id), proof.anchor, proof.metadataData));
-        context.addLinks(txLinks("near", outcome.transaction.hash));
-        const swept = decodeEventLogs(outcomeLogs(outcome)).find((decoded) => decoded.standard === "rose" && decoded.event.event === "sol_stream_swept");
-        if (!swept) {
-          throw new RoseActionError("mpc_timeout", "Proof not accepted", "The engine did not book the sync: the stream changed between the read and the proof, a payout started drawing on it, or the MPC failed. Nothing changed; retry reads the stream again.", true);
-        }
-        const amount = BigInt((swept.event.data as { amount: string }).amount);
+        const amount = await sendSync(deps, entry.position_id, proof, context);
         return { message: `${formatAmount(amount, decimals)} booked in the swept balance; claims pay from it` };
       },
     },
   ];
 }
 
-/** In-kind redeem: burn the allocation, authorize the release, submit or broadcast it. */
-export function redeemSteps(deps: FlowDeps, position: Position, to: string, mint: string): StepDefinition[] {
+/** Why a Solana stream cannot be redeemed in kind once its sender switched automatic withdrawal on (`solRedeemSafety`). */
+export const AUTOMATIC_WITHDRAWAL_REFUSAL =
+  "The stream's sender switched Streamflow's automatic withdrawal on after the deposit, so Streamflow moves its unlocked tokens into the vault outside the engine's accounting. Redeeming it in kind would make you pay again for tokens already in the vault, and they would be lost. Keep the units: sync the stream (Solana streams tab) and claim your tokens from the swept balance instead.";
+
+/**
+ * The guard of a Solana in-kind redeem (spec 7.3, `solRedeemSafety`), run before the nonce and
+ * again right before every `redeem` request: the engine prices the redeem from its own accounting, so
+ * the stream, read at finality, must not withdraw automatically and must show nothing withdrawn
+ * beyond what the engine booked. Unbooked withdrawals are synced first (`sync_sol_stream`); a
+ * stream whose sender switched automatic withdrawal on is refused, since a sync right before the
+ * redeem still races the next sweep. `guard.syncedTo` keeps what this flow booked, so a lagging
+ * engine view does not ask for the same sync twice.
+ */
+async function ensureSolRedeemable(deps: FlowDeps, position: Position, decimals: number, guard: { syncedTo: bigint }, context: StepContext): Promise<string> {
+  const entry = (await deps.views.getSolStreams(position.classId, { signal: context.signal })).find((candidate) => candidate.position_id === position.positionId.toString());
+  if (!entry) throw new RoseActionError("contract", "Stream not redeemable", "The engine no longer lists this stream: it is fully withdrawn, and its tokens are claimable.");
+  if (entry.stream.drawing !== undefined && entry.stream.drawing !== null) {
+    throw new RoseActionError("contract", "Payout unconfirmed", `Payout #${entry.stream.drawing} draws on this stream and is not confirmed yet: confirm it first (Confirm on the pending payout), then redeem.`, true);
+  }
+  const booked = BigInt(entry.stream.engine_withdrawn);
+  const engineWithdrawn = booked > guard.syncedTo ? booked : guard.syncedTo;
+  const state = await readStreamflowStream(deps.solana, new PublicKey(entry.stream.metadata), "finalized").catch(() => {
+    throw new RoseActionError("rpc", "Stream unreadable", "The stream could not be read on Solana at finality, and the redeem only goes ahead on a fresh read. Retry in a few seconds.", true);
+  });
+  const safety = solRedeemSafety(state.metadata, engineWithdrawn);
+  switch (safety.kind) {
+    case "automatic_withdrawal":
+      throw new RoseActionError("contract", "Redeem in kind refused", AUTOMATIC_WITHDRAWAL_REFUSAL);
+    case "stale_read":
+      throw new RoseActionError("rpc", "Stale read", "The Solana node shows the stream behind what the engine already proved at finality; retry in a few seconds.", true);
+    case "sync_first": {
+      context.setDetail(`${formatAmount(safety.unbooked, decimals)} withdrawn outside the engine's accounting: syncing it first…`);
+      const proof = await readSyncProof(deps, entry.stream.metadata, engineWithdrawn, context);
+      const amount = await sendSync(deps, entry.position_id, proof, context);
+      guard.syncedTo = engineWithdrawn + amount;
+      return `${formatAmount(amount, decimals)} withdrawn outside the engine's accounting, synced to the swept balance first`;
+    }
+    case "safe":
+      return "No automatic withdrawal and nothing withdrawn outside the engine's accounting";
+  }
+}
+
+/**
+ * In-kind redeem: burn the allocation, authorize the release, submit or broadcast it. On Solana
+ * the stream is checked at finality before the nonce (`ensureSolRedeemable`) and again right
+ * before every request, a request redone after a refund included.
+ */
+export function redeemSteps(deps: FlowDeps, position: Position, to: string, mint: string, decimals: number): StepDefinition[] {
   if (position.source.kind === "BaseStream") {
     const holder: PayoutHolder = { payoutId: null };
     const request = requestStep(deps, "request", "Burn the allocation and request the Release authorization", () => deps.calls.redeem(position.positionId, to), holder);
     return [request, mpcWait(deps, holder, undefined, [request]), submitBaseStep(deps, holder, "Submit executeRelease to RoseVault (the stream NFT goes to your address)")];
   }
   const nonce = { proof: null as SolNonceProof | null };
+  const guard = { syncedTo: 0n };
   const holder: PayoutHolder = { payoutId: null, reset: () => (nonce.proof = null) };
+  const check = (id: string, label: string): StepDefinition => ({ id, label, run: async (context) => ({ message: await ensureSolRedeemable(deps, position, decimals, guard, context) }) });
   const steps: StepDefinition[] = [
     nonceStep(deps, nonce, { owner: to, mint }),
+    check("recheck", "Read the stream at finality again, right before the request"),
     requestStep(
       deps,
       "request",
@@ -526,7 +609,13 @@ export function redeemSteps(deps: FlowDeps, position: Position, to: string, mint
       holder,
     ),
   ];
-  return [...steps, mpcWait(deps, holder, "Nonce proof and MPC signatures (about 15 s)", steps), broadcastSolStep(deps, holder, "Broadcast the signed transaction and wait for finality"), confirmSolStep(deps, holder)];
+  return [
+    check("check", "Read the stream at finality: no automatic withdrawal, and sync what the engine has not booked"),
+    ...steps,
+    mpcWait(deps, holder, "Nonce proof and MPC signatures (about 15 s)", steps),
+    broadcastSolStep(deps, holder, "Broadcast the signed transaction and wait for finality"),
+    confirmSolStep(deps, holder),
+  ];
 }
 
 function settles(payout: PayoutView): boolean {

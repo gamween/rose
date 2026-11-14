@@ -21,9 +21,10 @@ export type ClaimPrompt = {
   destination?: { chain: "base" | "solana"; initial: string; fixed?: boolean };
   /**
    * Position picker for an in-kind redeem. `owed` (Solana) is what the stream still owes the unit
-   * holders, paid from the redeemer's claimable tokens (`get_sol_streams` `redeem_claimable`).
+   * holders, paid from the redeemer's claimable tokens (`get_sol_streams` `redeem_claimable`);
+   * `notes` adds a remark to a selectable position (a stream the redeem syncs first).
    */
-  positions?: { candidates: Position[]; decimals: number; freeUnits: bigint; owed?: { byPosition: ReadonlyMap<string, bigint>; claimable: bigint; unit: string }; unavailable?: ReadonlyMap<string, string> };
+  positions?: { candidates: Position[]; decimals: number; freeUnits: bigint; owed?: { byPosition: ReadonlyMap<string, bigint>; claimable: bigint; unit: string }; unavailable?: ReadonlyMap<string, string>; notes?: ReadonlyMap<string, string> };
   confirmLabel: string;
   onConfirm: (values: { amount: bigint; destination: string; position: Position | null }) => void;
 };
@@ -107,11 +108,12 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
                 <option value="">Choose…</option>
                 {positions.candidates.map((candidate) => {
                   const blocker = blockerOf(candidate);
+                  const note = positions.notes?.get(candidate.positionId.toString());
                   return (
                     <option key={candidate.positionId.toString()} value={candidate.positionId.toString()} disabled={blocker !== undefined}>
                       #{candidate.positionId.toString()} · {candidate.source.kind === "BaseStream" ? `Sablier stream ${candidate.source.streamId.toString()}` : `Streamflow ${candidate.source.metadata.slice(0, 8)}…`} · {formatAmount(candidate.allocation, positions.decimals)} units
                       {positions.owed ? ` · owes ${formatAmount(owedFor(candidate), positions.decimals)}` : ""}
-                      {blocker ? ` (${blocker.toLowerCase()})` : ""}
+                      {blocker ? ` (${blocker.toLowerCase()})` : note ? ` (${note})` : ""}
                     </option>
                   );
                 })}
