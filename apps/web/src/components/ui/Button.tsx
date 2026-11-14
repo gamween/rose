@@ -16,8 +16,6 @@ const sizes: Record<ButtonSize, string> = {
   lg: "h-11 px-5 text-[14px]",
 };
 
-const iconSizes: Record<ButtonSize, string> = { sm: "size-7", md: "size-9", lg: "size-11" };
-
 function buttonClasses(size: ButtonSize, className?: string): string {
   return cn(base, sizes[size], className);
 }
@@ -61,21 +59,4 @@ export type ButtonLinkProps = ComponentProps<typeof Link> & { variant?: ButtonVa
 
 export function ButtonLink({ variant = "primary", size = "md", className, ...rest }: ButtonLinkProps) {
   return <Link data-variant={variant} className={buttonClasses(size, className)} {...rest} />;
-}
-
-/** A square block holding one icon; `label` is its accessible name and tooltip. */
-export function IconButton({
-  label,
-  variant = "secondary",
-  size = "md",
-  className,
-  children,
-  type = "button",
-  ...rest
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> & { label: string; variant?: ButtonVariant; size?: ButtonSize }) {
-  return (
-    <button type={type} aria-label={label} title={label} data-variant={variant} className={cn(base, iconSizes[size], "px-0", className)} {...rest}>
-      {children}
-    </button>
-  );
 }

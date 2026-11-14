@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 /** Recessed field (`.ui-field`): sits below the surface, ember border and inner ring on focus. */
@@ -48,10 +48,6 @@ export function Input({ className, invalid = false, ...rest }: InputHTMLAttribut
 /** Classes of a native `<select>` styled as a field with a pixel chevron (keyboard and mobile pickers stay native). */
 export function selectClasses(className?: string, size: "sm" | "md" = "md", fullWidth = true): string {
   return cn("ui-field ui-select pl-3 text-[13px]", fullWidth && "w-full", size === "sm" ? "h-8" : "h-9", className);
-}
-
-export function Select({ className, invalid = false, size = "md", ...rest }: Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & { invalid?: boolean; size?: "sm" | "md" }) {
-  return <select className={selectClasses(className, size)} aria-invalid={invalid || undefined} {...rest} />;
 }
 
 export type NumberInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onChange" | "size" | "max"> & {

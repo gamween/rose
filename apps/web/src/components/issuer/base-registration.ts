@@ -70,8 +70,6 @@ export async function waitForReplay(engine: EngineClient, key: ReplayKey, option
 
 export type SendNearCall = (call: FunctionCall) => Promise<FinalExecutionOutcome>;
 
-export type StreamRegistration = { log: StreamDepositedLog; classId: string; key: ReplayKey };
-
 /** The class id of a `StreamDeposited` log, exactly as the engine will compute it. */
 export async function classIdOfLog(engine: EngineClient, log: StreamDepositedLog, signal?: AbortSignal): Promise<string> {
   const a = log.args;

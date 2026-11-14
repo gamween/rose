@@ -5,8 +5,7 @@
  * now, with its one button. "Close round" after `closes_at`, the key request and its fallback
  * submission, "Open every order" while revealing (the opening progress), "Clear" after the window,
  * "Settle" afterwards, "Cancel (no key)" when the MPC never answered. While bidding is open the
- * order form is the action card and `RoundExtraActions` carries the creator's withdrawal and the
- * no-key cancellation.
+ * order form is the action card and `RoundExtraActions` carries the creator's withdrawal.
  */
 
 import { GAS, TGAS, type Round } from "@rose/sdk";
@@ -131,7 +130,7 @@ export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { 
           </Button>
         ) : null}
         {action.kind === "done" ? (
-          <ButtonLink href={ROUTES.portfolio} size="lg" variant="secondary" className="w-full" data-action="portfolio">
+          <ButtonLink href={`${ROUTES.portfolio}#claims`} size="lg" variant="secondary" className="w-full" data-action="portfolio">
             Claim in the Portfolio
           </ButtonLink>
         ) : null}

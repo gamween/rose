@@ -55,7 +55,7 @@ export function SettlementPanel({ detail }: { detail: RoundDetail }) {
             <a href={nearAccountUrl(venueTokenAccount(round.venue))} target="_blank" rel="noreferrer" className="min-w-0 underline-offset-2 [overflow-wrap:anywhere] hover:underline">
               {round.venue === "Near" ? `cash token ${venueTokenAccount(round.venue)}` : `venue ${venueLabel(round.venue)}`} ↗
             </a>
-            <Link href={ROUTES.portfolio} className="text-ember-300 underline-offset-2 hover:underline">
+            <Link href={`${ROUTES.portfolio}#claims`} className="text-ember-300 underline-offset-2 hover:underline">
               Claim cash and units in the Portfolio →
             </Link>
           </dd>

@@ -3,9 +3,9 @@
  * `f(now)`, claim sources per chain, pending payouts, the account's slice of the event history.
  */
 
-import { ONE, SOL_DRAW_CUTOFF_SECS, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type SolDrawArgs, type StoredEvent, type Venue } from "@rose/sdk";
+import { ONE, SOL_DRAW_CUTOFF_SECS, type Bid, type Cash, type ClassInfo, type Holding, type Lien, type LienShare, type PayoutView, type RetiredLot, type SolDrawArgs, type StoredEvent } from "@rose/sdk";
 import { RoseActionError } from "@/lib/errors";
-import { nsToMs, sameVenue, tokensAtFraction } from "@/lib/amounts";
+import { tokensAtFraction } from "@/lib/amounts";
 import { fractionAt } from "@/lib/unlock-schedule";
 
 export type HoldingRow = {
@@ -83,10 +83,6 @@ export type CashRow = { cash: Cash; chain: "near" | "base" };
 
 export function cashRows(cash: readonly Cash[]): CashRow[] {
   return cash.filter((entry) => entry.amount > 0n).map((entry) => ({ cash: entry, chain: entry.venue === "Near" ? "near" : "base" }));
-}
-
-export function cashIn(cash: readonly Cash[], venue: Venue): bigint {
-  return cash.find((entry) => sameVenue(entry.venue, venue))?.amount ?? 0n;
 }
 
 export type PayoutState = "requested" | "stale" | "signed" | "unconfirmed" | "submitted" | "awaiting_gas" | "failed" | "lapsed";
@@ -178,15 +174,9 @@ export function accountEvents(events: readonly StoredEvent[], account: string): 
   return events.filter((entry) => entry.predecessor === account || mentions(entry.event.data, account)).sort((a, b) => (a.seq < b.seq ? 1 : -1));
 }
 
-export type HistoryEntry = { id: string; atMs: number; title: string; links: { href: string; label: string }[] };
-
 /** The round ids an account's orders belong to, without duplicates. */
 export function orderRoundIds(bids: readonly Bid[]): bigint[] {
   return [...new Set(bids.map((bid) => bid.roundId.toString()))].map((id) => BigInt(id));
-}
-
-export function eventTimeMs(event: StoredEvent): number {
-  return nsToMs(event.timestamp);
 }
 
 /**

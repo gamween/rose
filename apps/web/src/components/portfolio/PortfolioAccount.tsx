@@ -228,7 +228,7 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
   ];
   const tabs = useTabs(
     tabItems.map((item) => item.id),
-    "holdings",
+    claimCount > 0 && rows.length === 0 ? "claims" : "holdings",
     { hash: true },
   );
 

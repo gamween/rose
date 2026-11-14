@@ -16,7 +16,7 @@ const SHADES: Record<string, Shade> = {
 };
 
 /** Layers from bottom to top; each layer is rows (y, back to front) of columns (x, left to right). */
-export const VOXEL_PRESETS = {
+const VOXEL_PRESETS = {
   vault: [
     ["kkkk", "kkkk", "kkkk"],
     ["kgkk", "kkkk", "kkkk"],

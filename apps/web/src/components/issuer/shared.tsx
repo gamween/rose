@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatAmount, formatDate, formatFraction, secondsToMs, shortHex, venueLabel } from "@/lib/amounts";
-import { engineClient, requireEngine, type EngineClient } from "@/lib/engine-client";
+import { requireEngine, type EngineClient } from "@/lib/engine-client";
 import { addressUrl } from "@/lib/explorer";
 import { scheduleBounds } from "@/lib/unlock-schedule";
 import type { ActionState } from "@/lib/use-action";
@@ -344,9 +344,4 @@ export function IssuerGate({ state, onRetry, children }: { state: EngineQuerySta
 /** yoctoNEAR as NEAR with up to five decimals, trailing zeros trimmed (`1`, `0.05`, `0.00336`). */
 export function formatNear(yocto: bigint): string {
   return formatAmount(yocto, 24, 5).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
-}
-
-/** The engine account for links and messages, or null. */
-export function engineAccountOrNull(): string | null {
-  return engineClient()?.account ?? null;
 }
