@@ -24,7 +24,7 @@ import { ClearingChart } from "./ClearingChart";
 import { buildBook, roundCurves } from "./curves";
 import { FillsTable } from "./FillsTable";
 import { FinalizePanel } from "./FinalizePanel";
-import { classShortLabel, clearingOf, formatDate, formatQty, formatUsdc, KIND_BLURB, lockedPercent, msToNs, nextAction, nsToMs, scheduleEndSecs, venueLabel } from "./model";
+import { classShortLabel, clearingOf, formatDate, formatQty, formatUsdc, KEY_LATE_AFTER_MS, KIND_BLURB, lockedPercent, msToNs, nextAction, nsToMs, scheduleEndSecs, venueLabel } from "./model";
 import { MyOrders } from "./MyOrders";
 import { OrderForm } from "./OrderForm";
 import { RoundAction, RoundExtraActions } from "./RoundAction";
@@ -123,8 +123,13 @@ function RoundClock({ detail, nowMs }: { detail: RoundDetail; nowMs: number }) {
       value = <Countdown target={action.closesAt} endedLabel="now" />;
       break;
     case "waiting_key":
-      label = "Key requested, arrives in";
-      value = "about 5 s";
+      if (nowMs - action.since > KEY_LATE_AFTER_MS) {
+        label = "Key requested";
+        value = "taking longer than usual";
+      } else {
+        label = "Key requested, arrives in";
+        value = "about 5 s";
+      }
       break;
     case "finalize":
     case "wait_reveal":

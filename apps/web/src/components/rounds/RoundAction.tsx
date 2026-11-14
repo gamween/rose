@@ -19,7 +19,7 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { txLinks } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { useNearAction } from "./actions";
-import { canCancelAsCreator, canCancelNoKey, canClose, formatDateTime, msToNs, NEXT_ACTION_LABEL, nextAction, OPENING_COST_NEAR, type NextAction } from "./model";
+import { canCancelAsCreator, canCancelNoKey, canClose, formatDateTime, KEY_LATE_AFTER_MS, msToNs, NEXT_ACTION_LABEL, nextAction, OPENING_COST_NEAR, type NextAction } from "./model";
 import { SettlePanel } from "./SettlePanel";
 import { Notice } from "./shared";
 import { SubmitKeyPanel } from "./SubmitKeyPanel";
@@ -123,7 +123,7 @@ export function RoundAction({ detail, nowMs, onChanged, children }: { detail: Ro
   const pending = landed !== null && landed.kind === action.kind && action.kind !== "waiting_key";
 
   // `close` refuses a round with orders once its key timeout has passed: no retry is offered then.
-  const retryVisible = action.kind === "waiting_key" && nowMs - action.since > 30_000 && canClose(round, nowMs);
+  const retryVisible = action.kind === "waiting_key" && nowMs - action.since > KEY_LATE_AFTER_MS && canClose(round, nowMs);
   const needsWallet = action.kind === "close" || action.kind === "cancel_no_key" || action.kind === "clear" || action.kind === "finalize" || action.kind === "settle" || retryVisible;
 
   return (

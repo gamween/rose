@@ -229,6 +229,12 @@ export type NextAction =
   | { kind: "settle"; pending: number }
   | { kind: "done" };
 
+/**
+ * How long after `close` the MPC key counts as late (it normally arrives in about 5 s): past this
+ * the header says so, and the next-step card offers a new key request while `close` takes one.
+ */
+export const KEY_LATE_AFTER_MS = 30_000;
+
 export const NEXT_ACTION_LABEL: Record<NextAction["kind"], string> = {
   wait_open: "Opens soon",
   bid: "Place an order",
