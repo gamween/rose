@@ -150,10 +150,10 @@ export function RoundsPage({ configured, demo }: { configured: boolean; demo: bo
             </div>
           </div>
 
-          {list.state.status === "loading" ? <LoadingRows /> : null}
+          {list.state.status === "loading" || (list.stale && rounds.length === 0) ? <LoadingRows /> : null}
           {list.state.status === "not_deployed" ? <NotDeployedState detail={list.state.detail} /> : null}
           {list.state.status === "error" ? <ErrorState message={list.state.message} onRetry={list.retry} /> : null}
-          {data ? (
+          {data && !(list.stale && rounds.length === 0) ? (
             rounds.length === 0 ? (
               <EmptyState
                 illustration={filtered ? "ledger" : "tender"}
