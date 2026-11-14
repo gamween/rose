@@ -57,12 +57,15 @@ export function daoShortfall(escrow: bigint, daoCash: bigint): bigint {
   return daoCash >= escrow ? 0n : escrow - daoCash;
 }
 
-/** A Sputnik `proposal_period` (ns) in days, hours, or minutes below an hour (a test DAO). */
+/** A Sputnik `proposal_period` (ns) as whole days, else days, hours and minutes, without rounding. */
 export function formatVotePeriod(ns: bigint): string {
-  const minutes = Number(ns / 60_000_000_000n);
-  if (minutes < 60) return `${String(minutes)} min`;
-  const hours = Math.floor(minutes / 60);
-  return hours % 24 === 0 ? `${String(hours / 24)} ${hours === 24 ? "day" : "days"}` : `${String(hours)} h`;
+  const total = Number(ns / 60_000_000_000n);
+  if (total > 0 && total % 1_440 === 0) return `${String(total / 1_440)} ${total === 1_440 ? "day" : "days"}`;
+  const days = Math.floor(total / 1_440);
+  const hours = Math.floor((total % 1_440) / 60);
+  const minutes = total % 60;
+  const parts = [days > 0 ? `${String(days)} ${days === 1 ? "day" : "days"}` : null, hours > 0 ? `${String(hours)} h` : null, minutes > 0 || total === 0 ? `${String(minutes)} min` : null];
+  return parts.filter((part) => part !== null).join(" ");
 }
 
 /** Yocto to a NEAR amount text accepted by near-cli-rs (`'1 NEAR'`, `'0.05 NEAR'`). */

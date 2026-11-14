@@ -412,7 +412,7 @@ No other party can move funds, see bids early or stop a round.
 ## Review history
 
 The contracts and the engine went through independent review passes by a model other than the one
-that wrote the code (two AI models, called A and B below), focused on correctness, hallucinated APIs and drift
+that wrote the code (two AI model families, called A and B below; the 14 November passes used a newer version of A), focused on correctness, hallucinated APIs and drift
 from the specification. Counts are as each pass reported them; blockers and majors were fixed before the next
 milestone unless stated.
 
@@ -436,6 +436,15 @@ milestone unless stated.
 | 16 | Engine, RoseVault, `rose-ibe` and the SDK engine bindings before the second final deployment (`46358b2`) | Model B | 0 blockers, 0 majors, 3 minors | Fixed in `0524b33`: `withdraw_near_cash` holds the account until its callback, a round takes exactly its 0.05 NEAR deposit. Accepted: an Advance funder who never claims its last tokens leaves an index record of about 133 bytes paid by the engine (bounded by the number of funded lien shares, each of which costs its funder far more). `0524b33` is the commit deployed as `engine-v2.rose-app.testnet` |
 | 17 | Counted full pass: the whole product and the live `engine-v2.rose-app.testnet`, its RoseVault and production (`3044a44`) | Model A | 0 blockers, 0 majors, 1 minor | Fixed in `3a99e6e`: the trust-model table said the final build came from a public commit while the repository is private |
 | 18 | Counted full pass, independent of 17: the whole product and the live deployment (`3a99e6e`) | Model B | 0 blockers, 0 majors, 1 minor | Fixed after the pass: the trust-model table named `engine-s1` to `engine-s4` as running an empty contract; `engine-s5` does too since its reclaim |
+| 19 | Contracts, SDK and scripts before submission (`be1c1fa`) | Model A | 1 blocker, conditional: a Streamflow stream's sender can turn automatic withdrawal on after the deposit, and an in-kind redeem made before a sync then loses what was swept (the redeemer alone loses; no theft); 0 majors, 12 minors | No redeploy: the app and `@rose/sdk` refuse such a redeem and sync first, the residual risk for a direct caller is stated here, in the spec and in the README; minors fixed |
+| 20 | Web front redesign (`8ddd69e..be1c1fa`) | Model A | 2 blockers (README steps named controls the redesign renamed), 1 major (clipped definitions), 10 minors | Fixed |
+| 21 | Click-through of the deployed app at 1470 and 375 px | Model A | 1 blocker (a demo account read as missing on an RPC error), 2 majors (NEAR read failover, a Settle button that did not settle), 16 minors | Fixed |
+| 22 | Audit fixes (`be1c1fa..1d5eb02`) | Model A | 0 blockers, 2 majors (faucet caps set but not deployed; tool and model names in the README), 9 minors | Fixed: caps deployed, names removed, minors fixed |
+| 23 | Audit fixes (`1d5eb02..30900c6`) | Model A | 0 blockers, 0 majors, 6 minors | Fixed |
+| 24 | Final pass on `8a6ba9d` and the live deployment | Model A | 0 blockers, 1 major (commit message trailers in the history, which only a rewrite of history would remove; a rewrite would change commit `0524b33`, which the deployed engine's on-chain metadata names, so it is left to the author), 2 minors | Minors fixed |
+
+Two simulated screenings from a clean clone, following only the README, scored the project 85 of 100
+on 14 November (`be1c1fa`, then `30900c6`); the second reproduced the engine's reproducible build.
 
 The web app was also exercised live through its demo wallets against the staging engines and the
 final engines; the bugs

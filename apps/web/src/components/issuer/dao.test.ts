@@ -95,11 +95,13 @@ describe("Results tab creators", () => {
 });
 
 describe("formatVotePeriod", () => {
-  it("shows a Sputnik proposal period in days, hours, or minutes below an hour", () => {
+  it("shows a Sputnik proposal period in whole days, else days, hours and minutes, without rounding", () => {
     const minute = 60_000_000_000n;
     expect(formatVotePeriod(1_440n * minute)).toBe("1 day");
     expect(formatVotePeriod(7n * 1_440n * minute)).toBe("7 days");
-    expect(formatVotePeriod(90n * minute)).toBe("1 h");
+    expect(formatVotePeriod(90n * minute)).toBe("1 h 30 min");
+    expect(formatVotePeriod(1_530n * minute)).toBe("1 day 1 h 30 min");
+    expect(formatVotePeriod(120n * minute)).toBe("2 h");
     expect(formatVotePeriod(30n * minute)).toBe("30 min");
     expect(formatVotePeriod(0n)).toBe("0 min");
   });

@@ -25,7 +25,3 @@ broadcast/
 .vercel/
 playwright-report/
 test-results/
-.claude/worktrees/
-
-# Local instructions for the author's coding agents (not part of the product)
-CLAUDE.md
