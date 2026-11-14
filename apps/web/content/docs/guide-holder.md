@@ -38,7 +38,7 @@ Go to `/app/deposit` and choose Solana.
 1. Open `/app/rounds`, filter by type Tender and your class, and open the round. You see the issuer's public budget, max price, window, cash venue and the sealed book (number of asks and their locked units).
 2. Click "Place ask". Enter the units to lock and, sealed, your minimum price per locked token and the quantity you actually sell (at most the locked units). The form shows the bond (`max(1 USDC, 1% of your locked units at the max price)`) and the venue.
 3. Sign. Your units are locked in the round and keep accruing to you until `closes_at`. Your ask is encrypted in the browser; the round page lists it under "my bids" with its ciphertext hash.
-4. After close, anyone can click "Close round", then "Finalize". If you are first, you pay about 0.0132 NEAR of gas per opened bid.
+4. After close, anyone can click "Close round", then "Open every order". If you are first, you pay about 0.0132 NEAR of gas per opened bid.
 5. The round settles. You see `P*` and your fill. If your minimum was at or below `P*` you sold at `P*` (never at your minimum). Unsold units return with their accrual.
 6. Click "Claim" to pull your proceeds in the round's venue, your bond and any unsold units.
 

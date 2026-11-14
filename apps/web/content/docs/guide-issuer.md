@@ -50,7 +50,7 @@ If the venue is NEAR tUSDC, the escrow is taken from your NEAR cash balance when
 
 ## 5. Run via DAO
 
-Treasuries that need an on-chain vote choose "Run via DAO" instead of signing themselves.
+Treasuries that need an on-chain vote set "Signed by" to "A DAO" in the "Launch Tender" step instead of signing themselves; the "Run via DAO" panel then builds the proposal.
 
 1. Enter the Sputnik DAO account. The console builds a function-call proposal that creates and funds the Tender with the same parameters. A Trezu custom template is also produced for treasuries that use it.
 2. Submit the proposal to the DAO from your wallet. You see the proposal link.
@@ -63,7 +63,7 @@ Holders see the Tender in `/app/rounds` and place sealed asks. You see the numbe
 ## 7. Close, finalize, settle
 
 1. After `closes_at`, anyone can click "Close round" on `/app/rounds/[id]`. The engine requests the round key from the MPC network; you see the key release event when it arrives (typically a few seconds).
-2. Click "Finalize". The app opens every ask (one transaction each) and, when the reveal window ends, calls `clear`. The supply curve animates into the clearing price.
+2. Click "Open every order" in the round's action card. The app opens every ask (one transaction each) and, when the reveal window ends, calls `clear`. The supply curve animates into the clearing price.
 3. You see `P*`, the volume bought, the fills table, the fee and your refund.
 4. Click "Claim" to pull the refund of unspent budget to your cash balance. Each seller claims their proceeds.
 

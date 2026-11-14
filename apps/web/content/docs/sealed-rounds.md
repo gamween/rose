@@ -11,14 +11,14 @@ section: Mechanism
 Scheduled -> Open -> KeyRequested -> Revealing -> Clearing -> Settled | Cancelled
 ```
 
-Every transition is a public method. There is no keeper, no relayer and no privileged operator. Whoever cares about the outcome advances the round, and the UI shows the next available action ("Close round", "Finalize", "Claim") to whoever is looking at it.
+Every transition is a public method. There is no keeper, no relayer and no privileged operator. Whoever cares about the outcome advances the round, and the UI shows the next available action ("Close round", "Open every order", "Clear", "Settle") to whoever is looking at it.
 
 | State | What happens | Who moves it forward |
 |---|---|---|
 | `Scheduled` | The round exists; bidding has not started. | Time: it becomes `Open` at `opens_at`. |
 | `Open` | Bids and asks are accepted until `closes_at` (block timestamp), at most `MAX_BIDS_PER_ROUND = 64` per round and one per side per account. The creator can cancel only before the first bid, and never after `closes_at`. | Anyone calls `close` once `now >= closes_at` (a round without any sealed order is cancelled instead). |
 | `KeyRequested` | The contract has asked the NEAR MPC network for the round's decryption key. Retries are unbounded because the key is deterministic. | The MPC callback, or anyone with the key through `submit_key`. If no key has arrived by `closes_at + key_timeout` (default 1 h), anyone calls `cancel_no_key` once no key request is in flight. |
-| `Revealing` | Starts at `key_received_at`, lasts `reveal_window` (10 min in the demo, 24 h suggested in production). Openings are accepted. | Anyone can open any bid; the app opens everything for whoever clicks "Finalize". |
+| `Revealing` | Starts at `key_received_at`, lasts `reveal_window` (10 min in the demo, 24 h suggested in production). Openings are accepted. | Anyone can open any bid; the app opens everything for whoever clicks "Open every order". |
 | `Clearing` | After the window, `clear` computes the clearing price and every fill in one bounded transaction (64 orders at most); `settle_bid` then applies one bid's result at a time, which is the pagination of settlement. | Anyone. |
 | `Settled` | Units and cash have moved inside the NEAR ledger. Each participant pulls their cash, units or refunds. | Each participant claims. |
 | `Cancelled` | No crossing, no sealed order at close, cancelled by the creator before the first bid, or no key in time. Every escrow, bond and locked unit is refundable. | Each participant claims their refund. |
@@ -46,7 +46,7 @@ Measured on testnet (rose, consistent with Sealwell's 4.3 to 6.1 s): 4.1 to 5.4 
 
 1. Once the key is public, anyone can open any bid by submitting `(plaintext, sigma)`. The contract fully verifies the opening: it recomputes `V` from the public key with one pairing in wasm and checks `U`, `V` and `W` (Sealwell measured 119.8 Tgas, 124 Tgas per receipt; rose measured 124.3 to 124.4 Tgas per transaction), so each opening fits in one transaction under the 300 Tgas wallet cap.
 2. A ciphertext with an inconsistent `V` can be opened by nobody, its author included. This matters: a bidder cannot submit a malformed bid and then decide after seeing the book whether to reveal it. There is no free option, so no challenge window is needed.
-3. The key being public, every participant's browser can decrypt every bid locally. The app opens all remaining bids in sequence for whoever clicks "Finalize". Each opening is a separate transaction prepaid with 200 Tgas, about 1.5 times the 132 Tgas the staging engine burns, because prepaid gas is charged up front at the pessimistic gas price; the opener pays about 0.0132 NEAR of gas per bid.
+3. The key being public, every participant's browser can decrypt every bid locally. The app opens all remaining bids in sequence for whoever clicks "Open every order". Each opening is a separate transaction prepaid with 200 Tgas, about 1.5 times the 132 Tgas the staging engine burns, because prepaid gas is charged up front at the pessimistic gas price; the opener pays about 0.0132 NEAR of gas per bid.
 4. After the reveal window, bids that nobody opened (malformed) are void and their bond is slashed. An opened bid is also void and slashed if a buyer's `limit * quantity` plus its 30 bps fee exceeds its escrow, a buyer's quantity exceeds the round's largest buy quantity (`max_buy_quantity`, fixed at creation and shown with the round: the class supply then in an Exit, the claim in an Advance, so a redeem after the bid was sealed never voids a covered bid), a seller's quantity exceeds its locked units, or an Advance holder's reserve seals a quantity other than the claim `K` (the app fixes the reserve quantity to `K`). An opened order priced above the round's max price is not void: it takes no part in the clearing, and its bond, escrow and locked units come back at settlement.
 
 ## Collateral, bonds and slashing

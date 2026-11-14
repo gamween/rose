@@ -39,7 +39,7 @@ You cannot change or withdraw a bid once placed.
 ## After close
 
 1. After `closes_at`, anyone can click "Close round"; the engine requests the round key from the MPC network. You see the key release event.
-2. Click "Finalize". The app opens every bid and ask; your browser can also decrypt the full book locally. After the reveal window, `clear` runs and the supply and demand curves animate into `P*`.
+2. Click "Open every order". The app opens every bid and ask; your browser can also decrypt the full book locally. After the reveal window, `clear` runs and the supply and demand curves animate into `P*`.
 3. You see your fill: full if your price level fit entirely in the traded volume, pro rata if your level was the marginal one (which can be above `P*`), none if your limit was below `P*` or your level came after the marginal one. You pay `P*`, never your limit.
 
 ## Claim

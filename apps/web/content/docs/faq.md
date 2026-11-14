@@ -96,7 +96,7 @@ No. Bids are encrypted to a per-round identity. Its key is derived by the NEAR M
 
 ### Who opens the bids after close?
 
-Anyone. Once the key is public, every participant's browser can decrypt the book locally; the app opens all remaining bids in sequence for whoever clicks "Finalize". Each opening is one transaction of about 0.0132 NEAR in gas, fully verified by the contract.
+Anyone. Once the key is public, every participant's browser can decrypt the book locally; the app opens all remaining bids in sequence for whoever clicks "Open every order". Each opening is one transaction of about 0.0132 NEAR in gas, fully verified by the contract.
 
 ### What if I submit garbage as a bid?
 
