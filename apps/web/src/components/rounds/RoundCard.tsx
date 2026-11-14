@@ -2,6 +2,7 @@
 
 import type { ClassInfo, Round } from "@rose/sdk";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Countdown } from "@/components/ui/Countdown";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { cn } from "@/lib/cn";
@@ -49,6 +50,21 @@ function bookLine(round: Round, book: BookSummary | null, decimals: number): str
   return parts.join(" · ") || null;
 }
 
+/** A small label over its value, the cell of a round row. */
+function Cell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <dt className="text-[11px] text-ink-400 font-medium">{label}</dt>
+      <dd className="tabular text-[13px] text-ink-100 [overflow-wrap:anywhere]">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * One round of the list as a market row (launchpad lists: Fjord, CoinList): the round, its class and
+ * status, three numbers and the clock, the whole row linking to the round. Cells stack into a
+ * card on a phone.
+ */
 export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; cls: ClassInfo | null; symbol: string | null; book: BookSummary | null; nowMs: number }) {
   const decimals = cls?.decimals ?? 18;
   const action = nextAction(round, nowMs);
@@ -59,70 +75,61 @@ export function RoundCard({ round, cls, symbol, book, nowMs }: { round: Round; c
   const href = `${ROUTES.rounds}/${round.roundId.toString()}`;
   const terminal = round.status === "Settled" || round.status === "Cancelled";
   const cleared = clearingOf(round);
+  const live = action.kind === "bid";
 
   return (
     <article
       className={cn(
-        "ui-surface group relative flex flex-col gap-3 rounded-lg p-4 transition-colors hover:border-ink-600 hover:bg-ink-800/60",
-        action.kind === "bid" && "before:absolute before:inset-x-0 before:-top-px before:h-[2px] before:rounded-t-lg before:bg-ember-500",
+        "group relative grid grid-cols-3 items-center gap-x-4 gap-y-3 px-4 py-3.5 transition-colors hover:bg-ink-800/60 md:grid-cols-[minmax(0,1.7fr)_repeat(3,minmax(0,1fr))_minmax(0,1.3fr)_12px]",
+        live && "before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-ember-500",
       )}
       data-round-card={round.roundId.toString()}
     >
-      <header className="flex items-start justify-between gap-3">
+      <div className="col-span-3 flex min-w-0 items-start justify-between gap-3 md:col-span-1">
         <div className="min-w-0">
-          <Link href={href} className="text-[15px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline font-semibold tracking-tight">
-            Round #{round.roundId.toString()}
-          </Link>
-          <p className="mt-0.5 text-[12px] text-ink-400" title={cls ? `Token ${cls.token} on ${cls.chain} · class ${cls.classId}` : round.classId}>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Link href={href} className="text-[14px] text-ink-50 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline font-semibold tracking-tight">
+              Round #{round.roundId.toString()}
+            </Link>
+            <KindBadge kind={round.kind} />
+          </span>
+          <p className="mt-0.5 truncate text-[12px] text-ink-400" title={cls ? `Token ${cls.token} on ${cls.chain} · class ${cls.classId} · cash ${venueTokenAccount(round.venue)}` : round.classId}>
             {cls ? classShortLabel(cls, symbol) : `Class ${round.classId.slice(0, 10)}…`}
             {cls ? (
-              <span className="text-ink-400">
+              <>
                 {" "}
-                · unlocks until <DateTimeText ms={scheduleEndSecs(cls) * 1000} withTime={false} />
-              </span>
+                · until <DateTimeText ms={scheduleEndSecs(cls) * 1000} withTime={false} />
+              </>
             ) : null}
+            <span className="max-sm:hidden"> · {venueLabel(round.venue)}</span>
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <KindBadge kind={round.kind} />
-          <StatusBadge status={round.status} />
-        </div>
-      </header>
-
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
-        <div className="min-w-0">
-          <dt className="text-[11px] text-ink-400 font-medium">{money.label}</dt>
-          <dd className="tabular text-[13px] text-ink-100 [overflow-wrap:anywhere]">{money.value}</dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="text-[11px] text-ink-400 font-medium">Sealed orders</dt>
-          <dd className="tabular text-[13px] text-ink-100">{String(round.bidCount)}</dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="text-[11px] text-ink-400 font-medium">{round.status === "Cancelled" ? "Outcome" : cleared ? "Cleared at" : "Locked at close"}</dt>
-          <dd className="tabular text-[13px] text-ink-100 [overflow-wrap:anywhere]">
-            {round.status === "Cancelled" ? cancelledOutcome(round) : cleared ? `${formatUsdc(cleared.price)} USDC` : lockedPercent(round.fTs)}
-          </dd>
-        </div>
+        <StatusBadge status={round.status} className="shrink-0 md:hidden" />
+      </div>
+      <dl className="contents">
+        <Cell label={money.label}>{money.value}</Cell>
+        <Cell label="Orders">{String(round.bidCount)}</Cell>
         {sealed ? (
-          <div className="col-span-2 min-w-0 sm:col-span-3" data-round-book>
-            <dt className="sr-only">Public collateral</dt>
-            <dd className="tabular text-[12px] text-ink-400 [overflow-wrap:anywhere]">{sealed}</dd>
+          <div className="sr-only" data-round-book>
+            <dt>Public collateral</dt>
+            <dd>{sealed}</dd>
           </div>
         ) : null}
+        <Cell label={round.status === "Cancelled" ? "Outcome" : cleared ? "Cleared at" : "Locked at close"}>{round.status === "Cancelled" ? cancelledOutcome(round) : cleared ? `${formatUsdc(cleared.price)} USDC` : lockedPercent(round.fTs)}</Cell>
       </dl>
-
-      <ProgressBar value={progress} tone={terminal ? (round.status === "Settled" ? "success" : "danger") : "ember"} />
-
-      <footer className="flex items-center justify-between gap-3 text-[12px]">
-        <span className="truncate text-ink-400" title={venueTokenAccount(round.venue)}>
-          {venueLabel(round.venue)}
+      <div className="col-span-3 flex min-w-0 flex-col gap-1.5 md:col-span-1">
+        <span className="flex items-center justify-between gap-2 text-[12px]">
+          <StatusBadge status={round.status} className="max-md:hidden" />
+          <span className="flex min-w-0 items-center gap-1.5 text-ink-300 md:justify-end">
+            <span className={cn("truncate", action.kind === "close" || action.kind === "clear" || action.kind === "finalize" || action.kind === "settle" ? "text-ember-300" : undefined)}>{line.text}</span>
+            {line.countdown !== null ? <Countdown target={line.countdown} endedLabel="now" className="text-ink-50" /> : null}
+          </span>
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-ink-200">
-          <span className={cn(action.kind === "close" || action.kind === "clear" || action.kind === "finalize" || action.kind === "settle" ? "text-ember-300" : undefined)}>{line.text}</span>
-          {line.countdown !== null ? <Countdown target={line.countdown} endedLabel="now" className="text-ink-50" /> : null}
-        </span>
-      </footer>
+        <ProgressBar value={progress} tone={terminal ? (round.status === "Settled" ? "success" : "danger") : "ember"} />
+      </div>
+      <svg viewBox="0 0 6 10" width="6" height="10" shapeRendering="crispEdges" className="hidden text-ink-500 transition-colors group-hover:text-ink-200 md:block" aria-hidden>
+        <path d="M0 0h2v2H0zM2 2h2v2H2zM4 4h2v2H4zM2 6h2v2H2zM0 8h2v2H0z" fill="currentColor" />
+      </svg>
       <span className="sr-only">
         {NEXT_ACTION_LABEL[action.kind]}. Closes {formatDateTime(nsToMs(round.closesAt))}.
       </span>

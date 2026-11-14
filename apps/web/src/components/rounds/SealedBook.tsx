@@ -9,7 +9,6 @@
 
 import type { Bid } from "@rose/sdk";
 import { useEffect, useState } from "react";
-import { CardTitle } from "@/components/ui/Card";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { ScrambleText } from "@/components/ui/ScrambleText";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
@@ -46,10 +45,6 @@ const VOID_LABEL: Record<string, string> = {
 export function SealedBook({ detail }: { detail: RoundDetail }) {
   const { bids, cls, viewer, round } = detail;
   const hashes = useHashes(bids);
-  const buys = bids.filter((bid) => bid.side === "Buy");
-  const sells = bids.filter((bid) => bid.side === "Sell");
-  const escrowed = buys.reduce((sum, bid) => sum + bid.escrow, 0n);
-  const locked = sells.reduce((sum, bid) => sum + bid.lockedUnits, 0n);
   const bonds = bids.reduce((sum, bid) => sum + bid.bond, 0n);
   const opened = bids.filter((bid) => bid.opened !== null).length;
   /** An Advance reserve locks no units: its public collateral is the claim K it offers. */
@@ -61,38 +56,18 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
 
   return (
     <section aria-label="Sealed book" className="ui-surface rounded-lg" data-sealed-book>
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-750 px-4 py-3">
-        <div>
-          <CardTitle>{opened > 0 ? "Book" : <Term term="sealedBook" align="start" />}</CardTitle>
-          <p className="mt-1 text-[12px] leading-snug text-ink-400">
-            {opened > 0
-              ? `${String(opened)} of ${String(bids.length)} orders opened; prices and quantities below are public. A ciphertext is deleted once its order settles.`
-              : "Public: order count, each order's collateral and bond, ciphertext hashes. Hidden: every price and exact quantity."}
-          </p>
-        </div>
-        <dl className="grid grid-cols-3 gap-x-5 text-right">
-          <div>
-            <dt className="text-[11px] text-ink-400 font-medium">Orders</dt>
-            <dd className="tabular text-[15px] text-ink-50">
-              {String(bids.length)}
-              <span className="text-[11px] text-ink-400">
-                {" "}
-                · {String(buys.length)} {buys.length === 1 ? "bid" : "bids"}, {String(sells.length)} {sells.length === 1 ? "ask" : "asks"}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[11px] text-ink-400 font-medium">
-              <Term term="escrow" align="end">Escrowed</Term>
-            </dt>
-            <dd className="tabular text-[15px] text-ink-50">{formatUsdc(escrowed)}</dd>
-          </div>
-          <div>
-            <dt className="text-[11px] text-ink-400 font-medium">Locked</dt>
-            <dd className="tabular text-[15px] text-ink-50">{formatQty(locked, cls.decimals)}</dd>
-          </div>
-        </dl>
-      </div>
+      <p className="border-b border-ink-750 px-4 py-2.5 text-[12px] leading-snug text-ink-400">
+        {opened > 0 ? (
+          `${String(opened)} of ${String(bids.length)} orders opened: their prices and quantities are public.`
+        ) : (
+          <>
+            <Term term="sealedBook" align="start">
+              Sealed
+            </Term>
+            : collateral and bonds are public, every price and exact quantity stays hidden until the close.
+          </>
+        )}
+      </p>
       {bids.length === 0 ? (
         <p className="px-4 py-6 text-center text-[13px] text-ink-400">
           {round.status === "Open" ? "No sealed order yet. The first order sets the book in motion; the creator can withdraw the round until then." : "No order was placed in this round."}
@@ -162,7 +137,11 @@ export function SealedBook({ detail }: { detail: RoundDetail }) {
           </TBody>
         </Table>
       )}
-      {bonds > 0n ? <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-400">Bonds posted: {formatUsdc(bonds)} USDC, refunded on a valid opening, slashed to the treasury otherwise.</p> : null}
+      {bonds > 0n ? (
+        <p className="border-t border-ink-750 px-4 py-2 text-[11px] text-ink-400">
+          <Term term="bond" align="start">Bonds</Term> posted: {formatUsdc(bonds)} USDC.
+        </p>
+      ) : null}
     </section>
   );
 }

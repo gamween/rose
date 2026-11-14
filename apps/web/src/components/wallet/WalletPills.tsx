@@ -13,6 +13,7 @@ import { formatUnits } from "@/lib/format";
 import { exportEvmDemoWallet, exportNearDemoWallet, exportSolanaDemoWallet } from "@/lib/wallet/export";
 import { connectedWallets, missingNetworks, networkInfo, type ConnectedWallet } from "@/lib/wallet/networks";
 import { downloadText } from "@/lib/wallet/storage";
+import { useAppActions } from "@/components/chrome/AppActions";
 import { ChainLogo } from "./ChainLogo";
 import { useConnectModal } from "./ConnectModal";
 import { useWallets, type WalletContextValue } from "./WalletProvider";
@@ -187,6 +188,7 @@ export function WalletPills({ className }: { className?: string }) {
             setMenuOpen(false);
             setDrawerOpen(true);
           }}
+          onClose={() => setMenuOpen(false)}
         />
       ) : null}
       <WalletDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onConnect={openConnect} />
@@ -194,8 +196,9 @@ export function WalletPills({ className }: { className?: string }) {
   );
 }
 
-function WalletMenu({ id, connected, onConnect, onDetails }: { id: string; connected: readonly ConnectedWallet[]; onConnect: (chain: ChainId) => void; onDetails: () => void }) {
+function WalletMenu({ id, connected, onConnect, onDetails, onClose }: { id: string; connected: readonly ConnectedWallet[]; onConnect: (chain: ChainId) => void; onDetails: () => void; onClose: () => void }) {
   const wallets = useWallets();
+  const { openTestFunds, openActivity } = useAppActions();
   const copy = useCopyAddress();
   const guard = useGuard();
   const ref = useRef<HTMLDivElement>(null);
@@ -268,6 +271,26 @@ function WalletMenu({ id, connected, onConnect, onDetails }: { id: string; conne
           </ul>
         </div>
       ) : null}
+      <ul className="border-t border-ink-750 px-1.5 py-1.5" aria-label="Wallet tools">
+        <MenuRow
+          label="Get test funds"
+          hint="NEAR account, gas, tUSDC, demo positions"
+          data="get-funds"
+          onSelect={() => {
+            onClose();
+            openTestFunds();
+          }}
+        />
+        <MenuRow
+          label="Activity"
+          hint="The engine's recent on-chain events"
+          data="activity"
+          onSelect={() => {
+            onClose();
+            openActivity();
+          }}
+        />
+      </ul>
       <div className="flex items-center justify-between gap-2 border-t border-ink-750 px-3 py-2">
         <Button variant="ghost" size="sm" onClick={onDetails} data-wallet-details>
           Balances and demo keys
@@ -280,8 +303,21 @@ function WalletMenu({ id, connected, onConnect, onDetails }: { id: string; conne
   );
 }
 
+/** One tool row of the wallet menu (`data` picks its `data-*` hook). */
+function MenuRow({ label, hint, data, onSelect }: { label: string; hint: string; data: "get-funds" | "activity"; onSelect: () => void }) {
+  return (
+    <li>
+      <button type="button" onClick={onSelect} data-get-funds={data === "get-funds" || undefined} data-activity={data === "activity" || undefined} className="flex w-full items-baseline justify-between gap-3 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-ink-800">
+        <span className="text-[13px] text-ink-50">{label}</span>
+        <span className="truncate text-[12px] text-ink-400">{hint}</span>
+      </button>
+    </li>
+  );
+}
+
 function WalletDrawer({ open, onClose, onConnect }: { open: boolean; onClose: () => void; onConnect: (chain: ChainId) => void }) {
   const wallets = useWallets();
+  const { openTestFunds, openActivity } = useAppActions();
   const toast = useToast();
   const guard = useGuard();
 
@@ -299,6 +335,30 @@ function WalletDrawer({ open, onClose, onConnect }: { open: boolean; onClose: ()
   return (
     <Drawer open={open} onClose={onClose} title="Wallets" description="Balances refresh every 20 seconds. Testnet assets only.">
       <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              onClose();
+              openTestFunds();
+            }}
+            data-get-funds
+          >
+            Get test funds
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              onClose();
+              openActivity();
+            }}
+            data-activity
+          >
+            Activity
+          </Button>
+        </div>
         <ChainSection
           chain="near"
           address={wallets.near.accountId}

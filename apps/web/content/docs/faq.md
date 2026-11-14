@@ -142,7 +142,7 @@ NEAR testnet, Base Sepolia and Solana devnet only. Nothing on mainnet.
 
 ### How do I get test funds?
 
-The testnet banner's "Get test funds": a NEAR testnet account and NEAR, test USDC minted on-chain (NEAR and Base Sepolia, public capped mint), Base Sepolia gas through `/api/faucet`, Solana devnet SOL, and "Mint me a demo vesting position". See the [Buyer guide](/docs/guide-buyer#get-test-funds).
+"Get test funds" in the wallet menu: a NEAR testnet account and NEAR, test USDC minted on-chain (NEAR and Base Sepolia, public capped mint), Base Sepolia gas through `/api/faucet`, Solana devnet SOL, and "Mint me a demo vesting position". See the [Buyer guide](/docs/guide-buyer#get-test-funds).
 
 ### Is `/api/faucet` part of the protocol?
 

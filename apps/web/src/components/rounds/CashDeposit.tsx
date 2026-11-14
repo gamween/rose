@@ -14,6 +14,7 @@
 
 import type { CashDepositedLog, Venue } from "@rose/sdk";
 import { useCallback, useState } from "react";
+import { GetTestFundsButton } from "@/components/chrome/AppActions";
 import { keyId, recordAttempted } from "@/components/deposit/attempted";
 import { baseLogReplayKey } from "@/components/deposit/eligibility";
 import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
@@ -175,9 +176,9 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
     return (
       <div className="flex flex-col gap-3 rounded-md border border-ink-700 bg-ink-900 p-3" data-cash-deposit="near">
         <p className="text-[12px] text-ink-300">
-          Your cash in this venue is short by <span className="tabular text-ink-50">{formatUsdc(shortfall)} tUSDC</span>. Deposit tUSDC from your NEAR wallet into the engine (`ft_transfer_call`); it stays yours and is withdrawable from the Portfolio.
+          Your cash in this venue is short by <span className="tabular text-ink-50">{formatUsdc(shortfall)} tUSDC</span>. Deposit it from your NEAR wallet; it stays yours, withdrawable from the Portfolio.
         </p>
-        <Field label="Amount to deposit" hint={wallet !== null ? `Wallet balance ${formatUsdc(wallet)} tUSDC` : "Reading the wallet balance…"} error={!valid ? "Enter a positive amount of tUSDC." : !enough && wallet !== null ? "Not enough tUSDC in the wallet: mint some with “Get test funds” in the banner, then retry." : null}>
+        <Field label="Amount to deposit" hint={wallet !== null ? `Wallet balance ${formatUsdc(wallet)} tUSDC` : "Reading the wallet balance…"} error={!valid ? "Enter a positive amount of tUSDC." : !enough && wallet !== null ? "Not enough tUSDC in the wallet: mint some with Get test funds, then retry." : null}>
           {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={amount} onValueChange={setAmount} unit="tUSDC" decimals={USDC_DECIMALS} />}
         </Field>
         {storageNeed ? (
@@ -189,6 +190,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
           <Button size="sm" onClick={() => void depositNear()} disabled={!valid || !enough || near.status !== "connected"} loading={nearDeposit.state.status === "loading"} loadingLabel="Signing…" data-deposit-near>
             Deposit {valid && parsed !== null ? formatUsdc(parsed) : ""} tUSDC
           </Button>
+          {!enough && wallet !== null ? <GetTestFundsButton variant="ghost" /> : null}
         </div>
         {nearDeposit.state.status === "error" ? <Notice tone="danger">{nearDeposit.state.error.message}</Notice> : null}
       </div>
@@ -199,7 +201,7 @@ export function CashDeposit({ engine, venue, roundId, shortfall, nearCashToken, 
   return (
     <div className="flex flex-col gap-3 rounded-md border border-ink-700 bg-ink-900 p-3" data-cash-deposit="base">
       <p className="text-[12px] text-ink-300">
-        Your cash in this venue is short by <span className="tabular text-ink-50">{format(shortfall)} {unit}</span>. Deposit the Base token into RoseVault with your EVM wallet; the engine verifies the `CashDeposited` log through the MPC once Base&apos;s safe head passes it (3 to 4 minutes).
+        Your cash in this venue is short by <span className="tabular text-ink-50">{format(shortfall)} {unit}</span>. Deposit it into RoseVault from your EVM wallet; the engine confirms it in 3 to 4 minutes.
       </p>
       {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : evm.status !== "connected" ? <Notice tone="warning">Connect an EVM wallet on Base Sepolia (or the demo wallet) to deposit.</Notice> : null}
       <Field label="Amount to deposit" hint={decimals === null ? `Reading the decimals of ${unit}…` : baseBalance !== null ? `Wallet balance ${formatUsdc(baseBalance)} (rose tUSDC)` : "The venue token balance is read for rose tUSDC only."} error={decimals !== null && !valid ? "Enter a positive amount." : null}>

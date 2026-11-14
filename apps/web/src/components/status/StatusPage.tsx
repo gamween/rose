@@ -28,10 +28,7 @@ export function StatusPage({ deployment }: { deployment: Deployment }) {
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Status</h1>
-          <p className="mt-1 max-w-3xl text-[14px] text-ink-300">
-            Everything on this page is read directly from NEAR testnet, Base Sepolia and Solana devnet in your browser. No indexer, no cache, no
-            server in between.
-          </p>
+          <p className="mt-1 text-[13px] text-ink-400">Read live from the three testnets in your browser, with no server in between.</p>
         </div>
         <div className="flex items-center gap-3 text-[12px] text-ink-400">
           <p aria-live="polite">

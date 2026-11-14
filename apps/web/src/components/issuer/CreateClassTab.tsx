@@ -178,7 +178,7 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <Card>
-        <CardHeader title="Create a class" description="A class is the set of positions with the same chain, token, decimals and normalized schedule. Its id is a hash: computing it here costs nothing; the engine writes the class record with the first registered deposit." />
+        <CardHeader title="Create a class" description="Positions with the same token and schedule share one class. Computing it is free." />
         <CardBody className="flex flex-col gap-4">
           <Tabs items={SOURCE_TABS} value={source} onChange={setSource} label="Class source" />
           {chainButtons}
@@ -186,7 +186,7 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="class-stream">{chain === "Base" ? "Sablier stream id" : "Streamflow metadata account"}</FieldLabel>
               <Input id="class-stream" value={streamRef} onChange={(event) => setStreamRef(event.target.value)} placeholder={chain === "Base" ? "e.g. 83" : "base58 metadata account"} />
-              <Hint>{chain === "Base" ? "Read live from the Lockup contract (owner, token, schedule, unlock amounts)." : "Read at finalized from the Streamflow program; the mint's decimals come from the mint account."}</Hint>
+              <Hint>{chain === "Base" ? "Read live from the Sablier Lockup contract." : "Read from the Streamflow program."}</Hint>
               <Button onClick={() => void computeFromStream()} loading={state.status === "loading"} loadingLabel="Reading" className="self-start" data-compute-class>
                 Compute the class
               </Button>
@@ -247,8 +247,8 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
               </div>
               <Hint>
                 {chain === "Base"
-                  ? "Sablier Lockup Linear: start unlock at the start, cliff unlock at the cliff, then linear in steps of the granularity. Streams must be transferable and non-cancelable to enter custody."
-                  : "Streamflow: the cliff amount unlocks at the cliff (or the start), then one amount per period until the end. The amount per period is derived from the remaining amount and the number of periods."}
+                  ? "Sablier linear: start and cliff unlocks, then linear to the end. Streams must be transferable and non-cancelable."
+                  : "Streamflow: the cliff amount, then one amount per period until the end."}
               </Hint>
               <Button onClick={() => void computeFromSchedule()} loading={state.status === "loading"} loadingLabel="Computing" className="self-start" data-compute-class>
                 Compute the class
@@ -268,7 +268,7 @@ export function CreateClassTab({ base }: { base: IssuerBase }) {
       <Card>
         <CardHeader
           title="Result"
-          description={state.status === "ok" ? (state.computed.existing ? "This class already exists on the engine." : "A new class: it is recorded when the first deposit with this schedule is registered.") : "The normalized schedule, the unlock function and the class id appear here."}
+          description={state.status === "ok" ? (state.computed.existing ? "This class already exists on the engine." : "A new class: recorded with its first registered deposit.") : "The schedule and the class id appear here."}
           action={state.status === "ok" ? <Badge tone={state.computed.existing ? "success" : "ember"}>{state.computed.existing ? "Existing" : "New"}</Badge> : null}
         />
         <CardBody className="flex flex-col gap-4" data-class-result={state.status}>

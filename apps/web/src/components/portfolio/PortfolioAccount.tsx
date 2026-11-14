@@ -9,9 +9,9 @@
 import { type PayoutView } from "@rose/sdk";
 import { useMemo } from "react";
 import { ButtonLink } from "@/components/ui/Button";
-import { Card, CardBody } from "@/components/ui/Card";
+import { KeyStats } from "@/components/ui/KeyStats";
 import { NextStep } from "@/components/ui/NextStep";
-import { Stat } from "@/components/ui/Stat";
+import { TabPanel, Tabs, useTabs, type TabItem } from "@/components/ui/Tabs";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { cashDecimalsOf, formatAmount, formatUsdc, formatVenueCash, shortHex, venueLabel } from "@/lib/amounts";
 import { deployed } from "@/lib/deployment";
@@ -32,7 +32,9 @@ import { HistorySection, StorageSection } from "./HistoryAndStorage";
 import { HoldingsSection } from "./HoldingsSection";
 import { LiensSection, OrdersSection } from "./OrdersAndLiens";
 import { SolanaStreamsSection } from "./SolanaStreamsSection";
-import { cashRows, holdingRows, lienProgress, orderRows, tokenClaims, type CashRow, type HoldingRow, type TokenClaim } from "./transforms";
+import { cashRows, holdingRows, lienProgress, orderRows, settledPayout, tokenClaims, type CashRow, type HoldingRow, type TokenClaim } from "./transforms";
+
+type PortfolioTab = "holdings" | "claims" | "orders" | "liens" | "streams" | "history" | "storage";
 
 export { fetchPortfolioData } from "./data";
 
@@ -92,7 +94,7 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
     if (venue === "Near") {
       setPrompt({
         title: "Claim NEAR tUSDC",
-        description: "Pulls tUSDC from your engine cash balance to your NEAR account (ft_transfer).",
+        description: "From your engine cash to your NEAR account.",
         amount: { max: row.cash.amount, decimals: 6, unit: "tUSDC" },
         confirmLabel: "Claim",
         onConfirm: ({ amount }) => {
@@ -106,7 +108,8 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
     const decimals = cashDecimalsOf(venue, data.cashDecimals);
     setPrompt({
       title: `Claim ${venueLabel(venue, data.symbols)}`,
-      description: "The engine debits your cash, the MPC signs a RoseVault Transfer, and you submit executeTransfer from your EVM wallet (you pay the Base gas).",
+      description: "From your engine cash to a Base address.",
+      details: "The engine debits your cash, the MPC signs a RoseVault Transfer, and you submit executeTransfer from your EVM wallet (you pay the Base gas).",
       amount: { max: row.cash.amount, decimals: decimals ?? 0, unit: decimals === null ? "base units" : (data.symbols.get(token.toLowerCase()) ?? shortHex(token)) },
       destination: { chain: "base", initial: wallets.evm.address ?? "" },
       confirmLabel: "Claim",
@@ -123,7 +126,8 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
     const fixed = claim.source.kind === "retired" ? claim.source.retireTo : null;
     setPrompt({
       title: `Claim ${symbol} on ${chain === "base" ? "Base Sepolia" : "Solana devnet"}`,
-      description:
+      description: `Unlocked tokens to a ${chain === "base" ? "Base" : "Solana"} address.`,
+      details:
         chain === "base"
           ? "RoseVault is filled from the class streams if needed (Sablier withdrawMax, anyone may), the engine debits your claimable balance, the MPC signs a Transfer authorization, and you submit it to RoseVault."
           : "You create the payout's durable nonce and receipt accounts, the engine builds one transaction (the class's swept balance first, Streamflow withdraws into the vault for the rest, the SPL transfer to you, the receipt advance), the MPC signs it and your browser broadcasts it. Fees are paid by the engine's gas/sol address. A stream pays nothing from 5 minutes before its end until its auto-claim is synced (Solana streams).",
@@ -149,7 +153,8 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
     const symbol = classLabel(row.info, data.symbols);
     setPrompt({
       title: `Redeem a ${symbol} position in kind`,
-      description:
+      description: "Burn a position's units and take its stream back.",
+      details:
         chain === "base"
           ? "Burns the position's allocation from your free units and authorizes a RoseVault Release: the vault withdraws the vested balance to itself first, then the stream NFT is transferred to you."
           : "Burns the position's allocation from your free units and pays, from your claimable tokens of the class, what the stream still owes the unit holders (you take its unlocked balance with it). The engine then signs transfer_recipient, which moves the stream to you; nothing is withdrawn into the vault.",
@@ -197,9 +202,35 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
       return { message: amount ? `${formatAmount(amount, 24, 5)} NEAR of storage withdrawn` : "Available storage withdrawn", links: txLinks("near", outcome.transaction.hash) };
     });
 
-  const totalClaims = claims.base.length + claims.solana.length;
-
   const openOrders = orders.filter((row) => row.open).length;
+  const pendingPayouts = data.payouts.filter((entry) => !settledPayout(entry.state)).length;
+  const claimCount = cash.length + claims.base.length + claims.solana.length + pendingPayouts;
+  const activeLiens = liens.filter((item) => !item.lien.released).length + data.portfolio.lienShares.length;
+  const hasStreams = data.solClasses.some((view) => view.streams.length > 0 || view.swept.balance > 0n);
+  const cashDecimals = new Set(cash.map((row) => cashDecimalsOf(row.cash.venue, data.cashDecimals)));
+  const sharedDecimals = cashDecimals.size === 1 ? [...cashDecimals][0] : undefined;
+  const cashStat =
+    cash.length === 0
+      ? { value: formatUsdc(0n), unit: "USDC" }
+      : cash.length === 1
+        ? { value: formatVenueCash(cash[0]!.cash.amount, cashDecimalsOf(cash[0]!.cash.venue, data.cashDecimals)), unit: venueLabel(cash[0]!.cash.venue, data.symbols) }
+        : sharedDecimals !== undefined && sharedDecimals !== null
+          ? { value: formatVenueCash(cash.reduce((sum, row) => sum + row.cash.amount, 0n), sharedDecimals), unit: "USDC", hint: `across ${String(cash.length)} venues` }
+          : { value: `${String(cash.length)} venues` };
+  const tabItems: TabItem<PortfolioTab>[] = [
+    { id: "holdings", label: "Holdings", count: rows.length },
+    { id: "claims", label: "Claims", count: claimCount },
+    { id: "orders", label: "Orders", count: openOrders },
+    { id: "liens", label: "Liens", count: activeLiens },
+    ...(hasStreams ? [{ id: "streams" as const, label: "Solana streams" }] : []),
+    { id: "history", label: "History" },
+    { id: "storage", label: "Storage" },
+  ];
+  const tabs = useTabs(
+    tabItems.map((item) => item.id),
+    "holdings",
+    { hash: true },
+  );
 
   return (
     <>
@@ -207,7 +238,7 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
         <NextStep
           step={{ index: 3, total: HOLDER_PATH.length }}
           title="Deposit a position to get units"
-          description="rose takes custody of a locked Sablier or Streamflow stream and mints its allocation as units of its class. No position yet? Get test funds mints a demo one."
+          description="No position yet? Get test funds in the wallet menu mints a demo one."
           action={
             <ButtonLink href="/app/deposit" size="sm">
               Deposit a position
@@ -218,7 +249,6 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
         <NextStep
           step={{ index: 4, total: HOLDER_PATH.length }}
           title="Put your units in a round"
-          description="Sell in an Exit or a Tender, or pledge your first unlocks in an Advance. Orders stay sealed until the round closes."
           action={
             <ButtonLink href={ROUTES.rounds} size="sm">
               Browse rounds
@@ -226,32 +256,37 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
           }
         />
       ) : null}
-      <Card>
-        <CardBody>
-          <dl className="grid grid-cols-2 gap-4 md:grid-cols-5" data-portfolio-stats>
-            <Stat label="Classes held" value={rows.length} />
-            <Stat label="Open orders" value={openOrders} />
-            <Stat label="Liens" value={liens.filter((item) => !item.lien.released).length + data.portfolio.lienShares.length} hint="as holder + as funder" />
-            <Stat label="Token claims" value={totalClaims} hint={totalClaims > 0 ? "ready to pull" : "none yet"} />
-            <Stat
-              label="Cash"
-              value={cash[0] && cash.length === 1 ? formatVenueCash(cash[0].cash.amount, cashDecimalsOf(cash[0].cash.venue, data.cashDecimals)) : cash.length === 0 ? formatUsdc(0n) : `${String(cash.length)} venues`}
-              unit={cash.length === 0 ? "USDC" : undefined}
-              hint={cash.length === 1 ? venueLabel(cash[0]!.cash.venue, data.symbols) : cash.length > 1 ? cash.map((row) => `${formatVenueCash(row.cash.amount, cashDecimalsOf(row.cash.venue, data.cashDecimals))} ${venueLabel(row.cash.venue, data.symbols)}`).join(" · ") : "no cash in the engine"}
-            />
-          </dl>
-        </CardBody>
-      </Card>
-      <HoldingsSection rows={rows} data={data} onClaim={(row) => claimTokens({ info: row.info, source: { kind: "holding", classId: row.info.classId, amount: row.holding.claimable, label: "Units" } })} onRedeem={redeem} />
-      <SolanaStreamsSection data={data} onSync={syncStream} />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <ClaimsSection data={data} cash={cash} tokens={claims} actions={{ onClaimCash: claimCash, onClaimTokens: claimTokens, onFinishPayout: finishPayout, onResignGas: resignGas, onRetrySignature: retrySignature, onConfirmPayout: confirmPayout }} />
-        <OrdersSection rows={orders} data={data} />
-      </div>
-      <LiensSection held={liens} data={data} onRelease={releaseLien} />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <HistorySection data={data} />
-        <StorageSection data={data} onDeposit={storageDeposit} onWithdraw={storageWithdraw} busy={simple.state.status === "loading"} />
+      <KeyStats
+        items={[
+          { id: "classes", label: "Classes held", term: "class", value: rows.length },
+          { id: "claims", label: "Ready to claim", value: cash.length + claims.base.length + claims.solana.length, hint: pendingPayouts > 0 ? `${String(pendingPayouts)} payout${pendingPayouts === 1 ? "" : "s"} in progress` : undefined },
+          { id: "cash", label: "Cash", ...cashStat },
+          { id: "orders", label: "Open orders", value: openOrders },
+        ]}
+      />
+      <div className="flex flex-col gap-4">
+        <Tabs items={tabItems} value={tabs.value} onChange={tabs.select} idBase={tabs.idBase} label="Portfolio sections" />
+        <TabPanel idBase={tabs.idBase} id="holdings" value={tabs.value}>
+          <HoldingsSection rows={rows} data={data} onClaim={(row) => claimTokens({ info: row.info, source: { kind: "holding", classId: row.info.classId, amount: row.holding.claimable, label: "Units" } })} onRedeem={redeem} />
+        </TabPanel>
+        <TabPanel idBase={tabs.idBase} id="claims" value={tabs.value}>
+          <ClaimsSection data={data} cash={cash} tokens={claims} actions={{ onClaimCash: claimCash, onClaimTokens: claimTokens, onFinishPayout: finishPayout, onResignGas: resignGas, onRetrySignature: retrySignature, onConfirmPayout: confirmPayout }} />
+        </TabPanel>
+        <TabPanel idBase={tabs.idBase} id="orders" value={tabs.value}>
+          <OrdersSection rows={orders} data={data} />
+        </TabPanel>
+        <TabPanel idBase={tabs.idBase} id="liens" value={tabs.value}>
+          <LiensSection held={liens} data={data} onRelease={releaseLien} />
+        </TabPanel>
+        <TabPanel idBase={tabs.idBase} id="streams" value={tabs.value}>
+          <SolanaStreamsSection data={data} onSync={syncStream} />
+        </TabPanel>
+        <TabPanel idBase={tabs.idBase} id="history" value={tabs.value}>
+          <HistorySection data={data} />
+        </TabPanel>
+        <TabPanel idBase={tabs.idBase} id="storage" value={tabs.value}>
+          <StorageSection data={data} onDeposit={storageDeposit} onWithdraw={storageWithdraw} busy={simple.state.status === "loading"} />
+        </TabPanel>
       </div>
     </>
   );

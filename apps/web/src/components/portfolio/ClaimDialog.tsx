@@ -4,13 +4,17 @@ import type { Position } from "@rose/sdk";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, NumberInput, selectClasses } from "@/components/ui/Input";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { Modal } from "@/components/ui/Modal";
 import { amountToText, formatAmount, isEvmAddress, isSolanaAddress, parseAmount } from "@/lib/amounts";
 import { redeemBlocker } from "./transforms";
 
 export type ClaimPrompt = {
   title: string;
+  /** One short line under the title. */
   description: ReactNode;
+  /** How the flow works on chain, collapsed under "How it works". */
+  details?: ReactNode;
   /** Amount field: max and decimals; omitted when the amount is fixed. */
   amount?: { max: bigint; decimals: number; unit: string };
   /** Destination field on the foreign chain; `fixed` shows it read-only (a retired lot's `retire_to`). */
@@ -126,12 +130,17 @@ function ClaimForm({ prompt, onClose }: { prompt: ClaimPrompt; onClose: () => vo
           <Field
             label={prompt.destination.chain === "base" ? "Destination on Base Sepolia" : "Destination on Solana devnet"}
             error={destinationError}
-            hint={prompt.destination.fixed ? "Fixed by the Tender: a retired lot is payable only to its retire_to address." : "Prefilled with your connected wallet; any address works, the claimant pays the foreign gas."}
+            hint={prompt.destination.fixed ? "Fixed by the Tender: a retired lot pays only its retire_to address." : "Any address works; you pay the gas on that chain."}
           >
             {({ inputId, describedBy, invalid }) => (
               <Input id={inputId} aria-describedby={describedBy} invalid={invalid} value={destination} onChange={(event) => setDestination(event.target.value.trim())} readOnly={prompt.destination?.fixed} spellCheck={false} className="tabular" />
             )}
           </Field>
+        ) : null}
+        {prompt.details ? (
+          <Disclosure summary="How it works">
+            <p className="text-[12.5px] leading-relaxed text-ink-300">{prompt.details}</p>
+          </Disclosure>
         ) : null}
       </div>
     </Modal>

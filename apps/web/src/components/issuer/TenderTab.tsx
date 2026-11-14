@@ -6,11 +6,13 @@ import { LearnMore } from "@/components/chrome/LearnMore";
 import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { Input, NumberInput, selectClasses } from "@/components/ui/Input";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatUsdc, parseAmount, sameVenue, venueLabel } from "@/lib/amounts";
 import { txLinks } from "@/lib/explorer";
 import { defaultDurations, durationErrors, formatBound, minutesToNs } from "@/lib/round-window";
+import { cn } from "@/lib/cn";
 import { ROUTES } from "@/lib/routes";
 import { useAction } from "@/lib/use-action";
 import { RoundTimingFields, type RoundTimingValue } from "@/components/rounds/RoundTimingFields";
@@ -23,8 +25,8 @@ const USDC = 6;
 
 type Built = { args: TenderArgs; call: FunctionCall } | { error: string };
 
-/** Tabs 4 and 6: the Tender form with its live preview, launched directly or wrapped for a Sputnik DAO and Trezu. */
-export function TenderTab({ base, initialClassId, showDao, onCash }: { base: IssuerBase; initialClassId?: string; showDao: boolean; onCash?: (cash: Cash[]) => void }) {
+/** The launch step: the Tender form with its live preview, launched directly or wrapped for a Sputnik DAO and Trezu. */
+export function TenderTab({ base, initialClassId, showDao, onSigner, onCash }: { base: IssuerBase; initialClassId?: string; showDao: boolean; onSigner?: (dao: boolean) => void; onCash?: (cash: Cash[]) => void }) {
   const wallets = useWallets();
   const venues = useVenueOptions(base);
   const [classId, setClassId] = useState(initialClassId ?? defaultRoundClass(base.classes));
@@ -118,11 +120,25 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
 
   const disabledReason = !wallets.near.accountId ? "Connect a NEAR wallet (the issuer)." : !cls ? "Choose a class." : built && "error" in built ? built.error : shortfall > 0n ? `Fund ${formatUsdc(shortfall)} more in ${venueLabel(venue, base.symbols)} first (Fund tab).` : null;
 
+  const timingOpen = timingErrors.keyTimeout !== null || timingErrors.revealWindow !== null || !opensNow;
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <Card>
-        <CardHeader title="Launch a Tender" description="One public buyer (you), a public budget and max price, sealed asks from holders, one uniform clearing price. Units bought are retired: their unlocked tokens go to the address you choose." />
+        <CardHeader title="Tender terms" description="A public budget and price cap; holders answer with sealed asks." />
         <CardBody className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="text-ink-400">Signed by</span>
+            <Segmented
+              label="Signed by"
+              options={[
+                { value: "wallet", label: "My NEAR account" },
+                { value: "dao", label: "A DAO" },
+              ]}
+              value={showDao ? "dao" : "wallet"}
+              onChange={(value) => onSigner?.(value === "dao")}
+              data-tender-signer
+            />
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5 sm:col-span-2">
               <FieldLabel htmlFor="tender-class">Class</FieldLabel>
@@ -150,8 +166,8 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
                 className="flex-wrap"
                 label="Price cap"
                 options={[
-                  { value: "price", label: "Max price per locked token" },
-                  { value: "discount", label: "Max discount to a declared reference" },
+                  { value: "price", label: "Max price" },
+                  { value: "discount", label: "Max discount" },
                 ]}
                 value={mode}
                 onChange={setMode}
@@ -164,7 +180,7 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
                   <NumberInput id="tender-max" value={maxPrice} onValueChange={setMaxPrice} decimals={USDC} unit="USDC" />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="tender-ref-opt">Reference price (optional, display only)</FieldLabel>
+                  <FieldLabel htmlFor="tender-ref-opt">Reference price (optional)</FieldLabel>
                   <NumberInput id="tender-ref-opt" value={reference} onValueChange={setReference} decimals={USDC} unit="USDC" />
                 </div>
               </div>
@@ -180,25 +196,13 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
                 </div>
               </div>
             )}
-            <Hint>{mode === "discount" ? "The Prices page labels the resulting discount as \"to the issuer-declared reference\". There is no spot oracle on testnet." : "Asks above the max price are never filled."}</Hint>
+            <Hint>{mode === "discount" ? "Shown on Prices as a discount to your declared reference (no oracle on testnet)." : "Asks above the max price are never filled."}</Hint>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="tender-opens">Opens (UTC)</FieldLabel>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 text-[12px] text-ink-300">
-                  <input type="checkbox" checked={opensNow} onChange={(event) => setOpensNow(event.target.checked)} /> now
-                </label>
-                <Input id="tender-opens" type="datetime-local" value={opensAt} onChange={(event) => setOpensAt(event.target.value)} disabled={opensNow} />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="tender-closes">Closes (UTC)</FieldLabel>
-              <Input id="tender-closes" type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} />
-              <Hint>At most {formatBound(base.limits.maxRoundHorizon)} after the Tender is created.</Hint>
-            </div>
+          <div className="flex flex-col gap-1.5">
+            <FieldLabel htmlFor="tender-closes">Closes (UTC)</FieldLabel>
+            <Input id="tender-closes" type="datetime-local" value={closesAt} onChange={(event) => setClosesAt(event.target.value)} />
+            <Hint>At most {formatBound(base.limits.maxRoundHorizon)} after creation.</Hint>
           </div>
-          <RoundTimingFields value={timing} onChange={setTiming} errors={timingErrors} limits={base.limits} />
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="tender-retire">Retired units pay to ({cls?.chain ?? "foreign"} address)</FieldLabel>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -210,35 +214,57 @@ export function TenderTab({ base, initialClassId, showDao, onCash }: { base: Iss
               ) : null}
             </div>
           </div>
-          <Preview
-            title="Preview"
-            rows={[
-              { label: "Budget", value: `${formatUsdc(budgetUnits)} USDC` },
-              { label: "Fee escrowed (30 bps of the budget, charged on the notional bought)", value: `${formatUsdc(escrow.fee)} USDC` },
-              { label: "Escrow debited from your cash at creation", value: `${formatUsdc(escrow.escrow)} USDC`, emphasis: true },
-              { label: `Your cash in ${venueLabel(venue, base.symbols)}`, value: venueCash === null ? "—" : `${formatUsdc(venueCash)} USDC` },
-              { label: "Max price", value: built && !("error" in built) ? `${formatUsdc(built.args.maxPrice, 6)} USDC per locked token` : "—" },
-              { label: "Round storage deposit", value: `${formatNear(base.limits.roundStorageDeposit)} NEAR (kept with the round record)` },
-              { label: "Key timeout · reveal window", value: built && !("error" in built) && built.args.window.keyTimeout !== undefined && built.args.window.revealWindow !== undefined ? `${formatBound(built.args.window.keyTimeout)} · ${formatBound(built.args.window.revealWindow)}` : "—" },
-            ]}
-          />
-          {built && "error" in built ? <Hint tone="warning">{built.error}</Hint> : null}
-          <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => void launchTender()} disabled={disabledReason !== null || launch.state.status === "loading"} loading={launch.state.status === "loading"} loadingLabel="Creating" title={disabledReason ?? undefined} data-create-tender>
-              Create the Tender
-            </Button>
-            {disabledReason && !(built && "error" in built && built.error === disabledReason) ? <Hint>{disabledReason}</Hint> : null}
-          </div>
-          <ActionFeedback state={launch.state} onRetry={() => void launchTender()} />
-          <p className="text-[12px] text-ink-400">
-            Clearing: the price that maximizes the volume bought within the budget, ties to the lowest price. <LearnMore topic="clearing" />
-          </p>
+          <Disclosure summary="Advanced: opening time, key timeout, reveal window" defaultOpen={timingOpen}>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel htmlFor="tender-opens">Opens (UTC)</FieldLabel>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink-300">
+                    <input type="checkbox" checked={opensNow} onChange={(event) => setOpensNow(event.target.checked)} /> now
+                  </label>
+                  <Input id="tender-opens" type="datetime-local" value={opensAt} onChange={(event) => setOpensAt(event.target.value)} disabled={opensNow} />
+                </div>
+              </div>
+              <RoundTimingFields value={timing} onChange={setTiming} errors={timingErrors} limits={base.limits} />
+            </div>
+          </Disclosure>
+          {cls ? (
+            <Disclosure summary="Class details">
+              <ClassSummary cls={cls} symbols={base.symbols} />
+            </Disclosure>
+          ) : null}
         </CardBody>
       </Card>
-      <div className="flex flex-col gap-4">
-        <Card>
-          <CardHeader title="Class" />
-          <CardBody>{cls ? <ClassSummary cls={cls} symbols={base.symbols} /> : <p className="text-[13px] text-ink-400">Choose a class.</p>}</CardBody>
+      <div className={cn("flex flex-col gap-4", !showDao && "lg:sticky lg:top-[72px]")}>
+        <Card data-tender-review>
+          <CardHeader title="Review" />
+          <CardBody className="flex flex-col gap-4">
+            <Preview
+              rows={[
+                { label: "Budget", value: `${formatUsdc(budgetUnits)} USDC` },
+                { label: "Fee (30 bps, on what is bought)", value: `${formatUsdc(escrow.fee)} USDC` },
+                { label: "Escrow debited at creation", value: `${formatUsdc(escrow.escrow)} USDC`, emphasis: true },
+                { label: `Your cash in ${venueLabel(venue, base.symbols)}`, value: venueCash === null ? "—" : `${formatUsdc(venueCash)} USDC` },
+                { label: "Max price", value: built && !("error" in built) ? `${formatUsdc(built.args.maxPrice, 6)} USDC per locked token` : "—" },
+                { label: "Round storage deposit", value: `${formatNear(base.limits.roundStorageDeposit)} NEAR` },
+              ]}
+            />
+            {built && "error" in built ? <Hint tone="warning">{built.error}</Hint> : null}
+            {showDao ? (
+              <Hint>A DAO files the Tender as a proposal below; members vote, then it is created.</Hint>
+            ) : (
+              <>
+                <Button className="w-full" size="lg" onClick={() => void launchTender()} disabled={disabledReason !== null || launch.state.status === "loading"} loading={launch.state.status === "loading"} loadingLabel="Creating" title={disabledReason ?? undefined} data-create-tender>
+                  Create the Tender
+                </Button>
+                {disabledReason && !(built && "error" in built && built.error === disabledReason) ? <Hint>{disabledReason}</Hint> : null}
+                <ActionFeedback state={launch.state} onRetry={() => void launchTender()} />
+              </>
+            )}
+            <p className="text-[12px] text-ink-400">
+              One uniform clearing price within your budget. <LearnMore topic="clearing" />
+            </p>
+          </CardBody>
         </Card>
         {showDao ? <DaoPanel base={base} venue={venue} ready={ready} escrow={escrow.escrow} /> : null}
       </div>

@@ -99,7 +99,7 @@ export function DistributeTab({ base, initialClassId }: { base: IssuerBase; init
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <Card>
-        <CardHeader title="Distribute units" description="One bounded batch transfer per call (NEP-245 events), from your free units of the class to the cohort's NEAR accounts. Accrual follows the units from the moment they are received." />
+        <CardHeader title="Distribute units" description="Send your free units to the cohort's NEAR accounts in one batch." />
         <CardBody className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="distribute-class">Class</FieldLabel>

@@ -228,7 +228,7 @@ test.describe("issuer console", () => {
     state.account = await connectNearDemo(page);
     await expect(page.locator("[data-issuer-tab='tender']")).toBeVisible({ timeout: 30_000 });
     await page.locator("#tender-budget").fill("950");
-    await page.getByRole("button", { name: "Max discount to a declared reference" }).click();
+    await page.getByRole("button", { name: "Max discount", exact: true }).click();
     await page.locator("#tender-ref").fill("10");
     await page.locator("#tender-discount").fill("10");
     await page.getByRole("button", { name: "Burn address" }).click();
@@ -470,7 +470,8 @@ test.describe("values at 375 px", () => {
     await page.addInitScript(() => localStorage.setItem("rose.tour.dismissed", "1"));
     const pages: [string, string][] = [
       ["/app/rounds", "[data-round-card='7']"],
-      ["/app/rounds/8", "[data-parameters]"],
+      ["/app/rounds/8", "[data-key-stats]"],
+      ["/app/rounds/8#details", "[data-parameters]"],
       ["/app/issuer/results/7", "[data-report-parameters]"],
       ["/app/prices", "figure"],
       ["/", "[data-landing]"],
@@ -484,13 +485,13 @@ test.describe("values at 375 px", () => {
       expect(result.texts, path).toEqual([]);
       expect(result.scrollWidth, path).toBeLessThanOrEqual(375);
     }
+    // The close date is in the round's Details tab, in full; its row stacks label over value at 375 px.
     await page.goto("/app/rounds/8");
-    const closes = page.locator("[data-parameters] time").nth(1);
-    await expect(closes.locator("span[aria-hidden]")).toHaveText("4 Nov 25, 20:00 UTC");
-    await expect(closes.locator("span[aria-hidden]")).toBeVisible();
-    await expect(closes.locator("span:not([aria-hidden])")).toHaveCSS("position", "absolute");
-    await expect(closes).toHaveAttribute("title", "4 Nov 2025, 20:00 UTC");
-    await expect(page.locator("[data-parameters] dl")).toHaveCSS("grid-template-columns", /^\d+(\.\d+)?px$/);
+    await page.locator("[data-tab='details']").click();
+    const closes = page.locator("[data-parameters] [data-detail='closes']");
+    await expect(closes.locator("dd")).toHaveText("4 Nov 2025, 20:00 UTC");
+    await expect(closes.locator("dd")).toBeVisible();
+    await expect(closes).toHaveCSS("grid-template-columns", /^\d+(\.\d+)?px$/);
   });
 });
 

@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { formatAmount, formatDate, formatDuration, secondsToMs, shortHex } from "@/lib/amounts";
 import { solanaAddressUrl } from "@/lib/explorer";
 import { classLabel } from "@/lib/token-symbols";
@@ -108,12 +109,17 @@ export function SolanaStreamsSection({ data, onSync }: { data: PortfolioData; on
     <Card data-sol-streams>
       <CardHeader
         title="Solana streams"
-        description="Claims draw on these vault streams, except from 5 minutes before a stream's end. One second after the end, Streamflow's auto-claim moves the remainder into the vault's token account; Sync proves it on NEAR and books it in the class's swept balance, which claims then pay from automatically. Anyone can sync."
+        description="Solana claims draw on these vault streams. Anyone can sync an ended stream."
       />
       <CardBody className="flex flex-col gap-4">
         {classes.map((view) => (
           <ClassBlock key={view.classId} view={view} data={data} onSync={onSync} />
         ))}
+        <Disclosure summary="How Solana streams pay claims">
+          <p className="text-[12.5px] leading-relaxed text-ink-300">
+            Claims draw on these vault streams, except from 5 minutes before a stream&apos;s end. One second after the end, Streamflow&apos;s auto-claim moves the remainder into the vault&apos;s token account; Sync proves it on NEAR and books it in the class&apos;s swept balance, which claims then pay from automatically.
+          </p>
+        </Disclosure>
       </CardBody>
     </Card>
   );

@@ -154,7 +154,7 @@ function ChainHeading({ chain, address, kind }: { chain: ChainId; address: strin
   );
 }
 
-/** The "Get test funds" panel of the testnet banner: every action wired end to end. */
+/** The "Get test funds" panel (wallet menu, mobile menu, palette, empty states): every action wired end to end. */
 export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean; onClose: () => void; onConnect: (chain: ChainId) => void }) {
   const wallets = useWallets();
   const [info, setInfo] = useState<FaucetInfo | null>(null);

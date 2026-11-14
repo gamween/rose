@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { runPaletteCommand } from "./fixtures/chrome";
 import { collectErrors } from "./fixtures/console";
 
 /**
@@ -36,19 +37,13 @@ test.describe("connect modal", () => {
     expect(errors).toEqual([]);
   });
 
-  test("the portfolio wallet cards open the matching network's wallets", async ({ page }) => {
+  test("the portfolio's Connect NEAR opens the NEAR wallets every time", async ({ page }) => {
+    test.skip(!process.env.NEXT_PUBLIC_ENGINE_ACCOUNT, "NEXT_PUBLIC_ENGINE_ACCOUNT is not set for this build");
     const errors = collectErrors(page);
-    const cards = page.locator("[data-wallet-summary]");
     const dialog = page.getByRole("dialog", { name: /Connect a wallet/ });
-    const expectations: [number, string][] = [
-      [2, "solana"],
-      [1, "base"],
-      [0, "near"],
-      [1, "base"],
-    ];
-    for (const [index, network] of expectations) {
-      await cards.getByRole("button", { name: "Connect", exact: true }).nth(index).click();
-      await expect(dialog.locator(`[data-wallet-step='${network}']`)).toBeVisible();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await page.locator("[data-portfolio-connect]").click();
+      await expect(dialog.locator("[data-wallet-step='near']")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
     }
@@ -60,7 +55,7 @@ test.describe("connect modal", () => {
       ["Connect a Base Sepolia wallet", "base"],
       ["Connect a Solana devnet wallet", "solana"],
     ] as const) {
-      await page.locator("[data-get-funds]").click();
+      await runPaletteCommand(page, "test funds");
       const drawer = page.getByRole("dialog", { name: "Get test funds" });
       await expect(drawer).toBeVisible();
       await drawer.getByRole("button", { name: label }).first().click();

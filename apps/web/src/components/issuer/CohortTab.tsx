@@ -237,7 +237,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <Card>
-        <CardHeader title="Create the cohort's streams in custody" description="RoseVault pulls the tokens and creates one Sablier Lockup Linear stream per holder (non-cancelable, transferable, recipient = the vault) in one transaction; each StreamDeposited names the NEAR account that receives the units." />
+        <CardHeader title="Create the cohort's streams in custody" description="One transaction creates a locked stream per holder, held by the vault; each holder receives units on NEAR." />
         <CardBody className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="cohort-token">Cohort token (Base Sepolia)</FieldLabel>
@@ -249,7 +249,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
             ) : tokenError ? (
               <Hint tone="danger">{tokenError}</Hint>
             ) : (
-              <Hint>Symbol, decimals, your balance and the vault allowance are read from the token.</Hint>
+              <Hint>Your balance and the vault allowance are read from the token.</Hint>
             )}
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -282,7 +282,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
               <NumberInput id="cohort-granularity" value={granularity} onValueChange={setGranularity} decimals={0} />
             </div>
           </div>
-          <Hint>Every allocation is a multiple of the unit amount; its start and cliff unlocks scale with it. Allocations must be at least one whole token and keep one whole token locked after any vested withdrawal.</Hint>
+          <Hint>Allocations are multiples of the unit amount, at least one whole token each.</Hint>
           <div className="flex flex-col gap-2">
             <FieldLabel>Allocations (NEAR account, amount)</FieldLabel>
             <Table>
@@ -354,7 +354,7 @@ export function CohortTab({ base }: { base: IssuerBase }) {
         </CardBody>
       </Card>
       <Card>
-        <CardHeader title="Progress" description="Approval, creation, Base finality and one engine registration per stream. A failed step can be retried; a registration can be resumed from the transaction hash." />
+        <CardHeader title="Progress" description="A failed step can be retried; a registration can resume from the transaction hash." />
         <CardBody className="flex flex-col gap-4">
           <FlowSteps steps={flow.steps} onRetry={() => void flow.retry()} running={flow.running} />
           {registrations.length > 0 ? (

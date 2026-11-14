@@ -9,7 +9,7 @@ This guide is for a fund, an OTC desk or a long-term holder who wants to buy loc
 
 ## Get test funds
 
-Everything runs on testnets. Open the testnet banner and use "Get test funds":
+Everything runs on testnets. Open the wallet menu in the top bar (the menu on a phone, or the command palette) and use "Get test funds":
 
 - NEAR: a testnet account and NEAR for gas. The in-app demo wallet creates one for you.
 - Test USDC: minted on-chain by anyone, on NEAR testnet (`tusdc.rose-app.testnet`) and on Base Sepolia. The mint is capped at 10,000 tUSDC per account per 24-hour window, which starts at the account's first mint after the previous window ended, and the token is labeled "Test USDC". Circle's Base Sepolia USDC is also accepted as a Base cash token when you already have it.

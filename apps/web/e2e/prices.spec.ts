@@ -13,21 +13,29 @@ test.describe("prices", () => {
     await expect(page).toHaveTitle("Prices · rose");
     await expect(page.getByRole("main")).toHaveCount(1);
     await expect(page.locator("[data-prices]")).not.toHaveAttribute("aria-busy", "true", { timeout: 30_000 });
-    const outcome = page.getByText(/Protocol not deployed yet|No clearing price yet|Could not read the engine|Clearing price history per class/);
+    const outcome = page.getByText(/Protocol not deployed yet|No clearing price yet|Could not read the engine/).or(page.locator("[data-markets]"));
     await expect(outcome.first()).toBeVisible();
-    if (await page.getByRole("heading", { name: "Clearing price history per class" }).isVisible()) {
-      const charts = page.getByRole("img", { name: /Clearing price history/ });
-      expect(await charts.count()).toBeGreaterThan(0);
-      await expect(page.getByRole("img", { name: /remaining lock time/ })).toBeVisible();
+    if (await page.locator("[data-markets]").isVisible()) {
+      const rows = page.locator("[data-market-row]");
+      expect(await rows.count()).toBeGreaterThan(0);
+      const chart = page.getByRole("img", { name: /Clearing price history/ });
+      await expect(chart).toHaveCount(1);
       await page.getByText("Table view").first().click();
-      await expect(page.locator("table").first()).toBeVisible();
-      await charts.first().locator("a").first().focus();
-      await expect(page.getByRole("status")).toContainText("USDC per locked token");
+      await expect(page.locator("[data-price-series] table").first()).toBeVisible();
+      await chart.locator("a").first().focus();
+      await expect(page.getByRole("status")).toContainText(/USDC per (locked|claimed) token/);
+      if ((await rows.count()) > 1) {
+        await rows.nth(1).getByRole("button").click();
+        await expect(rows.nth(1).getByRole("button")).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByRole("img", { name: /Clearing price history/ })).toHaveCount(1);
+      }
+      await page.getByRole("tab", { name: "Price vs lock left" }).click();
+      await expect(page.getByRole("img", { name: /remaining lock time/ })).toBeVisible();
     }
     if (await page.getByText("Could not read the engine").isVisible()) {
       await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
     }
-    await expect(page.getByRole("heading", { name: "Methodology" })).toBeVisible();
+    await page.getByText(/^Methodology/).click();
     await expect(page.getByText(/discount to the issuer.s declaration/)).toBeVisible();
     await expect(page.getByRole("link", { name: "clearing rules" })).toHaveAttribute("href", "/docs/clearing-rules");
     expect(errors).toEqual([]);

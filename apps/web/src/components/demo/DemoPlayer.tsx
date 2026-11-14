@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { ErrorState, NotDeployedState } from "@/components/rounds/shared";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { Kbd } from "@/components/ui/Kbd";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -19,7 +20,6 @@ import { cn } from "@/lib/cn";
 import { stepEvents } from "@/lib/demo/events";
 import type { DemoManifest, DemoScenario } from "@/lib/demo/manifest";
 import { clampStep, keyCommand, SCENARIO_LABEL, scenarioFromQuery, stepFromQuery, totalDuration, walkthrough, type WalkStep } from "@/lib/demo/walkthrough";
-import { nearAccountUrl } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { LivePanel } from "./panels";
 import { ChainTag, EventList, TxList } from "./records";
@@ -138,14 +138,10 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
     <div className="-mb-6 flex flex-col gap-5" data-demo={scenario.key}>
       <header className="flex flex-col gap-4">
         <div>
-          <p className="text-[12px] text-ember-300 font-medium">Guided demo · no wallet needed</p>
-          <h1 className="mt-1 text-[22px] text-ink-50 md:text-[26px] font-semibold tracking-tight">Watch a full round</h1>
-          <p className="mt-1.5 max-w-3xl text-[13px] text-ink-400">
-            Seeded rounds of the fictional {manifest.issuer} ({manifest.token.symbol}) on{" "}
-            <a href={nearAccountUrl(manifest.engine)} target="_blank" rel="noreferrer" className="text-ink-200 underline decoration-ink-400 underline-offset-2 hover:decoration-ink-200">
-              {manifest.engine}
-            </a>
-            . Every step is a real transaction on NEAR testnet, Base Sepolia or Solana devnet, and the numbers are read live from the engine. <LearnMore topic="sealedRounds" />
+          <h1 className="text-[22px] text-ink-50 md:text-[26px] font-semibold tracking-tight">Watch a full round</h1>
+          <p className="mt-1.5 text-[13px] text-ink-400">
+            <span title={`Seeded rounds of the fictional ${manifest.issuer} (${manifest.token.symbol}) on ${manifest.engine}`}>Real testnet transactions of a seeded round, one step at a time. No wallet needed.</span>{" "}
+            <LearnMore topic="sealedRounds" />
           </p>
         </div>
         <div role="radiogroup" aria-label="Seeded round" className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]">
@@ -159,13 +155,13 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
                 aria-checked={active}
                 onClick={() => chooseScenario(candidate.key)}
                 data-demo-scenario={candidate.key}
+                title={scenarioTitle(manifest, candidate).split(" · ").slice(1).join(" · ")}
                 className={cn(
-                  "flex shrink-0 flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
-                  active ? "border-ember-500 bg-ember-700/20" : "border-ink-700 bg-ink-850 hover:border-ink-500",
+                  "shrink-0 rounded-md border px-3 py-1.5 text-[12.5px] font-medium transition-colors",
+                  active ? "border-ember-500 bg-ember-700/20 text-ember-200" : "border-ink-700 bg-ink-850 text-ink-200 hover:border-ink-500",
                 )}
               >
-                <span className={cn("text-[12px] font-medium", active ? "text-ember-200" : "text-ink-100")}>{SCENARIO_LABEL[candidate.key]}</span>
-                <span className="text-[11px] text-ink-400">{scenarioTitle(manifest, candidate).split(" · ").slice(1).join(" · ")}</span>
+                {SCENARIO_LABEL[candidate.key]}
               </button>
             );
           })}
@@ -222,9 +218,10 @@ export function DemoPlayer({ manifest, query }: { manifest: DemoManifest; query:
           <span className="tabular ml-1 text-[12px] text-ink-300" aria-live="polite" data-demo-counter>
             {String(index + 1)} / {String(steps.length)}
           </span>
-          <span className="ml-auto hidden items-center gap-1 text-[11px] text-ink-400 md:flex">
+          <span className="ml-auto hidden items-center gap-1 text-[11px] text-ink-400 md:flex" title={`About ${String(Math.round(totalDuration(steps) / 60_000))} min on autoplay`}>
             <Kbd>←</Kbd>
-            <Kbd>→</Kbd> to move · <Kbd>Space</Kbd> to play · {String(steps.length)} steps, about {String(Math.round(totalDuration(steps) / 60_000))} min on autoplay
+            <Kbd>→</Kbd>
+            <Kbd>Space</Kbd>
           </span>
           <ButtonLink href={`${ROUTES.rounds}/${scenario.roundId}`} variant="ghost" size="sm" className="ml-auto md:ml-2">
             Round #{scenario.roundId} live
@@ -256,10 +253,19 @@ function StepView({ animate, manifest, scenario, step, position, total, playing,
         </h2>
         <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-ink-200">{step.body}</p>
       </div>
-      <LiveSection manifest={manifest} scenario={scenario} step={step} live={live} />
-      {step.txs.length > 0 ? <TxList txs={step.txs} /> : null}
+      <div className="flex flex-col gap-4" data-demo-live={liveStatus(live, scenario)}>
+        <LiveSection manifest={manifest} scenario={scenario} step={step} live={live} />
+        <OnChainRecord manifest={manifest} scenario={scenario} step={step} live={live} />
+      </div>
     </article>
   );
+}
+
+/** The live read's state for the step's round: a previous round's data still on screen counts as loading. */
+function liveStatus(live: LiveQuery, scenario: DemoScenario): "ok" | "loading" | "error" | "not_deployed" {
+  const { state } = live;
+  if (state.status === "ok") return state.value.round.roundId.toString() === scenario.roundId ? "ok" : "loading";
+  return state.status;
 }
 
 function LiveSection({ manifest, scenario, step, live }: { manifest: DemoManifest; scenario: DemoScenario; step: WalkStep; live: LiveQuery }) {
@@ -267,7 +273,7 @@ function LiveSection({ manifest, scenario, step, live }: { manifest: DemoManifes
   const stale = state.status === "ok" && state.value.round.roundId.toString() !== scenario.roundId;
   if (state.status === "loading" || stale) {
     return (
-      <div className="flex flex-col gap-3" aria-busy data-demo-live="loading">
+      <div className="flex flex-col gap-3" aria-busy>
         <Skeleton className="h-36 w-full rounded-lg" />
         <Skeleton className="h-20 w-full rounded-lg" />
       </div>
@@ -276,7 +282,7 @@ function LiveSection({ manifest, scenario, step, live }: { manifest: DemoManifes
   if (state.status === "not_deployed") return <NotDeployedState detail={state.detail} />;
   if (state.status === "error") {
     return (
-      <div className="ui-surface rounded-lg" data-demo-live="error">
+      <div className="ui-surface rounded-lg">
         <ErrorState message={`${state.message} The transactions below stay verifiable on their explorers.`} onRetry={retry} />
       </div>
     );
@@ -284,20 +290,37 @@ function LiveSection({ manifest, scenario, step, live }: { manifest: DemoManifes
   return <LiveContent manifest={manifest} scenario={scenario} step={step} live={state.value} />;
 }
 
-function LiveContent({ manifest, scenario, step, live }: { manifest: DemoManifest; scenario: DemoScenario; step: WalkStep; live: DemoLive }) {
-  const events = useMemo(() => stepEvents(manifest, scenario, step, live.events, live.round.venue === "Near"), [live, manifest, scenario, step]);
-  const showsEvents = step.id !== "verify" && step.id !== "custody";
+/**
+ * The step's proof, one click away: the engine history entries it wrote and the transactions on
+ * their explorers, collapsed under one line that counts them.
+ */
+function OnChainRecord({ manifest, scenario, step, live }: { manifest: DemoManifest; scenario: DemoScenario; step: WalkStep; live: LiveQuery }) {
+  const value = live.state.status === "ok" && live.state.value.round.roundId.toString() === scenario.roundId ? live.state.value : null;
+  const events = useMemo(() => (value ? stepEvents(manifest, scenario, step, value.events, value.round.venue === "Near") : []), [value, manifest, scenario, step]);
+  const showsEvents = value !== null && step.id !== "verify" && step.id !== "custody";
+  if (!showsEvents && step.txs.length === 0) return null;
+  const counts = [showsEvents ? `${String(events.length)} engine event${events.length === 1 ? "" : "s"}` : null, step.txs.length > 0 ? `${String(step.txs.length)} transaction${step.txs.length === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
   return (
-    <div className="flex flex-col gap-4" data-demo-live="ok">
+    <Disclosure summary={`On-chain record · ${counts}`}>
+      <div className="flex flex-col gap-4" data-demo-record>
+        {showsEvents && value ? (
+          <EventList
+            events={events}
+            decimals={value.cls.decimals}
+            classId={value.cls.classId}
+            emptyHint={value.skippedEvents > 0 ? `No readable history entry for this step (${String(value.skippedEvents)} entries of this staging engine cannot be decoded).` : "The engine's history holds no entry for this step: it records rounds, deposits and payouts, not every foreign-chain transaction."}
+          />
+        ) : null}
+        {step.txs.length > 0 ? <TxList txs={step.txs} /> : null}
+      </div>
+    </Disclosure>
+  );
+}
+
+function LiveContent({ manifest, scenario, step, live }: { manifest: DemoManifest; scenario: DemoScenario; step: WalkStep; live: DemoLive }) {
+  return (
+    <div className="flex flex-col gap-4 empty:hidden">
       <LivePanel manifest={manifest} scenario={scenario} step={step} live={live} />
-      {showsEvents ? (
-        <EventList
-          events={events}
-          decimals={live.cls.decimals}
-          classId={live.cls.classId}
-          emptyHint={live.skippedEvents > 0 ? `No readable history entry for this step (${String(live.skippedEvents)} entries of this staging engine cannot be decoded).` : "The engine's history holds no entry for this step: it records rounds, deposits and payouts, not every foreign-chain transaction."}
-        />
-      ) : null}
       {step.id === "verify" ? (
         <p className="text-[12px] text-ink-400">
           The same check runs on every settled round page.{" "}

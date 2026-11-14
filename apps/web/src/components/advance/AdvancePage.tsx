@@ -11,6 +11,7 @@ import { orderIdentity, sealOrder } from "@/components/rounds/ibe";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/DetailsList";
 import { Countdown } from "@/components/ui/Countdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -211,7 +212,7 @@ export function AdvancePage() {
         <div>
           <h1 className="text-[24px] font-semibold tracking-tight text-ink-50">Advance</h1>
           <p className="mt-1 text-[13px] text-ink-400">
-            A holder sells a senior claim on the first K tokens that will unlock from X of their units; funders bid sealed per claimed token. No oracle, no liquidation: the claim is repaid by the schedule. <LearnMore topic="concepts" anchor="advance" />
+            Sell a claim on your first unlocks, or fund one. <LearnMore topic="concepts" anchor="advance" />
           </p>
         </div>
         {!account ? (
@@ -220,14 +221,16 @@ export function AdvancePage() {
           </Button>
         ) : null}
       </header>
-      <HowItWorks
-        label="How an Advance works"
-        steps={[
-          { title: "The holder pledges", body: <>X of their <Term term="unit">units</Term> back a claim on the first K tokens they will unlock.</> },
-          { title: "Funders bid sealed", body: <>Each bid is a price per claimed token; the round clears at one <Term term="clearingPrice">clearing price</Term>.</> },
-          { title: "Unlocks repay the lien", body: <>The pledged units&apos; unlocks flow to the <Term term="lien">lien</Term> holders until K tokens are delivered.</> },
-        ]}
-      />
+      <Disclosure summary="How an Advance works">
+        <HowItWorks
+          label="How an Advance works"
+          steps={[
+            { title: "The holder pledges", body: <>X of their <Term term="unit">units</Term> back a claim on the first K tokens they will unlock.</> },
+            { title: "Funders bid sealed", body: <>Each bid is a price per claimed token; the round clears at one <Term term="clearingPrice">clearing price</Term>.</> },
+            { title: "Unlocks repay the lien", body: <>The pledged units&apos; unlocks flow to the <Term term="lien">lien</Term> holders until K tokens are delivered.</> },
+          ]}
+        />
+      </Disclosure>
       <Tabs items={TABS} value={tab} onChange={setTab} label="Advance sections" />
       {!engine ? (
         <EmptyState illustration="ledger" title="Engine not deployed yet" description="Advances are rounds of the engine. They appear here once NEXT_PUBLIC_ENGINE_ACCOUNT points to a deployed engine." />
@@ -257,7 +260,7 @@ export function AdvancePage() {
                 <EmptyState
                   illustration="tender"
                   title="No open Advance"
-                  description="Nobody is selling a claim on their first unlocks right now. Holders create one from the next tab; funders bid from the round page."
+                  description="Nobody is selling a claim on their first unlocks right now."
                   action={
                     <Button variant="secondary" onClick={() => setTab("create")}>
                       Create an Advance
@@ -284,8 +287,8 @@ export function AdvancePage() {
             </div>
           ) : null}
           {tab === "create" ? (
-            <Card>
-              <CardHeader title="Create an Advance" description={account ? `Holder: ${account}. Your units stay yours; only their first unlocks are sold.` : "Connect a NEAR wallet holding free units."} />
+            <Card className="mx-auto w-full max-w-[640px]">
+              <CardHeader title="Create an Advance" description="Your units stay yours; only their first unlocks are sold." />
               <CardBody>
                 {account ? (
                   <>

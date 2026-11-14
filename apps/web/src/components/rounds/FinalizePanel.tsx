@@ -10,7 +10,6 @@
 
 import type { Bid } from "@rose/sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { useWallets } from "@/components/wallet/WalletProvider";
@@ -31,7 +30,8 @@ type Step =
   | { status: "unopenable"; reason: string }
   | { status: "failed"; reason: string; retryable: boolean };
 
-export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: { detail: RoundDetail; onChanged: () => void; autoStart: boolean; onAutoStarted: () => void }) {
+/** The opening progress, rendered inside the round's action card while the round reveals and clears. */
+export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
   const { round, bids, engine, config, cls } = detail;
   const { sendNearCall, near, restoring } = useWallets();
   const toast = useToast();
@@ -65,7 +65,7 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
 
   const setStep = useCallback((bidId: number, step: Step) => setSteps((current) => new Map(current).set(bidId, step)), []);
 
-  /** Set synchronously: the auto-start and a click in the same frame both see `running === false`, and must not open every order twice. */
+  /** Set synchronously: two clicks in the same frame both see `running === false`, and must not open every order twice. */
   const runningRef = useRef(false);
 
   const runAll = useCallback(async () => {
@@ -117,15 +117,6 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
     if (opened > 0) toast.show({ tone: "success", title: `${String(opened)} ${opened === 1 ? "order" : "orders"} opened on chain`, description: "The book is public; the Verify panel can recompute the result once the window ends." });
   }, [config.ckd_public_key, engine, key, onChanged, round.roundId, running, sendNearCall, setStep, toast]);
 
-  useEffect(() => {
-    if (!autoStart || running || !key || keyState !== "valid" || near.status !== "connected") return;
-    const timer = window.setTimeout(() => {
-      onAutoStarted();
-      void runAll();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [autoStart, key, keyState, near.status, onAutoStarted, runAll, running]);
-
   if (!key || (round.status !== "Revealing" && round.status !== "Clearing")) return null;
 
   const windowOpen = round.status === "Revealing";
@@ -135,10 +126,10 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
   const cost = (remaining * Number(OPENING_COST_NEAR)).toFixed(4);
 
   return (
-    <section aria-label="Opening progress" className="ui-surface rounded-lg" data-finalize>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-750 px-4 py-3">
+    <section aria-label="Opening progress" className="mt-4 border-t border-ink-750 pt-3" data-finalize>
+      <div className="flex flex-col gap-2">
         <div>
-          <CardTitle>Opening progress</CardTitle>
+          <h3 className="text-[12px] font-medium text-ink-200">Opening progress</h3>
           <p className="mt-0.5 text-[12px] text-ink-400">
             <span className="tabular text-ink-100">
               {String(done)} / {String(total)}
@@ -154,13 +145,13 @@ export function FinalizePanel({ detail, onChanged, autoStart, onAutoStarted }: {
           </p>
         </div>
         {/* The run button keeps its place and turns into a disabled progress label while the run
-            goes, so a second click (or the click that follows Finalize's auto-start) lands on
-            nothing; pausing is a separate control under the progress bar. */}
-        <Button size="sm" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
+            goes, so a second click lands on nothing; pausing is a separate control under the
+            progress bar. */}
+        <Button className="w-full" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
           {steps.size > 0 ? "Resume" : "Open every order"}
         </Button>
       </div>
-      <div className="px-4 py-3">
+      <div className="pt-3">
         <div className="mb-3 h-1.5 w-full overflow-hidden rounded-sm bg-ink-800" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Orders opened">
           <div className="h-full bg-ember-500 transition-[width] duration-500" style={{ width: `${String(total === 0 ? 0 : Math.round((done / total) * 100))}%` }} />
         </div>
