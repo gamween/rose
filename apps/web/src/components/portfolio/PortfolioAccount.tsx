@@ -8,6 +8,7 @@
 
 import { type PayoutView } from "@rose/sdk";
 import { useMemo } from "react";
+import { GetTestFundsButton } from "@/components/chrome/AppActions";
 import { ButtonLink } from "@/components/ui/Button";
 import { KeyStats } from "@/components/ui/KeyStats";
 import { NextStep } from "@/components/ui/NextStep";
@@ -244,9 +245,19 @@ export function PortfolioAccount({ account, data, refreshAll, setPrompt, setFlow
     { hash: true },
   );
 
+  /* A demo account the chain says does not exist yet: step 2 comes before any deposit. */
+  const needsFunds = wallets.near.kind === "demo" && wallets.near.demoAccount === "missing";
+
   return (
     <>
-      {rows.length === 0 ? (
+      {needsFunds ? (
+        <NextStep
+          step={{ index: 2, total: HOLDER_PATH.length }}
+          title="Get test funds"
+          description="Creates your NEAR demo account with test NEAR, then mints tUSDC and a demo position to deposit."
+          action={<GetTestFundsButton variant="primary" />}
+        />
+      ) : rows.length === 0 ? (
         <NextStep
           step={{ index: 3, total: HOLDER_PATH.length }}
           title="Deposit a position to get units"

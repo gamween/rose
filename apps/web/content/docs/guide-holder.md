@@ -40,7 +40,7 @@ Go to `/app/deposit` and choose Solana.
 3. Sign. Your units are locked in the round and keep accruing to you until `closes_at`. Your ask is encrypted in the browser; the round page lists it under "my bids" with its ciphertext hash.
 4. After close, anyone can click "Close round", then "Open every order". If you are first, you pay about 0.0132 NEAR of gas per opened bid.
 5. The round settles. You see `P*` and your fill. If your minimum was at or below `P*` you sold at `P*` (never at your minimum). Unsold units return with their accrual.
-6. Click "Claim" to pull your proceeds in the round's venue, your bond and any unsold units.
+6. Click "Settle my order" in the round's action card: your proceeds in the round's venue, your bond and any unsold units come back to your NEAR ledger. Then "Claim" in your portfolio pulls the cash out.
 
 ## Sell in an Exit
 
@@ -54,7 +54,7 @@ An Advance sells a senior claim on the first `K` tokens that will unlock from `X
 2. Select the class and the units to encumber (`X`). Set `K`, at most `X * (1 - f(ts))` at the round's settlement time. Set your sealed reserve price per claimed token, your public minimum fill, and the window.
 3. Confirm. The encumbered units become non-transferable and cannot enter other rounds until the lien is repaid. Funders browse the Advance and place sealed bids.
 4. After close and finalization, you see `P*`, the filled part of `K`, and your proceeds. If the filled volume was below your minimum fill, the round is `Cancelled` and your units are free again.
-5. Click "Claim" to pull the cash. From then on, the accruals of the encumbered units flow to the lien holders until the filled claim is delivered; your portfolio shows the lien, the delivered amount and the remaining claim. When it is repaid the encumbrance ends.
+5. Click "Settle my order" in the round's action card, then "Claim" in your portfolio to pull the cash. From then on, the accruals of the encumbered units flow to the lien holders until the filled claim is delivered; your portfolio shows the lien, the delivered amount and the remaining claim. When it is repaid the encumbrance ends.
 
 There is no oracle and no liquidation. The claim is repaid by the schedule.
 

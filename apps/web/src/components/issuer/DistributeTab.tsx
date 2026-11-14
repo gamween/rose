@@ -29,7 +29,10 @@ export function DistributeTab({ base, initialClassId }: { base: IssuerBase; init
   const flow = useFlow();
   const decimals = cls?.decimals ?? 18;
   const sender = wallets.near.accountId;
-  const checked = useMemo(() => checkRows(rows, decimals, { sender }), [rows, decimals, sender]);
+  /* A row nobody typed in yet is neither an error nor a receiver. */
+  const filled = useMemo(() => rows.filter((row) => row.account.trim() !== "" || row.amount.trim() !== ""), [rows]);
+  const checked = useMemo(() => checkRows(filled, decimals, { sender }), [filled, decimals, sender]);
+  const errorOf = useMemo(() => new Map(filled.map((row, index) => [row, checked[index]?.error ?? null])), [checked, filled]);
   const total = rowsTotal(checked);
   const valid = checked.length > 0 && checked.every((row) => row.error === null);
   const batches = useMemo(() => splitBatches(checked.filter((row) => row.error === null), base.limits.maxDistributionReceivers), [checked, base.limits.maxDistributionReceivers]);
@@ -94,7 +97,7 @@ export function DistributeTab({ base, initialClassId }: { base: IssuerBase; init
     );
   };
 
-  const disabledReason = !wallets.near.accountId ? "Connect a NEAR wallet (the issuer)." : !cls ? "Choose a class." : !valid ? "Fix the receivers." : balance !== null && balance < total ? `Your free balance (${formatAmount(balance, cls.decimals)} units) is below the total.` : deposits === null ? "Computing the registration deposits…" : null;
+  const disabledReason = !wallets.near.accountId ? "Connect a NEAR wallet (the issuer)." : !cls ? "Choose a class." : checked.length === 0 ? "Add a receiver and its units." : !valid ? "Fix the receivers." : balance !== null && balance < total ? `Your free balance (${formatAmount(balance, cls.decimals)} units) is below the total.` : deposits === null ? "Computing the registration deposits…" : null;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -118,11 +121,11 @@ export function DistributeTab({ base, initialClassId }: { base: IssuerBase; init
                 </TR>
               </THead>
               <TBody>
-                {checked.map((row, index) => (
+                {rows.map((row, index) => (
                   <TR key={index}>
                     <TD className="min-w-48">
                       <Input value={row.account} onChange={(event) => updateRow(index, { account: event.target.value })} placeholder="holder.testnet" aria-label={`Receiver ${String(index + 1)}`} />
-                      {row.error ? <span className="text-[11px] text-danger-400">{row.error}</span> : null}
+                      {errorOf.get(row) ? <span className="text-[11px] text-danger-400">{errorOf.get(row)}</span> : null}
                     </TD>
                     <TD numeric className="min-w-32">
                       <NumberInput value={row.amount} onValueChange={(value) => updateRow(index, { amount: value })} decimals={decimals} aria-label={`Units ${String(index + 1)}`} />

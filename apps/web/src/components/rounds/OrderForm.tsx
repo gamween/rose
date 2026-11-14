@@ -9,7 +9,7 @@
  */
 
 import { BID_STORAGE_DEPOSIT, outcomeValue, type Side } from "@rose/sdk";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { GetTestFundsButton } from "@/components/chrome/AppActions";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { PendingCashDeposits } from "@/components/deposit/PendingCashDeposits";
@@ -22,11 +22,12 @@ import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { readStorageNeed, type StorageNeed } from "@/lib/engine-storage";
 import { formatUnits } from "@/lib/format";
+import { txLinks } from "@/lib/explorer";
 import { formatStorageNear } from "@/lib/near-cash";
 import { useNearAction } from "./actions";
 import { CashDeposit } from "./CashDeposit";
 import { orderIdentity, sealOrder } from "./ibe";
-import { saveLocalOrder } from "./localOrders";
+import { orderKey, rawSnapshot, saveLocalOrder, subscribeLocal, type LocalOrder } from "./localOrders";
 import { formatQty, formatUsdc, parseDecimal, previewBuy, previewSell, roundPricing, sameVenue, USDC_DECIMALS, venueLabel } from "./model";
 import { Notice } from "./shared";
 import type { RoundDetail } from "./useRoundDetail";
@@ -77,6 +78,14 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
   const lockUnits = side === "Sell" ? (fixedClaim ?? parseDecimal(units === "" ? quantity : units, decimals)) : null;
   const escrowInput = parseDecimal(escrowText, USDC_DECIMALS);
   const existing = side === "Buy" ? viewer?.buyOrderId : viewer?.sellOrderId;
+  /* The viewer's order on this side is on chain: the card says so instead of a form that cannot be sent. */
+  const placed = open && viewer !== null && existing !== null && existing !== undefined;
+  /* The placing transaction, when this browser sent it, for the placed card's explorer link. */
+  const rawLocal = useSyncExternalStore(subscribeLocal, () => rawSnapshot(orderKey(engine.account, round.roundId, viewer?.account ?? "", side)), () => "null");
+  const placedTx = useMemo(() => {
+    const local = JSON.parse(rawLocal) as LocalOrder | null;
+    return local && local.bidId === existing && local.txHash ? local.txHash : null;
+  }, [existing, rawLocal]);
   const venueCash = viewer?.cash.find((c) => sameVenue(c.venue, round.venue))?.amount ?? 0n;
   const bondFloor = limits.bondFloor;
 
@@ -219,108 +228,135 @@ export function OrderForm({ detail, nowMs, onPlaced }: { detail: RoundDetail; no
       >
         {!open ? <Notice tone="info">{round.status === "Scheduled" ? "The round is not open yet." : "Bidding is closed for this round."}</Notice> : null}
         {open && restoring ? <Notice tone="info">Restoring your wallet…</Notice> : null}
-        {open && viewer && existing !== null && existing !== undefined ? (
-          <Notice tone="info">
-            You already placed {side === "Buy" ? "a bid" : "an ask"} in this round (#{String(existing)}). One sealed order per side per account; see &quot;My orders&quot;.
-          </Notice>
-        ) : null}
-        {round.kind === "Advance" && !isCreator ? (
-          <p className="text-[12px] text-ink-400">
-            Bids are per claimed token: the holder offers a senior claim on the first {formatQty(round.advanceClaim ?? 0n, decimals)} tokens unlocking from {formatQty(round.advanceUnits ?? 0n, decimals)} units; minimum fill {formatQty(round.advanceMinFill ?? 0n, decimals)}.
-          </p>
-        ) : null}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {fixedClaim !== null ? (
-            <Field label="Claim (tokens)" hint="Fixed to the claim K of the round: the reserve seals exactly this quantity, only its price is yours to set." error={errors.quantity}>
-              {({ inputId, describedBy, invalid }) => <Input id={inputId} aria-describedby={describedBy} invalid={invalid} value={formatQty(fixedClaim, decimals)} readOnly className="tabular text-ink-300" data-order-quantity data-fixed-claim />}
-            </Field>
-          ) : (
-            <Field label={side === "Buy" ? (round.kind === "Advance" ? "Claimed tokens" : "Quantity (units)") : "Quantity to sell (units)"} hint={side === "Sell" ? `Free units: ${formatQty(freeUnits, decimals)}` : maxBuy !== null ? `At most ${formatQty(maxBuy, decimals)} per bid` : undefined} error={errors.quantity}>
-              {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={quantity} onValueChange={setQuantity} decimals={decimals} placeholder="1000" unit={round.kind === "Advance" ? "tokens" : "units"} data-order-quantity />}
-            </Field>
-          )}
-          <Field label={side === "Buy" ? "Limit price" : "Minimum price"} hint={`Per ${round.kind === "Advance" ? "claimed" : "locked"} token · max ${formatUsdc(round.maxPrice)}`} error={errors.price}>
-            {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={price} onValueChange={setPrice} decimals={USDC_DECIMALS} placeholder={formatUsdc(round.maxPrice)} unit="USDC" data-order-price />}
-          </Field>
-          {side === "Sell" && round.kind !== "Advance" ? (
-            <Field label="Units to lock (public)" hint="Defaults to the quantity. Locking more hides the exact quantity you sell." error={errors.units}>
-              {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={units} onValueChange={setUnits} decimals={decimals} placeholder={quantity || "1000"} unit="units" />}
-            </Field>
-          ) : null}
-          {side === "Buy" ? (
-            <Field label={<><Term term="escrow">Escrow</Term> (public)</>} hint={buyPreview ? `Minimum ${formatUsdc(buyPreview.escrowRequired)}. A larger escrow hides your limit × quantity.` : "At least limit × quantity + fee."} error={errors.escrow}>
-              {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={escrowText} onValueChange={setEscrowText} decimals={USDC_DECIMALS} placeholder={buyPreview ? formatUsdc(buyPreview.escrowRequired) : "0.00"} unit="USDC" />}
-            </Field>
-          ) : null}
-        </div>
-
-        <div className="rounded-md border border-ink-750 bg-(--surface-inset) px-3 py-2.5" data-order-preview>
-          <dl className="flex flex-col gap-1.5">
-            <Row label="Debited from your cash" value={preview ? `${formatUsdc(side === "Buy" ? (buyPreview?.total ?? 0n) : (sellPreview?.bond ?? 0n))} USDC` : "—"} strong />
-            <Row label="Your cash in the venue" value={viewer ? `${formatUsdc(venueCash)} USDC` : "—"} />
-          </dl>
-          <details className="group mt-2 border-t border-ink-750 pt-2">
-            <summary className="flex cursor-pointer list-none items-center justify-between text-[12px] text-ink-300 hover:text-ink-100 [&::-webkit-details-marker]:hidden">
-              Cost breakdown
-              <svg viewBox="0 0 10 6" width="10" height="6" shapeRendering="crispEdges" className="text-ink-400 transition-transform group-open:rotate-180" aria-hidden>
-                <path d="M0 0h2v2H0zM2 2h2v2H2zM4 4h2v2H4zM6 2h2v2H6zM8 0h2v2H8z" fill="currentColor" />
-              </svg>
-            </summary>
-            <dl className="mt-2 flex flex-col gap-1.5">
-              {side === "Buy" ? (
+        {placed ? (
+          <div className="flex flex-col gap-3" data-order-placed={existing}>
+            <Notice tone="success">
+              Your sealed {side === "Buy" ? "bid" : "ask"} #{String(existing)} is placed. One sealed order per side per account: it stays sealed until the close.
+              {placedTx ? (
                 <>
-                  <Row label="Cash at your limit" value={buyPreview ? `${formatUsdc(buyPreview.charge)} USDC` : "—"} hint={round.kind === "Advance" ? "quantity × limit" : "quantity × locked fraction × limit, rounded up"} />
-                  <Row label="Fee (30 bps, buyer)" value={buyPreview ? `${formatUsdc(buyPreview.fee)} USDC` : "—"} />
-                  <Row label="Escrow" value={buyPreview ? `${formatUsdc(escrowInput !== null && escrowInput >= buyPreview.escrowRequired ? escrowInput : buyPreview.escrowRequired)} USDC` : "—"} hint="refunded above your charge + fee" />
-                  <Row label={<Term term="bond">Bond</Term>} value={buyPreview ? `${formatUsdc(buyPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of escrow), back on a valid opening`} />
+                  {" "}
+                  <a href={txLinks("near", placedTx)[0]?.href} target="_blank" rel="noreferrer" className="font-medium text-ember-300 underline-offset-2 hover:underline">
+                    Transaction ↗
+                  </a>
                 </>
-              ) : (
-                <>
-                  <Row label="Units locked" value={lockUnits !== null && lockUnits > 0n ? formatQty(lockUnits, decimals) : "—"} hint="public; they keep accruing to you until the close" />
-                  <Row label="Proceeds at your minimum" value={sellPreview ? `${formatUsdc(sellPreview.proceedsAtMinimum)} USDC` : "—"} hint="sellers receive the clearing price, nothing deducted" />
-                  <Row label={<Term term="bond">Bond</Term>} value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of ${sellPreview ? formatUsdc(sellPreview.valuation) : "units at max price"})`} />
-                </>
-              )}
-              <Row label="Storage deposit" value={`${formatUnits(BID_STORAGE_DEPOSIT, 24, 2)} NEAR`} hint="returned when the order settles" />
-            </dl>
-          </details>
-          {bidStorage ? (
-            <dl className="mt-2 border-t border-ink-750 pt-2">
-              <Row label={bidStorage.kind === "register" ? "Engine registration (NEP-145)" : "Engine storage top-up (NEP-145)"} value={`${formatStorageNear(bidStorage.deposit)} NEAR`} hint="room for the units you buy, sent first; withdrawable" />
-            </dl>
-          ) : null}
-        </div>
-
-        {viewer && open && shortfall > 0n && existing === null ? (
-          <div className="flex flex-col gap-2">
-            <Notice tone="warning">
-              Cash short by <span className="tabular">{formatUsdc(shortfall)} USDC</span> in {venueLabel(round.venue)}.{" "}
-              <button type="button" className="underline underline-offset-2" onClick={() => setShowDeposit((v) => !v)} data-show-deposit>
-                {showDeposit ? "Hide deposit" : "Deposit cash"}
-              </button>
+              ) : null}
             </Notice>
-            {showDeposit ? <CashDeposit engine={engine} venue={round.venue} roundId={round.roundId} shortfall={shortfall} nearCashToken={config.near_cash_token} onDeposited={onPlaced} /> : null}
+            <Button
+              type="button"
+              size="lg"
+              variant="secondary"
+              className="w-full"
+              onClick={() => {
+                window.location.hash = "mine";
+                document.querySelector("[data-round-tabs]")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              data-see-mine
+            >
+              See it in My orders
+            </Button>
           </div>
         ) : null}
-        {viewer && open && round.venue !== "Near" && !showDeposit ? <PendingCashDeposits token={round.venue.Base.token} creditTo={viewer.account} onRegistered={onPlaced} /> : null}
-        {sealError ? <Notice tone="danger">{sealError}</Notice> : null}
-        {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
+        {placed ? null : (
+          <>
+            {round.kind === "Advance" && !isCreator ? (
+              <p className="text-[12px] text-ink-400">
+                Bids are per claimed token: the holder offers a senior claim on the first {formatQty(round.advanceClaim ?? 0n, decimals)} tokens unlocking from {formatQty(round.advanceUnits ?? 0n, decimals)} units; minimum fill {formatQty(round.advanceMinFill ?? 0n, decimals)}.
+              </p>
+            ) : null}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {fixedClaim !== null ? (
+                <Field label="Claim (tokens)" hint="Fixed to the claim K of the round: the reserve seals exactly this quantity, only its price is yours to set." error={errors.quantity}>
+                  {({ inputId, describedBy, invalid }) => <Input id={inputId} aria-describedby={describedBy} invalid={invalid} value={formatQty(fixedClaim, decimals)} readOnly className="tabular text-ink-300" data-order-quantity data-fixed-claim />}
+                </Field>
+              ) : (
+                <Field label={side === "Buy" ? (round.kind === "Advance" ? "Claimed tokens" : "Quantity (units)") : "Quantity to sell (units)"} hint={side === "Sell" ? `Free units: ${formatQty(freeUnits, decimals)}` : maxBuy !== null ? `At most ${formatQty(maxBuy, decimals)} per bid` : undefined} error={errors.quantity}>
+                  {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={quantity} onValueChange={setQuantity} decimals={decimals} placeholder="1000" unit={round.kind === "Advance" ? "tokens" : "units"} data-order-quantity />}
+                </Field>
+              )}
+              <Field label={side === "Buy" ? "Limit price" : "Minimum price"} hint={`Per ${round.kind === "Advance" ? "claimed" : "locked"} token · max ${formatUsdc(round.maxPrice)}`} error={errors.price}>
+                {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={price} onValueChange={setPrice} decimals={USDC_DECIMALS} placeholder={formatUsdc(round.maxPrice)} unit="USDC" data-order-price />}
+              </Field>
+              {side === "Sell" && round.kind !== "Advance" ? (
+                <Field label="Units to lock (public)" hint="Defaults to the quantity. Locking more hides the exact quantity you sell." error={errors.units}>
+                  {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={units} onValueChange={setUnits} decimals={decimals} placeholder={quantity || "1000"} unit="units" />}
+                </Field>
+              ) : null}
+              {side === "Buy" ? (
+                <Field label={<><Term term="escrow">Escrow</Term> (public)</>} hint={buyPreview ? `Minimum ${formatUsdc(buyPreview.escrowRequired)}. A larger escrow hides your limit × quantity.` : "At least limit × quantity + fee."} error={errors.escrow}>
+                  {({ inputId, describedBy, invalid }) => <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={escrowText} onValueChange={setEscrowText} decimals={USDC_DECIMALS} placeholder={buyPreview ? formatUsdc(buyPreview.escrowRequired) : "0.00"} unit="USDC" />}
+                </Field>
+              ) : null}
+            </div>
 
-        <div className="flex flex-col">
-          {open && !restoring && near.status !== "connected" ? (
-            <Button size="lg" className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
-              Connect a NEAR wallet
-            </Button>
-          ) : open && near.kind === "demo" && !near.demoAccountExists ? (
-            <GetTestFundsButton size="lg" variant="primary" className="w-full">
-              Create the demo account: get test funds
-            </GetTestFundsButton>
-          ) : (
-            <Button type="submit" size="lg" className="w-full" disabled={!ready} loading={sealing || status.status === "busy"} loadingLabel={sealing ? "Sealing in the browser…" : "Signing…"} data-order-submit>
-              {side === "Buy" ? (bidStorage ? "Add storage, seal and place bid" : "Seal and place bid") : "Seal and place ask"}
-            </Button>
-          )}
-        </div>
+            <div className="rounded-md border border-ink-750 bg-(--surface-inset) px-3 py-2.5" data-order-preview>
+              <dl className="flex flex-col gap-1.5">
+                <Row label="Debited from your cash" value={preview ? `${formatUsdc(side === "Buy" ? (buyPreview?.total ?? 0n) : (sellPreview?.bond ?? 0n))} USDC` : "—"} strong />
+                <Row label="Your cash in the venue" value={viewer ? `${formatUsdc(venueCash)} USDC` : "—"} />
+              </dl>
+              <details className="group mt-2 border-t border-ink-750 pt-2">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-[12px] text-ink-300 hover:text-ink-100 [&::-webkit-details-marker]:hidden">
+                  Cost breakdown
+                  <svg viewBox="0 0 10 6" width="10" height="6" shapeRendering="crispEdges" className="text-ink-400 transition-transform group-open:rotate-180" aria-hidden>
+                    <path d="M0 0h2v2H0zM2 2h2v2H2zM4 4h2v2H4zM6 2h2v2H6zM8 0h2v2H8z" fill="currentColor" />
+                  </svg>
+                </summary>
+                <dl className="mt-2 flex flex-col gap-1.5">
+                  {side === "Buy" ? (
+                    <>
+                      <Row label="Cash at your limit" value={buyPreview ? `${formatUsdc(buyPreview.charge)} USDC` : "—"} hint={round.kind === "Advance" ? "quantity × limit" : "quantity × locked fraction × limit, rounded up"} />
+                      <Row label="Fee (30 bps, buyer)" value={buyPreview ? `${formatUsdc(buyPreview.fee)} USDC` : "—"} />
+                      <Row label="Escrow" value={buyPreview ? `${formatUsdc(escrowInput !== null && escrowInput >= buyPreview.escrowRequired ? escrowInput : buyPreview.escrowRequired)} USDC` : "—"} hint="refunded above your charge + fee" />
+                      <Row label={<Term term="bond">Bond</Term>} value={buyPreview ? `${formatUsdc(buyPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of escrow), back on a valid opening`} />
+                    </>
+                  ) : (
+                    <>
+                      <Row label="Units locked" value={lockUnits !== null && lockUnits > 0n ? formatQty(lockUnits, decimals) : "—"} hint="public; they keep accruing to you until the close" />
+                      <Row label="Proceeds at your minimum" value={sellPreview ? `${formatUsdc(sellPreview.proceedsAtMinimum)} USDC` : "—"} hint="sellers receive the clearing price, nothing deducted" />
+                      <Row label={<Term term="bond">Bond</Term>} value={sellPreview ? `${formatUsdc(sellPreview.bond)} USDC` : "—"} hint={`max(${formatUsdc(bondFloor)}, 1% of ${sellPreview ? formatUsdc(sellPreview.valuation) : "units at max price"})`} />
+                    </>
+                  )}
+                  <Row label="Storage deposit" value={`${formatUnits(BID_STORAGE_DEPOSIT, 24, 2)} NEAR`} hint="returned when the order settles" />
+                </dl>
+              </details>
+              {bidStorage ? (
+                <dl className="mt-2 border-t border-ink-750 pt-2">
+                  <Row label={bidStorage.kind === "register" ? "Engine registration (NEP-145)" : "Engine storage top-up (NEP-145)"} value={`${formatStorageNear(bidStorage.deposit)} NEAR`} hint="room for the units you buy, sent first; withdrawable" />
+                </dl>
+              ) : null}
+            </div>
+
+            {viewer && open && shortfall > 0n && existing === null ? (
+              <div className="flex flex-col gap-2">
+                <Notice tone="warning">
+                  Cash short by <span className="tabular">{formatUsdc(shortfall)} USDC</span> in {venueLabel(round.venue)}.{" "}
+                  <button type="button" className="underline underline-offset-2" onClick={() => setShowDeposit((v) => !v)} data-show-deposit>
+                    {showDeposit ? "Hide deposit" : "Deposit cash"}
+                  </button>
+                </Notice>
+                {showDeposit ? <CashDeposit engine={engine} venue={round.venue} roundId={round.roundId} shortfall={shortfall} nearCashToken={config.near_cash_token} onDeposited={onPlaced} /> : null}
+              </div>
+            ) : null}
+            {viewer && open && round.venue !== "Near" && !showDeposit ? <PendingCashDeposits token={round.venue.Base.token} creditTo={viewer.account} onRegistered={onPlaced} /> : null}
+            {sealError ? <Notice tone="danger">{sealError}</Notice> : null}
+            {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
+
+            <div className="flex flex-col">
+              {open && !restoring && near.status !== "connected" ? (
+                <Button size="lg" className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
+                  Connect a NEAR wallet
+                </Button>
+              ) : open && near.kind === "demo" && near.demoAccount === "missing" ? (
+                <GetTestFundsButton size="lg" variant="primary" className="w-full">
+                  Create the demo account: get test funds
+                </GetTestFundsButton>
+              ) : (
+                <Button type="submit" size="lg" className="w-full" disabled={!ready} loading={sealing || status.status === "busy"} loadingLabel={sealing ? "Sealing in the browser…" : "Signing…"} data-order-submit>
+                  {side === "Buy" ? (bidStorage ? "Add storage, seal and place bid" : "Seal and place bid") : "Seal and place ask"}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </form>
     </ActionCard>
   );

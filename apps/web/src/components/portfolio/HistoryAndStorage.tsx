@@ -115,6 +115,14 @@ export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: Po
   const [amount, setAmount] = useState(amountToText(data.storageMinimum, NEAR_DECIMALS));
   const parsed = parseAmount(amount, NEAR_DECIMALS);
   const registered = data.storage !== null;
+  /* The engine refuses `storage_withdraw` while the account has live bids, liens or custody actions in flight. */
+  const pendingPayouts = data.payouts.filter((entry) => !settledPayout(entry.state)).length;
+  const obligations = [
+    data.portfolio.bids.length > 0 ? `${String(data.portfolio.bids.length)} unsettled ${data.portfolio.bids.length === 1 ? "order" : "orders"}` : null,
+    data.portfolio.liensHeld.length + data.portfolio.lienShares.length > 0 ? "open liens" : null,
+    pendingPayouts > 0 ? `${String(pendingPayouts)} ${pendingPayouts === 1 ? "payout" : "payouts"} in progress` : null,
+  ].filter((item): item is string => item !== null);
+  const withdrawBlocked = obligations.length > 0 ? `Withdrawals open once nothing is pending: ${obligations.join(", ")}.` : null;
   return (
     <Card data-storage>
       <CardHeader title="Storage" description="NEAR held by the engine for your rows. Actions that need more add the top-up for you." action={registered ? <Badge tone="success">Registered</Badge> : <Badge tone="warning">Not registered</Badge>} />
@@ -140,10 +148,15 @@ export function StorageSection({ data, onDeposit, onWithdraw, busy }: { data: Po
           <Button size="md" variant="secondary" disabled={parsed === null || parsed === 0n || busy} onClick={() => parsed !== null && onDeposit(parsed)} data-storage-deposit>
             {registered ? "Top up" : "Register"}
           </Button>
-          <Button size="md" variant="ghost" disabled={!registered || busy || (data.storage?.available ?? 0n) === 0n} title={!registered ? "Not registered" : (data.storage?.available ?? 0n) === 0n ? "Nothing available to withdraw" : undefined} onClick={() => onWithdraw(parsed !== null && parsed > 0n ? parsed : null)} data-storage-withdraw>
+          <Button size="md" variant="ghost" disabled={!registered || busy || (data.storage?.available ?? 0n) === 0n || withdrawBlocked !== null} title={!registered ? "Not registered" : (data.storage?.available ?? 0n) === 0n ? "Nothing available to withdraw" : (withdrawBlocked ?? undefined)} onClick={() => onWithdraw(parsed !== null && parsed > 0n ? parsed : null)} data-storage-withdraw>
             Withdraw {parsed !== null && parsed > 0n ? "amount" : "all available"}
           </Button>
         </div>
+        {registered && withdrawBlocked ? (
+          <p className="text-[12px] text-ink-400" data-storage-withdraw-blocked>
+            {withdrawBlocked}
+          </p>
+        ) : null}
         <Disclosure summary="What storage pays for">
           <p className="text-[12.5px] leading-relaxed text-ink-300">
             NEP-145 storage. The minimum covers your account, one class and one cash venue; each further class held costs {formatAmount(HOLDING_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR and each further cash venue {formatAmount(CASH_ROW_BYTES * STORAGE_BYTE_COST, NEAR_DECIMALS, 5)} NEAR. Receiving units, buying in an Exit, depositing NEAR cash or getting a distribution needs room for the row.

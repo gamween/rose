@@ -107,9 +107,9 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
   const disabledReason = useMemo(() => {
     if (!vault) return "RoseVault is not deployed yet.";
     if (!nearAccount) return "Connect a NEAR wallet: the units are minted to it.";
-    if (wallets.near.kind === "demo" && !wallets.near.demoAccountExists) return "Create the NEAR demo account first (Get test funds).";
+    if (wallets.near.kind === "demo" && wallets.near.demoAccount === "missing") return "Create the NEAR demo account first (Get test funds).";
     return null;
-  }, [nearAccount, vault, wallets.near.demoAccountExists, wallets.near.kind]);
+  }, [nearAccount, vault, wallets.near.demoAccount, wallets.near.kind]);
 
   /** Finality, registration and the minted units of a deposited stream (shared by a new deposit and a resumed one). */
   const registrationSteps = (context: Context, streamId: bigint, owner: string): StepDefinition[] => {
@@ -369,7 +369,7 @@ export function BaseDeposit({ nearAccount, onConnect }: { nearAccount: string | 
       {selected && flow.steps.length > 0 ? (
         <Card data-deposit-flow>
           <CardHeader
-            title={`${selected.resumed ? "Registering" : "Depositing"} Sablier stream #${selected.streamId.toString()}`}
+            title={flow.completed ? `Sablier stream #${selected.streamId.toString()} deposited` : `${selected.resumed ? "Registering" : "Depositing"} Sablier stream #${selected.streamId.toString()}`}
             description={`Units are minted to ${nearAccount ?? "your NEAR account"}; the vested part goes to your EVM address.`}
             action={
               flow.completed ? (

@@ -5,8 +5,8 @@
  */
 
 import { Account, actions, JsonRpcProvider, KeyPair, KeyPairSigner, type KeyPairString } from "near-api-js";
-import { NearRpc, outcomeFailure, type FinalExecutionOutcome, type FunctionCall } from "@rose/sdk";
-import { NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL } from "@/lib/deployment";
+import { NearRpc, NearRpcError, outcomeFailure, type FinalExecutionOutcome, type FunctionCall } from "@rose/sdk";
+import { NEAR_READ_RPC_ENDPOINTS, NEAR_RPC_URL } from "@/lib/deployment";
 import { failureToActionError, RoseActionError } from "@/lib/errors";
 import { DEMO_STORAGE_KEYS, readStored, removeStored, writeStored } from "./storage";
 
@@ -46,38 +46,84 @@ export function saveNearDemoWallet(wallet: NearDemoWallet): void {
 
 export function forgetNearDemoWallet(): void {
   removeStored(DEMO_STORAGE_KEYS.near);
+  removeStored(DEMO_STORAGE_KEYS.nearOnChain);
+}
+
+/** Remembers that this account id was seen on chain, so a later page load starts from that instead of "unknown". */
+export function rememberNearDemoOnChain(accountId: string): void {
+  writeStored(DEMO_STORAGE_KEYS.nearOnChain, accountId);
+}
+
+/** Whether this browser already saw the demo account on chain (an account is never deleted by the app). */
+export function nearDemoKnownOnChain(accountId: string): boolean {
+  return readStored<string>(DEMO_STORAGE_KEYS.nearOnChain) === accountId;
 }
 
 export function nearProvider(): JsonRpcProvider {
   return new JsonRpcProvider({ url: NEAR_RPC_URL });
 }
 
+/** The read client of the demo wallet: the app's read endpoints in failover order (sends go through `nearProvider`). */
 export function nearRpc(): NearRpc {
-  return new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] });
+  return new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS });
 }
 
 export function nearDemoAccount(wallet: NearDemoWallet): Account {
   return new Account(wallet.accountId, nearProvider(), KeyPairSigner.fromSecretKey(wallet.secretKey));
 }
 
-/** Whether the demo account exists on testnet yet (the faucet creates it asynchronously). */
-export async function nearAccountExists(accountId: string): Promise<boolean> {
-  try {
-    await nearRpc().viewAccount(accountId);
-    return true;
-  } catch {
-    return false;
+/**
+ * What the chain says about an account: `missing` only on the RPC's definite `UNKNOWN_ACCOUNT`
+ * answer, `unknown` when no endpoint answered (rate limits, network failures), so a caller keeps
+ * its last known value instead of mistaking a busy RPC for a missing account.
+ */
+export type NearAccountPresence = "exists" | "missing" | "unknown";
+
+export type PresenceOptions = {
+  rpc?: Pick<NearRpc, "viewAccount">;
+  /** Rounds over the read endpoints before answering `unknown` (default 4). */
+  attempts?: number;
+  /** Wait before the second round, doubled before each later one (default 800 ms). */
+  delayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+};
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Whether the demo account exists on testnet (the faucet creates it asynchronously), retried with backoff across the read endpoints. */
+export async function nearAccountPresence(accountId: string, { rpc = nearRpc(), attempts = 4, delayMs = 800, sleep = wait }: PresenceOptions = {}): Promise<NearAccountPresence> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) await sleep(delayMs * 2 ** (attempt - 1));
+    try {
+      await rpc.viewAccount(accountId);
+      return "exists";
+    } catch (error) {
+      if (error instanceof NearRpcError && error.kind === "account_missing") return "missing";
+    }
   }
+  return "unknown";
 }
 
-/** Whether the demo key is an access key of its account id, so an existing account is this wallet's own. */
+/**
+ * Whether the demo key is an access key of its account id, so an existing account is this
+ * wallet's own. The RPC answers a missing key with a result whose `error` says "does not exist";
+ * any other failure throws a retryable error, never a guess (a wrong "no" would abandon the
+ * account for a fresh id).
+ */
 export async function nearDemoKeyIsOnAccount(wallet: Pick<NearDemoWallet, "accountId" | "publicKey">, rpc: Pick<NearRpc, "viewAccessKey"> = nearRpc()): Promise<boolean> {
+  let view: unknown;
   try {
-    await rpc.viewAccessKey(wallet.accountId, wallet.publicKey);
-    return true;
-  } catch {
-    return false;
+    view = await rpc.viewAccessKey(wallet.accountId, wallet.publicKey);
+  } catch (error) {
+    if (error instanceof NearRpcError && error.kind === "account_missing") return false;
+    throw new RoseActionError("rpc", "NEAR RPC busy", "Could not read the demo account's keys from NEAR testnet. Retry in a few seconds.", true);
   }
+  const record = typeof view === "object" && view !== null ? (view as Record<string, unknown>) : {};
+  if (typeof record["error"] === "string") {
+    if (/does not exist/.test(record["error"])) return false;
+    throw new RoseActionError("rpc", "NEAR RPC error", record["error"], true);
+  }
+  return "permission" in record;
 }
 
 /** The same key under a fresh account id, for when the generated id turns out to be taken by someone else. */

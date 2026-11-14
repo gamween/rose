@@ -14,7 +14,8 @@ import { useWallets } from "@/components/wallet/WalletProvider";
 import { formatDate, formatUsdc, nsToMs, venueLabel } from "@/lib/amounts";
 import { ROUTES } from "@/lib/routes";
 import { useEngineQuery } from "@/lib/use-engine-query";
-import { forgetDaoAccount, isNearAccountId, readDaoAccounts, rememberDaoAccount, resultCreators } from "./dao-accounts";
+import { endedDaoCreators, forgetDaoAccount, isNearAccountId, readDaoAccounts, rememberDaoAccount, resultCreators } from "./dao-accounts";
+import { DaoWithdrawal } from "./DaoWithdrawal";
 import { classSymbol, FieldLabel, Hint, type IssuerBase } from "./shared";
 
 const STATUS_TONE: Record<Round["status"], "neutral" | "ember" | "success" | "danger" | "info"> = { Scheduled: "neutral", Open: "ember", KeyRequested: "info", Revealing: "info", Clearing: "info", Settled: "success", Cancelled: "danger" };
@@ -75,7 +76,7 @@ export function ResultsTab({ base }: { base: IssuerBase }) {
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="results-creator">Also list a DAO&apos;s Tenders</FieldLabel>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input id="results-creator" value={named} onChange={(event) => setNamed(event.target.value)} placeholder="treasury.sputnik-v2.testnet" onKeyDown={(event) => (event.key === "Enter" ? addNamed() : undefined)} />
+            <Input id="results-creator" value={named} onChange={(event) => setNamed(event.target.value)} placeholder="treasury.sputnikv2.testnet" onKeyDown={(event) => (event.key === "Enter" ? addNamed() : undefined)} />
             <Button variant="secondary" onClick={addNamed} disabled={!named.trim()} data-add-creator>
               Add
             </Button>
@@ -106,7 +107,7 @@ export function ResultsTab({ base }: { base: IssuerBase }) {
         ) : state.status === "not_deployed" ? (
           <EmptyState illustration="vault" title="Engine not deployed yet" />
         ) : state.value.length === 0 ? (
-          <EmptyState illustration="tender" title="No Tender yet" description="Launch one from the Tender tab: the round appears here with its status, and its report once settled." />
+          <EmptyState illustration="tender" title="No Tender yet" description="Launch one from New Tender (step 5, Launch Tender): the round appears here with its status, and its report once settled." />
         ) : (
           <Table>
             <THead>
@@ -158,6 +159,14 @@ export function ResultsTab({ base }: { base: IssuerBase }) {
             </TBody>
           </Table>
         )}
+        {state.status === "ok" && endedDaoCreators(state.value, connected).length > 0 ? (
+          <section className="flex flex-col gap-2" aria-label="DAO budgets" data-dao-budgets>
+            <FieldLabel>After a DAO&apos;s Tender</FieldLabel>
+            {endedDaoCreators(state.value, connected).map((dao) => (
+              <DaoWithdrawal key={dao} base={base} dao={dao} />
+            ))}
+          </section>
+        ) : null}
       </CardBody>
     </Card>
   );

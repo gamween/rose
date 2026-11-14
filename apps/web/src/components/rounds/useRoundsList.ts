@@ -86,6 +86,8 @@ export function useRoundsList(filter: RoundsFilterState): {
   state: QueryState<RoundsListData>;
   retry: () => void;
   refreshing: boolean;
+  /** The rounds on screen answer the previous filter; the current one is still loading. */
+  stale: boolean;
   loadMore: () => Promise<void>;
   loadingMore: boolean;
   extra: Round[];
@@ -96,7 +98,7 @@ export function useRoundsList(filter: RoundsFilterState): {
   const roundFilter = useMemo(() => toRoundFilter(filter), [filter]);
   const [refreshKey, setRefreshKey] = useState(0);
   const fetcher = useCallback((signal: AbortSignal) => fetchFirstPage(roundFilter, signal), [roundFilter]);
-  const { state, retry, refreshing } = useLiveQuery(fetcher, refreshKey);
+  const { state, retry, refreshing, stale } = useLiveQuery(fetcher, refreshKey, { replaceOnNewQuery: true });
 
   const filterKey = JSON.stringify(roundFilter);
   const [extraState, setExtraState] = useState<{ key: string; rounds: Round[]; books: Map<string, BookSummary>; next: bigint | null }>({ key: filterKey, rounds: [], books: new Map(), next: null });
@@ -133,5 +135,5 @@ export function useRoundsList(filter: RoundsFilterState): {
     }
   }, [extra.length, extraNext, filterKey, roundFilter, state]);
 
-  return { state, retry, refreshing, loadMore, loadingMore, extra, extraBooks, extraNext, loadMoreError };
+  return { state, retry, refreshing, stale, loadMore, loadingMore, extra, extraBooks, extraNext, loadMoreError };
 }

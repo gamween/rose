@@ -23,11 +23,15 @@ import { formatQty, formatUsdc, OPENING_COST_NEAR, shortAccount } from "./model"
 import { Notice } from "./shared";
 import type { RoundDetail } from "./useRoundDetail";
 
+/** The engine's refusal of a second opening ("Bid already opened", whichever the side). */
+const ALREADY_OPENED = /already opened/i;
+
 type Step =
   | { status: "queued" }
   | { status: "decrypting" }
   | { status: "sending"; quantity: bigint; price: bigint }
-  | { status: "opened"; quantity: bigint; price: bigint; hash: string }
+  /** `hash` is null when another browser opened the order first (the engine refuses a second opening). */
+  | { status: "opened"; quantity: bigint; price: bigint; hash: string | null }
   | { status: "unopenable"; reason: string }
   | { status: "failed"; reason: string; retryable: boolean };
 
@@ -47,7 +51,8 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
     latestBids.current = bids;
   }, [bids]);
 
-  const sealed = useMemo(() => bids.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex), [bids]);
+  /* An order this browser just opened stays out of the list of sealed ones until the next read shows it opened. */
+  const sealed = useMemo(() => bids.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex && steps.get(bid.bidId)?.status !== "opened"), [bids, steps]);
   const key = round.key;
 
   useEffect(() => {
@@ -66,6 +71,10 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
   }, [config.ckd_public_key, engine.account, key, round.roundId]);
 
   const setStep = useCallback((bidId: number, step: Step) => setSteps((current) => new Map(current).set(bidId, step)), []);
+  const latestSteps = useRef(steps);
+  useEffect(() => {
+    latestSteps.current = steps;
+  }, [steps]);
 
   /** Set synchronously: two clicks in the same frame both see `running === false`, and must not open every order twice. */
   const runningRef = useRef(false);
@@ -76,8 +85,13 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
     stopRef.current = false;
     setPausing(false);
     setRunning(true);
-    const queue = latestBids.current.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex);
-    setSteps(new Map(queue.map((bid) => [bid.bidId, { status: "queued" as const }])));
+    const done = latestSteps.current;
+    const queue = latestBids.current.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex && done.get(bid.bidId)?.status !== "opened");
+    setSteps((current) => {
+      const next = new Map(current);
+      for (const bid of queue) next.set(bid.bidId, { status: "queued" });
+      return next;
+    });
     let opened = 0;
     for (const bid of queue) {
       if (stopRef.current) break;
@@ -105,6 +119,10 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
         opened += 1;
       } catch (error) {
         const described = toActionError(error);
+        if (ALREADY_OPENED.test(described.message)) {
+          setStep(bid.bidId, { status: "opened", quantity, price, hash: null });
+          continue;
+        }
         setStep(bid.bidId, { status: "failed", reason: described.message, retryable: described.retryable || described.kind === "contract" });
         if (described.kind === "rejected" || described.kind === "no_wallet" || described.kind === "insufficient_balance") {
           toast.show({ tone: "error", title: described.title, description: described.message });
@@ -118,6 +136,8 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
     onChanged();
     if (opened > 0) toast.show({ tone: "success", title: `${String(opened)} ${opened === 1 ? "order" : "orders"} opened on chain`, description: "The book is public; the Verify panel can recompute the result once the window ends." });
   }, [config.ckd_public_key, engine, key, onChanged, round.roundId, running, sendNearCall, setStep, toast]);
+
+  const unfinished = [...steps.values()].some((step) => step.status === "queued" || step.status === "failed");
 
   if (!key || (round.status !== "Revealing" && round.status !== "Clearing")) return null;
 
@@ -153,11 +173,11 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
           <Button className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
             Connect a NEAR wallet to open every order
           </Button>
-        ) : (
+        ) : remaining > 0 || running ? (
           <Button className="w-full" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
-            {steps.size > 0 ? "Resume" : "Open every order"}
+            {unfinished ? "Resume" : "Open every order"}
           </Button>
-        )}
+        ) : null}
       </div>
       <div className="pt-3">
         <div className="mb-3 h-1.5 w-full overflow-hidden rounded-sm bg-ink-800" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Orders opened">
@@ -206,7 +226,7 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
                     {step.status === "unopenable" || step.status === "failed" ? <p className="mt-0.5 text-[11px] text-danger-400">{step.reason}</p> : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {step.status === "opened" ? (
+                    {step.status === "opened" && step.hash !== null ? (
                       <a href={txLinks("near", step.hash)[0]?.href} target="_blank" rel="noreferrer" className="text-[11px] text-ember-300 underline-offset-2 hover:underline font-medium">
                         tx ↗
                       </a>
@@ -221,7 +241,7 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
                         step.status === "queued" && "text-ink-400",
                       )}
                     >
-                      {step.status === "sending" ? "sending" : step.status}
+                      {step.status === "opened" && step.hash === null ? "already opened" : step.status}
                     </span>
                   </div>
                 </li>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -10,10 +10,14 @@ import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { deployed } from "@/lib/deployment";
 import { nearAccountUrl } from "@/lib/explorer";
+import { loadAttempted } from "./attempted";
 import { BaseDeposit } from "./BaseDeposit";
 import { RefusedDeposits } from "./RefusedDeposits";
 import { ChainPicker, type DepositChain } from "./shared";
 import { SolanaDeposit } from "./SolanaDeposit";
+
+/** How long a deposit this browser started keeps reopening its chain. */
+const RESUME_WINDOW_MS = 24 * 3600 * 1000;
 
 /** `/app/deposit`: one centered column (swap-card style): from which chain, to which NEAR account, then the eligible streams and the deposit flow with live proof progress (spec 8.3). */
 export function DepositWizard() {
@@ -22,6 +26,21 @@ export function DepositWizard() {
   const openConnect = useConnectModal();
   const engine = deployed("engineAccount");
   const nearAccount = wallets.near.accountId;
+  /*
+   * A deposit this browser started in the last day for this account reopens on its chain, so a
+   * reload during the finality wait lands on its "Waiting for registration" card instead of the
+   * chain picker.
+   */
+  useEffect(() => {
+    if (chain !== null || !nearAccount) return;
+    const timer = window.setTimeout(() => {
+      const recent = loadAttempted()
+        .filter((attempt) => attempt.nearAccount === nearAccount && attempt.cash === undefined && Date.now() - attempt.attemptedAt < RESUME_WINDOW_MS)
+        .sort((a, b) => b.attemptedAt - a.attemptedAt)[0];
+      if (recent) setChain(recent.chain);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [chain, nearAccount]);
   const notDeployed: Record<DepositChain, string | null> = {
     base: !engine ? "The engine is not deployed yet." : !deployed("roseVault") ? "RoseVault is not deployed yet." : null,
     solana: !engine ? "The engine is not deployed yet." : !deployed("solanaVault") ? "The engine's Solana vault is not derived yet." : null,

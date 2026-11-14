@@ -60,6 +60,15 @@ test.describe("app chrome", () => {
       await expect(page.getByRole("dialog", { name: "Get test funds" })).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(menu).toBeHidden();
+      // A press outside only dismisses the menu: the link under it is not followed.
+      await walletButton.click();
+      await expect(menu).toBeVisible();
+      const at = page.url();
+      await page.locator("main a[href^='/']").first().click();
+      await expect(menu).toBeHidden();
+      // A client navigation would land within this second; the URL must not change.
+      await page.waitForTimeout(1_000);
+      expect(page.url()).toBe(at);
     } else {
       await page.keyboard.press("Escape");
     }

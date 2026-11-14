@@ -65,7 +65,7 @@ Holders see the Tender in `/app/rounds` and place sealed asks. You see the numbe
 1. After `closes_at`, anyone can click "Close round" on `/app/rounds/[id]`. The engine requests the round key from the MPC network; you see the key release event when it arrives (typically a few seconds).
 2. Click "Open every order" in the round's action card. The app opens every ask (one transaction each) and, when the reveal window ends, calls `clear`. The supply curve animates into the clearing price.
 3. You see `P*`, the volume bought, the fills table, the fee and your refund.
-4. Click "Claim" to pull the refund of unspent budget to your cash balance. Each seller claims their proceeds.
+4. The refund of unspent budget is credited to your cash balance when the round clears; "Claim" in your portfolio pulls it to your wallet (a DAO files the withdrawal proposal from the Results tab). Sellers settle their asks from the round's action card ("Settle my order", or "Settle every order", which anyone can run) and claim their proceeds.
 
 ## 8. Report
 

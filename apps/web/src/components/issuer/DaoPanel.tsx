@@ -27,12 +27,20 @@ import { ActionFeedback, classSymbol, CopyButton, FieldLabel, formatNear, Hint, 
 /** Storage registration on the tUSDC NEP-141 (`storage_balance_bounds().min`, read live 2026-11-04). */
 const TUSDC_STORAGE_DEPOSIT = 1_250_000_000_000_000_000_000n;
 /** `add_proposal` stores the proposal; 100 Tgas is what the console and the near-cli command attach. */
-const ADD_PROPOSAL_GAS = 100n * 10n ** 12n;
+export const ADD_PROPOSAL_GAS = 100n * 10n ** 12n;
+
+/** A Sputnik `proposal_period` (ns) in days or hours. */
+function formatVotePeriod(ns: bigint): string {
+  const hours = Number(ns / 3_600_000_000_000n);
+  return hours >= 24 && hours % 24 === 0 ? `${String(hours / 24)} ${hours === 24 ? "day" : "days"}` : `${String(hours)} h`;
+}
 
 type DaoState = {
   account: string;
   venue: Venue;
   proposalBond: bigint;
+  /** How long a proposal stays open to votes (`get_policy().proposal_period`, ns). */
+  proposalPeriodNs: bigint;
   version: string | null;
   /** The DAO's engine cash in the Tender's venue. */
   cash: bigint;
@@ -42,7 +50,8 @@ type DaoState = {
   token: { balance: bigint; registered: boolean } | null;
 };
 
-function ProposalBlock({ name, proposal, cli, onFile, filing, disabled, testId }: { name: string; proposal: SputnikProposal; cli: string; onFile: () => void; filing: boolean; disabled: string | null; testId: string }) {
+/** One Sputnik proposal: its `add_proposal` JSON and near-cli command, and a button that files it from the connected wallet. */
+export function ProposalBlock({ name, proposal, cli, onFile, filing, disabled, testId }: { name: string; proposal: SputnikProposal; cli: string; onFile: () => void; filing: boolean; disabled: string | null; testId: string }) {
   const json = JSON.stringify(proposal, null, 2);
   return (
     <div className="flex flex-col gap-2" data-proposal={testId}>
@@ -103,14 +112,14 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
   const readDao = useCallback(async () => {
     setReadError(null);
     if (!isNearAccountId(account)) {
-      setReadError("Enter the DAO's NEAR account id (for example treasury.sputnik-v2.testnet).");
+      setReadError("Enter the DAO's NEAR account id (for example treasury.sputnikv2.testnet).");
       return;
     }
     setReading(true);
     try {
       const rpc = nearRpc();
       const [policy, version, cash, need, token] = await Promise.all([
-        rpc.viewFunction<{ proposal_bond: string }>(account, "get_policy", {}),
+        rpc.viewFunction<{ proposal_bond: string; proposal_period: string }>(account, "get_policy", {}),
         rpc
           .viewFunction<string>(account, "version", {})
           .then((result) => result.value)
@@ -122,7 +131,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
           : Promise.resolve(null),
       ]);
       const inVenue = cash.find((entry) => sameVenue(entry.venue, venue))?.amount ?? 0n;
-      setState({ account, venue, proposalBond: BigInt(policy.value.proposal_bond), version, cash: inVenue, storage: need, token });
+      setState({ account, venue, proposalBond: BigInt(policy.value.proposal_bond), proposalPeriodNs: BigInt(policy.value.proposal_period), version, cash: inVenue, storage: need, token });
       rememberDaoAccount(account);
     } catch (error) {
       setState(null);
@@ -169,7 +178,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
   const fundingProposal = shortfall && shortfall > 0n && venue === "Near" ? sputnikProposal(daoNearFundingCall(NEAR_TUSDC_ACCOUNT, base.engine.account, shortfall), `rose: move ${formatUsdc(shortfall)} tUSDC into the DAO's engine cash for a Tender (ft_transfer_call)`) : null;
   const tenderProposal = ready ? sputnikProposal(ready.call, description) : null;
   const bond = current?.proposalBond ?? 10n ** 24n;
-  const cliFor = (proposal: SputnikProposal) => sputnikCliCommand(account || "<dao>.sputnik-v2.testnet", proposal, bond, signer ?? "<your-account>.testnet");
+  const cliFor = (proposal: SputnikProposal) => sputnikCliCommand(account || "<dao>.sputnikv2.testnet", proposal, bond, signer ?? "<your-account>.testnet");
   const fileDisabled = !signer ? "Connect a NEAR wallet: it files the proposal and pays the bond." : !current ? "Read the DAO first: the bond comes from its policy." : null;
   const classInfo = ready ? base.classes.find((item) => item.classId === ready.args.classId) : undefined;
   const trezu = ready && classInfo ? JSON.stringify(trezuTemplate({ id: trezuSlug(classInfo.classId, `tender-${classSymbol(classInfo, base.symbols)}`), title: `rose Tender · ${classSymbol(classInfo, base.symbols)}`, engine: base.engine.account, call: ready.call, tender: ready.args, classLabel: classSymbol(classInfo, base.symbols), venueLabel: venueText }), null, 2) : null;
@@ -185,14 +194,14 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
         <section className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="dao-account">1 · DAO account</FieldLabel>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input id="dao-account" value={dao} onChange={(event) => setDao(event.target.value)} placeholder="treasury.sputnik-v2.testnet" />
+            <Input id="dao-account" value={dao} onChange={(event) => setDao(event.target.value)} placeholder="treasury.sputnikv2.testnet" />
             <Button variant="secondary" onClick={() => void readDao()} disabled={!account || reading} loading={reading} loadingLabel="Reading" data-read-policy>
               Read the DAO
             </Button>
           </div>
           {current ? (
             <Hint>
-              Proposal bond {formatNear(current.proposalBond)} NEAR (attached exactly, refunded on approval){current.version ? ` · contract version ${current.version}` : ""}.
+              Proposal bond {formatNear(current.proposalBond)} NEAR (attached exactly, refunded on approval) · votes stay open {formatVotePeriod(current.proposalPeriodNs)}: the Tender must close after its execution{current.version ? ` · contract version ${current.version}` : ""}.
             </Hint>
           ) : readError ? (
             <Hint tone="danger">{readError}</Hint>

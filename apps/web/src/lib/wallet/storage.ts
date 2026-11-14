@@ -6,6 +6,8 @@
 
 export const DEMO_STORAGE_KEYS = {
   near: "rose.demo.near",
+  /** The demo account id last seen on chain (see `rememberNearDemoOnChain`). */
+  nearOnChain: "rose.demo.near.onchain",
   evm: "rose.demo.evm",
   solana: "rose.demo.solana",
   preferredNear: "rose.wallet.near.preferred",
