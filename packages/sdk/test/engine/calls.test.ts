@@ -12,7 +12,6 @@ import {
   PAYOUT_STORAGE_DEPOSIT,
   RECORD_STORAGE_DEPOSIT,
   ROUND_STORAGE_DEPOSIT,
-  sideIndex,
   TGAS,
   type FunctionCall,
 } from "../../src/engine/calls.js";
@@ -115,10 +114,5 @@ describe("engine change-call builders", () => {
       deposit: ONE_YOCTO,
     });
     expect(mintTestUsdcCall("tusdc.rose-app.testnet", 1_000_000n, 1_250_000_000_000_000_000_000n)).toMatchObject({ methodName: "mint", args: { amount: "1000000" } });
-  });
-
-  it("maps sides to the associated-data byte of the engine", () => {
-    expect(sideIndex("Buy")).toBe(0);
-    expect(sideIndex("Sell")).toBe(1);
   });
 });

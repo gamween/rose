@@ -3,7 +3,7 @@ import { Keypair, Message, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { must } from "./must.js";
 import { stubConnection } from "./rpc.js";
-import { solanaAddressUrl, solanaTxUrl, STREAMFLOW_DEVNET_PROGRAM, STREAMFLOW_TREASURY } from "../../src/chains/solana/client.js";
+import { solanaAddressUrl, solanaTxUrl, STREAMFLOW_DEVNET_PROGRAM } from "../../src/chains/solana/client.js";
 import {
   associatedTokenAddress,
   buildTransferRecipientTransaction,
@@ -38,7 +38,7 @@ describe("decodeStreamflowMetadata", () => {
     expect(metadata.sender.toBase58()).toBe("6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n");
     expect(metadata.recipient.toBase58()).toBe("2uhcVxvU947Yvp8rq1WChqqvkxrTeNZFR58MsS1t2d3w");
     expect(metadata.mint.toBase58()).toBe("3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w");
-    expect(metadata.streamflowTreasury.equals(STREAMFLOW_TREASURY)).toBe(true);
+    expect(metadata.streamflowTreasury.toBase58()).toBe("5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw");
     expect(metadata.startTime).toBe(1793754629n);
     expect(metadata.cliff).toBe(1793755229n);
     expect(metadata.netAmountDeposited).toBe(1234567890n);
@@ -197,6 +197,6 @@ describe("devnet reads", () => {
 
   it("builds explorer links on the devnet cluster", () => {
     expect(solanaTxUrl("sig")).toBe("https://explorer.solana.com/tx/sig?cluster=devnet");
-    expect(solanaAddressUrl(STREAMFLOW_TREASURY)).toBe("https://explorer.solana.com/address/5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw?cluster=devnet");
+    expect(solanaAddressUrl(new PublicKey("5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw"))).toBe("https://explorer.solana.com/address/5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw?cluster=devnet");
   });
 });

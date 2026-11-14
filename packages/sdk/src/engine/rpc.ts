@@ -170,11 +170,6 @@ function bucketOf(endpoint: string): TokenBucket | null {
   return bucket;
 }
 
-/** Waits for a request token of `endpoint` (immediate for endpoints without a measured limit), for callers that fetch the RPC themselves. */
-export async function takeRpcBudget(endpoint: string): Promise<void> {
-  await bucketOf(endpoint)?.take();
-}
-
 /** The endpoints in failover order, starting with the first one that has budget left now. */
 export function endpointOrder(endpoints: readonly string[], waitMs: (endpoint: string) => number = (endpoint) => bucketOf(endpoint)?.waitMs() ?? 0): string[] {
   const ready = endpoints.find((endpoint) => waitMs(endpoint) === 0);

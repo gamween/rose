@@ -125,11 +125,6 @@ export function roseEvents(logs: readonly string[]): RoseEventView[] {
   return decodeEventLogs(logs).flatMap((decoded) => (decoded.standard === ROSE_EVENT_STANDARD ? [decoded.event as RoseEventView] : []));
 }
 
-/** The NEP-245 events among `logs`. */
-export function nep245Events(logs: readonly string[]): Nep245Event[] {
-  return decodeEventLogs(logs).flatMap((decoded) => (decoded.standard === NEP245_STANDARD ? [decoded.event as Nep245Event] : []));
-}
-
 /** Formats the raw integer amounts of an event; the defaults print them as stored on chain. */
 export interface EventAmountFormat {
   /** Cash amounts and prices (USDC, 6 decimals in every venue rose accepts). */
