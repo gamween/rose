@@ -103,7 +103,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
   const readDao = useCallback(async () => {
     setReadError(null);
     if (!isNearAccountId(account)) {
-      setReadError("Enter the DAO's NEAR account id (for example treasury.sputnik-v2.testnet).");
+      setReadError("Enter the DAO's NEAR account id (for example treasury.sputnikv2.testnet).");
       return;
     }
     setReading(true);
@@ -169,7 +169,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
   const fundingProposal = shortfall && shortfall > 0n && venue === "Near" ? sputnikProposal(daoNearFundingCall(NEAR_TUSDC_ACCOUNT, base.engine.account, shortfall), `rose: move ${formatUsdc(shortfall)} tUSDC into the DAO's engine cash for a Tender (ft_transfer_call)`) : null;
   const tenderProposal = ready ? sputnikProposal(ready.call, description) : null;
   const bond = current?.proposalBond ?? 10n ** 24n;
-  const cliFor = (proposal: SputnikProposal) => sputnikCliCommand(account || "<dao>.sputnik-v2.testnet", proposal, bond, signer ?? "<your-account>.testnet");
+  const cliFor = (proposal: SputnikProposal) => sputnikCliCommand(account || "<dao>.sputnikv2.testnet", proposal, bond, signer ?? "<your-account>.testnet");
   const fileDisabled = !signer ? "Connect a NEAR wallet: it files the proposal and pays the bond." : !current ? "Read the DAO first: the bond comes from its policy." : null;
   const classInfo = ready ? base.classes.find((item) => item.classId === ready.args.classId) : undefined;
   const trezu = ready && classInfo ? JSON.stringify(trezuTemplate({ id: trezuSlug(classInfo.classId, `tender-${classSymbol(classInfo, base.symbols)}`), title: `rose Tender · ${classSymbol(classInfo, base.symbols)}`, engine: base.engine.account, call: ready.call, tender: ready.args, classLabel: classSymbol(classInfo, base.symbols), venueLabel: venueText }), null, 2) : null;
@@ -185,7 +185,7 @@ export function DaoPanel({ base, venue, ready, escrow, className }: { base: Issu
         <section className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="dao-account">1 · DAO account</FieldLabel>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input id="dao-account" value={dao} onChange={(event) => setDao(event.target.value)} placeholder="treasury.sputnik-v2.testnet" />
+            <Input id="dao-account" value={dao} onChange={(event) => setDao(event.target.value)} placeholder="treasury.sputnikv2.testnet" />
             <Button variant="secondary" onClick={() => void readDao()} disabled={!account || reading} loading={reading} loadingLabel="Reading" data-read-policy>
               Read the DAO
             </Button>
