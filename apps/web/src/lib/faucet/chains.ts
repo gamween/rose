@@ -21,7 +21,11 @@ export const DEFAULT_SOLANA_DEMO_TOKENS = 1_000n;
 const SOLANA_DEMO_TOKEN_LAMPORTS = 2_100_000n;
 /** What the NEAR testnet helper funds a new account with (measured 2026-11-04). */
 export const NEAR_HELPER_FUNDING = "10 NEAR";
-/** FastNEAR, the RPC the app reads from; `rpc.testnet.near.org` answers -429 "deprecated" under load (2026-11-04). */
+/**
+ * FastNEAR, the RPC the app reads from. `rpc.testnet.near.org` is deprecated: it answered error
+ * -429 "THIS ENDPOINT IS DEPRECATED" under load (measured 2026-11-04 and 2026-11-14), though a
+ * later check on 2026-11-14 got HTTP 200.
+ */
 export const DEFAULT_NEAR_RPC_URL = "https://test.rpc.fastnear.com";
 /**
  * 1 NEAR when the funder account creates the account: storage deposits of every demo flow plus

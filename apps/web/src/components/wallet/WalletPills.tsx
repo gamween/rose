@@ -129,7 +129,11 @@ export function WalletPills({ className }: { className?: string }) {
   const connected = connectedWallets({ near: wallets.near.accountId, base: wallets.evm.address, solana: wallets.solana.publicKey });
   const primary = connected[0];
 
-  /* The menu closes on Escape (focus back on its button) and on any press outside it. */
+  /*
+   * The menu closes on Escape (focus back on its button) and on any press outside it. That press
+   * only dismisses: the click it ends in is swallowed, so dismissing over a round card does not
+   * also open the round.
+   */
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (event: KeyboardEvent) => {
@@ -138,7 +142,15 @@ export function WalletPills({ className }: { className?: string }) {
       buttonRef.current?.focus();
     };
     const onPointer = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false);
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setMenuOpen(false);
+      const swallow = (click: MouseEvent) => {
+        click.preventDefault();
+        click.stopPropagation();
+      };
+      document.addEventListener("click", swallow, { capture: true, once: true });
+      /* A press that ends without a click (a drag, a scroll) must not eat the next real click. */
+      document.addEventListener("pointerup", () => window.setTimeout(() => document.removeEventListener("click", swallow, { capture: true }), 0), { once: true });
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointer);
@@ -368,7 +380,7 @@ function WalletDrawer({ open, onClose, onConnect }: { open: boolean; onClose: ()
             { label: "NEAR", value: <Amount value={wallets.balances.nearYocto} decimals={24} unit="NEAR" /> },
             { label: "tUSDC", value: <Amount value={wallets.balances.nearTusdc} decimals={6} unit="tUSDC" /> },
           ]}
-          note={wallets.near.kind === "demo" && !wallets.near.demoAccountExists ? "Account not created on testnet yet: open Get test funds." : null}
+          note={wallets.near.kind === "demo" && wallets.near.demoAccount === "missing" ? "Account not created on testnet yet: open Get test funds." : null}
           onConnect={connect("near")}
           onDisconnect={() => void guard(wallets.disconnectNear, "NEAR wallet disconnected")}
           onExport={wallets.near.demo ? () => downloadText(`${wallets.near.demo?.accountId ?? "rose-demo"}.json`, exportNearDemoWallet(wallets.near.demo as NonNullable<typeof wallets.near.demo>)) : null}

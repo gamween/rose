@@ -2,13 +2,15 @@
 
 /**
  * Fills after clearing (spec 8.3): one row per order with its opened values, fill, cash and
- * settlement state, plus the issuer line of a Tender. "Settle" is per order and open to anyone.
+ * settlement state, plus the issuer line of a Tender. "Settle" is per order and open to anyone;
+ * the action card's Settle runs every pending order in sequence.
  */
 
 import type { BidOutcome, Round } from "@rose/sdk";
 import { CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { useWallets } from "@/components/wallet/WalletProvider";
 import { nearAccountUrl } from "@/lib/explorer";
 import { useNearAction } from "./actions";
 import { cancelledOutcome, clearingOf, formatQty, formatUsdc, shortAccount } from "./model";
@@ -27,6 +29,7 @@ function orderBy(round: Round, fills: readonly BidOutcome[]): BidOutcome[] {
 
 export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
   const { round, cls, engine, viewer } = detail;
+  const { near } = useWallets();
   const { run, status } = useNearAction();
   if (!round.result) return null;
   const result = round.result;
@@ -37,14 +40,6 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
   const settleOne = async (bidId: number) => {
     const r = await run({ label: `Settling order #${String(bidId)}`, call: engine.calls.settleBid(round.roundId, bidId), success: `Order #${String(bidId)} settled`, receipt: { engine: engine.account, roundId: round.roundId, kind: "settle", label: `settle_bid #${String(bidId)}` } });
     if (r.ok) onChanged();
-  };
-
-  const settleAll = async () => {
-    for (const fill of pending) {
-      const r = await run({ label: `Settling order #${String(fill.bidId)} (${String(pending.indexOf(fill) + 1)}/${String(pending.length)})`, call: engine.calls.settleBid(round.roundId, fill.bidId), success: `Order #${String(fill.bidId)} settled`, receipt: { engine: engine.account, roundId: round.roundId, kind: "settle", label: `settle_bid #${String(fill.bidId)}` } });
-      if (!r.ok) break;
-    }
-    onChanged();
   };
 
   return (
@@ -64,9 +59,9 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
           )}
         </div>
         {pending.length > 0 ? (
-          <Button size="sm" variant="secondary" onClick={() => void settleAll()} loading={status.status === "busy"} loadingLabel="Signing…" disabled={!viewer} data-settle-all>
-            Settle all · {String(pending.length)}
-          </Button>
+          <span className="text-[11px] font-medium text-ink-300" data-fills-pending>
+            {String(pending.length)} to settle
+          </span>
         ) : (
           <span className="text-[11px] text-success-400 font-medium">all settled</span>
         )}
@@ -126,7 +121,7 @@ export function FillsTable({ detail, onChanged }: { detail: RoundDetail; onChang
                   {fill.settled ? (
                     <span className="text-[11px] text-success-400 font-medium">settled</span>
                   ) : (
-                    <Button size="sm" variant="ghost" onClick={() => void settleOne(fill.bidId)} disabled={!viewer || status.status === "busy"} data-settle={fill.bidId}>
+                    <Button size="sm" variant="ghost" onClick={() => void settleOne(fill.bidId)} disabled={near.status !== "connected" || status.status === "busy"} data-settle={fill.bidId}>
                       Settle
                     </Button>
                   )}

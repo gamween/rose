@@ -60,7 +60,7 @@ let holderFlag = null;
 let flowCase = "main";
 for (let i = 0; i < rest.length; i += 2) {
   if (rest[i] === "--holder") holderFlag = rest[i + 1];
-  else if (rest[i] === "--case") flowCase = rest[i + 1];
+  else if (rest[i] === "--case") flowCase = rest[i + 1] ?? "";
   else throw new Error(`unknown argument ${rest[i]}`);
 }
 if (flowCase !== "main" && flowCase !== "ended") throw new Error(`--case must be main or ended, not ${flowCase}`);
@@ -163,6 +163,14 @@ const vault = new PublicKey(derived.vault_sol);
 const gasPayer = new PublicKey(derived.gas_sol);
 const client = new SolanaStreamClient(RPC, ICluster.Devnet, "confirmed");
 
+/**
+ * The Streamflow SDK bundles its own @solana/web3.js copy (1.98.4 beside the pinned 1.99.0): the
+ * same Keypair at run time, a distinct declaration for the type checker.
+ * @param {Keypair} keypair
+ * @returns {Parameters<SolanaStreamClient["create"]>[1]["sender"]}
+ */
+const streamflowSigner = (keypair) => /** @type {Parameters<SolanaStreamClient["create"]>[1]["sender"]} */ (/** @type {unknown} */ (keypair));
+
 const schedule = () => state.steps.setup.schedule;
 // Token amounts of `compute_sol_class_id` are U64 JSON strings; timestamps and the period stay numbers.
 const classArgs = () => {
@@ -241,7 +249,7 @@ async function stepSetup() {
       name: "rose staging", cancelableBySender: false, cancelableByRecipient: false, transferableBySender: false,
       transferableByRecipient: true, canTopup: false, automaticWithdrawal: false, canPause: false, canUpdateRate: false,
     };
-    const res = await client.create(params, { sender: ops, isNative: false });
+    const res = await client.create(params, { sender: streamflowSigner(ops), isNative: false });
     metadataId = res.metadataId;
     txId = res.txId;
     state.steps.setup = { ...state.steps.setup, metadata: metadataId, create_tx: txId, create_link: explorer(txId) };
@@ -264,7 +272,7 @@ async function stepTransfer() {
   const path = `dep/${nearHolder}/${classId}`;
   const key = await nearView(MPC, "derived_public_key", { path, predecessor: engine, domain_id: config.sign_ed25519_domain });
   const depositAddress = key.replace("ed25519:", "");
-  const res = await client.transfer({ id: state.steps.setup.metadata, newRecipient: depositAddress }, { invoker: holder });
+  const res = await client.transfer({ id: state.steps.setup.metadata, newRecipient: depositAddress }, { invoker: streamflowSigner(holder) });
   await waitFinalized(res.txId);
   state.steps.transfer = { class_id: classId, path, deposit_address: depositAddress, solana_tx: res.txId, solana_link: explorer(res.txId) };
   save();
@@ -326,6 +334,7 @@ async function stepRegister() {
  */
 async function payoutProof(owner, anchor) {
   const nonceInfo = await conn.getAccountInfo(new PublicKey(state.steps.claim.nonce_account), "finalized");
+  if (!nonceInfo) throw new Error(`nonce account ${state.steps.claim.nonce_account} does not exist at finalized`);
   const receipt = await accountHex(state.steps.claim.receipt_account);
   const recipientTokens = getAssociatedTokenAddressSync(new PublicKey(state.steps.setup.mint), owner);
   const tokens = await accountHex(recipientTokens.toBase58());

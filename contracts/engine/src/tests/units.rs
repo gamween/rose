@@ -394,3 +394,96 @@ fn transfer_call_refunds_the_unused_amount() {
             .detach()
     });
 }
+
+#[test]
+fn batch_transfer_call_moves_several_classes_and_refunds_each_unused_amount() {
+    let mut contract = init();
+    let first = stepped_class(&mut contract, 6);
+    let second = stepped_class(&mut contract, 2);
+    let (alice, receiver) = (accounts(1), accounts(2));
+    // Two holding rows each: the minimum deposit pays one, the top-up the other.
+    for account in [&alice, &receiver] {
+        register(&mut contract, account, ts(1_000));
+        env(account, NearToken::from_millinear(10), ts(1_000));
+        contract.storage_deposit(None, None);
+    }
+    mint(&mut contract, &first, &alice, 1_000_000, ts(1_000));
+    mint(&mut contract, &second, &alice, 1_000, ts(1_000));
+    let classes = vec![first.clone(), second.clone()];
+
+    env(&alice, one_yocto(), ts(3_000));
+    panics_with("Approvals are not supported", || {
+        contract
+            .mt_batch_transfer_call(
+                receiver.clone(),
+                classes.clone(),
+                vec![U128(1), U128(1)],
+                Some(vec![None, Some((receiver.clone(), 1))]),
+                None,
+                String::new(),
+            )
+            .detach()
+    });
+    env(&alice, one_yocto(), ts(3_000));
+    panics_with("same non-zero length", || {
+        contract
+            .mt_batch_transfer_call(
+                receiver.clone(),
+                classes.clone(),
+                vec![U128(1)],
+                None,
+                None,
+                String::new(),
+            )
+            .detach()
+    });
+    env(&alice, one_yocto(), ts(3_000));
+    panics_with("same non-zero length", || {
+        contract
+            .mt_batch_transfer_call(receiver.clone(), vec![], vec![], None, None, String::new())
+            .detach()
+    });
+
+    env(&alice, one_yocto(), ts(3_000));
+    let result = contract.mt_batch_transfer_call(
+        receiver.clone(),
+        classes.clone(),
+        vec![U128(500_000), U128(400)],
+        Some(vec![None, None]),
+        None,
+        "msg".into(),
+    );
+    assert!(matches!(result, near_sdk::PromiseOrValue::Promise(_)));
+    result.detach();
+    let call = last_call_args("mt_on_transfer");
+    assert_eq!(call["sender_id"], json!(alice));
+    assert_eq!(call["previous_owner_ids"], json!([alice, alice]));
+    assert_eq!(call["token_ids"], json!(classes));
+    assert_eq!(call["amounts"], json!(["500000", "400"]));
+    assert_eq!(call["msg"], "msg");
+    assert_eq!(
+        contract.mt_batch_balance_of(receiver.clone(), classes.clone()),
+        vec![U128(500_000), U128(400)]
+    );
+
+    env_with_result(
+        ts(5_000),
+        PromiseResult::Successful(serde_json::to_vec(&vec![U128(200_000), U128(0)]).unwrap()),
+    );
+    let used = contract.mt_resolve_transfer(
+        vec![alice.clone(), alice.clone()],
+        receiver.clone(),
+        classes.clone(),
+        vec![U128(500_000), U128(400)],
+        None,
+    );
+    assert_eq!(used, vec![U128(300_000), U128(400)]);
+    assert_eq!(
+        contract.mt_batch_balance_of(alice.clone(), classes.clone()),
+        vec![U128(700_000), U128(600)]
+    );
+    assert_eq!(
+        contract.mt_batch_balance_of(receiver, classes),
+        vec![U128(300_000), U128(400)]
+    );
+}

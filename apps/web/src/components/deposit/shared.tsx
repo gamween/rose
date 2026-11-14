@@ -67,11 +67,11 @@ export function WalletPrompt({ chain, onConnect, children }: { chain: ChainId; o
   );
 }
 
-export function VerdictBadge({ verdict }: { verdict: Verdict }) {
+function VerdictBadge({ verdict }: { verdict: Verdict }) {
   return verdict.eligible ? <Badge tone="success">Eligible</Badge> : <Badge tone="danger">Not eligible</Badge>;
 }
 
-export function Reasons({ reasons }: { reasons: string[] }) {
+function Reasons({ reasons }: { reasons: string[] }) {
   if (reasons.length === 0) return null;
   return (
     <ul className="flex list-disc flex-col gap-0.5 pl-4 text-[12px] text-danger-400" aria-label="Why the stream is not eligible">
@@ -83,7 +83,7 @@ export function Reasons({ reasons }: { reasons: string[] }) {
 }
 
 /** "Joins class …" or "Creates a new class": the class id is deterministic from the schedule. */
-export function ClassNote({ classId, classExists }: { classId: string | null; classExists: boolean | null }) {
+function ClassNote({ classId, classExists }: { classId: string | null; classExists: boolean | null }) {
   if (!classId) return null;
   return (
     <p className="text-[12px] text-ink-300">

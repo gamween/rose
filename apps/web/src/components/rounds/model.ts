@@ -5,7 +5,7 @@
  * unit-tested; nothing touches the network.
  */
 
-import { charge, fee, ONE, perClaimedToken, type ClassInfo, type Pricing, type Round, type RoundKind, type RoundResult, type RoundStatus, type Venue } from "@rose/sdk";
+import { charge, fee, ONE, perClaimedToken, type Bid, type ClassInfo, type Pricing, type Round, type RoundKind, type RoundResult, type RoundStatus, type Venue } from "@rose/sdk";
 import { NEAR_TUSDC_ACCOUNT } from "@/lib/deployment";
 import { formatCash, formatUnits } from "@/lib/format";
 import { deployedCashSymbol } from "@/lib/token-symbols";
@@ -229,13 +229,19 @@ export type NextAction =
   | { kind: "settle"; pending: number }
   | { kind: "done" };
 
+/**
+ * How long after `close` the MPC key counts as late (it normally arrives in about 5 s): past this
+ * the header says so, and the next-step card offers a new key request while `close` takes one.
+ */
+export const KEY_LATE_AFTER_MS = 30_000;
+
 export const NEXT_ACTION_LABEL: Record<NextAction["kind"], string> = {
   wait_open: "Opens soon",
   bid: "Place an order",
   close: "Close round",
   waiting_key: "Waiting for the MPC key",
   cancel_no_key: "Cancel (no key)",
-  finalize: "Finalize",
+  finalize: "Open every order",
   wait_reveal: "Reveal window",
   clear: "Clear",
   settle: "Settle",
@@ -290,6 +296,13 @@ export function nextAction(round: Round, nowMs: number): NextAction {
       return pending > 0 ? { kind: "settle", pending } : { kind: "done" };
     }
   }
+}
+
+/** The orders the Settle action runs: the viewer's own unsettled orders, or every unsettled order when they have none. */
+export function settleQueue(bids: readonly Bid[], viewer: string | null): { scope: "mine" | "all"; queue: Bid[] } {
+  const pending = bids.filter((bid) => bid.status !== "Settled");
+  const mine = viewer === null ? [] : pending.filter((bid) => bid.bidder === viewer);
+  return mine.length > 0 ? { scope: "mine", queue: mine } : { scope: "all", queue: pending };
 }
 
 /** Whether the creator can still withdraw the round (before any order and before the close). */

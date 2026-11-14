@@ -101,9 +101,9 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
   const disabledReason = useMemo(() => {
     if (!vaultSol) return "The engine's Solana vault is not deployed yet.";
     if (!nearAccount) return "Connect a NEAR wallet: the units are minted to it.";
-    if (wallets.near.kind === "demo" && !wallets.near.demoAccountExists) return "Create the NEAR demo account first (Get test funds).";
+    if (wallets.near.kind === "demo" && wallets.near.demoAccount === "missing") return "Create the NEAR demo account first (Get test funds).";
     return null;
-  }, [nearAccount, vaultSol, wallets.near.demoAccountExists, wallets.near.kind]);
+  }, [nearAccount, vaultSol, wallets.near.demoAccount, wallets.near.kind]);
 
   const startDeposit = (row: SolanaStreamRow) => {
     if (!owner || !nearAccount || !row.classId || !row.mint || !vaultSol) return;
@@ -342,7 +342,7 @@ export function SolanaDeposit({ nearAccount, onConnect }: { nearAccount: string 
       {selected && flow.steps.length > 0 ? (
         <Card data-deposit-flow>
           <CardHeader
-            title={`Depositing Streamflow stream ${shortHex(selected.metadataPubkey, 6, 6)}`}
+            title={`${flow.completed ? "Deposited" : "Depositing"} Streamflow stream ${shortHex(selected.metadataPubkey, 6, 6)}`}
             description={`Units are minted to ${nearAccount ?? "your NEAR account"}.`}
             action={
               flow.completed ? (

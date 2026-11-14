@@ -3,7 +3,7 @@ import { Keypair, Message, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { must } from "./must.js";
 import { stubConnection } from "./rpc.js";
-import { solanaAddressUrl, solanaTxUrl, STREAMFLOW_DEVNET_PROGRAM, STREAMFLOW_TREASURY } from "../../src/chains/solana/client.js";
+import { solanaAddressUrl, solanaTxUrl, STREAMFLOW_DEVNET_PROGRAM } from "../../src/chains/solana/client.js";
 import {
   associatedTokenAddress,
   buildTransferRecipientTransaction,
@@ -11,6 +11,7 @@ import {
   decodeStreamflowMetadata,
   listStreamflowStreamsForRecipient,
   readStreamflowStream,
+  solRedeemSafety,
   STREAMFLOW_TRANSFER_RECIPIENT_DISCRIMINATOR,
   transferRecipientInstruction,
 } from "../../src/chains/solana/streamflow.js";
@@ -37,7 +38,7 @@ describe("decodeStreamflowMetadata", () => {
     expect(metadata.sender.toBase58()).toBe("6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n");
     expect(metadata.recipient.toBase58()).toBe("2uhcVxvU947Yvp8rq1WChqqvkxrTeNZFR58MsS1t2d3w");
     expect(metadata.mint.toBase58()).toBe("3q81mxTA7rricmjJQaiZk9HbZzF2Pt8aN5SJaJcXvZ4w");
-    expect(metadata.streamflowTreasury.equals(STREAMFLOW_TREASURY)).toBe(true);
+    expect(metadata.streamflowTreasury.toBase58()).toBe("5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw");
     expect(metadata.startTime).toBe(1793754629n);
     expect(metadata.cliff).toBe(1793755229n);
     expect(metadata.netAmountDeposited).toBe(1234567890n);
@@ -89,6 +90,29 @@ describe("checkStreamflowEligibility", () => {
     expect(checkStreamflowEligibility(bad).reasons).toEqual(["automatic_withdrawal", "modified", "fees"]);
     expect(checkStreamflowEligibility(metadata, metadata.endTime - 3_600n).reasons).toEqual(["ends_too_soon"]);
     expect(checkStreamflowEligibility(metadata, metadata.endTime - 3_601n).reasons).toEqual([]);
+  });
+});
+
+describe("solRedeemSafety", () => {
+  const metadata = { ...decodeStreamflowMetadata(bytes), canTopup: false, amountWithdrawn: 500n };
+
+  it("accepts a stream the engine's accounting matches", () => {
+    expect(solRedeemSafety(metadata, 500n)).toEqual({ kind: "safe" });
+  });
+
+  it("asks for a sync first when the stream withdrew more than the engine booked", () => {
+    expect(solRedeemSafety(metadata, 200n)).toEqual({ kind: "sync_first", unbooked: 300n });
+  });
+
+  it("refuses a stream whose sender switched automatic withdrawal on, synced or not", () => {
+    const swept = { ...metadata, automaticWithdrawal: true };
+    expect(solRedeemSafety(swept, 200n)).toEqual({ kind: "automatic_withdrawal", unbooked: 300n });
+    expect(solRedeemSafety(swept, 500n)).toEqual({ kind: "automatic_withdrawal", unbooked: 0n });
+    expect(solRedeemSafety(swept, 900n)).toEqual({ kind: "automatic_withdrawal", unbooked: 0n });
+  });
+
+  it("calls a read behind the engine's proven accounting stale", () => {
+    expect(solRedeemSafety(metadata, 501n)).toEqual({ kind: "stale_read" });
   });
 });
 
@@ -173,6 +197,6 @@ describe("devnet reads", () => {
 
   it("builds explorer links on the devnet cluster", () => {
     expect(solanaTxUrl("sig")).toBe("https://explorer.solana.com/tx/sig?cluster=devnet");
-    expect(solanaAddressUrl(STREAMFLOW_TREASURY)).toBe("https://explorer.solana.com/address/5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw?cluster=devnet");
+    expect(solanaAddressUrl(new PublicKey("5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw"))).toBe("https://explorer.solana.com/address/5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw?cluster=devnet");
   });
 });

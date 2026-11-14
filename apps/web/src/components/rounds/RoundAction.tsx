@@ -5,20 +5,22 @@
  * now, with its one button. "Close round" after `closes_at`, the key request and its fallback
  * submission, "Open every order" while revealing (the opening progress), "Clear" after the window,
  * "Settle" afterwards, "Cancel (no key)" when the MPC never answered. While bidding is open the
- * order form is the action card and `RoundExtraActions` carries the creator's withdrawal and the
- * no-key cancellation.
+ * order form is the action card and `RoundExtraActions` carries the creator's withdrawal.
  */
 
 import { GAS, TGAS, type Round } from "@rose/sdk";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { LearnMore } from "@/components/chrome/LearnMore";
 import { ActionCard } from "@/components/ui/ActionCard";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Countdown } from "@/components/ui/Countdown";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
+import { txLinks } from "@/lib/explorer";
 import { ROUTES } from "@/lib/routes";
 import { useNearAction } from "./actions";
-import { canCancelAsCreator, canCancelNoKey, canClose, formatDateTime, msToNs, NEXT_ACTION_LABEL, nextAction, OPENING_COST_NEAR, type NextAction } from "./model";
+import { canCancelAsCreator, canCancelNoKey, canClose, formatDateTime, KEY_LATE_AFTER_MS, msToNs, NEXT_ACTION_LABEL, nextAction, OPENING_COST_NEAR, type NextAction } from "./model";
+import { SettlePanel } from "./SettlePanel";
 import { Notice } from "./shared";
 import { SubmitKeyPanel } from "./SubmitKeyPanel";
 import type { RoundDetail } from "./useRoundDetail";
@@ -55,49 +57,73 @@ function describe(action: NextAction, round: Round): { title: string; body: stri
   }
 }
 
+type Landed = { kind: NextAction["kind"]; title: string; hash: string };
+
 /**
- * The next step of a round past its bidding phase as the page's action card. `onSettle` shows
- * where orders settle (My orders or Results); `children` is the opening progress while revealing.
+ * The next step of a round past its bidding phase as the page's action card; `children` is the
+ * opening progress while revealing. A step that landed keeps its line and explorer link in the
+ * card, and its button stays away until the next read shows the round past that step (a second
+ * click would only send a transaction the engine refuses).
  */
-export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { detail: RoundDetail; nowMs: number; onChanged: () => void; onSettle: () => void; children?: ReactNode }) {
-  const { round, engine, viewer } = detail;
-  const { restoring } = useWallets();
+export function RoundAction({ detail, nowMs, onChanged, children }: { detail: RoundDetail; nowMs: number; onChanged: () => void; children?: ReactNode }) {
+  const { round, engine } = detail;
+  const { restoring, near } = useWallets();
+  const openConnect = useConnectModal();
   const action = nextAction(round, nowMs);
   const text = describe(action, round);
   const { run, status } = useNearAction();
   const busy = status.status === "busy";
-  const connected = viewer !== null;
+  /* The wallet, not the round's viewer read: that read lands a refetch after the wallet restores. */
+  const connected = near.status === "connected";
   const receipt = (kind: "close" | "clear" | "cancel", label: string) => ({ engine: engine.account, roundId: round.roundId, kind, label });
+  const [landed, setLanded] = useState<Landed | null>(null);
+  /** The step whose failure is on screen: an error never follows the card into the next step. */
+  const [failedKind, setFailedKind] = useState<NextAction["kind"] | null>(null);
+  /** Set synchronously: two clicks in the same frame must not send the step twice. */
+  const actingRef = useRef(false);
 
   const act = async () => {
+    if (actingRef.current) return;
     const id = round.roundId;
-    let result;
-    switch (action.kind) {
+    const kind = action.kind;
+    let options;
+    switch (kind) {
       case "close":
-        result = await run({
+        options = {
           label: `Closing round #${id.toString()}`,
           call: engine.calls.close(id),
           success: round.bidCount === 0 ? "Round closed without orders: it is cancelled" : "Round closed, key requested from the MPC",
           receipt: receipt("close", "close"),
-        });
+        };
         break;
       case "cancel_no_key":
-        result = await run({ label: `Cancelling round #${id.toString()} (no key)`, call: engine.calls.cancelNoKey(id), success: "Round cancelled: everything is refundable", receipt: receipt("cancel", "cancel_no_key") });
+        options = { label: `Cancelling round #${id.toString()} (no key)`, call: engine.calls.cancelNoKey(id), success: "Round cancelled: everything is refundable", receipt: receipt("cancel", "cancel_no_key") };
         break;
       case "clear":
-        result = await run({ label: `Clearing round #${id.toString()}`, call: engine.calls.clear(id), success: "Round cleared", receipt: receipt("clear", "clear") });
+        options = { label: `Clearing round #${id.toString()}`, call: engine.calls.clear(id), success: "Round cleared", receipt: receipt("clear", "clear") };
         break;
       case "waiting_key":
-        result = await run({ label: `Retrying the key request for #${id.toString()}`, call: engine.calls.close(id), success: "Key requested again", receipt: receipt("close", "close (retry)") });
+        options = { label: `Retrying the key request for #${id.toString()}`, call: engine.calls.close(id), success: "Key requested again", receipt: receipt("close", "close (retry)") };
         break;
       default:
         return;
     }
-    if (result.ok) onChanged();
+    actingRef.current = true;
+    const result = await run(options);
+    actingRef.current = false;
+    if (result.ok) {
+      setLanded({ kind, title: options.success, hash: result.hash });
+      setFailedKind(null);
+      onChanged();
+    } else {
+      setFailedKind(kind);
+    }
   };
+  /* The step this browser just sent is still the round's next step until the next read catches up. */
+  const pending = landed !== null && landed.kind === action.kind && action.kind !== "waiting_key";
 
   // `close` refuses a round with orders once its key timeout has passed: no retry is offered then.
-  const retryVisible = action.kind === "waiting_key" && nowMs - action.since > 30_000 && canClose(round, nowMs);
+  const retryVisible = action.kind === "waiting_key" && nowMs - action.since > KEY_LATE_AFTER_MS && canClose(round, nowMs);
   const needsWallet = action.kind === "close" || action.kind === "cancel_no_key" || action.kind === "clear" || action.kind === "finalize" || action.kind === "settle" || retryVisible;
 
   return (
@@ -120,18 +146,29 @@ export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { 
         </p>
       ) : null}
       <div className="mt-3 flex flex-col gap-2">
-        {action.kind === "close" || action.kind === "cancel_no_key" || action.kind === "clear" ? (
-          <Button size="lg" className="w-full" onClick={() => void act()} loading={busy} loadingLabel="Signing…" disabled={!connected} variant={action.kind === "cancel_no_key" ? "danger" : "primary"} data-action={action.kind}>
-            {NEXT_ACTION_LABEL[action.kind]}
-          </Button>
+        {landed ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-[12px] text-success-400" role="status" data-landed={landed.kind}>
+            {landed.title}
+            {pending ? <span className="text-ink-400">· updating the round…</span> : null}
+            <a href={txLinks("near", landed.hash)[0]?.href} target="_blank" rel="noreferrer" className="font-medium text-ember-300 underline-offset-2 hover:underline">
+              tx ↗
+            </a>
+          </p>
         ) : null}
-        {action.kind === "settle" ? (
-          <Button size="lg" className="w-full" onClick={onSettle} data-action="settle">
-            Settle · {String(action.pending)} left
-          </Button>
+        {pending ? null : action.kind === "close" || action.kind === "cancel_no_key" || action.kind === "clear" ? (
+          !connected && !restoring ? (
+            <Button size="lg" className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
+              Connect a NEAR wallet to {action.kind === "close" ? "close" : action.kind === "clear" ? "clear" : "cancel"} the round
+            </Button>
+          ) : (
+            <Button size="lg" className="w-full" onClick={() => void act()} loading={busy} loadingLabel="Signing…" disabled={!connected} variant={action.kind === "cancel_no_key" ? "danger" : "primary"} data-action={action.kind}>
+              {NEXT_ACTION_LABEL[action.kind]}
+            </Button>
+          )
         ) : null}
+        {action.kind === "settle" ? <SettlePanel detail={detail} onChanged={onChanged} /> : null}
         {action.kind === "done" ? (
-          <ButtonLink href={ROUTES.portfolio} size="lg" variant="secondary" className="w-full" data-action="portfolio">
+          <ButtonLink href={`${ROUTES.portfolio}#claims`} size="lg" variant="secondary" className="w-full" data-action="portfolio">
             Claim in the Portfolio
           </ButtonLink>
         ) : null}
@@ -141,8 +178,8 @@ export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { 
           </Button>
         ) : null}
         {canCancelNoKey(round, nowMs) && action.kind !== "cancel_no_key" ? <CancelNoKeyButton detail={detail} onChanged={onChanged} /> : null}
-        {!connected && needsWallet ? <p className="text-[11.5px] text-ink-400">{restoring ? "Restoring your wallet…" : "Connect a NEAR wallet to act."}</p> : null}
-        {status.status === "error" ? <Notice tone="danger">{status.error.message}</Notice> : null}
+        {!connected && needsWallet && action.kind !== "settle" && (restoring || retryVisible) ? <p className="text-[11.5px] text-ink-400">{restoring ? "Restoring your wallet…" : "Connect a NEAR wallet to act."}</p> : null}
+        {status.status === "error" && failedKind === action.kind ? <Notice tone="danger">{status.error.message}</Notice> : null}
       </div>
       {round.status === "KeyRequested" && round.key === null ? <SubmitKeyPanel detail={detail} onChanged={onChanged} /> : null}
       {children}
@@ -151,7 +188,8 @@ export function RoundAction({ detail, nowMs, onChanged, onSettle, children }: { 
 }
 
 function CancelNoKeyButton({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
-  const { round, engine, viewer } = detail;
+  const { round, engine } = detail;
+  const { near } = useWallets();
   const { run, status } = useNearAction();
   return (
     <>
@@ -160,7 +198,7 @@ function CancelNoKeyButton({ detail, onChanged }: { detail: RoundDetail; onChang
         size="sm"
         onClick={() => void run({ label: "Cancelling (no key)", call: engine.calls.cancelNoKey(round.roundId), success: "Round cancelled", receipt: { engine: engine.account, roundId: round.roundId, kind: "cancel", label: "cancel_no_key" } }).then((r) => r.ok && onChanged())}
         loading={status.status === "busy"}
-        disabled={viewer === null}
+        disabled={near.status !== "connected"}
       >
         Cancel (no key)
       </Button>

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "Finalize" (spec 5.2 step 2): with the round key public, this browser decrypts every sealed
+ * "Open every order" (spec 5.2 step 2): with the round key public, this browser decrypts every sealed
  * order that is still unopened and submits `open_bid` for each one in sequence, one transaction
  * per order prepaid with 200 Tgas. Progress is per order, failures do not stop the run (a
  * malformed ciphertext can be opened by nobody and is void at clearing), and the run resumes
@@ -12,6 +12,7 @@ import type { Bid } from "@rose/sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { useConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallets } from "@/components/wallet/WalletProvider";
 import { cn } from "@/lib/cn";
 import { toActionError } from "@/lib/errors";
@@ -22,11 +23,15 @@ import { formatQty, formatUsdc, OPENING_COST_NEAR, shortAccount } from "./model"
 import { Notice } from "./shared";
 import type { RoundDetail } from "./useRoundDetail";
 
+/** The engine's refusal of a second opening ("Bid already opened", whichever the side). */
+const ALREADY_OPENED = /already opened/i;
+
 type Step =
   | { status: "queued" }
   | { status: "decrypting" }
   | { status: "sending"; quantity: bigint; price: bigint }
-  | { status: "opened"; quantity: bigint; price: bigint; hash: string }
+  /** `hash` is null when another browser opened the order first (the engine refuses a second opening). */
+  | { status: "opened"; quantity: bigint; price: bigint; hash: string | null }
   | { status: "unopenable"; reason: string }
   | { status: "failed"; reason: string; retryable: boolean };
 
@@ -34,6 +39,7 @@ type Step =
 export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onChanged: () => void }) {
   const { round, bids, engine, config, cls } = detail;
   const { sendNearCall, near, restoring } = useWallets();
+  const openConnect = useConnectModal();
   const toast = useToast();
   const [steps, setSteps] = useState<Map<number, Step>>(() => new Map());
   const [running, setRunning] = useState(false);
@@ -45,7 +51,8 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
     latestBids.current = bids;
   }, [bids]);
 
-  const sealed = useMemo(() => bids.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex), [bids]);
+  /* An order this browser just opened stays out of the list of sealed ones until the next read shows it opened. */
+  const sealed = useMemo(() => bids.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex && steps.get(bid.bidId)?.status !== "opened"), [bids, steps]);
   const key = round.key;
 
   useEffect(() => {
@@ -64,6 +71,10 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
   }, [config.ckd_public_key, engine.account, key, round.roundId]);
 
   const setStep = useCallback((bidId: number, step: Step) => setSteps((current) => new Map(current).set(bidId, step)), []);
+  const latestSteps = useRef(steps);
+  useEffect(() => {
+    latestSteps.current = steps;
+  }, [steps]);
 
   /** Set synchronously: two clicks in the same frame both see `running === false`, and must not open every order twice. */
   const runningRef = useRef(false);
@@ -74,8 +85,13 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
     stopRef.current = false;
     setPausing(false);
     setRunning(true);
-    const queue = latestBids.current.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex);
-    setSteps(new Map(queue.map((bid) => [bid.bidId, { status: "queued" as const }])));
+    const done = latestSteps.current;
+    const queue = latestBids.current.filter((bid) => bid.opened === null && bid.status === "Sealed" && bid.ciphertextHex && done.get(bid.bidId)?.status !== "opened");
+    setSteps((current) => {
+      const next = new Map(current);
+      for (const bid of queue) next.set(bid.bidId, { status: "queued" });
+      return next;
+    });
     let opened = 0;
     for (const bid of queue) {
       if (stopRef.current) break;
@@ -103,6 +119,10 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
         opened += 1;
       } catch (error) {
         const described = toActionError(error);
+        if (ALREADY_OPENED.test(described.message)) {
+          setStep(bid.bidId, { status: "opened", quantity, price, hash: null });
+          continue;
+        }
         setStep(bid.bidId, { status: "failed", reason: described.message, retryable: described.retryable || described.kind === "contract" });
         if (described.kind === "rejected" || described.kind === "no_wallet" || described.kind === "insufficient_balance") {
           toast.show({ tone: "error", title: described.title, description: described.message });
@@ -116,6 +136,8 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
     onChanged();
     if (opened > 0) toast.show({ tone: "success", title: `${String(opened)} ${opened === 1 ? "order" : "orders"} opened on chain`, description: "The book is public; the Verify panel can recompute the result once the window ends." });
   }, [config.ckd_public_key, engine, key, onChanged, round.roundId, running, sendNearCall, setStep, toast]);
+
+  const unfinished = [...steps.values()].some((step) => step.status === "queued" || step.status === "failed");
 
   if (!key || (round.status !== "Revealing" && round.status !== "Clearing")) return null;
 
@@ -147,9 +169,15 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
         {/* The run button keeps its place and turns into a disabled progress label while the run
             goes, so a second click lands on nothing; pausing is a separate control under the
             progress bar. */}
-        <Button className="w-full" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
-          {steps.size > 0 ? "Resume" : "Open every order"}
-        </Button>
+        {!restoring && near.status !== "connected" && windowOpen && remaining > 0 ? (
+          <Button className="w-full" onClick={() => openConnect("near")} data-connect-prompt="near">
+            Connect a NEAR wallet to open every order
+          </Button>
+        ) : remaining > 0 || running ? (
+          <Button className="w-full" onClick={() => void runAll()} loading={running} loadingLabel="Opening orders" disabled={!windowOpen || remaining === 0 || keyState !== "valid" || near.status !== "connected"} data-finalize-run>
+            {unfinished ? "Resume" : "Open every order"}
+          </Button>
+        ) : null}
       </div>
       <div className="pt-3">
         <div className="mb-3 h-1.5 w-full overflow-hidden rounded-sm bg-ink-800" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Orders opened">
@@ -174,7 +202,7 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
         {keyState === "invalid" ? <Notice tone="danger">The stored key does not verify against the CKD public key in this browser. Do not open anything; this should be impossible since the contract verified it with a pairing check.</Notice> : null}
         {keyState === "error" ? <Notice tone="warning">The IBE module could not load in this browser, so orders cannot be decrypted here. Reload the page or use another browser.</Notice> : null}
         {keyState === "valid" ? <p className="mb-2 text-[11px] text-success-400">Round key verified in the browser against the CKD public key.</p> : null}
-        {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : near.status !== "connected" ? <Notice tone="warning">Connect a NEAR wallet (or the demo wallet) to pay the opening transactions.</Notice> : null}
+        {restoring ? <Notice tone="info">Restoring your wallet…</Notice> : null}
         {remaining === 0 && steps.size === 0 ? (
           <p className="text-[12px] text-ink-400">{windowOpen ? "Every order is open. Clearing runs after the reveal window." : "Every order was opened; clear the round."}</p>
         ) : (
@@ -198,7 +226,7 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
                     {step.status === "unopenable" || step.status === "failed" ? <p className="mt-0.5 text-[11px] text-danger-400">{step.reason}</p> : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {step.status === "opened" ? (
+                    {step.status === "opened" && step.hash !== null ? (
                       <a href={txLinks("near", step.hash)[0]?.href} target="_blank" rel="noreferrer" className="text-[11px] text-ember-300 underline-offset-2 hover:underline font-medium">
                         tx ↗
                       </a>
@@ -213,7 +241,7 @@ export function FinalizePanel({ detail, onChanged }: { detail: RoundDetail; onCh
                         step.status === "queued" && "text-ink-400",
                       )}
                     >
-                      {step.status === "sending" ? "sending" : step.status}
+                      {step.status === "opened" && step.hash === null ? "already opened" : step.status}
                     </span>
                   </div>
                 </li>

@@ -100,6 +100,7 @@ const components: Partial<Components> = {
   ),
   table: (props) => (
     // A wide table scrolls sideways on a phone: edge shadows mark the side that holds more columns, and the region takes keyboard focus.
+    // On a phone every column keeps 9rem, so an account id or a state wraps at word boundaries instead of a few letters per line.
     <div className="scroll-cue my-5 overflow-x-auto rounded-md border border-ink-750" role="region" aria-label="Table" tabIndex={0} data-docs-table>
       <table className="w-full border-collapse text-[13px]" {...props} />
     </div>
@@ -107,11 +108,11 @@ const components: Partial<Components> = {
   thead: (props) => <thead className="bg-ink-900" {...props} />,
   th: (props) => (
     <th
-      className="border-b border-ink-750 px-3 py-2 text-left align-bottom text-[12px] text-ink-400 font-medium"
+      className="border-b border-ink-750 px-3 py-2 text-left align-bottom text-[12px] text-ink-400 font-medium max-sm:min-w-[9rem]"
       {...props}
     />
   ),
-  td: (props) => <td className="border-b border-ink-800 px-3 py-2 align-top leading-relaxed text-ink-200 [tr:last-child>&]:border-b-0" {...props} />,
+  td: (props) => <td className="border-b border-ink-800 px-3 py-2 align-top leading-relaxed text-ink-200 max-sm:min-w-[9rem] [tr:last-child>&]:border-b-0" {...props} />,
   span: (props) => ("data-placeholder" in props ? <Placeholder {...props} /> : <span {...props} />),
 };
 

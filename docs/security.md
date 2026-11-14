@@ -19,14 +19,14 @@ addresses, byte layouts) is recorded with its command in [`verification.md`](./v
 
 | Party | Trusted for | A malicious or failing party can | It cannot |
 |---|---|---|---|
-| **NEAR MPC network** (`v1.signer-prod.testnet`, contract 3.18.0, reconstruction threshold 11) | Signing for the engine's derived keys (domain 0 `vault/base`; domain 1 `vault/sol`, `gas/sol`, the per-holder deposit keys), releasing a round key through Confidential Key Derivation (domain 2) only when the engine asks, attesting Base logs and Solana accounts through ForeignTx (domain 3), each provider of a node's quorum having to return the same verdict | With a threshold of colluding nodes: sign any RoseVault authorization or Solana transaction (drain custody), derive a round key before the deadline (read sealed bids early), attest a deposit that never happened (mint units against nothing). Without a threshold but by withholding: delay deposits (a failed proof surfaces after about 2 minutes), stall a round until `cancel_no_key` refunds it, delay payouts (every `Requested` state has a retry) | Change the engine's code, change a clearing result computed on chain from opened bids, or move funds below the threshold. A key it returns is checked by a pairing check before the engine stores it; every signature it returns is checked (`ecrecover` against `vault/base`, `ed25519_verify` against the derived key) before it is stored |
+| **NEAR MPC network** (`v1.signer-prod.testnet`, contract 3.19.0 since the 12 November release, 3.18.0 when rose was built; reconstruction threshold 11 of 16 nodes) | Signing for the engine's derived keys (domain 0 `vault/base`; domain 1 `vault/sol`, `gas/sol`, the per-holder deposit keys), releasing a round key through Confidential Key Derivation (domain 2) only when the engine asks, attesting Base logs and Solana accounts through ForeignTx (domain 3), each provider of a node's quorum having to return the same verdict | With a threshold of colluding nodes: sign any RoseVault authorization or Solana transaction (drain custody), derive a round key before the deadline (read sealed bids early), attest a deposit that never happened (mint units against nothing). Without a threshold but by withholding: delay deposits (a failed proof surfaces after about 2 minutes), stall a round until `cancel_no_key` refunds it, delay payouts (every `Requested` state has a retry) | Change the engine's code, change a clearing result computed on chain from opened bids, or move funds below the threshold. A key it returns is checked by a pairing check before the engine stores it; every signature it returns is checked (`ecrecover` against `vault/base`, `ed25519_verify` against the derived key) before it is stored |
 | **TEE nodes** | The MPC nodes run threshold signing and CKD in TEEs (spec 7.4) | A TEE compromise on enough nodes is the threshold case above | rose treats TEEs as defense in depth that raises the cost of collusion; the threshold assumption is the one that matters |
 | **rose-engine code** | Implementing the specification correctly. The engine has no upgrade, migrate, delete-account or generic call method, and the CKD request is reachable only after the deadline; the final deployment deploys the reproducible build of a pushed commit (rebuildable by anyone with the repository) and deletes every access key after init (`scripts/deploy-engine.sh --role final --reproducible --keyless`: the on-chain code hash must equal the artifact's sha256 before any key is deleted, `contract_source_metadata` names the commit and the pinned build image, and `view_access_key_list` then returns `[]`), so a new version deploys to a new account | A bug is not mitigated by anyone: the code is unaudited | Be changed after a keyless deployment. **The app's engine, `engine-v2.rose-app.testnet`, is that final keyless deployment:** the reproducible build of `0524b33`, every key deleted in [2ctK442K…](https://testnet.near.rocks/tx/2ctK442K8PzHwALUsU9WzSZ2RYg4emwvSFwhXf2FjVJ3), `view_access_key_list` returns `[]` (verification log, "Second final deployment"). The first final engine, `engine.rose-app.testnet` (reproducible build of `d5e1e0c`, keyless too), is superseded by it (review 15). The staging engines before them were not keyless and are history only: `engine-s1` to `engine-s5` kept a full-access key held by the team, `engine-s3` was updated in place once (verification log, "Staging deployment 3"), and `engine-s1` to `engine-s5` now run an empty contract (their code storage was reclaimed) |
 | **The team that deploys rose** | Running the web app, the demo faucet route and its testnet hot wallets; the fee recipient is fixed at init | Serve a frontend that shows wrong numbers or builds wrong transactions; stop funding the faucet | After a keyless deployment: read a bid early, sign a payout, cancel a round after its first bid, or upgrade the engine. Wallets show every call's arguments, every result links to an explorer, the round page's Verify panel recomputes clearing in the browser from on-chain data, and `@rose/sdk` reaches the engine without the app |
 | **RoseVault** (Base Sepolia) | Correct code. Immutable: no owner, no pause, no upgrade, no `receive`; Sablier Lockup and the signer are fixed in the constructor | A bug in it is not mitigated by anyone (unaudited) | Release a stream or a token without an EIP-712 authorization recovering to the engine's `vault/base` address (`v` exactly 27 or 28, low `s`, one shared replay bitmap; the id is consumed before any external call) |
 | **The issuer** (whoever runs a Tender or creates a cohort's streams) | Naming the NEAR account that receives each stream in `createStreams`, and `distribute_units` to its holders: holders trust the issuer for their allocation exactly as they do for their vesting today. Choosing the Tender's `retire_to` address | Credit the wrong accounts when it creates the cohort; retire bought units to an address of its choice | Pay less than it promised: the budget plus the 30 bps fee are escrowed at creation. Read asks before close, change the budget or the max price after creation, or cancel once the first ask is placed |
 | **Sablier Lockup v4** (`0xA65A…532e`) | Stream custody and unlock math; rose ports `calculateStreamedAmountLL` of `lockup@v4.0.1` and matched 197 of 197 live `streamedAmountOf` reads | Its comptroller admin can switch on a withdrawal fee at any time (0 today, oracle-based); RoseVault forwards `calculateMinFeeWei` read in the same transaction, so withdrawals keep working and the caller pays | Withdraw a vault stream's tokens anywhere but RoseVault: a third party's `withdrawMax` must pay the recipient |
-| **Streamflow** (`HqDGZ…CMfMZ`) | Stream custody, the 1,104-byte metadata layout and `withdraw` semantics the engine verified on devnet, and its auto-claim: one second after a stream's end its withdrawor (`wdrwh…pb5u`, memo "Auto-Claim") withdraws the remainder into the recipient's token account and closes the escrow, even with `automatic_withdrawal` = 0 (reproduced on devnet). rose books it with `sync_sol_stream` and relies on it for an ended stream's last tranche | The program is upgradeable (BPFLoaderUpgradeable) and its on-chain source is not public: an upgrade could change any behavior rose relies on. If the auto-claim stopped, an ended stream's last tranche would stay in its escrow (draws stop five minutes before the end) | Under its current code, move a vault stream or pay its tokens anywhere but the vault's token account: the sender powers that would allow it (cancel, transfer, pause, rate update, top-up, automatic withdrawal) are refused at deposit, and the auto-claim pays the recipient's own token account. Make a payout look executed or not: verdicts read only the claimant's two nonce accounts (below) |
+| **Streamflow** (`HqDGZ…CMfMZ`) | Stream custody, the 1,104-byte metadata layout and `withdraw` semantics the engine verified on devnet, and its auto-claim: one second after a stream's end its withdrawor (`wdrwh…pb5u`, memo "Auto-Claim") withdraws the remainder into the recipient's token account and closes the escrow, even with `automatic_withdrawal` = 0 (reproduced on devnet). rose books it with `sync_sol_stream` and relies on it for an ended stream's last tranche | The program is upgradeable (BPFLoaderUpgradeable) and its on-chain source is not public: an upgrade could change any behavior rose relies on. If the auto-claim stopped, an ended stream's last tranche would stay in its escrow (draws stop five minutes before the end) | Under its current code, move a vault stream or pay its tokens anywhere but the vault's token account: the sender powers that would allow it (cancel, transfer, pause, rate update, top-up) are refused at deposit, and the sender cannot switch cancel or transfer back on nor change the rate (simulated on devnet), and the auto-claim pays the recipient's own token account. Automatic withdrawal is the exception: refused at deposit, but the sender can switch it on afterwards (never off); its withdrawals still pay only the vault's token account, outside the engine's accounting until a sync (see Redeem in kind). Make a payout look executed or not: verdicts read only the claimant's two nonce accounts (below) |
 | **Token issuers** | The tokens rose holds and pays | On Base, an ERC-20 with pause or blacklist powers can freeze RoseVault's balance or its transfers to a claimant: a trust assumption rose cannot remove. On either chain a mint authority can inflate supply (a price risk, not a custody one) | Freeze the vault's Solana token account: mints with a freeze authority are refused at deposit, and a mint without one can never gain one. Token-2022 mints are refused. Fee-on-transfer and rebasing tokens are unsupported; RoseVault refuses a cash deposit or a cohort funding that does not deliver exactly the amount pulled |
 | **RPC providers** | Serving the app's reads | Mislead what the app displays | Feed the engine: foreign facts reach it only through MPC attestations, never through an RPC the app chose |
 
@@ -102,7 +102,7 @@ No other party can move funds, see bids early or stop a round.
 
 - One bounded `clear` per round (at most 64 orders, 4 to 11 Tgas) computes the price and every fill
   from opened orders, with deterministic ties and rounding that favors the pool; settlement is one
-  idempotent `settle_bid` per order, callable by anyone.
+  `settle_bid` per order, callable by anyone; each order settles once and a repeat is refused.
 - The rules (spec 5.4) are property-tested against a brute-force reference over every tick, and the
   three seeded rounds cleared on chain at exactly the price and fills of the `@rose/sdk` reference
   run on the opened orders. The Verify panel repeats that recomputation in any browser.
@@ -171,6 +171,18 @@ No other party can move funds, see bids early or stop a round.
 - **Residual:** `AccountState` signs the account as the nodes read it at request time, so the app
   passes bytes read at `finalized` right before the call; a stream that changed in flight fails the
   hash comparison (about 7 s) and the app retries.
+- **Residual: automatic withdrawal switched on after the deposit.** Streamflow lets a stream's
+  sender switch `automatic_withdrawal` on at any time and never off (simulated on devnet on the
+  vault's own stream, `verification.md`), and the engine checks the flag at attribution and
+  registration only. Streamflow's withdrawor then moves the stream's unlocked tokens into the
+  vault's token account every `withdraw_frequency` seconds (no shorter than the stream's period),
+  outside any payout: `engine_withdrawn` does not
+  move, so `get_sol_streams` overstates what the stream can pay until anyone calls
+  `sync_sol_stream`, which books the tokens in the class's swept balance as it does an ended
+  stream's auto-claim. Nothing leaves the vault and the other holders stay whole; a draw sized
+  before the sync fails on chain (Streamflow error 115) and is refunded on its receipt, the stream
+  blocked meanwhile; the app leaves such a stream out of claims until it is synced. The redeem is
+  the case that loses tokens (below).
 
 ### Payouts (two-phase on Solana)
 
@@ -257,6 +269,25 @@ No other party can move funds, see bids early or stop a round.
   to the vault, and Streamflow's auto-claim closes it at its end either way. A release broadcast
   after the auto-claim fails ("Stream closed", error 104, measured), so an executed release always
   moved the stream before its end, and the auto-claim then paid its new owner.
+- **Residual (Solana): a stream whose sender switched automatic withdrawal on.** The deployed
+  engine prices the redeemer's payment from its own `engine_withdrawn`, with no proof of the
+  stream's current state. What the withdrawor moved into the vault and no sync booked is charged
+  to the redeemer as if it were still in the stream; once the release executes the position is
+  `Released`, `sync_sol_stream` refuses it ("The position is not held"), and those tokens stay in
+  the vault's token account booked to no class and no account. The redeemer loses them; nobody
+  gains, and the other holders stay whole (the class's claims fell by what the redeemer paid).
+  **The app's guard:** before the nonce and again right before every `redeem` request, the app
+  reads the stream at `finalized` (`solRedeemSafety` in `@rose/sdk`): a stream with the flag set
+  is refused, with sync and a claim from the swept balance offered instead (a sync right before
+  the redeem would still race the next sweep), and a stream showing `amount_withdrawn` above
+  `engine_withdrawn` is synced first; an unreadable or lagging read refuses. **What the guard does
+  not cover:** a direct caller of `redeem` (the SDK's `EngineCalls.redeem`, near-cli) who redeems
+  such a stream without syncing loses what was withdrawn and not synced; a sender who switches the
+  flag on between the app's last read and the release landing on Solana, with a sweep in that
+  window, causes the same loss. **The next engine** (a new account; this one is keyless) closes it
+  on chain: the Solana `redeem` proves the stream's metadata in its ForeignTx request and refuses
+  when the flag is set or `amount_withdrawn` differs from `engine_withdrawn`, or
+  `sync_sol_stream` books what a released stream had withdrawn up to its release.
 
 ### Storage and gas griefing
 
@@ -270,7 +301,7 @@ No other party can move funds, see bids early or stop a round.
   cut at 192 bytes, so every entry fits 448 bytes (measured over every variant with 64-character
   ids) and the full 1,024-entry history at most 458,752 bytes (4.59 NEAR). `new` refuses to
   initialize an engine whose balance does not cover its code and state, that history and the
-  0.5 NEAR MPC reserve (about 15.4 NEAR with a 1.03 MB wasm; the deployment script funds 17 NEAR), so
+  0.5 NEAR MPC reserve (about 15.3 NEAR with the deployed 1.02 MB wasm; the deployment script funds 17 NEAR), so
   filling the history can never eat the reserve, and a zero-deposit `storage_deposit` top-up
   records nothing (before the fix, free zero-deposit calls alone could push a 12 NEAR engine below
   its reserve: review 12 in the history below). Holding, cash and lien share rows are
@@ -314,6 +345,10 @@ No other party can move funds, see bids early or stop a round.
   transfer and rebasing tokens are unsupported.
 - **Third-party programs:** Sablier's withdrawal fee is admin-controlled; Streamflow is upgradeable and
   its on-chain source is not public.
+- **Automatic withdrawal switched on after a Solana deposit.** A Streamflow stream's sender can
+  switch automatic withdrawal on after the deposit, which the deployed engine does not see until a
+  sync. Claims and the app's redeem are guarded (Redeem in kind above); a direct `redeem` of such a
+  stream without a sync loses the unsynced tokens. Fixed on chain only by a new engine.
 - **Solana draws and clock skew.** A draw of everything a stream has unlocked is sized from
   NEAR's block time, and Streamflow checks it against the Solana cluster's clock: broadcast while
   that clock is behind NEAR's across an unlock step, the `withdraw` fails (error 115) and the
@@ -323,7 +358,13 @@ No other party can move funds, see bids early or stop a round.
   registers for a request, computed by the engine's own code, so a byte-layout drift between the
   engine and the live nodes would pass the sandbox suites. The ten recorded live responses in
   `tests/vectors/foreign/mpc_live_vectors.json` are the check: `cargo test --workspace` replays
-  them, pinned at ten, and they are re-recorded when `near/mpc` moves past 3.18.0. The mock does
+  them, pinned at ten. They were recorded on 3.18.0; when the live contract moved to 3.19.0, the
+  deployed engine's own requests re-checked the byte layout of every response kind it uses (Base
+  `Log` and Solana `AccountState` attestations, both signature schemes, the CKD key), since the
+  engine recomputes each attestation's payload hash and refuses a mismatch; on 14 November most
+  Solana attestation requests timed out between 01:10 and 01:35 UTC, an availability problem of
+  the network, not a layout one, and a Solana payout landed end to end again at 02:46 UTC (results in
+  [`verification.md`](./verification.md#mpc-network-3190-re-verified-live-2026-11-14)). The mock does
   refuse what the live contract refuses in a request's own fields: a CKD request off the CKD
   domain or with an inconsistent `AppPublicKeyPV`, a ForeignTx payload version other than 1, an
   `Eddsa` payload over 1,232 bytes, under 15 Tgas or 1 yoctoNEAR.
@@ -345,10 +386,25 @@ No other party can move funds, see bids early or stop a round.
   until anyone sends the token NEAR with a plain transfer (spec 8.4).
 - **Liveness is the participants' job.** There is no keeper: a round advances when someone calls the
   next step, and a signed Solana payout blocks the streams it draws on until someone broadcasts and
-  confirms it (anyone can).
+  confirms it (anyone can). The cost of blocking a stream on purpose is low (reasoned, not
+  tested): a holder with one whole token of claimable names the stream in `claim_sol_tokens` and
+  lets the transaction fail on chain, and the stream takes no draw, redeem or sync until two
+  proofs 150 blocks apart refund it, for the 0.025 NEAR payout deposit per round.
 - **Staging data:** on `engine-s3` (since retired), updated in place with a build that changed stored layouts, Solana
   payout records 0 to 2 and one event history entry no longer decode; the app skips the unreadable
   entry. The final engine is never updated in place.
+- **Accepted dependency advisories.** `pnpm audit --prod` reports 12 advisories (7 high, 5
+  moderate) in transitive dependencies of the Solana libraries, none with a fix inside the range
+  its dependent declares, so none is overridden. `toml` 3.0.0 (6 advisories, fixed in 5.0.1;
+  `@coral-xyz/anchor` 0.32.1 through `@streamflow/stream` asks for `^3.0.0`) is only used by
+  Anchor's `workspace` loader to parse a local `Anchor.toml`, which rose never loads.
+  `stream-json` 1.9.1 (3 advisories, fixed in 3.6.0; `jayson` 4.3.0 through `@solana/web3.js`
+  asks for `^1.9.1`) is only used by jayson's TCP and TLS transports; web3.js uses its HTTP
+  client. `uuid` 9.0.1 and 8.3.2 (fixed in 11.1.1; `@solflare-wallet/sdk` asks for `^9.0.0`,
+  jayson for `^8.3.2`) is only called as `v4()`, while the advisory concerns `v3`, `v5` and
+  `v6` with a caller-supplied buffer. `bigint-buffer` 1.1.5 (through `@solana/spl-token`) has
+  no fixed release; it decodes the fixed-size integer fields of SPL accounts read from Solana
+  devnet. The direct `bn.js` advisory is fixed (5.2.3).
 - **Demo conveniences are not part of the protocol:** `/api/faucet` sends testnet gas from
   server-side hot wallets, and the in-app demo wallets keep their keys in the browser.
 
@@ -377,8 +433,8 @@ milestone unless stated.
 | 14 | Contracts, SDK bindings and deployment scripts before the final deployment (`15316b4`) | Fable 5.1 | 0 blockers, 1 major (`deploy-engine.sh` skipped the RoseVault signer check when the vault was passed with `--rose-vault`, then deleted the keys), 7 minors, 10 nits | Fixed, each with a test: every check before the key deletion read live and never skipped (RoseVault `SIGNER()` and `LOCKUP()`, `get_config` against the init arguments with the CKD key read again from the MPC, the chain id), `LOCKUP()` read back by `deploy-base.sh` from one source, the CKD key subgroup-checked in `new`, `close` checks its gas upfront, the SDK's Streamflow refusals, the mock MPC's request checks, a non-recovering Base signature retryable at once. Documented: the fixed CKD key, the deployed tUSDC's double `ft_burn` and its mint storage |
 | 15 | Contracts, SDK, deployment scripts and the live final engine `engine.rose-app.testnet` (`d5e1e0c`) | Fable 5.1 | 0 blockers, 1 major (an Advance funder's lien share never left its account index, so every Advance funder's NEP-145 storage deposit stayed locked), 6 minors | Fixed in `46358b2`, each with a test: the share leaves the index on its last claim once the lien is satisfied and comes back on a refund; a Solana Tender's `retire_to` refuses the all-zero key; an orderless `cancel_no_key` is recorded as empty. The deployed engine is keyless and cannot be patched, so the fix shipped as `engine-v2.rose-app.testnet` with its own RoseVault; `engine.rose-app.testnet` is superseded |
 | 16 | Engine, RoseVault, `rose-ibe` and the SDK engine bindings before the second final deployment (`46358b2`) | Opus 5.5 | 0 blockers, 0 majors, 3 minors | Fixed in `0524b33`: `withdraw_near_cash` holds the account until its callback, a round takes exactly its 0.05 NEAR deposit. Accepted: an Advance funder who never claims its last tokens leaves an index record of about 133 bytes paid by the engine (bounded by the number of funded lien shares, each of which costs its funder far more). `0524b33` is the commit deployed as `engine-v2.rose-app.testnet` |
-| 17 | Counted full pass: the whole product and the live `engine-v2.rose-app.testnet`, its RoseVault and production (`3044a44`) | Fable 5.1 | 0 blockers, 0 majors, 1 minor | Fixed in `3a99e6e`: this table said the final build came from a public commit while the repository is private |
-| 18 | Counted full pass, independent of 17: the whole product and the live deployment (`3a99e6e`) | Opus 5.5 | 0 blockers, 0 majors, 1 minor | Fixed after the pass: this table named `engine-s1` to `engine-s4` as running an empty contract; `engine-s5` does too since its reclaim |
+| 17 | Counted full pass: the whole product and the live `engine-v2.rose-app.testnet`, its RoseVault and production (`3044a44`) | Fable 5.1 | 0 blockers, 0 majors, 1 minor | Fixed in `3a99e6e`: the trust-model table said the final build came from a public commit while the repository is private |
+| 18 | Counted full pass, independent of 17: the whole product and the live deployment (`3a99e6e`) | Opus 5.5 | 0 blockers, 0 majors, 1 minor | Fixed after the pass: the trust-model table named `engine-s1` to `engine-s4` as running an empty contract; `engine-s5` does too since its reclaim |
 
 The web app was also exercised live through its demo wallets against the staging engines and the
 final engines; the bugs

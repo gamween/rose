@@ -28,7 +28,7 @@ A class whose schedule already exists maps to the existing class: the class id i
 Most team and investor vestings are not transferable, so the recommended path is to create the streams yourself directly in custody, or to move your own transferable streams in.
 
 1. On Base, choose "Cohort streams" and paste the list of `(near_account, amount)` for the cohort. RoseVault `createStreams` pulls the tokens and creates one non-cancelable, transferable Lockup Linear stream per holder with the vault as recipient, in one transaction; each `StreamDeposited` event names the NEAR account that receives the units. The console then registers each stream on the engine once Base's safe head has passed the transaction (a few minutes), and the units are minted to each holder. You can also deposit transferable streams you hold through `/app/deposit`, naming your own NEAR account (see the [Holder guide](/docs/guide-holder#deposit-on-base)).
-2. To pass units you hold to the cohort, choose "Distribute units" and paste the list of `(near_account, units)`. The console calls `distribute_units`, a bounded batch (up to 50 receivers per call) that emits NEP-245 events, and your wallet signs it.
+2. To pass units you hold to the cohort, choose "Distribute units" and paste the list of `(near_account, units)`. The console calls `distribute_units`, a bounded batch (up to 30 receivers per call, the engine's `MAX_DISTRIBUTION_RECEIVERS`) that emits NEP-245 events, and your wallet signs it.
 3. You see the transactions with explorer links and, in each holder's portfolio (`/app`), their units with locked and claimable amounts.
 
 Accrual follows the units: a holder's unlocked tokens accrue from the moment they hold the units.
@@ -50,7 +50,7 @@ If the venue is NEAR tUSDC, the escrow is taken from your NEAR cash balance when
 
 ## 5. Run via DAO
 
-Treasuries that need an on-chain vote choose "Run via DAO" instead of signing themselves.
+Treasuries that need an on-chain vote set "Signed by" to "A DAO" in the "Launch Tender" step instead of signing themselves; the "Run via DAO" panel then builds the proposal.
 
 1. Enter the Sputnik DAO account. The console builds a function-call proposal that creates and funds the Tender with the same parameters. A Trezu custom template is also produced for treasuries that use it.
 2. Submit the proposal to the DAO from your wallet. You see the proposal link.
@@ -63,9 +63,9 @@ Holders see the Tender in `/app/rounds` and place sealed asks. You see the numbe
 ## 7. Close, finalize, settle
 
 1. After `closes_at`, anyone can click "Close round" on `/app/rounds/[id]`. The engine requests the round key from the MPC network; you see the key release event when it arrives (typically a few seconds).
-2. Click "Finalize". The app opens every ask (one transaction each) and, when the reveal window ends, calls `clear`. The supply curve animates into the clearing price.
+2. Click "Open every order" in the round's action card. The app opens every ask (one transaction each) and, when the reveal window ends, calls `clear`. The supply curve animates into the clearing price.
 3. You see `P*`, the volume bought, the fills table, the fee and your refund.
-4. Click "Claim" to pull the refund of unspent budget to your cash balance. Each seller claims their proceeds.
+4. The refund of unspent budget is credited to your cash balance when the round clears; "Claim" in your portfolio pulls it to your wallet (a DAO files the withdrawal proposal from the Results tab). Sellers settle their asks from the round's action card ("Settle my order", or "Settle every order", which anyone can run) and claim their proceeds.
 
 ## 8. Report
 

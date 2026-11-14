@@ -9,8 +9,16 @@ import { base64ToBytes, bytesToBase64, bytesToUtf8, utf8ToBytes } from "../encod
 
 /** FastNEAR testnet RPC, the primary endpoint (spec section 6). */
 export const NEAR_TESTNET_RPC = "https://test.rpc.fastnear.com";
-/** Official testnet RPC, used when FastNEAR is unreachable. */
-export const NEAR_TESTNET_RPC_FALLBACK = "https://rpc.testnet.near.org";
+/**
+ * dRPC's public testnet RPC, used when FastNEAR is unreachable or rate limits the caller. Another
+ * provider on purpose: FastNEAR's second host (`rpc.testnet.fastnear.com`) shares the primary's
+ * per-IP limit, and `rpc.testnet.near.org` is deprecated: on 14 November 2026 it refused requests
+ * with error -429 "THIS ENDPOINT IS DEPRECATED" while other clients shared the IP, and answered
+ * 10 sequential ones about 3 s each later that day (both measured, docs/verification.md). Its free
+ * plan times out long `tx` waits, so a `send_tx` through it can fail after the transaction was
+ * accepted; the transaction still lands.
+ */
+export const NEAR_TESTNET_RPC_FALLBACK = "https://near-testnet.drpc.org";
 
 export type NearRpcErrorKind =
   | "unreachable"
@@ -110,10 +118,10 @@ export async function withRpcSlot<T>(task: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Request budget of one RPC endpoint. FastNEAR and rpc.testnet.near.org both answer about 30
- * requests per IP and then HTTP 429 for several seconds (measured 2026-11-04: 30 of 60 parallel
- * requests refused, 33 of 50 at 5 per second), and their 429 carries no CORS header, so the
- * browser logs a blocked request. The budget keeps a page under that line.
+ * Request budget of one RPC endpoint. FastNEAR answers about 30 requests per IP and then HTTP 429
+ * for several seconds (measured 2026-11-04: 30 of 60 parallel requests refused, 17 of 50 at 5 per
+ * second; rpc.testnet.near.org refused 33 of 60 the same way), and its 429 carries no CORS header,
+ * so the browser logs a blocked request. The budget keeps a page under that line.
  */
 export class TokenBucket {
   private tokens: number;
@@ -153,7 +161,13 @@ export const RPC_REFILL_PER_SECOND = 2.5;
 
 const buckets = new Map<string, TokenBucket>();
 
-/** The budget of a public endpoint whose limits were measured; other endpoints (private RPCs, tests) have none. */
+/**
+ * The budget of a public endpoint whose limits were measured: FastNEAR, and rpc.testnet.near.org
+ * for a caller that still lists it. dRPC, the default fallback, has none on purpose: it answered 80
+ * of 80 requests sent 20 at a time without a 429 (docs/verification.md), and it takes the reads
+ * FastNEAR refused, which a budget sized for FastNEAR would only delay. Other endpoints (private
+ * RPCs, tests) have none either.
+ */
 function bucketOf(endpoint: string): TokenBucket | null {
   if (!/^https:\/\/(test\.rpc\.fastnear\.com|rpc\.testnet\.near\.org)\/?$/.test(endpoint)) return null;
   let bucket = buckets.get(endpoint);
@@ -164,13 +178,28 @@ function bucketOf(endpoint: string): TokenBucket | null {
   return bucket;
 }
 
-/** Waits for a request token of `endpoint` (immediate for endpoints without a measured limit), for callers that fetch the RPC themselves. */
-export async function takeRpcBudget(endpoint: string): Promise<void> {
-  await bucketOf(endpoint)?.take();
+/**
+ * How long an endpoint is passed over after it refused a request (429, 5xx, a non-JSON page) or
+ * could not be reached. A browser cannot read a 429 sent without CORS headers, so it cannot honour
+ * `retry-after`; without this pause every later request of the page would hit the limited
+ * endpoint first and fail once more before falling over.
+ */
+export const RPC_COOLDOWN_MS = 10_000;
+
+const cooldowns = new Map<string, number>();
+
+/** Milliseconds before `endpoint` is tried first again (0 when it is not cooling down). */
+export function cooldownMs(endpoint: string, now: number = Date.now()): number {
+  const until = cooldowns.get(endpoint);
+  return until === undefined ? 0 : Math.max(0, until - now);
 }
 
-/** The endpoints in failover order, starting with the first one that has budget left now. */
-export function endpointOrder(endpoints: readonly string[], waitMs: (endpoint: string) => number = (endpoint) => bucketOf(endpoint)?.waitMs() ?? 0): string[] {
+function coolDown(endpoint: string): void {
+  cooldowns.set(endpoint, Date.now() + RPC_COOLDOWN_MS);
+}
+
+/** The endpoints in failover order, starting with the first one that has budget left now and is not cooling down. */
+export function endpointOrder(endpoints: readonly string[], waitMs: (endpoint: string) => number = (endpoint) => Math.max(bucketOf(endpoint)?.waitMs() ?? 0, cooldownMs(endpoint))): string[] {
   const ready = endpoints.find((endpoint) => waitMs(endpoint) === 0);
   return ready === undefined ? [...endpoints] : [ready, ...endpoints.filter((endpoint) => endpoint !== ready)];
 }
@@ -255,11 +284,15 @@ export class NearRpc {
           );
         } catch (error) {
           lastError = new NearRpcError("unreachable", `${endpoint} could not be reached.`, error);
+          coolDown(endpoint);
           continue;
         }
         if (!response.ok) {
           lastError = new NearRpcError("http", `${endpoint} answered with HTTP ${String(response.status)}.`);
-          if (isRetriable(response.status)) continue;
+          if (isRetriable(response.status)) {
+            coolDown(endpoint);
+            continue;
+          }
           throw lastError;
         }
         let body: RpcEnvelope;
@@ -267,8 +300,10 @@ export class NearRpc {
           body = (await response.json()) as RpcEnvelope;
         } catch {
           lastError = new NearRpcError("invalid_response", `${endpoint} returned a non-JSON body.`);
+          coolDown(endpoint);
           continue;
         }
+        cooldowns.delete(endpoint);
         if (body.error) throw NearRpc.toError(body.error);
         if (body.result === undefined) throw new NearRpcError("invalid_response", "The RPC returned no result.");
         return body.result;

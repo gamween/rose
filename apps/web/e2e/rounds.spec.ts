@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { BYTE_COST, demoWalletScript, mockRounds, ROUNDS_MOCK } from "./fixtures/rounds-mock";
 
 /**
@@ -9,6 +9,14 @@ import { BYTE_COST, demoWalletScript, mockRounds, ROUNDS_MOCK } from "./fixtures
  */
 
 const MOCK_ENGINE_BUILD = process.env.NEXT_PUBLIC_ENGINE_ACCOUNT === ROUNDS_MOCK.engine;
+const SCREENS = process.env.ROSE_SCREENSHOT_DIR;
+
+/** A viewport screenshot for the page review at 1470 and 375 px, when `ROSE_SCREENSHOT_DIR` is set. */
+async function shot(page: Page, name: string): Promise<void> {
+  if (!SCREENS) return;
+  const width = page.viewportSize()?.width ?? 1470;
+  await page.screenshot({ path: `${SCREENS}/rounds-${name}-${width >= 1000 ? "1470" : "375"}.png` });
+}
 
 async function collectErrors(page: Page): Promise<string[]> {
   const errors: string[] = [];
@@ -73,7 +81,7 @@ test.describe("rounds with a mocked engine", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText("0.05 NEAR");
     await expect(dialog.getByRole("combobox").first()).toContainText("CINDR");
-    await dialog.getByPlaceholder("8.50").fill("9");
+    await dialog.getByLabel("Max price").fill("9");
     await expect(dialog.locator("[data-key-timeout]")).toHaveValue("60");
     await expect(dialog.locator("[data-reveal-window]")).toHaveValue("10");
     await expect(dialog.locator("[data-round-timing]")).toContainText("Key timeout 1 min to 7 d; reveal window 5 min to 7 d.");
@@ -84,6 +92,7 @@ test.describe("rounds with a mocked engine", () => {
     await expect(dialog.getByRole("alert")).toHaveText("The key timeout must be at most 7 d.");
     await dialog.locator("[data-key-timeout]").fill("60");
     await dialog.getByRole("button", { name: "Custom" }).click();
+    await shot(page, "create-exit-custom");
     const far = new Date(Date.now() + 31 * 86_400_000);
     const local = new Date(far.getTime() - far.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     await dialog.locator("input[type='datetime-local']").fill(local);
@@ -212,6 +221,13 @@ test.describe("rounds with a mocked engine", () => {
     await form.locator("[data-order-submit]").click();
     await expect(page.getByRole("status").filter({ hasText: "Sealed ask #0 placed" })).toBeVisible({ timeout: 30_000 });
     expect(state.sent.map((s) => [s.method, s.args.units])).toEqual([["place_ask", (100n * 10n ** 18n).toString()]]);
+    // The card then says the order is placed, with its transaction, instead of a form it would refuse.
+    const placed = form.locator("[data-order-placed='0']");
+    await expect(placed).toContainText("Your sealed ask #0 is placed", { timeout: 20_000 });
+    await expect(placed.getByRole("link", { name: /Transaction/ })).toHaveAttribute("href", /near\.rocks\/tx\//);
+    await expect(form.locator("[data-order-submit]")).toHaveCount(0);
+    await placed.scrollIntoViewIfNeeded();
+    await shot(page, "order-placed");
 
     await page.goto("/app/rounds/7");
     await expect(page.locator("[data-order-form='issuer']")).toContainText("You are the buyer of this Tender", { timeout: 20_000 });
@@ -250,6 +266,44 @@ test.describe("rounds with a mocked engine", () => {
     await dialog.locator("[data-demo-wallet]").click();
     await expect(dialog).toBeHidden();
     await expect(form.locator("[data-connect-prompt='near']")).toBeHidden();
+  });
+
+  test("a rate-limited RPC never reads as a missing demo account; only the RPC's own answer does", async ({ page }) => {
+    test.setTimeout(90_000);
+    await mockRounds(page);
+    await page.addInitScript(demoWalletScript());
+    let answer: "limited" | "missing" = "limited";
+    // Registered after the mock, so it sees the demo account's view_account first; every other request falls back to the mock.
+    const demoAccount = async (route: Route) => {
+      const request = route.request().postDataJSON() as { id: string; params?: { request_type?: string; account_id?: string } } | null;
+      if (request?.params?.request_type !== "view_account" || request.params.account_id !== ROUNDS_MOCK.demoAccount) return route.fallback();
+      if (answer === "limited") return route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -429, message: "Rate limits exceeded" } }) });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { name: "HANDLER_ERROR", cause: { name: "UNKNOWN_ACCOUNT", info: {} }, code: -32000, message: "Server error", data: `account ${ROUNDS_MOCK.demoAccount} does not exist while viewing` } }),
+      });
+    };
+    for (const host of ["https://test.rpc.fastnear.com/**", "https://near-testnet.drpc.org/**", "https://testnet-rpc.intea.rs/**"]) await page.route(host, demoAccount);
+    await page.goto("/app/rounds/1");
+    const form = page.locator("[data-order-form]");
+    await expect(page.locator("[data-next-action='bid']")).toBeVisible({ timeout: 20_000 });
+    await expect(form.locator("[data-order-submit]")).toBeVisible();
+    // Past every retry of the presence check (0.8 + 1.6 + 3.2 s of backoff): still the order button.
+    await page.waitForTimeout(8_000);
+    await expect(form.locator("[data-order-submit]")).toBeVisible();
+    await expect(form.getByText("Create the demo account: get test funds")).toHaveCount(0);
+    answer = "missing";
+    await page.reload();
+    await expect(form.getByText("Create the demo account: get test funds")).toBeVisible({ timeout: 20_000 });
+    await expect(form.locator("[data-order-submit]")).toHaveCount(0);
+    // An account this browser saw on chain never reads as missing again (a read before its creation was final, a lagging node).
+    await page.evaluate((account) => localStorage.setItem("rose.demo.near.onchain", JSON.stringify(account)), ROUNDS_MOCK.demoAccount);
+    await page.reload();
+    await expect(form.locator("[data-order-submit]")).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(3_000);
+    await expect(form.locator("[data-order-submit]")).toBeVisible();
+    await expect(form.getByText("Create the demo account: get test funds")).toHaveCount(0);
   });
 
   test("full round from a sealed bid to the claim with the demo wallet", async ({ page }) => {
@@ -291,6 +345,9 @@ test.describe("rounds with a mocked engine", () => {
 
     await expect(page.locator("[data-next-action='close']")).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("[data-round-action]")).toContainText("80 Tgas prepaid");
+    await expect(page.locator("header [data-status='Open'][data-closed]")).toHaveText("Closed");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await shot(page, "closed-badge");
     await page.locator("[data-action='close']").click();
     await expect(page.locator("[data-next-action='finalize']")).toBeVisible({ timeout: 30_000 });
     await page.locator("[data-tab='details']").click();
@@ -301,14 +358,26 @@ test.describe("rounds with a mocked engine", () => {
     await expect(page.locator("[data-open-status='opened']")).toHaveCount(3, { timeout: 60_000 });
     await expect(page.locator("[data-next-action='clear']")).toBeVisible({ timeout: 30_000 });
     await page.locator("[data-action='clear']").click();
+    // The card keeps the landed step with its explorer link and never offers Clear twice.
+    await expect(page.locator("[data-landed='clear']")).toContainText("Round cleared", { timeout: 30_000 });
     await expect(page.locator("[data-round-status='Settled']")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-action='clear']")).toHaveCount(0);
     await page.locator("[data-tab='results']").click();
     const fills = page.locator("[data-fills]");
     await expect(fills).toContainText("Cleared at 7.00 USDC");
     await expect(fills.locator("tbody tr")).toHaveCount(3);
-    await fills.locator("[data-settle-all]").click();
-    await expect(fills).toContainText("all settled", { timeout: 60_000 });
-    await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 20_000 });
+    await expect(fills.locator("[data-fills-pending]")).toHaveText("3 to settle");
+    // Settle runs the viewer's own order first, then every pending order, each with its link.
+    const settle = page.locator("[data-action='settle']");
+    await expect(settle).toHaveText("Settle my order");
+    await settle.click();
+    await expect(page.locator("[data-settle-step='2'] a")).toHaveAttribute("href", /near\.rocks\/tx\//, { timeout: 30_000 });
+    await expect(settle).toHaveText("Settle every order · 2 left", { timeout: 30_000 });
+    await page.locator("[data-round-action]").scrollIntoViewIfNeeded();
+    await shot(page, "settle-progress");
+    await settle.click();
+    await expect(page.locator("[data-next-action='done']")).toBeVisible({ timeout: 60_000 });
+    await expect(fills).toContainText("all settled", { timeout: 20_000 });
     await page.locator("[data-verify-run]").click();
     await expect(page.locator("[data-verify-status='match']")).toBeVisible();
     await page.locator("[data-tab='mine']").click();

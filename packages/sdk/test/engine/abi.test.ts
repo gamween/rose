@@ -1,13 +1,17 @@
 /**
- * Checks the bindings against the ABI produced by `cargo near build non-reproducible-wasm`
- * (`target/near/rose_engine/rose_engine_abi.json`): every method called by the bindings exists
- * with the same parameter names and kind, and the fixtures carry exactly the keys of the ABI's
- * type definitions. Skipped when the ABI has not been built on this machine.
+ * Checks the bindings against the engine's ABI: every method called by the bindings exists with
+ * the same parameter names and kind, and the fixtures carry exactly the keys of the ABI's type
+ * definitions. The ABI is a committed snapshot, `rose_engine_abi.json` next to this file, so the
+ * check runs on a clean clone: the deployed engine (`engine-v2.rose-app.testnet`, commit
+ * `0524b33`) is keyless and never changes, and the snapshot is its ABI, the output of
+ * `cargo near abi` in `contracts/engine` (cargo-near 0.22.0), copied from
+ * `target/near/rose_engine/rose_engine_abi.json`. When that file exists on this machine (any
+ * `cargo near` build writes it), its body must equal the snapshot's.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { EngineCalls } from "../../src/engine/calls.js";
 import { EngineRawViews } from "../../src/engine/views.js";
 import { NearRpc } from "../../src/engine/rpc.js";
@@ -18,7 +22,8 @@ interface AbiFunction { name: string; kind: "view" | "call"; params?: { args: Ab
 interface AbiSchema { properties?: Record<string, unknown>; required?: string[] }
 interface Abi { body: { functions: AbiFunction[]; root_schema: { definitions: Record<string, AbiSchema> } } }
 
-const ABI_PATH = resolve(import.meta.dirname, "../../../../target/near/rose_engine/rose_engine_abi.json");
+const ABI_PATH = resolve(import.meta.dirname, "rose_engine_abi.json");
+const BUILT_ABI_PATH = resolve(import.meta.dirname, "../../../../target/near/rose_engine/rose_engine_abi.json");
 
 /** Records the `(method, args)` of every view the bindings send, without touching the network. */
 function recordedViews(): { calls: { method: string; args: string[] }[]; views: EngineRawViews } {
@@ -31,14 +36,13 @@ function recordedViews(): { calls: { method: string; args: string[] }[]; views: 
   return { calls, views: new EngineRawViews(new NearRpc({ fetch: fetchImpl, endpoints: ["http://abi.test"] }), "engine.test") };
 }
 
-describe.skipIf(!existsSync(ABI_PATH))("engine ABI", () => {
-  // Read in beforeAll, not at collection: a skipped suite's body still runs when it is collected.
-  let functions = new Map<string, AbiFunction>();
-  let definitions: Record<string, AbiSchema> = {};
-  beforeAll(() => {
-    const abi = JSON.parse(readFileSync(ABI_PATH, "utf8")) as Abi;
-    functions = new Map(abi.body.functions.map((f) => [f.name, f]));
-    definitions = abi.body.root_schema.definitions;
+describe("engine ABI", () => {
+  const abi = JSON.parse(readFileSync(ABI_PATH, "utf8")) as Abi;
+  const functions = new Map(abi.body.functions.map((f) => [f.name, f]));
+  const definitions = abi.body.root_schema.definitions;
+
+  it.runIf(existsSync(BUILT_ABI_PATH))("matches the ABI built from contracts/engine on this machine", () => {
+    expect((JSON.parse(readFileSync(BUILT_ABI_PATH, "utf8")) as Abi).body).toEqual(abi.body);
   });
 
   it("every view binding names an existing view method with the ABI's parameter names", async () => {

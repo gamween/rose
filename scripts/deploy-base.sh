@@ -54,11 +54,13 @@ log "deployer $deployer, balance $balance ETH, engine $engine ($role), RoseVault
 
 cd "$ROSE_ROOT"
 
-# forge_run <script name> <env assignments...>: broadcasts the script and prints the run file.
+# forge_run <script name> <env assignments...>: broadcasts the script and prints the run file. It
+# runs inside $(…), where `set -e` does not apply, so a failed broadcast must die explicitly:
+# otherwise the caller would record the run file a previous deployment left under broadcast/.
 forge_run() {
   local script="$1"; shift
   env "$@" forge script "contracts/evm/script/$script.s.sol" --rpc-url "$BASE_RPC_URL" --broadcast \
-    "${EVM_WALLET_ARGS[@]}" --sender "$deployer" >&2
+    "${EVM_WALLET_ARGS[@]}" --sender "$deployer" >&2 || die "forge script $script failed"
   printf '%s\n' "$ROSE_ROOT/broadcast/$script.s.sol/$BASE_CHAIN_ID/run-latest.json"
 }
 

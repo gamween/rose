@@ -187,7 +187,7 @@ export function CreateExitModal({
         </Field>
         <Field label="Max price" hint="Per whole locked token at the close time; orders priced above it stay outside the book. Seller bonds are 1% of their units valued at this price." error={errors.price}>
           {({ inputId, describedBy, invalid }) => (
-            <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={maxPrice} onValueChange={setMaxPrice} unit="USDC" decimals={USDC_DECIMALS} placeholder="8.50" />
+            <NumberInput id={inputId} aria-describedby={describedBy} invalid={invalid} value={maxPrice} onValueChange={setMaxPrice} unit="USDC" decimals={USDC_DECIMALS} placeholder="0.00" />
           )}
         </Field>
         <Field label="Bidding window" hint="Bids and asks are accepted until the close; settlement prices are taken at that time." error={errors.closes}>

@@ -1,9 +1,15 @@
-import type { HTMLAttributes, TdHTMLAttributes, ThHTMLAttributes } from "react";
-import { cn } from "@/lib/cn";
+"use client";
 
+import { useRef, type HTMLAttributes, type TdHTMLAttributes, type ThHTMLAttributes } from "react";
+import { cn } from "@/lib/cn";
+import { useEdgeFade } from "./edge-fade";
+
+/** A table that scrolls sideways when it is wider than its card (a phone), fading the edge that hides columns. */
 export function Table({ className, ...rest }: HTMLAttributes<HTMLTableElement>) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const edgeFade = useEdgeFade(scroller);
   return (
-    <div className="w-full overflow-x-auto">
+    <div ref={scroller} className="w-full overflow-x-auto" style={edgeFade.style} data-overflow={edgeFade.overflow ? "true" : undefined}>
       <table className={cn("w-full border-collapse text-[13px]", className)} {...rest} />
     </div>
   );

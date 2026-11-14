@@ -21,10 +21,15 @@ export function KindBadge({ kind, className }: { kind: RoundKind; className?: st
   );
 }
 
-export function StatusBadge({ status, className }: { status: RoundStatus; className?: string }) {
+/**
+ * The round's status chip. `closed` marks an `Open` round past `closes_at` whose `close` nobody
+ * has sent yet: the engine still says Open, but it accepts no order any more.
+ */
+export function StatusBadge({ status, closed = false, className }: { status: RoundStatus; closed?: boolean; className?: string }) {
+  const shownClosed = closed && status === "Open";
   return (
-    <Badge tone={STATUS_TONE[status]} led live={status === "Open" || status === "KeyRequested"} className={className} data-status={status}>
-      {STATUS_LABEL[status]}
+    <Badge tone={shownClosed ? "warning" : STATUS_TONE[status]} led live={!shownClosed && (status === "Open" || status === "KeyRequested")} className={className} data-status={status} data-closed={shownClosed || undefined}>
+      {shownClosed ? "Closed" : STATUS_LABEL[status]}
     </Badge>
   );
 }

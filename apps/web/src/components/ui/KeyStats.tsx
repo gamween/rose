@@ -33,8 +33,9 @@ export function KeyStats({ items, size = "md", className }: { items: readonly Ke
   const columns = items.length >= 4 ? "sm:grid-cols-4" : items.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2";
   return (
     <dl className={cn("grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-ink-750 bg-ink-750", columns, className)} data-key-stats>
-      {items.map((item) => (
-        <div key={item.id} className="flex min-w-0 flex-col gap-1 bg-ink-900 px-3.5 py-3 sm:px-4" data-stat={item.id}>
+      {items.map((item, index) => (
+        /* An odd count on a phone: the last stat spans the row instead of leaving an empty grey cell. */
+        <div key={item.id} className={cn("flex min-w-0 flex-col gap-1 bg-ink-900 px-3.5 py-3 sm:px-4", items.length % 2 === 1 && index === items.length - 1 && "max-sm:col-span-2")} data-stat={item.id}>
           <dt className="text-[12px] text-ink-400 font-medium">{item.term ? <Term term={item.term} align="start">{item.label}</Term> : item.label}</dt>
           <dd className="flex flex-wrap items-baseline gap-x-1.5">
             <span className={cn("tabular min-w-0 leading-tight tracking-tight text-ink-50 [overflow-wrap:anywhere]", size === "lg" ? "text-[24px]" : "text-[18px]")}>

@@ -72,6 +72,8 @@ const DAO = "test.sputnikv2.testnet";
 /** A treasury that holds no tUSDC and is not registered on the token yet. */
 const EMPTY_DAO = "empty.sputnikv2.testnet";
 const isDao = (account: unknown) => account === DAO || account === EMPTY_DAO;
+/** A DAO whose settled Tender left 28.084 tUSDC in its engine cash on NEAR. */
+const SPENT_DAO = "spent.sputnikv2.testnet";
 
 function successOutcome(account: string, receiver: string, value: string) {
   const outcome = { id: "r", outcome: { logs: [], receipt_ids: [], gas_burnt: 1, tokens_burnt: "0", executor_id: receiver, status: { SuccessValue: value } } };
@@ -87,6 +89,7 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
         case "get_holding":
           return { class_id: args.class_id, balance: `400${E18}`, locked_in_rounds: "0", encumbered: "0", claimable: "0", checkpoint: "250000000000000000" };
         case "get_cash":
+          if (args.account === SPENT_DAO) return [{ venue: "Near", amount: "28084000" }];
           return isDao(args.account) ? [] : [{ venue: "Near", amount: "1000000000" }];
         case "storage_balance_of":
           return isDao(args.account_id) ? null : { total: "0", available: "0" };
@@ -108,6 +111,7 @@ function overrides(state: { account: string; sent: string[] }): MockOverrides {
         case "get_rounds": {
           const filter = args.filter as { creator?: string; kind?: string } | null;
           if (filter?.kind === "Tender" && filter.creator === DAO) return { rounds: [{ ...ROUND_7, round_id: "8", status: "Open", creator: DAO }], next: null };
+          if (filter?.kind === "Tender" && filter.creator === SPENT_DAO) return { rounds: [{ ...ROUND_7, round_id: "9", creator: SPENT_DAO }], next: null };
           return filter?.kind === "Tender" && filter.creator === state.account && state.account ? { rounds: [{ ...ROUND_7, creator: state.account }], next: null } : { rounds: [], next: null };
         }
         default:
@@ -206,6 +210,9 @@ test.describe("issuer console", () => {
     await openConsole(page, "#distribute");
     state.account = await connectNearDemo(page);
     await expect(page.locator("[data-issuer-tab='distribute']")).toBeVisible({ timeout: 30_000 });
+    // The empty first row asks for a receiver; it is not an error yet.
+    await expect(page.getByText("Add a receiver and its units.")).toBeVisible();
+    await expect(page.getByText("Not a valid NEAR account id.")).toHaveCount(0);
     await page.getByLabel("Paste receivers").fill("halden.testnet,100\ntessaro.testnet,150");
     await page.getByLabel("Paste receivers").blur();
     await expect(page.getByText("Your free balance: 400.0000 units")).toBeVisible({ timeout: 30_000 });
@@ -252,6 +259,7 @@ test.describe("issuer console", () => {
     state.account = await connectNearDemo(page);
     const panel = page.locator("[data-dao-panel]");
     await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/The DAO must approve and execute the proposal before this time/)).toBeVisible();
     await page.locator("#tender-budget").fill("950");
     await page.locator("#tender-max").fill("9");
     await page.locator("#tender-retire").fill("0x000000000000000000000000000000000000dEaD");
@@ -259,6 +267,7 @@ test.describe("issuer console", () => {
     await page.locator("[data-read-policy]").scrollIntoViewIfNeeded();
     await page.locator("[data-read-policy]").click();
     await expect(panel.getByText(/Proposal bond 1 NEAR/)).toBeVisible({ timeout: 30_000 });
+    await expect(panel.getByText(/votes stay open 7 days: the Tender must close after its execution/)).toBeVisible();
     const funding = panel.locator("[data-dao-funding]");
     await expect(funding.locator("[data-preview]")).toContainText("952.85 USDC");
     await expect(funding).toContainText("0.00619 NEAR is missing");
@@ -287,6 +296,25 @@ test.describe("issuer console", () => {
     await expect(row).toContainText(DAO);
     await expect(page.locator("[data-tender-row='7']")).toContainText("You");
     expect(errors).toEqual([]);
+  });
+
+  test("offers a DAO's engine cash back to it as a withdraw_near_cash proposal after its Tender", async ({ page }) => {
+    const state = { account: "", sent: [] as string[] };
+    await mockChains(page, overrides(state));
+    await openConsole(page, "#results");
+    state.account = await connectNearDemo(page);
+    await page.locator("#results-creator").fill(SPENT_DAO);
+    await page.locator("[data-add-creator]").click();
+    await expect(page.locator("[data-tender-row='9']")).toContainText(SPENT_DAO, { timeout: 30_000 });
+    const card = page.locator(`[data-dao-withdrawal='${SPENT_DAO}']`);
+    await expect(card).toContainText(/28\.08\d* tUSDC sits in the DAO's engine cash on NEAR/, { timeout: 30_000 });
+    const json = page.locator(`[data-dao-json='withdraw-${SPENT_DAO}']`);
+    await expect(json).toContainText(`"receiver_id": "${MOCK.engine}"`);
+    await expect(json).toContainText('"method_name": "withdraw_near_cash"');
+    await shot(page, "dao-withdrawal");
+    await card.locator(`[data-file-proposal='withdraw-${SPENT_DAO}']`).click();
+    await expect(card.locator("[data-action-success]")).toContainText(`Proposal #9 filed to ${SPENT_DAO}`, { timeout: 30_000 });
+    expect(state.sent).toHaveLength(1);
   });
 
   test("sends the missing tUSDC to a treasury that holds none, registering it on the token first", async ({ page }) => {

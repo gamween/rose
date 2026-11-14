@@ -124,7 +124,7 @@ function ActionRow({
         </Button>
       </div>
       {children}
-      {disabledReason ? <p className="text-[11px] text-ink-400">{disabledReason}</p> : null}
+      {disabledReason && state.status !== "success" ? <p className="text-[11px] text-ink-400">{disabledReason}</p> : null}
       {state.status === "success" ? (
         <p className="flex flex-wrap items-center gap-x-3 text-[12px] text-success-400">
           {state.message}
@@ -206,7 +206,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
               title="Create the demo account with test NEAR"
               description={
                 nearDemo
-                  ? wallets.near.demoAccountExists
+                  ? wallets.near.demoAccount === "exists"
                     ? `${nearDemo.accountId} already exists on testnet.`
                     : `Creates ${nearDemo.accountId} through the NEAR testnet faucet helper (the same service near-cli-rs uses, 10 NEAR), or from the project's funder account when the helper is rate limited.`
                   : wallets.near.kind === "external"
@@ -214,7 +214,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                     : connectHint("near")
               }
               state={nearAccount}
-              disabledReason={wallets.restoring ? "Restoring your wallets…" : !nearDemo ? "Needs the NEAR demo wallet." : wallets.near.demoAccountExists ? "Already created." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !nearDemo ? "Needs the NEAR demo wallet." : wallets.near.demoAccount === "exists" ? "Already created." : null}
               onRun={() =>
                 void runNearAccount("Creating the NEAR demo account", async () => {
                   if (!nearDemo) throw new Error("No NEAR demo wallet.");
@@ -247,7 +247,7 @@ export function GetTestFundsDrawer({ open, onClose, onConnect }: { open: boolean
                 </>
               }
               state={nearMint}
-              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.near.accountId ? "Connect a NEAR wallet first." : nearDemo && !wallets.near.demoAccountExists ? "Create the demo account first." : null}
+              disabledReason={wallets.restoring ? "Restoring your wallets…" : !wallets.near.accountId ? "Connect a NEAR wallet first." : nearDemo && wallets.near.demoAccount === "missing" ? "Create the demo account first." : null}
               onRun={() =>
                 void runNearMint("Minting tUSDC on NEAR", async () => {
                   const outcome = await wallets.sendNearCall(mintTestUsdcCall(NEAR_TUSDC_ACCOUNT, NEAR_TUSDC_MINT, NEAR_TUSDC_STORAGE_DEPOSIT));

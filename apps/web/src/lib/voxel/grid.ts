@@ -211,13 +211,6 @@ export function catmullRom(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: number): V
   return [axis(0), axis(1), axis(2)];
 }
 
-/** Point on the Catmull-Rom curve at normalized parameter `t` (by segment count). */
-export function pointOnCurve(points: readonly Vec3[], t: number): Vec3 {
-  const samples = sampleCurve(points, 6);
-  const index = Math.min(samples.length - 1, Math.max(0, Math.round(t * (samples.length - 1))));
-  return samples[index]!;
-}
-
 function sampleRadius(radii: readonly number[], t: number): number {
   if (radii.length === 1) return radii[0]!;
   const scaled = t * (radii.length - 1);

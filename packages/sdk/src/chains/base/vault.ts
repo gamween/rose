@@ -172,21 +172,6 @@ export function decodePositionMinted(receipt: TransactionReceipt): { recipient: 
   return null;
 }
 
-export interface DemoSchedule { start: number; cliff: number; end: number; amount: bigint; startUnlock: bigint; cliffUnlock: bigint }
-
-/** Schedule the faucet uses for a class. */
-export async function demoFaucetSchedule(client: PublicClient, faucet: Address, classIndex: DemoClassIndex): Promise<DemoSchedule> {
-  const schedule = await client.readContract({ address: faucet, abi: demoStreamFaucetAbi, functionName: "scheduleOf", args: [classIndex] });
-  return {
-    start: schedule.start,
-    cliff: schedule.cliff,
-    end: schedule.end,
-    amount: schedule.amount,
-    startUnlock: schedule.startUnlock,
-    cliffUnlock: schedule.cliffUnlock,
-  };
-}
-
 /** Unix seconds of the account's last mint for the class (0 when never). */
 export function lastMintAt(client: PublicClient, faucet: Address, account: Address, classIndex: DemoClassIndex): Promise<bigint> {
   return client.readContract({ address: faucet, abi: demoStreamFaucetAbi, functionName: "lastMintAt", args: [account, classIndex] });

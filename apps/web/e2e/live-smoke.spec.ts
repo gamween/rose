@@ -81,6 +81,20 @@ test.describe("live smoke", () => {
     await expect(page.locator("[data-parameters]")).toBeVisible();
   });
 
+  test("rounds: a glossary definition in the round header shows in full", async ({ page, isMobile }) => {
+    await skipTour(page);
+    await page.goto("/app/rounds/0");
+    const term = page.locator("[data-key-stats] [data-term]").first();
+    await expect(term).toBeVisible({ timeout: 45_000 });
+    if (isMobile) await term.tap();
+    else await term.hover();
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toBeInViewport({ ratio: 1 });
+    const box = await tooltip.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThan(24);
+  });
+
   test("prices: settled rounds plot a clearing price history", async ({ page }) => {
     await skipTour(page);
     await page.goto("/app/prices");

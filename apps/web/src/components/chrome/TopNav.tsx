@@ -16,7 +16,7 @@ function networkDetail(): string | undefined {
   return missing === 0 ? undefined : `${String(missing)} contract${missing === 1 ? "" : "s"} not deployed yet: see Status.`;
 }
 
-/** A global action listed in the mobile menu (the activity feed and the palette, whose top-bar buttons hide on small screens). */
+/** A global action listed in the mobile menu (test funds, the activity feed and the palette). */
 export type MenuAction = { id: string; label: string; hint: string; onSelect: () => void };
 
 /**

@@ -256,7 +256,7 @@ function WalletStep({ chain, onBack, run, busy }: { chain: ChainId; onBack: () =
                 key={wallet.name}
                 name={wallet.name}
                 icon={wallet.icon}
-                hint={wallet.installed ? "Detected" : "Not installed"}
+                hint={wallet.availability === "extension" ? "Detected" : wallet.availability === "web" ? "Web wallet, no extension needed" : "Not installed"}
                 onClick={() => void run(() => wallets.connectSolana(wallet.name), `${wallet.name} connected`)}
                 busy={busy}
               />

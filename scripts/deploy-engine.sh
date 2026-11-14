@@ -5,8 +5,8 @@
 # checks the derived addresses against the MPC view. Then it checks that the code on chain is
 # exactly the local wasm (view_account code hash == sha256 of the file). The balance pays the
 # code, the full event history (1,024 entries of at most 448 bytes, which no caller pays for:
-# `new` refuses to initialize without it) and the 0.5 NEAR MPC reserve: about 15.4 NEAR with a
-# 1.03 MB wasm, hence the 17 NEAR default.
+# `new` refuses to initialize without it) and the 0.5 NEAR MPC reserve: about 15.3 NEAR with the
+# deployed 1.02 MB wasm (1,019,188 bytes), hence the 17 NEAR default.
 #
 # With --keyless (the final deployment: no upgrade is possible afterwards), and only once the code
 # check passed, every access key of the engine is deleted in one transaction (the keychain key that

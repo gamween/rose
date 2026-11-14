@@ -12,7 +12,7 @@ const sdk = vi.hoisted(() => ({ withdrawMax: vi.fn(), readStream: vi.fn(), token
 vi.mock("@/lib/deployment", async (original) => ({ ...(await original<typeof import("@/lib/deployment")>()), deployedAddress: () => VAULT }));
 vi.mock("@rose/sdk", async (original) => ({ ...(await original<typeof import("@rose/sdk")>()), ...sdk }));
 
-const { claimBaseTokensSteps, claimSolTokensSteps, classBaseStreams, confirmPayoutSteps, finishPayoutSteps, syncSolStreamSteps, withdrawBaseCashSteps, withdrawNearCashSteps } = await import("./flows");
+const { claimBaseTokensSteps, claimSolTokensSteps, classBaseStreams, confirmPayoutSteps, finishPayoutSteps, redeemSteps, syncSolStreamSteps, withdrawBaseCashSteps, withdrawNearCashSteps } = await import("./flows");
 type FlowDeps = Parameters<typeof confirmPayoutSteps>[0];
 
 function context(): StepContext & { details: string[]; links: string[] } {
@@ -238,11 +238,12 @@ describe("claims", () => {
   });
 });
 
-/** 1,104 metadata bytes of a stream paying `recipient` with `withdrawn` base units withdrawn so far. */
-function metadataBytes(recipient: PublicKey, withdrawn: bigint): Buffer {
+/** 1,104 metadata bytes of a stream paying `recipient` with `withdrawn` base units withdrawn so far, its `automatic_withdrawal` flag (459) set when `automatic`. */
+function metadataBytes(recipient: PublicKey, withdrawn: bigint, automatic = false): Buffer {
   const data = Buffer.alloc(1104);
   data.writeBigUInt64LE(withdrawn, 17);
   recipient.toBuffer().copy(data, 113);
+  data[459] = automatic ? 1 : 0;
   return data;
 }
 
@@ -269,7 +270,7 @@ describe("ended Solana streams", () => {
     };
     const [read, sync] = syncSolStreamSteps(flow, entry, 0);
     const first = await run(read!);
-    expect(first.message).toBe("600 withdrawn by the auto-claim, not booked yet");
+    expect(first.message).toBe("600 withdrawn into the vault, not booked yet");
     expect(first.ctx.links).toEqual(["https://explorer.solana.com/tx/autoClaim?cluster=devnet"]);
     const second = await run(sync!);
     expect(second.message).toBe("600 booked in the swept balance; claims pay from it");
@@ -324,5 +325,91 @@ describe("ended Solana streams", () => {
     expect((await run(plan)).message).toBe("7 from the swept balance (ended streams, synced)");
     const mixed = claimSolTokensSteps(flow, { ...source, amount: 20n }, "mint", 0, "owner").find((step) => step.id === "draws")!;
     expect((await run(mixed)).message).toBe("1 stream drawn on + 7 from the swept balance (ended streams, synced)");
+  });
+
+  it("draws on no stream that withdrew beyond the engine's accounting until a sync books it", async () => {
+    const swept = Keypair.generate().publicKey;
+    const clean = Keypair.generate().publicKey;
+    const chain = new FakeSolana();
+    chain.setAccount(swept, metadataBytes(SOL_VAULT, 30n, true));
+    chain.setAccount(clean, metadataBytes(SOL_VAULT, 0n, true));
+    const flow = deps({ solana: chain.connection() });
+    flow.views.getSolSwept = () => Promise.resolve({ balance: 0n, pending: 0n, available: 0n });
+    flow.views.getSolStreams = () =>
+      Promise.resolve([
+        { position_id: "5", withdrawable: "80", redeem_claimable: "0", stream: { metadata: swept.toBase58(), net_amount_deposited: "100", engine_withdrawn: "0" } },
+        { position_id: "6", withdrawable: "40", redeem_claimable: "0", stream: { metadata: clean.toBase58(), net_amount_deposited: "100", engine_withdrawn: "0" } },
+      ] as never);
+    const source = { kind: "holding" as const, classId: "c".repeat(64), amount: 20n, label: "Units" };
+    const plan = claimSolTokensSteps(flow, source, "mint", 0, "owner").find((step) => step.id === "draws")!;
+    expect((await run(plan)).message).toBe("1 stream drawn on");
+    await expect(run(claimSolTokensSteps(flow, { ...source, amount: 50n }, "mint", 0, "owner").find((step) => step.id === "draws")!)).rejects.toMatchObject({ title: "Not payable yet" });
+  });
+});
+
+describe("Solana redeem in kind", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const metadata = Keypair.generate().publicKey;
+  const solPosition = { positionId: 4n, classId: "c".repeat(64), source: { kind: "SolanaStream", metadata: metadata.toBase58() }, allocation: 1000n, depositor: "a.testnet", depositedAt: 0n, state: "Held" } as Position;
+
+  function redeemFlow(chain: FakeSolana, engineWithdrawn: () => string, drawing: string | null = null) {
+    const flow = deps({ solana: chain.connection(), vaultSol: SOL_VAULT.toBase58(), calls: { redeem: () => ({ receiverId: "engine", methodName: "redeem", args: {}, gas: 1n, deposit: 0n }) as FunctionCall } as Partial<EngineCalls> });
+    flow.views.getSolStreams = () => Promise.resolve([{ position_id: "4", withdrawable: "100", redeem_claimable: "50", stream: { metadata: metadata.toBase58(), engine_withdrawn: engineWithdrawn(), net_amount_deposited: "1000", end_time: 4_000_000_000, drawing } }] as never);
+    flow.sendNearCall = (request) => {
+      flow.sent.push(request);
+      return Promise.resolve(outcome(`near${String(flow.sent.length)}`, request.methodName === "sync_sol_stream" ? [sweptLog("300")] : []));
+    };
+    const steps = redeemSteps(flow, solPosition, "owner", "mint", 0);
+    const step = (id: string) => steps.find((candidate) => candidate.id === id)!;
+    return { flow, steps, step };
+  }
+
+  function chainWith(withdrawn: bigint, automatic = false): FakeSolana {
+    const chain = new FakeSolana();
+    chain.setAccount(metadata, metadataBytes(SOL_VAULT, withdrawn, automatic));
+    chain.history.set(metadata.toBase58(), [{ signature: "sweep", err: null }]);
+    return chain;
+  }
+
+  it("checks the stream at finality before the nonce and again before the request", () => {
+    const { steps } = redeemFlow(chainWith(200n), () => "200");
+    expect(steps.map((step) => step.id)).toEqual(["check", "nonce", "recheck", "request", "sign", "broadcast", "confirm"]);
+  });
+
+  it("goes ahead with no NEAR call when the engine's accounting matches the stream", async () => {
+    const { flow, step } = redeemFlow(chainWith(200n), () => "200");
+    expect((await run(step("check"))).message).toBe("No automatic withdrawal and nothing withdrawn outside the engine's accounting");
+    expect(flow.sent).toEqual([]);
+  });
+
+  it("refuses a stream whose sender switched automatic withdrawal on, before any NEAR call", async () => {
+    const { flow, step } = redeemFlow(chainWith(200n, true), () => "200");
+    await expect(run(step("check"))).rejects.toMatchObject({ title: "Redeem in kind refused", retryable: false });
+    expect(flow.sent).toEqual([]);
+  });
+
+  it("syncs what the stream withdrew beyond the engine's accounting first, once, even when the engine view lags", async () => {
+    const { flow, step } = redeemFlow(chainWith(500n), () => "200");
+    const checked = await run(step("check"));
+    expect(checked.message).toBe("300 withdrawn outside the engine's accounting, synced to the swept balance first");
+    expect(checked.ctx.links).toEqual(["https://explorer.solana.com/tx/sweep?cluster=devnet", "https://testnet.near.rocks/tx/near1", "https://nearvalidate.org/txns/near1?network=testnet"]);
+    expect((await run(step("recheck"))).message).toBe("No automatic withdrawal and nothing withdrawn outside the engine's accounting");
+    expect(flow.sent.map((request) => request.methodName)).toEqual(["sync_sol_stream"]);
+  });
+
+  it("refuses right before the request when the sender switched automatic withdrawal on after the first check", async () => {
+    const chain = chainWith(200n);
+    const { flow, step } = redeemFlow(chain, () => "200");
+    await run(step("check"));
+    chain.setAccount(metadata, metadataBytes(SOL_VAULT, 200n, true));
+    await expect(run(step("recheck"))).rejects.toMatchObject({ title: "Redeem in kind refused" });
+    expect(flow.sent).toEqual([]);
+  });
+
+  it("fails closed, and retryably, on an unreadable or lagging read and on an unconfirmed payout", async () => {
+    await expect(run(redeemFlow(new FakeSolana(), () => "200").step("check"))).rejects.toMatchObject({ title: "Stream unreadable", retryable: true });
+    await expect(run(redeemFlow(chainWith(100n), () => "200").step("check"))).rejects.toMatchObject({ title: "Stale read", retryable: true });
+    await expect(run(redeemFlow(chainWith(500n), () => "200", "15").step("check"))).rejects.toMatchObject({ title: "Payout unconfirmed", retryable: true });
   });
 });

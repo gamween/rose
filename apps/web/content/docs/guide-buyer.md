@@ -23,7 +23,7 @@ You see each balance in the top bar next to the connected wallet.
 
 Open `/app/rounds` and filter by type (Exit or Advance), class and status. Each card shows the class, the cash venue, the countdown and the sealed book: the number of bids and their public collateral.
 
-Open the round. You see the public parameters, the unlock timeline of the class, the remaining lock duration at settlement, and the "Learn more" links. In an Exit you are buying units that inherit the exact schedule. In an Advance you are buying a senior claim on the first tokens that unlock from the holder's units; see [Concepts](/docs/concepts#advance).
+Open the round. The header shows the countdown and the key numbers (maximum price, orders, cash escrowed, locked share at close); the action card beside it is where you place your order; the "Sealed book" tab ("Book" once orders are opened) lists every sealed order without its price, and the "Details" tab holds every public parameter of the round and its class. In an Exit you are buying units that inherit the exact schedule. In an Advance you are buying a senior claim on the first tokens that unlock from the holder's units; see [Concepts](/docs/concepts#advance).
 
 Check the venue: your escrow, bond and, if you win, your refund live there. Fund your cash balance in that venue first if needed: on NEAR, deposit tUSDC into your engine cash balance; on Base, `depositCash` to RoseVault, which the app then registers on NEAR with `register_base_cash` and a ForeignTx proof.
 
@@ -39,12 +39,12 @@ You cannot change or withdraw a bid once placed.
 ## After close
 
 1. After `closes_at`, anyone can click "Close round"; the engine requests the round key from the MPC network. You see the key release event.
-2. Click "Finalize". The app opens every bid and ask; your browser can also decrypt the full book locally. After the reveal window, `clear` runs and the supply and demand curves animate into `P*`.
+2. Click "Open every order". The app opens every bid and ask; your browser can also decrypt the full book locally. After the reveal window, `clear` runs and the supply and demand curves animate into `P*`.
 3. You see your fill: full if your price level fit entirely in the traded volume, pro rata if your level was the marginal one (which can be above `P*`), none if your limit was below `P*` or your level came after the marginal one. You pay `P*`, never your limit.
 
 ## Claim
 
-Click "Claim" on the round or in your portfolio.
+Once the round has cleared, click "Settle my order" in the round's action card (settlement is open to anyone, so another participant's "Settle every order" may already have done it), then "Claim" in your portfolio to pull what it credited.
 
 - Exit: you receive the units, accruing to you from `ts = closes_at`. Your unused escrow and your bond are refunded in the venue.
 - Advance: you receive lien shares. Accruals of the encumbered units flow to you in proportion to your share until the claim is delivered.

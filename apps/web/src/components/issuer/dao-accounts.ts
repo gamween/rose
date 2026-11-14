@@ -4,6 +4,8 @@
  * the DAO, not the connected wallet, as its creator.
  */
 
+import type { Round } from "@rose/sdk";
+
 export const DAO_ACCOUNTS_KEY = "rose.issuer.daos";
 const MAX_REMEMBERED = 8;
 
@@ -57,4 +59,9 @@ export function forgetDaoAccount(account: string, storage: Storage | null = stor
 /** Every creator the Results tab lists, the connected account first, without duplicates. */
 export function resultCreators(connected: string | null, daos: readonly string[]): string[] {
   return [...new Set([...(connected ? [connected] : []), ...daos])];
+}
+
+/** The other creators (DAOs) of ended Tenders in the NEAR venue, once each: their unspent budget waits in their engine cash. */
+export function endedDaoCreators(rounds: readonly Pick<Round, "creator" | "venue" | "status">[], connected: string | null): string[] {
+  return [...new Set(rounds.filter((round) => round.creator !== connected && round.venue === "Near" && (round.status === "Settled" || round.status === "Cancelled")).map((round) => round.creator))];
 }

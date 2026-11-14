@@ -20,8 +20,12 @@ const EVENTS_WINDOW = 400;
 
 export type PayoutEntry = { payout: PayoutView; state: PayoutState };
 
-/** A vault stream of a Solana class, with the `amount_withdrawn` its metadata shows on chain once it ended (null before, or unreadable). */
-export type SolStreamRow = { entry: SolStreamStateView; phase: SolStreamPhase; onChainWithdrawn: bigint | null };
+/**
+ * A vault stream of a Solana class, with what its metadata shows on chain at `finalized`
+ * (`amount_withdrawn` and the `automatic_withdrawal` flag its sender can switch on after the
+ * deposit); both null when the stream could not be read.
+ */
+export type SolStreamRow = { entry: SolStreamStateView; phase: SolStreamPhase; onChainWithdrawn: bigint | null; automaticWithdrawal: boolean | null };
 
 /** A Solana class the account holds or can claim: its vault streams and its swept balance (`get_sol_swept`). */
 export type SolClassView = { classId: string; swept: { balance: bigint; pending: bigint; available: bigint }; streams: SolStreamRow[] };
@@ -125,10 +129,11 @@ async function payoutForeign(payout: PayoutView): Promise<ForeignState> {
   }
 }
 
-/** `amount_withdrawn` of an ended stream's metadata at `finalized`, the commitment the engine's sync proves. */
-async function onChainWithdrawn(entry: SolStreamStateView): Promise<bigint | null> {
+/** A stream's metadata at `finalized`, the commitment the engine's sync proves, or null when it cannot be read. */
+async function onChainState(entry: SolStreamStateView): Promise<{ onChainWithdrawn: bigint; automaticWithdrawal: boolean } | null> {
   try {
-    return (await readStreamflowStream(solanaConnection(), new PublicKey(entry.stream.metadata), "finalized")).metadata.amountWithdrawn;
+    const { metadata } = await readStreamflowStream(solanaConnection(), new PublicKey(entry.stream.metadata), "finalized");
+    return { onChainWithdrawn: metadata.amountWithdrawn, automaticWithdrawal: metadata.automaticWithdrawal };
   } catch {
     return null;
   }
@@ -139,8 +144,8 @@ async function solClassView(classId: string, nowSec: bigint, signal: AbortSignal
   const [entries, swept] = await Promise.all([views.getSolStreams(classId, { signal }), views.getSolSwept(classId, { signal })]);
   const streams = await Promise.all(
     entries.map(async (entry): Promise<SolStreamRow> => {
-      const phase = solStreamPhase(entry.stream, nowSec);
-      return { entry, phase, onChainWithdrawn: phase === "ended" ? await onChainWithdrawn(entry) : null };
+      const chain = await onChainState(entry);
+      return { entry, phase: solStreamPhase(entry.stream, nowSec), onChainWithdrawn: chain?.onChainWithdrawn ?? null, automaticWithdrawal: chain?.automaticWithdrawal ?? null };
     }),
   );
   return { classId, swept, streams };

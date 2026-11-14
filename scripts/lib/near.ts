@@ -6,7 +6,8 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Account, actions, JsonRpcProvider, KeyPairSigner, type KeyPairString } from "near-api-js";
+import { Account, actions, baseEncode, JsonRpcProvider, KeyPairSigner, PublicKey, type Action, type KeyPairString } from "near-api-js";
+import { InvalidNonceError } from "near-api-js/rpc-errors";
 import {
   describeFailure,
   EngineViews,
@@ -24,6 +25,15 @@ export const ONE_NEAR = 10n ** 24n;
 export const TGAS = 10n ** 12n;
 
 export const rpc = new NearRpc({ endpoints: NEAR_RPC_ENDPOINTS, timeoutMs: 60_000 });
+/**
+ * The primary endpoint alone, for the waits on a transaction's final outcome: FastNEAR holds a `tx`
+ * wait to the node's own limit, dRPC's free plan cuts it after about 2 s (docs/verification.md,
+ * "Which endpoints hold a transaction wait"), and `rpc` passes an endpoint over for 10 s after it
+ * refused a request, so a wait through `rpc` could land on dRPC.
+ */
+const waitRpc = new NearRpc({ endpoints: NEAR_RPC_ENDPOINTS.slice(0, 1), timeoutMs: 60_000 });
+/** The same endpoints, the fallback first: a sent transaction is looked up on another provider than the one that took it. */
+const lookupRpc = new NearRpc({ endpoints: [...NEAR_RPC_ENDPOINTS].reverse(), timeoutMs: 20_000 });
 
 export function engineViews(engine: string): EngineViews {
   return new EngineViews(rpc, engine);
@@ -102,7 +112,7 @@ function resultOf(outcome: FinalExecutionOutcome): NearResult {
 
 /** The final outcome of a transaction sent earlier (for example by a run that stopped before recording its result). */
 export async function nearOutcome(hash: string, senderId: string): Promise<NearResult> {
-  return resultOf(await withRetry(`tx ${hash}`, () => rpc.transactionStatus(hash, senderId, "FINAL")));
+  return resultOf(await finalOutcome(hash, senderId));
 }
 
 /** True for an RPC answer that rejected the request before it reached the chain (HTTP or JSON-RPC 429). */
@@ -121,11 +131,10 @@ export function failedBeforeSigning(error: unknown): boolean {
 }
 
 /**
- * Runs a signing call again when the RPC rate-limited it or failed while the transaction was being
- * built. Neither request reached the chain, so a new attempt (with a fresh nonce) cannot duplicate
- * a transaction.
+ * Runs the building and signing of a transaction again when the RPC rate-limited one of its reads
+ * or answered a non-JSON page. Nothing was sent yet, so a new attempt cannot duplicate anything.
  */
-async function retryRateLimited<T>(what: string, run: () => Promise<T>): Promise<T> {
+async function retryBeforeSending<T>(what: string, run: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await run();
@@ -137,15 +146,165 @@ async function retryRateLimited<T>(what: string, run: () => Promise<T>): Promise
   }
 }
 
+/** HTTP statuses near-api-js turns into an error carrying the status as `cause`, besides 429: the server, its gateway or its own wait failed. */
+const SERVER_FAILURES: readonly unknown[] = [408, 500, 502, 503];
+
+/**
+ * True for a failed send after which the transaction may simply not have arrived: a rate limit
+ * (FastNEAR answers 429 to some `send_tx` it forwarded, seen live), a server or gateway failure
+ * (the resends near-api-js would make on its own, which `sendOnce` makes instead), a non-JSON page
+ * from a proxy, or a transport failure (connection reset, timeout).
+ */
+function resendable(error: unknown): boolean {
+  if (rateLimited(error) || error instanceof SyntaxError || error instanceof TypeError) return true;
+  if (error instanceof Error && SERVER_FAILURES.includes((error as Error & { cause?: unknown }).cause)) return true;
+  return error instanceof Error && /fetch failed|timed? ?out|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(error.message);
+}
+
+/** How `sendOnce` reaches the network for one signed transaction. */
+export interface OneTransaction {
+  /** Sends the signed transaction and waits until it is final. */
+  send: () => Promise<FinalExecutionOutcome>;
+  /** Whether the network knows the transaction's hash; null when the lookup itself failed. */
+  known: () => Promise<boolean | null>;
+  /** The final outcome of a transaction the network knows. */
+  final: () => Promise<FinalExecutionOutcome>;
+  wait: (ms: number) => Promise<void>;
+}
+
+/**
+ * The first send of a transaction was refused for its nonce (another transaction of the key used
+ * it, or the cached nonce was stale) and the network does not know the transaction: its bytes
+ * never executed, so signing it again with a fresh nonce cannot duplicate it.
+ */
+export class StaleNonceError extends Error {
+  readonly refusal: InvalidNonceError;
+
+  constructor(refusal: InvalidNonceError) {
+    super(refusal.message);
+    this.name = "StaleNonceError";
+    this.refusal = refusal;
+  }
+}
+
+/**
+ * Sends one signed transaction without ever executing it twice. An RPC can fail a `send_tx` it
+ * already forwarded (FastNEAR answered HTTP 429 to three that executed), so after any failed send
+ * the transaction is looked up by its hash, known before sending, on the other endpoint: known, its
+ * final outcome is returned; unknown after a rate limit or a transport failure, the same signed
+ * bytes are sent again, which the nonce makes harmless; otherwise the error stands. A lookup that
+ * fails is retried, and the send is never repeated while the network may know the transaction. A
+ * first send refused for its nonce throws `StaleNonceError`, the one case the caller may sign again.
+ */
+export async function sendOnce(what: string, hash: string, transaction: OneTransaction): Promise<FinalExecutionOutcome> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await transaction.send();
+    } catch (error) {
+      let known = await transaction.known();
+      for (let lookup = 1; known === null && lookup <= 4; lookup += 1) {
+        await transaction.wait(3_000 * lookup);
+        known = await transaction.known();
+      }
+      if (known === true) {
+        log(`  ${what}: the send failed (${error instanceof Error ? error.message : String(error)}) but the network has ${hash}; waiting for its final outcome`);
+        return transaction.final();
+      }
+      if (known === false && attempt === 0 && error instanceof InvalidNonceError) throw new StaleNonceError(error);
+      if (known === null || !resendable(error) || attempt >= 8) throw error;
+      log(`  ${what}: the send failed (${error instanceof Error ? error.message : String(error)}) and the network does not know ${hash}; sending the same signed transaction again in ${5 * (attempt + 1)} s`);
+      await transaction.wait(5_000 * (attempt + 1));
+    }
+  }
+}
+
+/** The `cause.name` of a JSON-RPC error answered by the NEAR RPC. */
+function rpcCause(error: unknown): string | undefined {
+  return error instanceof NearRpcError ? (error.data as { cause?: { name?: string } } | undefined)?.cause?.name : undefined;
+}
+
+/**
+ * The final outcome of a transaction the network knows, through the primary endpoint only
+ * (`waitRpc`). The node's own wait ends after about 10 s with `TIMEOUT_ERROR` when finality takes
+ * longer (an MPC callback), so it asks again.
+ */
+async function finalOutcome(hash: string, senderId: string): Promise<FinalExecutionOutcome> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await waitRpc.transactionStatus(hash, senderId, "FINAL");
+    } catch (error) {
+      const transient = error instanceof NearRpcError && (error.kind === "unreachable" || error.kind === "http" || rpcCause(error) === "TIMEOUT_ERROR" || /time(d)? ?out/i.test(error.message));
+      if (!transient || attempt >= 20) throw error;
+      log(`  tx ${hash}: not final yet (${error.message}), asking again`);
+      await sleep(3_000);
+    }
+  }
+}
+
+/** Whether the network knows `hash` (`tx` with `wait_until` NONE answers `UNKNOWN_TRANSACTION` otherwise); null when it cannot tell. */
+async function transactionKnown(hash: string, senderId: string): Promise<boolean | null> {
+  try {
+    await lookupRpc.transactionStatus(hash, senderId, "NONE");
+    return true;
+  } catch (error) {
+    return rpcCause(error) === "UNKNOWN_TRANSACTION" ? false : null;
+  }
+}
+
+/**
+ * A provider that posts each request exactly once, for `send_tx`: near-api-js 7.4.0 posts the same
+ * request again on HTTP 500, 408 or 503 and on a fetch that throws, up to `retries` attempts in
+ * all, so a send it repeated after the node forwarded the first one would happen inside one
+ * `sendOnce` attempt, out of its sight. `retries` counts attempts: 0 would post nothing.
+ */
+export function singleSendProvider(url: string): JsonRpcProvider {
+  return new JsonRpcProvider({ url }, { retries: 1 });
+}
+
 /** A NEAR account that signs transactions. */
 export class NearActor {
   readonly accountId: string;
-  private readonly account: Account;
+  private account: Account;
+  /** Reads made while building a transaction (access key nonce, recent block hash), retried by near-api-js: nothing is sent yet. */
+  private readonly provider: JsonRpcProvider;
+  /** Sends through the primary endpoint, the only public one that holds a `send_tx` wait; `sendOnce` owns every resend. */
+  private readonly sendProvider: JsonRpcProvider;
+  private readonly signer: KeyPairSigner;
 
   constructor(accountId: string, secretKey: KeyPairString) {
     this.accountId = accountId;
-    const provider = new JsonRpcProvider({ url: NEAR_RPC_ENDPOINTS[0] ?? "" }, { retries: 6, wait: 2_000, backoff: 1.6 });
-    this.account = new Account(accountId, provider, KeyPairSigner.fromSecretKey(secretKey));
+    this.provider = new JsonRpcProvider({ url: NEAR_RPC_ENDPOINTS[0] ?? "" }, { retries: 6, wait: 2_000, backoff: 1.6 });
+    this.sendProvider = singleSendProvider(NEAR_RPC_ENDPOINTS[0] ?? "");
+    this.signer = KeyPairSigner.fromSecretKey(secretKey);
+    this.account = new Account(accountId, this.provider, this.signer);
+  }
+
+  /**
+   * Signs one transaction and sends it until it is final, never executing it twice (`sendOnce`).
+   * Signs again only on `StaleNonceError`, with a fresh `Account` whose nonce cache reads the key's
+   * nonce from the chain again (near-api-js's own recovery, which this replaces).
+   */
+  private async execute(what: string, receiverId: string, transactionActions: Action[]): Promise<FinalExecutionOutcome> {
+    for (let resign = 0; ; resign += 1) {
+      const signed = await retryBeforeSending(what, async () => {
+        const transaction = await this.account.createTransaction({ receiverId, actions: transactionActions, publicKey: await this.signer.getPublicKey() });
+        return this.signer.signTransaction(transaction);
+      });
+      const hash = baseEncode(signed.txHash);
+      try {
+        return await sendOnce(what, hash, {
+          send: async () => (await this.sendProvider.sendTransactionUntil(signed.signedTransaction, "FINAL")) as unknown as FinalExecutionOutcome,
+          known: () => transactionKnown(hash, this.accountId),
+          final: () => finalOutcome(hash, this.accountId),
+          wait: sleep,
+        });
+      } catch (error) {
+        if (!(error instanceof StaleNonceError)) throw error;
+        if (resign >= 5) throw error.refusal;
+        log(`  ${what}: the nonce of ${hash} was already used; signing again with a fresh nonce`);
+        this.account = new Account(this.accountId, this.provider, this.signer);
+      }
+    }
   }
 
   /**
@@ -154,15 +313,7 @@ export class NearActor {
    * (the failure is then in the result).
    */
   async call(fc: FunctionCall, options: { allowFailure?: boolean } = {}): Promise<NearResult> {
-    const response = await retryRateLimited(`${fc.receiverId}.${fc.methodName}`, () =>
-      this.account.signAndSendTransaction({
-        receiverId: fc.receiverId,
-        actions: [actions.functionCall(fc.methodName, fc.args, fc.gas, fc.deposit)],
-        waitUntil: "FINAL",
-        throwOnFailure: false,
-      }),
-    );
-    const result = resultOf(response as unknown as FinalExecutionOutcome);
+    const result = resultOf(await this.execute(`${fc.receiverId}.${fc.methodName}`, fc.receiverId, [actions.functionCall(fc.methodName, fc.args, fc.gas, fc.deposit)]));
     if (result.failure !== null && options.allowFailure !== true) {
       throw new Error(`${this.accountId} -> ${fc.receiverId}.${fc.methodName} failed: ${result.failure} (${result.hash})`);
     }
@@ -170,13 +321,13 @@ export class NearActor {
   }
 
   async transfer(receiverId: string, amount: bigint): Promise<string> {
-    const response = await retryRateLimited(`transfer to ${receiverId}`, () => this.account.transfer({ receiverId, amount }));
-    return (response as unknown as FinalExecutionOutcome).transaction.hash;
+    return (await this.execute(`transfer to ${receiverId}`, receiverId, [actions.transfer(amount)])).transaction.hash;
   }
 
+  /** Creates `newAccountId`, a sub-account of this account, with a full-access key and `amount`. */
   async createSubAccount(newAccountId: string, publicKey: string, amount: bigint): Promise<string> {
-    const response = await retryRateLimited(`create ${newAccountId}`, () => this.account.createAccount({ newAccountId, publicKey, nearToTransfer: amount }));
-    const outcome = response as unknown as FinalExecutionOutcome;
+    if (!newAccountId.endsWith(`.${this.accountId}`)) throw new Error(`${newAccountId} is not a sub-account of ${this.accountId}`);
+    const outcome = await this.execute(`create ${newAccountId}`, newAccountId, [actions.createAccount(), actions.transfer(amount), actions.addFullAccessKey(PublicKey.from(publicKey))]);
     const failure = finalFailure(outcome);
     if (failure !== null) throw new Error(`creating ${newAccountId} failed: ${failure}`);
     return outcome.transaction.hash;

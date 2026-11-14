@@ -1666,3 +1666,201 @@ condition), 4.7 min.
 - `cd apps/web && ROSE_LIVE_SMOKE=1 PLAYWRIGHT_BASE_URL=https://rose-rounds.vercel.app pnpm exec playwright test --workers=1` against it: 145 passed, 25 skipped by their own conditions, exit 0.
 - Keyless: `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"engine-v2.rose-app.testnet"}}' | jq -c .result.keys` returns `[]`.
 - Two consecutive counted full review passes, Fable 5.1 on `3044a44` then Opus 5.5 on `3a99e6e`: 0 blockers and 0 majors each (`docs/security.md`, review history rows 17 and 18); their one minor each is fixed.
+
+## Audit before submission (2026-11-14)
+
+- IBE wasm rebuilt with local paths remapped: `packages/ibe-wasm/build-wasm.sh` now passes
+  `--remap-path-prefix` for the cargo home and the checkout, so the committed binary no longer embeds
+  the builder's home directory in its panic locations. Check: `strings packages/ibe-wasm/pkg/rose_ibe_bg.wasm | grep -c /Users/`
+  prints `0`. `rose_ibe_bg.wasm` is now 215,341 bytes (216,109 before); `pnpm --filter @rose/ibe-wasm test`
+  (8 tests, live-key round trip) exit 0.
+
+## Audit fixes: contracts, SDK and scripts (2026-11-14)
+
+Facts behind the fixes of the contracts, SDK and scripts audit of `be1c1fa`. Nothing was signed,
+sent or deployed: the Streamflow rows are `simulateTransaction` calls with `sigVerify: false`, which
+need no key.
+
+### A stream's sender can switch automatic withdrawal on after the deposit
+
+The simulations build Streamflow's `update` instruction with the pinned `@streamflow/stream` 13.4.0
+(`updateStreamInstruction({ id, ...params }, HqDGZjaVRXJ9MGRQEw7qDc2rAr6iH1n1kAQdCZaCMfMZ, { authority,
+metadata, withdrawor: wdrwhnCv4pzW8beKsbPa4S2UDZrXenjg16KJdKSpb5u, systemProgram })`, loaded with
+`createRequire("./scripts/package.json")`), put one or more of them in a transaction whose fee payer
+is the authority, and call `simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true,
+accounts: { encoding: "base64", addresses: [stream] } })` on `https://api.devnet.solana.com`; the
+post-state is read at byte 457 (`cancelable_by_sender`), 459 (`automatic_withdrawal`), 460, 461 and
+527 (`withdraw_frequency`). The audit ran them at Unix time 1,794,618,393; the rows marked "re-run"
+were run again for this fix.
+
+| Fact | Command | Result |
+|---|---|---|
+| The stream is a position of the deployed engine, at the vault | `call_function` `get_sol_deposit {"metadata":"Cg3hynP4CwMe7sTX1hSwiWXJoTFxPDAea8beTXvd7d8A"}` on `engine-v2.rose-app.testnet` (finality `final`, `https://near-testnet.drpc.org`); `getAccountInfo(stream, "finalized")` | `stage: { Registered: { position_id: "1" } }` (block 277,589,312); recipient `EqywuZpmf7i4ycvYqwzxEiDKTq94RifUSjH9pQX1SdWC` (the engine's `vault/sol`), sender `6uMy1iYdq9EpL6W3EjsKdUZfrJ5G1shD1Da1QNe8gH7n`, `automatic_withdrawal` 0, `cancelable_by_sender` 0, `transferable_by_sender` 0, `transferable_by_recipient` 1, period 2,592,000 |
+| The sender can switch it on (re-run) | `update { enableAutomaticWithdrawal: true }`, authority = the sender | `err: null` (slot 522,018,900): post-state `automatic_withdrawal` 1, `withdraw_frequency` 2,592,000 (the period) |
+| Not below the period | the same with `withdrawFrequency` 60, 3,600 or 86,400; then 2,592,000 | `InvalidArgument` for the three; `err: null` for 2,592,000 |
+| Not back off (re-run) | `enableAutomaticWithdrawal: true` then `enableAutomaticWithdrawal: false` in one transaction | `InstructionError [1, "InvalidArgument"]`: the second instruction fails |
+| Every other power the engine relies on stays off (re-run for the first) | `cancelableBySender: true`; `transferableBySender: true`; `transferableByRecipient: false` | `InstructionError [0, "InvalidArgument"]` each. Positive controls on other devnet streams: `cancelableBySender: false` on `1Ca8xDHP…YwgN` and `transferableBySender: false` on `12BasSQv…kChS` succeed, `transferableByRecipient: true` on `1NAPDn2u…WcZ` succeeds, and turning any of them back fails |
+| Only the sender, and no rate change | `amountPerPeriod: 1` with the sender; a name-only update with another key (`HWx7jD36…n1Ng`) | error 131 "Authority does not have permission for this action" for both |
+| Nothing was changed (re-run) | `getAccountInfo(stream, "finalized")` after the simulations | identical to the first row |
+| Streamflow's withdrawor acts on the flag before a stream's end | `getProgramAccounts(HqDGZ…CMfMZ, { filters: [{ dataSize: 1104 }, { memcmp: { offset: 459, bytes: "2" } }, { memcmp: { offset: 671, bytes: "1" } }] })` (flag 1, `closed` 0), then `getSignaturesForAddress` and `getTransaction` for the signers | `12gyFvEd…ZRn4` (`end_time` 1,974,712,778, `last_withdrawn_at` 1,793,800,591): 5 of its last 6 transactions signed by `wdrwhnCv…pb5u`, e.g. [66986xnt…SrEw](https://explorer.solana.com/tx/66986xntn3pWrt1z8QkPSSq9Ypbrqs7dSHWv2z7xqTyNuWxxP486GN4nDJCRk7g4nfkXfDMXAzaQ4WzVNnKrSrEw?cluster=devnet); `6FnBaEnR…UbYe`: 6 of 6; `7b8FLsQV…dh4`: 3 of 5 |
+
+What follows on the deployed engine (it checks the flag at attribution and registration only): the
+withdrawor moves the stream's unlocked tokens into the vault's token account every
+`withdraw_frequency` seconds (no shorter than the period), `engine_withdrawn` does not move, and a `redeem` prices the redeemer's payment from
+`engine_withdrawn`, so a redeem made before a `sync_sol_stream` charges the redeemer for tokens
+already in the vault, and after the release no sync can book them. The app and the SDK now check
+the stream at `finalized` before a redeem (`solRedeemSafety`); `docs/security.md` gives the residual.
+
+### NEAR testnet RPC fallback
+
+| Fact | Command | Result |
+|---|---|---|
+| The former SDK fallback is deprecated and refused this query (14 November, before 01:28 UTC; it answered again at 02:48 UTC, see "Audit delta fixes") | `curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"engine-v2.rose-app.testnet","method_name":"get_sol_deposit","args_base64":"<base64 of {\"metadata\":\"Cg3h…d7d8A\"}>"}}'` | HTTP 429, error -429 "WARNING! THIS ENDPOINT IS DEPRECATED! STOP USING IT NOW!" |
+| FastNEAR's second host shares the primary's per-IP limit | 60 `view_account` of `engine-v2.rose-app.testnet` to `https://test.rpc.fastnear.com` (`seq 1 60 \| xargs -P 12 curl …`), then 10 to `https://rpc.testnet.fastnear.com`, then 5 to the first again | 32 × 200 and 28 × 429; then 2 × 200 and 8 × 429; then 5 × 429 |
+| dRPC answers, with CORS, and is another provider | the `get_sol_deposit` query above at `https://near-testnet.drpc.org`; `curl -s -i -X OPTIONS -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' https://near-testnet.drpc.org` | the deposit record (block 277,589,302); HTTP/2 204 with `access-control-allow-origin: https://rose-rounds.vercel.app`. It is the SDK's fallback (`NEAR_TESTNET_RPC_FALLBACK`); its free plan times out long `tx` waits (above, "Fable pass 1 fixes: web"), and staging deployment 3 already ran `e2e-solana-stream.mjs` through it |
+| Lava's public NEAR testnet endpoints are gone | the same query at `https://neart.lava.build` and `https://near-testnet.lava.build` | HTTP 410 "This endpoint has been discontinued." |
+
+### Engine ABI snapshot for the SDK's binding check
+
+| Fact | Command | Result |
+|---|---|---|
+| The engine source is the deployed one | `git diff --quiet 0524b33 HEAD -- contracts/engine/src ':!contracts/engine/src/tests' contracts/engine/Cargo.toml Cargo.lock` | exit 0 (only test files changed since `0524b33`, the commit deployed as `engine-v2.rose-app.testnet`) |
+| The committed ABI is that engine's | `cargo near abi` in `contracts/engine` (cargo-near 0.22.0, Rust 1.95.0), then `cp target/near/rose_engine/rose_engine_abi.json packages/sdk/test/engine/` | 289,048 bytes, sha256 `b5a5a7f2413a857e4de24529fec4eb631cbf92fdf8682e3f62ad0e70cb6a08a7`, 105 functions, schema 0.4.0; its `body` equals the ABI of the 2026-11-06 `cargo near build` (which only adds `metadata.build` and `metadata.wasm_hash`) |
+| The check runs on a clean clone | `pnpm --filter @rose/sdk exec vitest run test/engine/abi.test.ts` with and without `target/near/rose_engine/rose_engine_abi.json` | 5 passed with a local build (its body equals the snapshot's); 4 passed and the local-build comparison skipped without one |
+
+### Licence of the vendored Sablier interface, and RoseVault's bytecode
+
+| Fact | Command | Result |
+|---|---|---|
+| Upstream licence of every file `contracts/evm/src/interfaces/ISablierLockup.sol` draws from | `gh api repos/sablier-labs/evm-monorepo/git/refs/tags/lockup@v4.0.1`; `curl -s https://raw.githubusercontent.com/sablier-labs/evm-monorepo/lockup%40v4.0.1/<file> \| head -1` for `lockup/src/types/Lockup.sol`, `lockup/src/types/LockupLinear.sol`, `lockup/src/interfaces/ISablierLockup.sol`, `ISablierLockupState.sol`, `ISablierLockupLinear.sol` | tag on commit `fae38dc7e43c6cab6de8f97124c559f42ed5b77a`; all five start with `// SPDX-License-Identifier: GPL-3.0-or-later`, so the vendored file carries that identifier again (it said MIT) |
+| The deployed RoseVault is a build of this repository before that change | `cast code 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe --rpc-url https://sepolia.base.org` against `forge inspect RoseVault deployedBytecode` at `5328268` | 13,255 bytes each; they differ only in 21 immutable slots (the Lockup and signer addresses, the vault's own address and the cached EIP-712 values), and the trailing CBOR metadata is identical (`a2646970667358221220` `5bdec11066f0e57b948fedd6d7514bb076f94d614b75b003a0c6478a0e38fd3d` `64736f6c63430008260033`, solc 0.8.38) |
+| The licence line changes RoseVault's metadata hash, not its code | `forge build`, then `forge inspect RoseVault deployedBytecode` after the change, compared without the trailing CBOR metadata (its length in the last two bytes, 51) | code identical; the metadata's IPFS hash becomes `dc96fb01b4893d3cb8ac3147b1507ccb9d5e03cc944a693db5b9c76de94458d2`, since solc hashes every source file's text. The deployed vault keeps `5bdec110…`: a build of `5328268` or any earlier commit reproduces it in full, a build of a later commit up to that hash |
+
+### Production dependency advisories
+
+| Fact | Command | Result |
+|---|---|---|
+| What `pnpm audit` reports, and which fix fits | `pnpm audit --prod --json`; the declared ranges from each dependent's `package.json` under `node_modules/.pnpm` | 13 advisories before the change. `bn.js` 5.2.2, a direct dependency of `apps/web`, is fixed in 5.2.3 (same major; the scripts already pinned it): bumped. No other fix is in its dependent's range: `toml` `^3.0.0` (`@coral-xyz/anchor` 0.32.1) against 5.0.1, `stream-json` `^1.9.1` (`jayson` 4.3.0) against 3.6.0, `uuid` `^9.0.0` (`@solflare-wallet/sdk` 1.4.2) and `^8.3.2` (jayson) against 11.1.1, and `bigint-buffer` (`@solana/buffer-layout-utils` `^1.1.5`) has no fixed release. After the bump: 12 (7 high, 5 moderate), recorded as accepted in `docs/security.md` |
+| Where the vulnerable code is reached | `grep` in the installed packages: `toml.parse(fs.readFileSync("Anchor.toml"))` in `@coral-xyz/anchor/dist/cjs/workspace.js`; `require('stream-json/…')` in `jayson/lib/utils.js`, used by `parseStream` of `lib/client/tcp.js` and `tls.js` only; `require('uuid').v4` in jayson and `import { v4 as uuidv4 } from 'uuid'` in Solflare's `adapters/iframe.js` | none of the vulnerable paths is on a path rose calls |
+
+### Idempotent NEAR sends in the scripts
+
+| Fact | Command | Result |
+|---|---|---|
+| A transaction the network does not know is told apart from a failed lookup | `curl -s <rpc> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tx","params":{"tx_hash":"4uUzdXnzkMbzzxW2CfkQZYnPMrd1XGsmzzeb2LeU2JW6","sender_account_id":"rose-app.testnet","wait_until":"NONE"}}'` at `https://near-testnet.drpc.org` and `https://test.rpc.fastnear.com` | both answer at once with `error.cause.name` `UNKNOWN_TRANSACTION` ("Transaction … doesn't exist"); `scripts/lib/near.ts` resends a signed transaction only on that answer, after a rate limit or a transport failure, and returns the final outcome when the lookup finds the hash. A transaction older than the nodes' retention also reads `UNKNOWN_TRANSACTION` (the root account's creation, `66SvxXgw…`), so the lookup runs right after the failed send, not later |
+
+## MPC network 3.19.0, re-verified live (2026-11-14)
+
+The testnet MPC contract moved from 3.18.0 (the version rose was built and recorded against) to
+3.19.0 (release of 12 November: presignatures removed from ECDSA signing, foreign-chain whitelist
+enforcement, attestation expiry taken from the collateral). The engine is keyless, so each domain was
+re-checked on the live engine.
+
+| Fact | Command | Result |
+|---|---|---|
+| Contract version | `call_function v1.signer-prod.testnet version {}` (any NEAR RPC; `https://near-testnet.drpc.org` when FastNEAR answers 429) | `"3.19.0"` |
+| Domains and threshold | `call_function v1.signer-prod.testnet state {}` | `Running`: eight domains, each `reconstruction_threshold` 11, 16 participants: 0 Sign CaitSith, 1 Sign Frost, 2 ConfidentialKeyDerivation, 3 ForeignTx CaitSith (the four rose's `get_config` names), and 4 to 7 with the same four purposes and protocols |
+| Release notes | `gh api repos/near/mpc/releases/tags/3.19.0 --jq .body` | the breaking item is node-side (attestation expiry); `sign`, `request_app_private_key` and `verify_foreign_transaction` arguments unchanged |
+| Domain 2 (CKD) on 3.19.0 | `get_events` of `engine-v2.rose-app.testnet` from seq 196 | rounds 5 and 6: `key_requested` 00:54:00Z / 00:54:17Z, `key_received` (source `Callback`) 00:54:06Z / 00:54:22Z; round 7 key 4.36 s after its request |
+| Domain 3 (ForeignTx, Base `Log`) on 3.19.0 | same events | `deposit_verification_requested` then `position_registered` at 00:38Z and 00:46Z (two Sablier deposits from the app) |
+| Domain 0 (secp256k1) on 3.19.0 | `withdraw_base_cash` of 10 tUSDC by `tessaro-capital.rose-app.testnet` [DUVW9EiQ…](https://testnet.near.rocks/tx/DUVW9EiQH48u37pdCrcz4zDdHAco1U77yrpwNT7PYtn2), then `RoseVault.executeTransfer` [0xe3b65667…](https://sepolia.basescan.org/tx/0xe3b65667ef2147bbe421a62a0ddeba81622e98e6d3cb222eb450f810541cfbbc) | payout 11 signed 4.81 s after the request (MPC part 3.7 s); the vault accepted the signature, +10 tUSDC to the holder |
+| Domain 1 (Ed25519) on 3.19.0 | `move_sol_deposit` [HMar1kmX…](https://testnet.near.rocks/tx/HMar1kmXeJ3gDGJBGG5nMc1HQnCi74Qm76W6azBUpaJ8), broadcast on devnet [4QCoEcjn…](https://explorer.solana.com/tx/4QCoEcjnU8ZmW31tEupKSBDTz7xVogVvhnMqUNiije9HnGGrVQZ7LSQq7KDDQ4e75NJXd9GmUqTq2Jdw9CPPJsGC?cluster=devnet) | two Ed25519 signatures (deposit key and `gas/sol`) in 4.8 s; finalized without error |
+| Domain 3 (ForeignTx, Solana `AccountState`) on 3.19.0 | `claim_sol_tokens` and `attribute_sol_deposit` requests, 01:10Z to 01:35Z | degraded: 7 of 9 requests timed out at the 120 s yield; every failed claim (payouts 14 to 18) refunded by the engine; one attribution passed in 37 s |
+| Domain 3 (Solana) and domain 1 again, 02:45Z | one `claim_sol_tokens` of a Streamflow test position held by `b1.rose-ckd-1793753433.testnet` [8n12Gn4x…](https://testnet.near.rocks/tx/8n12Gn4xy5ZdcZ1SHcsJchyGTZTmF1tdwxXMoHyWZsXw) (nonce proof, then two Ed25519 signatures), broadcast [39rXLfjG…](https://explorer.solana.com/tx/39rXLfjGxBc9cUeg6LmGNu73eW5vky7nAeQ9YfSsrGTmU8gCe2KYKWrFnR2wwFe41b4WNgVsvziyqPyxq16cotdv?cluster=devnet), `confirm_sol_payout` [FF5z7gYw…](https://testnet.near.rocks/tx/FF5z7gYweWiPVSQre4DSMFKKFoJKTLEG5pqgobQHYgtS) | payout 20 `Landed`, 5,760 test tokens: Solana attestations recovered |
+
+## Hosted demo: faucet capacity for the judging period (2026-11-14)
+
+| Change | Command | Result |
+|---|---|---|
+| Base faucet hot wallet | `cast send 0xe87366B9a546D8F1B30631a20F8F079eb85dc59e --value 0.25ether` from the deployer | [0x930a5feb…](https://sepolia.basescan.org/tx/0x930a5feb979d3b44f07aad4c3b18a612ce9b554c0c8183f74c312b3a33ce850a); 0.29 ETH |
+| Solana faucet hot wallet | `SystemProgram.transfer` from the ops key to `DJgWSMB3D8sKyJNoQJqsCKpD4H4c3tm2NhG9EXumnzxV`, 2.5 then 2 SOL | 4GY2K3pY…, 4Mkfd9EQ…; 4.75 SOL and 998,000 CINDR |
+| Shared hourly and daily caps | `vercel env add` on Production: `SOLANA_FAUCET_HOURLY_CAP=10`, `SOLANA_FAUCET_DAILY_CAP=24`, `BASE_FAUCET_HOURLY_CAP=10`, `BASE_FAUCET_DAILY_CAP=40`, `SOLANA_DEMO_TOKEN_FAUCET_HOURLY_CAP=10`, `SOLANA_DEMO_TOKEN_FAUCET_DAILY_CAP=30` | was 3/6 (Solana), 5/15 (Base), 3/6 (CINDR): a screening run waited 57 minutes for a capped SOL send |
+
+## Primary sources for the MPC domains (2026-11-14)
+
+| Fact | Command | Result |
+|---|---|---|
+| NEAR's Chain Signatures page lists only domains 0 and 1 | `curl -sL https://docs.near.org/chain-abstraction/chain-signatures` | "only the two signing domains are currently supported: 0 for Secp256k1 or 1 for Ed25519" |
+| near/mpc names CKD and foreign-chain verification | `curl -sL https://raw.githubusercontent.com/near/mpc/main/README.md` | "Confidential Key Derivation — derives application-specific keys without revealing the master secret (BLS12-381)"; "Read RPC — nodes independently verify transactions on foreign chains (Ethereum, Solana, Aptos, …) … Known under the working name foreign chain transaction verification" |
+| Near One names time-lock encryption as a CKD use | `curl -sL https://blog.nearone.org/research/2026/02/23/mpc-ckd.html` | "it can be used to enable time-lock encryption. A smart contract could encrypt data under a key that is only derivable once certain on-chain conditions …" |
+| MPC nodes run in TEEs | `curl -sL https://raw.githubusercontent.com/near/mpc/main/README.md` | "signatures produced jointly by t-of-n nodes running in TEEs, with no single party ever holding the complete key"; "Nodes run inside trusted execution environments (TEEs) and attest what they run on chain" |
+| NEAR Intents has no testnet | `curl -sS https://nearhackathon.com/HACKATHON.md`, Q-007 | "Testnet for Intents? None exists or is planned. Mainnet, separate dev accounts, tiny amounts, dry: true quotes." |
+| NEAR Intents' 1Click API | `curl -sL https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart` (HTTP 308 to the page) | the 1Click API (`https://1click.chaindefuser.com/docs/v0/openapi.yaml`) creates cross-chain swap orders; with no Intents testnet it runs on mainnet only |
+| NEAR Business | `curl -sS https://nearhackathon.com/HACKATHON.md`, partner notes | "NEAR Business (business.near.com): a confidential multisig built on NEAR Intents. It keeps treasury balances and transfers hidden from the public, manages assets on 35+ chains from one dashboard" |
+| Live facts quoted in `AGENTS.md` | `view_account` and `get_config` of `engine-v2.rose-app.testnet`; `cast call 0xb72a42bc59ec2423ed76b56ac82cd3457a6310fe "SIGNER()(address)"` | code hash `gC11tnmCzFJ6Bi2BjkQ6Y38Ff5Vttr2J2tKzNTiiuhK`; `derived_addresses.vault_base` `0xc345e592c6db18c162c6225bfb6f6c92b425b7cb` = `SIGNER()` |
+
+## Sputnik DAO run and judging rounds (2026-11-14)
+
+New Sputnik DAOs on testnet are created by the factory `sputnikv2.testnet` and run DAO contract
+version 2.3.1 (the DAO `test.sputnikv2.testnet` recorded above runs 2.0.0). The run below was a
+one-off: a script outside the repository imported the issuer console's builders (`dao.ts`,
+`tender-form.ts`, `@rose/sdk` `EngineCalls`) and filed what they built from the DAO's two council
+accounts; it is not one of the recorded scripts under `deployments/`, so this table is its record.
+
+### Issuer console: a Sputnik DAO v2 runs a Tender end to end (2026-11-14, engine-v2)
+
+The issuer console's own builders (`dao.ts` `sputnikProposal`, `daoNearFundingCall`, `ftTransferCall`; `tender-form.ts` `tenderArgsFromForm`; `EngineCalls.createTender`), called in the order `TenderTab.tsx` and `DaoPanel.tsx` use them, against a DAO created for the purpose. Round 7 of `engine-v2.rose-app.testnet` has the DAO as its creator.
+
+| Fact | Command | Result |
+|---|---|---|
+| Live Sputnik factory2 on testnet | `call_function sputnikv2.testnet get_number_daos / get_default_code_hash / get_default_version / get_contracts_metadata {}` | 5,666 DAOs; default code `AA4nA45vauiac3jdVwJTzSdUP3oj2r1fDaPAb2mHdgcH`, version `[3,31]`, commit `7764926cfd3c47f62b5fcde231c251f3c3892887`; `sputnik-v2.testnet` answers `MethodNotFound` to these (older factory) |
+| `create` signature | `curl -s https://raw.githubusercontent.com/near-daos/sputnik-dao-contract/main/sputnikdao-factory2/src/lib.rs` | `#[payable] create(name: AccountId, args: Base64VecU8)`: deploys the default code to `<name>.sputnikv2.testnet`, calls `new(args)`, `on_create` returns `true` or refunds the deposit |
+| DAO created | `sputnikv2.testnet.create {"name":"cindral-treasury","args":<base64 of {config, policy}>}`, 7 NEAR, 300 Tgas, from a helper-funded council account | [F5ghEw2q…](https://testnet.near.rocks/tx/F5ghEw2qVuvTNfS3xgWUHdpnAZ1j4QvayNNtira2jzTq) (88.98 Tgas): `cindral-treasury.sputnikv2.testnet`, code `AA4nA45v…`, `version` "2.3.1", council of two (`cindral-council-a-011346.testnet`, `cindral-council-b-011346.testnet`), threshold 1/2 by role weight (both votes), bond 0.1 NEAR |
+| Proposal outcome is reported | `sputnikdao2/src/proposals.rs` at `7764926` | a FunctionCall proposal executes as a promise followed by `on_proposal_callback`, which sets `Failed` when the call failed; so `get_proposal(id).status` = `Approved` proves the DAO's call succeeded |
+| Funding proposal (DAO's own `ft_transfer_call` into the engine) | member: engine `storage_deposit` for the DAO [9mYVaXRX…](https://testnet.near.rocks/tx/9mYVaXRXSLQegNcFovri4iPYyMWuVSo6PGoE6XMaNGGQ), tUSDC `storage_deposit` for the DAO [AiBVMckx…](https://testnet.near.rocks/tx/AiBVMckxzqmTACnVsEUA4wE3bMtZ52SpiBai7mN4kR9x), `ft_transfer` 100.30 tUSDC to the DAO [HVfEqFvH…](https://testnet.near.rocks/tx/HVfEqFvHNYwkLdoCuxBZu9BXvJeVHcgd6ASq1VRuwTqV); `add_proposal` [2utQ7Cv9…](https://testnet.near.rocks/tx/2utQ7Cv94ym8HpYDHpip2yrd9vuX4nhDYfTm7Xst4y6R), votes [G2YLK3Tn…](https://testnet.near.rocks/tx/G2YLK3TnZ3v851y43VSrQyNLgiXaNad1rx4eQiNgtm8n), [7HJzxCFc…](https://testnet.near.rocks/tx/7HJzxCFc6rubKhTczsX9fFbaRPrP8WgmvQY1LXEjAP2C) | proposal 0 `Approved` (FunctionCall `ft_transfer_call`, 60 Tgas, 1 yocto), DAO engine cash 0 → 100.30 tUSDC (budget + 30 bps) |
+| Tender proposal (DAO `create_tender`) | `add_proposal` [H7tG5GjZ…](https://testnet.near.rocks/tx/H7tG5GjZTrXAzHwYoRFuXaXakcLZdQ68WDUwDh72C1wy) with the bond read from `get_policy`, votes [9K5zADCh…](https://testnet.near.rocks/tx/9K5zADCh18RAwk8NMQNyPL24HkyHiMpmws3ympsMvCnu), [CxcrHTMZ…](https://testnet.near.rocks/tx/CxcrHTMZkcqWdVfqLf46iYV6xhVYR1uRLc1U2ssnfHPd) | proposal 1 `Approved` (FunctionCall `create_tender`, 30 Tgas, 0.05 NEAR), no receipt failure; round 7: Tender, Seed Round, NEAR tUSDC, budget 100 tUSDC, max 0.04, `creator` `cindral-treasury.sputnikv2.testnet`, `retire_to` `0x763726327e9f8da47d2e7432dc6e8f72f2121e0b` |
+| Sealed asks | Halden Ventures moves 5,000 Seed units to Nadia Solvik (`distribute_units`) [FH8VF5DZ…](https://testnet.near.rocks/tx/FH8VF5DZyzpfDSG9pzktggN2CJvjvPfpDxqZsVvepUWT); `place_ask` Halden 1,000 at 0.030 [ERvMnDuz…](https://testnet.near.rocks/tx/ERvMnDuziGa661CyYqqk2GD3phKL6h8t3jmLWctstS1j), Nadia 1,000 at 0.036 [CfNcFYWk…](https://testnet.near.rocks/tx/CfNcFYWkwWhMVSu8rM9Hkc1Bgsq4u3iNPw7BiP55vkoQ) | two ciphertexts sealed with `scripts/lib/sealed.ts` to the live CKD key |
+| Key release and openings | `close` [FBb23wTh…](https://testnet.near.rocks/tx/FBb23wThJpKLhhj7GgaMhYBwxpx6YhrZPCWju3unQ18s) (38.19 Tgas); `open_bid` [BcgMvFyk…](https://testnet.near.rocks/tx/BcgMvFykaWM7Y3trghSLWRo37a6PjUE7qe2UeUdTSKmM), [EqTmcDwe…](https://testnet.near.rocks/tx/EqTmcDwea3cYhyyCdmccpk9Y2o65M5cu8rZuVfEASqHL) (132.1 Tgas each) | key by callback 4.36 s after the request, equal to the offline unwrap of `(big_y, big_c)`; both openings equal the sealed values |
+| Clearing = reference | `clear` [ESarBAbY…](https://testnet.near.rocks/tx/ESarBAbYgU7BraxenYXjTmx3rcFWFuGjZAFVqAL3mugp) | `Settled`, 0.036 tUSDC, 2,000 units, notional 72, fee 0.216, fills 1,000 / 1,000: equal to `@rose/sdk` `tender()` on every field |
+| Settlement and retirement | `settle_bid` [2w8qdwp8…](https://testnet.near.rocks/tx/2w8qdwp8KpUVSawZ29PqjLNM6ypxVQUsJMaXK5pqJ5WA), [457c7mHt…](https://testnet.near.rocks/tx/457c7mHtqPifbmHRn2mf8NU3DHApcFErR8hVxbJHWXtB); `get_retired_lot {"round_id":"7"}` | 36 tUSDC to each seller, bonds refunded; retired lot 2,000 units payable only to `0x7637…1e0b`, `claimable` 0 until the Seed Round cliff (2027-05-08); the DAO's unspent 28.084 tUSDC back in its engine cash |
+| Unspent escrow back to the treasury | `add_proposal` wrapping `withdraw_near_cash(28084000)` with `sputnikProposal` [A2XZjREw…](https://testnet.near.rocks/tx/A2XZjREwtoj1YNpMyvSRBFVEcRLE4zafrhQz3vJH5ibh), votes [Dqqp1eoD…](https://testnet.near.rocks/tx/Dqqp1eoDaMGZ81dr4KP2YsEsSnSpb8FZWPSTSzBo6pxr), [6eSfCbVN…](https://testnet.near.rocks/tx/6eSfCbVNrZv4dZ6JhHKjCaxEm7vf5WQAvLUaDvMgjhTf) | proposal 2 `Approved`; DAO engine cash 0, DAO tUSDC wallet 0 → 28.084 |
+
+### Rounds left open for judging (2026-11-14)
+
+| Round | Command | Result |
+|---|---|---|
+| 8 | `create_exit` by Halden Ventures [9tyRWSug…](https://testnet.near.rocks/tx/9tyRWSugaPhXvrbzTTeNbdT12ti55q1GYiMThY8MvkvF), sealed ask [8bB44rLK…](https://testnet.near.rocks/tx/8bB44rLKxztzgEwYZtnursqu9NP2fP9TQuQzEBBBvHbc) | Exit, Seed Round, NEAR tUSDC, max 0.05, closes 2026-11-16T15:00:00Z, key timeout 72 h, reveal 10 min; 10,000 units asked at 0.002 |
+| 10 | `create_exit` by Nadia Solvik [9FT6iEia…](https://testnet.near.rocks/tx/9FT6iEiaBLb95BWbMtzFpySbDpBD8AKZH8Quzkxpum1S), sealed ask [8MVL88us…](https://testnet.near.rocks/tx/8MVL88usy4zF6WwJHNwsY7YPsEP4VtEvC3htqNB2isAL) | Exit, KOL Round, NEAR tUSDC, max 0.05, closes 2026-11-17T15:00:00Z, key timeout 72 h, reveal 10 min; 5,000 units asked at 0.002 |
+| 4 | seeded by `node scripts/seed.ts open-round` on 2026-11-06 (see "Live end-to-end, engine-v2") and read with `get_round {"round_id":"4"}` on 2026-11-14 | Exit, Seed Round, created by Halden Ventures, closes 2026-11-20T16:05Z, reveal window 24 h, key timeout 168 h |
+
+## Audit before submission: NEAR RPC endpoints (2026-11-14)
+
+From the build machine (01:26 to 01:38 UTC), with three other test agents on the same IP. Endpoints from
+the testnet table of https://docs.near.org/api/rpc/providers (FastNEAR, `archival-rpc.testnet.near.org`,
+dRPC, Intear, ZAN; the other providers there publish no public endpoint) plus the two the app used.
+`one.sh <url>` posts `{"jsonrpc":"2.0","id":"x","method":"query","params":{"request_type":"view_account","finality":"final","account_id":"rose-app.testnet"}}`
+with `-H 'origin: https://rose-rounds.vercel.app' -D <headers>`.
+
+| Check | Command | Result |
+|---|---|---|
+| Success answers carry CORS headers | `curl -sS -D - -X POST <url> -H 'content-type: application/json' -H 'origin: https://rose-rounds.vercel.app' -d '{"jsonrpc":"2.0","id":"x","method":"block","params":{"finality":"final"}}'` | `test.rpc.fastnear.com`, `rpc.testnet.fastnear.com`, `near-testnet.drpc.org`, `testnet-rpc.intea.rs` (1.5 s, body note "Requests without an API key are being slowed down for one second"), `archival-rpc.testnet.near.org` (3.1 s): HTTP 200 with `access-control-allow-origin` |
+| Preflights | `curl -sS -X OPTIONS -D - -H 'Origin: https://rose-rounds.vercel.app' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type' <url>` | FastNEAR 200 (`allow-origin: *`, `allow-headers: *`); dRPC 204 (`allow-origin` echoes the origin, `allow-headers: content-type`); Intear 200 (`allow-origin: *`, `allow-headers: content-type`) |
+| The official RPC is deprecated and refused these requests | same `block` POST to `https://rpc.testnet.near.org` | HTTP 429, `retry-after: 13`, no `access-control-allow-origin`, body `-429` "WARNING! THIS ENDPOINT IS DEPRECATED! STOP USING IT NOW! Switch to https://fastnear.com …". Removed from the app's read chain. At 02:48 UTC the same endpoint answered 10 of 10 sequential requests (see "Audit delta fixes") |
+| Other listed or known endpoints | same `block` / `status` POST | `api.zan.top/near-testnet` HTTP 429 on the first request (`-32003` "cu limit exceeded", with CORS); `rpc.testnet.pagoda.co` HTTP 403 "deprecated"; `near-testnet.lava.build` HTTP 410 "discontinued"; `near-testnet-rpc.publicnode.com` HTTP 404. None usable |
+| FastNEAR's 429 has no CORS header | `seq 1 60 \| xargs -P 20 -I{} one.sh https://test.rpc.fastnear.com fa{}` at 01:27:59, then `seq 1 6 \| xargs -P 6 -I{} one.sh https://rpc.testnet.fastnear.com fb{}` | 22 × 200 (with CORS) and 38 × HTTP 429 without `access-control-allow-origin` (`retry-after: 0`, body `-429` "Rate limits exceeded"); the twin host then answered 1 × 200 and 5 × 429. A browser cannot read that 429, so it reports a CORS error and `NearRpc` sees a network failure |
+| FastNEAR's limit varies | the same bursts at 01:37:21 (40 to `rpc.testnet.fastnear.com`, then 6 to `test.rpc.fastnear.com`) and 01:37:29 (80, then 6) | 132 × 200: the limit depends on the IP's recent traffic. `rpc.testnet.fastnear.com` is the same provider and was limited together with `test.rpc` once, so it is not a fallback |
+| dRPC and Intear under a burst | `seq 1 80 \| xargs -P 20 -I{} one.sh https://near-testnet.drpc.org da{}`; `seq 1 20 \| xargs -P 10 -I{} one.sh https://testnet-rpc.intea.rs ia{}` | 80 × 200 and 20 × 200, all with CORS. A 429 from either was not observed, so its CORS behaviour on 429 is unknown; dRPC documents about 2,100 CU/s on its free tier |
+| Which endpoints hold a transaction wait | `curl -sS -m 60 -X POST <url> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":"x","method":"tx","params":{"tx_hash":"11111111111111111111111111111111","sender_account_id":"rose-app.testnet","wait_until":"EXECUTED"}}'` (an unknown hash makes the node wait for its own timeout) | FastNEAR: HTTP 408 after 10.1 s with the node's `TIMEOUT_ERROR` (the wait is held to the node's limit); `rpc.testnet.near.org`: the same after 13.1 s; dRPC: HTTP 408 after 2.1 s, `{"code":30,"message":"Request timeout on the free plan, please upgrade to paid plan"}`; Intear: no byte in 60 s. Only FastNEAR, among endpoints that are not deprecated, holds a `tx` wait. `send_tx` with `wait_until` was not sent (it needs a signed transaction); that it is held the same way is inferred from this `tx` result, not measured |
+| How near-api-js sends | `node_modules/near-api-js/lib/index.js` 7.4.0, `fetchJsonRpc` and `retryConfig` | `JsonRpcProvider` retries 12 times (500 ms × 1.5ⁿ) on HTTP 500, 408, 503 and on a fetch that throws "Failed to fetch" (what Chromium reports for a 429 without CORS), on the same URL |
+| A missing access key | `query` `view_access_key` of `rose-app.testnet` / `ed25519:11111111111111111111111111111111` on FastNEAR and dRPC | `result.error` = "access key ed25519:1111… does not exist while viewing" (a result, not a JSON-RPC error); a missing account answers `error.cause.name` `UNKNOWN_ACCOUNT` |
+
+| The failover in a real browser | `failover.mjs` (session scratchpad): Playwright Chromium on a local production build of `fix/audit-web` (`pnpm exec next start --port 3400`), `context.route("https://test.rpc.fastnear.com/**", (route) => route.abort("failed"))`, then the same with dRPC aborted too; loads `/app/rounds`, `/app/rounds/4`, `/app/prices` and waits for a round card, the round page and the key stats | FastNEAR down: all three pages loaded (0.8 to 1.0 s each), 9 requests tried FastNEAR and 30 went to dRPC (the 10 s cooldown sends the rest of each page straight to dRPC). FastNEAR and dRPC down: all three loaded through Intear (3.8 to 6.9 s), 30 requests to Intear |
+
+Decision: reads go FastNEAR, then dRPC, then Intear (`NEAR_READ_RPC_ENDPOINTS` in `apps/web/src/lib/deployment.ts`);
+the demo wallet's reads (account check, balances, final head) use the same list, and its sends stay on
+FastNEAR. `NearRpc` passes over an endpoint for 10 s after a 429, a 5xx, a non-JSON answer or a network
+failure (`RPC_COOLDOWN_MS`), so one limited provider costs one failed request, not one per view.
+
+Two facts the issuer console states (2026-11-14):
+
+| Fact | Command | Result |
+|---|---|---|
+| A Sablier stream id that was never minted reverts with OpenZeppelin's `ERC721NonexistentToken(uint256)` | `cast sig "ERC721NonexistentToken(uint256)"` | `0x7e273289`, the selector in the raw revert the console now turns into "Stream #N does not exist" |
+| Sputnik DAO v2's default policy keeps a proposal open 7 days, and a DAO can set its own | `curl -s https://raw.githubusercontent.com/near-daos/sputnik-dao-contract/main/sputnikdao2/src/policy.rs`, `default_policy`; `call_function cindral-treasury.sputnikv2.testnet get_policy {}` and `version {}` on `https://near-testnet.drpc.org` | `proposal_period: U64::from(1_000_000_000 * 60 * 60 * 24 * 7)`; the live treasury answers `proposal_period` `86400000000000` (one day), bond 0.1 NEAR, version `"2.3.1"` (block 277,596,669). Run via DAO shows the read period |
+
+## Audit delta fixes (2026-11-14)
+
+| Fact | Command | Result |
+|---|---|---|
+| near-api-js 7.4.0 `JsonRpcProvider` counts attempts, not retries, and resends the same POST on its own | `grep -n "async function backOff" -A17 node_modules/near-api-js/lib/index.cjs` and `retryConfig`; then a `sendJsonRpc("send_tx", {})` through `new JsonRpcProvider({ url }, { retries })` with `globalThis.fetch` stubbed to answer HTTP 503, for `retries` 0, 1 and 3 | `backOff` loops `attempt <= numOfAttempts` with `numOfAttempts = retries`, retrying HTTP 500, 408, 503 and a fetch that throws "FetchError" or "Failed to fetch" (not 429, which `fetchJsonRpc` turns into an error that is not retried). Posts counted: `retries` 0 → 0 posts and "Exceeded 10 attempts"; 1 → 1 post; 3 → 3 posts. The scripts' send provider uses `retries: 1` (`singleSendProvider`, covered by `scripts/lib/near.test.ts`) |
+| `rpc.testnet.near.org` answers again, slowly, an hour after it refused | `for i in $(seq 1 10); do curl -sS -m 20 -o body$i.txt -D hdr$i.txt -w "%{http_code} %{time_total}\n" -X POST https://rpc.testnet.near.org -H 'content-type: application/json' -H 'Origin: https://rose-rounds.vercel.app' -d '{"jsonrpc":"2.0","id":"x","method":"status","params":[]}'; done`, 02:48:04 to 02:48:36 UTC | 10 × HTTP 200, 3.10 to 3.23 s each, every answer with `access-control-allow-origin: *` (and `vary: origin`), `chain_id` `testnet`, protocol 88. With the refusals earlier that night (HTTP 429, error -429 "THIS ENDPOINT IS DEPRECATED", no CORS header: "The former SDK fallback …" before 01:28 UTC and "The official RPC is deprecated …" from 01:26 to 01:38 UTC, other clients on the IP) and of 2026-11-04 (after about 150 queries in a row): deprecated, refuses under load, not dead. The SDK and the app keep it out of their endpoint lists |

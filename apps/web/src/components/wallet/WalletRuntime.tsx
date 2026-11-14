@@ -26,17 +26,20 @@ import { createConfig, http, useAccount, useConnect, useConnectors, useDisconnec
 import { baseSepolia } from "wagmi/chains";
 import { getWalletClient } from "wagmi/actions";
 import { injected } from "wagmi/connectors";
-import { BASE_SEPOLIA_RPC_URL, deployedAddress, NEAR_RPC_FALLBACK_URL, NEAR_RPC_URL, NEAR_TUSDC_ACCOUNT, SOLANA_DEVNET_RPC_URL } from "@/lib/deployment";
+import { BASE_SEPOLIA_RPC_URL, deployedAddress, NEAR_READ_RPC_ENDPOINTS, NEAR_TUSDC_ACCOUNT, SOLANA_DEVNET_RPC_URL } from "@/lib/deployment";
 import { failureToActionError, RoseActionError } from "@/lib/errors";
 import { basePublicClient, evmDemoWalletClient, forgetEvmDemoWallet, generateEvmDemoWallet, loadEvmDemoWallet, saveEvmDemoWallet, type EvmDemoWallet } from "@/lib/wallet/evm-demo";
 import {
   forgetNearDemoWallet,
   generateNearDemoWallet,
   loadNearDemoWallet,
-  nearAccountExists,
+  nearAccountPresence,
+  nearDemoKnownOnChain,
+  rememberNearDemoOnChain,
   saveNearDemoWallet,
   sendNearDemoCall,
   withFreshDemoAccountId,
+  type NearAccountPresence,
   type NearDemoWallet,
 } from "@/lib/wallet/near-demo";
 import {
@@ -63,7 +66,7 @@ const wagmiConfig = createConfig({
 });
 
 const BALANCE_POLL_MS = 20_000;
-const nearRpc = new NearRpc({ endpoints: [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL] });
+const nearRpc = new NearRpc({ endpoints: NEAR_READ_RPC_ENDPOINTS });
 
 const FINAL_HEAD_TIMEOUT_MS = 10_000;
 
@@ -103,7 +106,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
 
   const connectorRef = useRef<Promise<NearConnector> | null>(null);
   const nearWalletRef = useRef<NearWalletBase | null>(null);
-  const [near, setNear] = useState<NearWalletState>({ status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccountExists: false });
+  const [near, setNear] = useState<NearWalletState>({ status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccount: "unknown" });
   const [nearWallets, setNearWallets] = useState<NearWalletOption[]>([]);
 
   const [evmDemo, setEvmDemo] = useState<EvmDemoWallet | null>(null);
@@ -124,6 +127,19 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     return connectorRef.current;
   }, []);
 
+  /**
+   * Records what the chain said about a demo account id. `unknown` never overwrites a known
+   * value, and `exists` is remembered for the next page load and never downgraded: an account
+   * seen on chain does not go away, so a later "missing" is a read at a block before its creation
+   * or from a lagging node.
+   */
+  const applyDemoPresence = useCallback((accountId: string, presence: NearAccountPresence) => {
+    if (presence === "unknown") return;
+    if (presence === "missing" && nearDemoKnownOnChain(accountId)) return;
+    if (presence === "exists") rememberNearDemoOnChain(accountId);
+    setNear((state) => (state.demo?.accountId === accountId && state.demoAccount !== presence && !(presence === "missing" && state.demoAccount === "exists") ? { ...state, demoAccount: presence } : state));
+  }, []);
+
   /* Restore persisted sessions once on the client. */
   useEffect(() => {
     let cancelled = false;
@@ -133,12 +149,12 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       const nearDemo = loadNearDemoWallet();
       const preferred = readStored<WalletKind>(DEMO_STORAGE_KEYS.preferredNear);
       if (nearDemo && preferred === "demo") {
-        setNear({ status: "connected", accountId: nearDemo.accountId, kind: "demo", walletName: "Demo wallet", demo: nearDemo, demoAccountExists: false });
-        void nearAccountExists(nearDemo.accountId).then((exists) => {
-          if (!cancelled) setNear((state) => (state.demo?.accountId === nearDemo.accountId ? { ...state, demoAccountExists: exists } : state));
+        setNear({ status: "connected", accountId: nearDemo.accountId, kind: "demo", walletName: "Demo wallet", demo: nearDemo, demoAccount: nearDemoKnownOnChain(nearDemo.accountId) ? "exists" : "unknown" });
+        void nearAccountPresence(nearDemo.accountId).then((presence) => {
+          if (!cancelled) applyDemoPresence(nearDemo.accountId, presence);
         });
       } else if (nearDemo) {
-        setNear((state) => ({ ...state, demo: nearDemo }));
+        setNear((state) => ({ ...state, demo: nearDemo, demoAccount: nearDemoKnownOnChain(nearDemo.accountId) ? "exists" : "unknown" }));
       }
       if (preferred === "external") {
         void getConnector()
@@ -161,7 +177,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     return () => {
       cancelled = true;
     };
-  }, [getConnector]);
+  }, [applyDemoPresence, getConnector]);
 
   /* NEAR Connect events keep the state in sync with its wallets, and the wallet list with its manifest. */
   useEffect(() => {
@@ -208,12 +224,16 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     const wallet = loadNearDemoWallet() ?? generateNearDemoWallet();
     saveNearDemoWallet(wallet);
     writeStored(DEMO_STORAGE_KEYS.preferredNear, "demo");
-    setNear({ status: "connected", accountId: wallet.accountId, kind: "demo", walletName: "Demo wallet", demo: wallet, demoAccountExists: false });
-    void nearAccountExists(wallet.accountId).then((exists) => setNear((state) => (state.demo?.accountId === wallet.accountId ? { ...state, demoAccountExists: exists } : state)));
+    setNear({ status: "connected", accountId: wallet.accountId, kind: "demo", walletName: "Demo wallet", demo: wallet, demoAccount: nearDemoKnownOnChain(wallet.accountId) ? "exists" : "unknown" });
+    void nearAccountPresence(wallet.accountId).then((presence) => applyDemoPresence(wallet.accountId, presence));
     return Promise.resolve(wallet);
-  }, []);
+  }, [applyDemoPresence]);
 
-  const markNearDemoCreated = useCallback(() => setNear((state) => ({ ...state, demoAccountExists: true })), []);
+  const markNearDemoCreated = useCallback(() => {
+    const demo = loadNearDemoWallet();
+    if (demo) rememberNearDemoOnChain(demo.accountId);
+    setNear((state) => ({ ...state, demoAccount: "exists" }));
+  }, []);
 
   const disconnectNear = useCallback(async () => {
     removeStored(DEMO_STORAGE_KEYS.preferredNear);
@@ -230,23 +250,24 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
     if (!current) return Promise.reject(new RoseActionError("no_wallet", "No NEAR demo wallet", "Create the demo wallet first."));
     const wallet = withFreshDemoAccountId(current);
     saveNearDemoWallet(wallet);
-    setNear((state) => (state.kind === "demo" ? { ...state, accountId: wallet.accountId, demo: wallet, demoAccountExists: false } : { ...state, demo: wallet }));
+    setNear((state) => (state.kind === "demo" ? { ...state, accountId: wallet.accountId, demo: wallet, demoAccount: "unknown" } : { ...state, demo: wallet, demoAccount: "unknown" }));
     return Promise.resolve(wallet);
   }, []);
 
   const forgetNearDemo = useCallback(() => {
     forgetNearDemoWallet();
     removeStored(DEMO_STORAGE_KEYS.preferredNear);
-    setNear((state) => (state.kind === "demo" ? { status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccountExists: false } : { ...state, demo: null }));
+    setNear((state) => (state.kind === "demo" ? { status: "idle", accountId: null, kind: null, walletName: null, demo: null, demoAccount: "unknown" } : { ...state, demo: null, demoAccount: "unknown" }));
   }, []);
 
   const sendNearCall = useCallback(
     async (call: FunctionCall): Promise<FinalExecutionOutcome> => {
       if (near.kind === "demo" && near.demo) {
-        if (!near.demoAccountExists) {
-          const exists = await nearAccountExists(near.demo.accountId);
-          if (!exists) throw new RoseActionError("insufficient_balance", "Demo account not created yet", "Open \"Get test funds\" and create the NEAR demo account first.");
-          markNearDemoCreated();
+        if (near.demoAccount !== "exists") {
+          const presence = await nearAccountPresence(near.demo.accountId);
+          applyDemoPresence(near.demo.accountId, presence);
+          if (presence === "missing") throw new RoseActionError("insufficient_balance", "Demo account not created yet", "Open \"Get test funds\" and create the NEAR demo account first.");
+          if (presence === "unknown") throw new RoseActionError("rate_limited", "NEAR RPC busy", "The public NEAR testnet RPCs did not answer, so nothing was sent. Retry in a few seconds.", true);
         }
         const outcome = await sendNearDemoCall(near.demo, call);
         await waitForFinalHead();
@@ -267,7 +288,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       await waitForFinalHead();
       return outcome;
     },
-    [markNearDemoCreated, near.accountId, near.demo, near.demoAccountExists, near.kind],
+    [applyDemoPresence, near.accountId, near.demo, near.demoAccount, near.kind],
   );
 
   /* EVM */
@@ -346,7 +367,12 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
   }, [adapter.connected, adapter.connecting, adapter.publicKey, adapter.wallet?.adapter.name, solanaDemo, solanaPreferred]);
 
   const solanaWallets = useMemo(
-    () => adapter.wallets.map((wallet) => ({ name: wallet.adapter.name, icon: wallet.adapter.icon, installed: wallet.readyState === "Installed" || wallet.readyState === "Loadable" })),
+    () =>
+      adapter.wallets.map((wallet) => ({
+        name: wallet.adapter.name,
+        icon: wallet.adapter.icon,
+        availability: wallet.readyState === "Installed" ? ("extension" as const) : wallet.readyState === "Loadable" ? ("web" as const) : ("missing" as const),
+      })),
     [adapter.wallets],
   );
 
@@ -413,8 +439,15 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
       near.accountId
         ? nearRpc
             .viewAccount(near.accountId)
-            .then((view) => BigInt(view.amount))
-            .catch((error: unknown) => (error instanceof NearRpcError && error.kind === "account_missing" ? 0n : null))
+            .then((view) => {
+              applyDemoPresence(near.accountId as string, "exists");
+              return BigInt(view.amount);
+            })
+            .catch((error: unknown) => {
+              if (!(error instanceof NearRpcError && error.kind === "account_missing")) return null;
+              applyDemoPresence(near.accountId as string, "missing");
+              return 0n;
+            })
         : Promise.resolve(null),
       near.accountId
         ? nearRpc
@@ -436,7 +469,7 @@ function RuntimeBridge({ onValue }: { onValue: (value: WalletRuntimeValue) => vo
         : Promise.resolve(null),
     ]);
     setBalances({ nearYocto, nearTusdc, baseEthWei, baseTusdc, solLamports, loading: false, updatedAt: Date.now() });
-  }, [evm.address, near.accountId, solana.publicKey]);
+  }, [applyDemoPresence, evm.address, near.accountId, solana.publicKey]);
 
   useEffect(() => {
     if (!hydrated) return;

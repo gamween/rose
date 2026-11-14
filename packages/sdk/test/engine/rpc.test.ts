@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeFailure, endpointOrder, MAX_CONCURRENT_RPC_REQUESTS, NearRpc, NearRpcError, TokenBucket, outcomeFailure, outcomeLogs, outcomeValue, withRpcSlot, type FinalExecutionOutcome } from "../../src/engine/rpc.js";
+import { cooldownMs, describeFailure, endpointOrder, MAX_CONCURRENT_RPC_REQUESTS, RPC_COOLDOWN_MS, NearRpc, NearRpcError, TokenBucket, outcomeFailure, outcomeLogs, outcomeValue, withRpcSlot, type FinalExecutionOutcome } from "../../src/engine/rpc.js";
 
 function bytes(value: unknown): number[] {
   return [...Buffer.from(JSON.stringify(value))];
@@ -161,6 +161,26 @@ describe("RPC request budget", () => {
     const waits: Record<string, number> = { a: 300, b: 0 };
     expect(endpointOrder(["a", "b"], (endpoint) => waits[endpoint] ?? 0)).toEqual(["b", "a"]);
     expect(endpointOrder(["a", "b"], () => 100)).toEqual(["a", "b"]);
+  });
+
+  it("passes over an endpoint that just refused, for the following requests too, until it answers again", async () => {
+    const urls: string[] = [];
+    let limited = true;
+    const fetchImpl: typeof globalThis.fetch = (url) => {
+      urls.push(url as string);
+      if (url === "https://cool-a.test" && limited) return Promise.resolve(new Response("Too Many Requests", { status: 429 }));
+      return Promise.resolve(json({ result: { header: { height: urls.length } } }));
+    };
+    const rpc = new NearRpc({ fetch: fetchImpl, endpoints: ["https://cool-a.test", "https://cool-b.test"] });
+    await rpc.block("final");
+    expect(urls).toEqual(["https://cool-a.test", "https://cool-b.test"]);
+    expect(cooldownMs("https://cool-a.test")).toBeGreaterThan(RPC_COOLDOWN_MS - 1_000);
+    await rpc.block("optimistic");
+    expect(urls.slice(2)).toEqual(["https://cool-b.test"]);
+    limited = false;
+    const direct = new NearRpc({ fetch: fetchImpl, endpoints: ["https://cool-a.test"] });
+    await direct.block("final");
+    expect(cooldownMs("https://cool-a.test")).toBe(0);
   });
 
   it("shares one round trip between identical requests in flight", async () => {

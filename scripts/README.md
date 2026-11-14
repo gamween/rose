@@ -1,8 +1,10 @@
 # Deployment and end-to-end scripts
 
 Testnet only: NEAR testnet, Base Sepolia, Solana devnet. One style: bash (3.2 or later, the macOS
-default works) plus near-cli-rs (`near`), Foundry (`forge`, `cast`), `jq` and `curl`; `python3` is
-used only to decode base58; the end-to-end helpers that need the rose-ibe wasm build, the
+default works) plus near-cli-rs (`near`), Foundry (`forge`, `cast`), `jq`, `curl` and `shasum`;
+`python3` is used only to decode base58; `deploy-engine.sh --reproducible` also needs `git`,
+cargo-near 0.22.0 (`cargo near`) and a running Docker, and `pnpm -r test` runs
+`lib/deploy-checks.test.ts`, which needs `bash` and `jq`; the end-to-end helpers that need the rose-ibe wasm build, the
 Streamflow SDK or `@rose/sdk` run under Node 22.18 or later (the TypeScript ones with Node's native
 type stripping, no build step). `scripts` is a workspace package (`@rose/scripts`): `pnpm install`
 at the root installs it, and `pnpm --filter @rose/sdk --filter @rose/ibe-wasm build` must have run
@@ -57,7 +59,7 @@ stored); if it stops after deleting the keys,
 result without sending anything.
 
 `deployments/testnet.json` then holds everything the web app needs; `deployments/<engine>.env` is
-the matching `NEXT_PUBLIC_*` snippet for `apps/web/.env` or the Vercel environment.
+the matching `NEXT_PUBLIC_*` snippet for `apps/web/.env.local` or the Vercel environment.
 
 ## Sandbox integration tests
 

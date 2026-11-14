@@ -8,7 +8,7 @@ import { formatAmount, formatDate, formatDuration, secondsToMs, shortHex } from 
 import { solanaAddressUrl } from "@/lib/explorer";
 import { classLabel } from "@/lib/token-symbols";
 import type { PortfolioData, SolClassView, SolStreamRow } from "./data";
-import { syncBlocker, type SolStreamPhase } from "./transforms";
+import { solStreamAttention, syncBlocker, type SolStreamAttention, type SolStreamPhase } from "./transforms";
 
 const PHASE: Record<SolStreamPhase, { text: string; tone: "neutral" | "ember" | "success" | "warning" }> = {
   open: { text: "Pays claims", tone: "success" },
@@ -36,10 +36,28 @@ function phaseHint(row: SolStreamRow, nowSec: bigint, decimals: number): string 
   }
 }
 
+const ATTENTION: Record<SolStreamAttention["kind"], string> = {
+  automatic_withdrawal: "Automatic withdrawal on",
+  sync_required: "Sync required",
+  not_checked: "Not checked",
+};
+
+function attentionHint(attention: SolStreamAttention, decimals: number): string {
+  if (attention.kind === "not_checked") {
+    return "Not checked: the stream could not be read on Solana, so whether its sender switched automatic withdrawal on, or it withdrew more than the engine booked, is unknown. Refresh in a few seconds.";
+  }
+  const unbooked = attention.unbooked > 0n ? ` ${formatAmount(attention.unbooked, decimals)} is in the vault and not booked yet: Sync books it.` : "";
+  return attention.kind === "automatic_withdrawal"
+    ? `Its sender switched Streamflow's automatic withdrawal on after the deposit: Streamflow moves its unlocked tokens into the vault outside the engine's payouts, and Sync books them in the swept balance, which claims pay from. It cannot be redeemed in kind.${unbooked}`
+    : `It withdrew more than the engine booked.${unbooked} Claims do not draw on it and a redeem syncs it first.`;
+}
+
 function StreamItem({ row, decimals, nowSec, onSync }: { row: SolStreamRow; decimals: number; nowSec: bigint; onSync: (row: SolStreamRow) => void }) {
   const stream = row.entry.stream;
   const phase = PHASE[row.phase];
+  const attention = solStreamAttention(row);
   const blocker = row.phase === "ended" ? syncBlocker(stream, row.onChainWithdrawn) : undefined;
+  const syncable = row.phase === "ended" || (attention !== null && attention.kind !== "not_checked" && attention.unbooked > 0n);
   return (
     <li className="flex flex-col gap-2 rounded-md border border-ink-750 bg-ink-900 px-3 py-2 sm:flex-row sm:items-center sm:justify-between" data-sol-stream={row.entry.position_id} data-sol-stream-phase={row.phase}>
       <div className="min-w-0">
@@ -49,6 +67,11 @@ function StreamItem({ row, decimals, nowSec, onSync }: { row: SolStreamRow; deci
             {shortHex(stream.metadata, 6, 6)} ↗
           </a>
           <Badge tone={phase.tone}>{phase.text}</Badge>
+          {attention ? (
+            <Badge tone="warning" data-sol-stream-attention={attention.kind}>
+              {ATTENTION[attention.kind]}
+            </Badge>
+          ) : null}
         </p>
         <p className="text-[12px] text-ink-400">
           Ends {formatDate(secondsToMs(stream.end_time))} · {formatAmount(BigInt(stream.engine_withdrawn), decimals)} of {formatAmount(BigInt(stream.net_amount_deposited), decimals)} withdrawn by the engine
@@ -56,13 +79,18 @@ function StreamItem({ row, decimals, nowSec, onSync }: { row: SolStreamRow; deci
         <p className="text-[12px] text-ink-400" data-sol-stream-hint>
           {phaseHint(row, nowSec, decimals)}
         </p>
+        {attention ? (
+          <p className="text-[12px] text-ink-300" data-sol-stream-attention-hint>
+            {attentionHint(attention, decimals)}
+          </p>
+        ) : null}
         {blocker ? (
           <p className="text-[12px] text-ink-300" data-sync-blocker>
             {blocker}
           </p>
         ) : null}
       </div>
-      {row.phase === "ended" ? (
+      {syncable ? (
         <Button size="sm" variant={blocker ? "secondary" : "primary"} disabled={blocker !== undefined} onClick={() => onSync(row)} className="self-start sm:self-center" data-sync>
           Sync
         </Button>
@@ -109,7 +137,7 @@ export function SolanaStreamsSection({ data, onSync }: { data: PortfolioData; on
     <Card data-sol-streams>
       <CardHeader
         title="Solana streams"
-        description="Solana claims draw on these vault streams. Anyone can sync an ended stream."
+        description="Solana claims draw on these vault streams. Anyone can sync a stream that withdrew outside the engine's payouts."
       />
       <CardBody className="flex flex-col gap-4">
         {classes.map((view) => (
@@ -117,7 +145,7 @@ export function SolanaStreamsSection({ data, onSync }: { data: PortfolioData; on
         ))}
         <Disclosure summary="How Solana streams pay claims">
           <p className="text-[12.5px] leading-relaxed text-ink-300">
-            Claims draw on these vault streams, except from 5 minutes before a stream&apos;s end. One second after the end, Streamflow&apos;s auto-claim moves the remainder into the vault&apos;s token account; Sync proves it on NEAR and books it in the class&apos;s swept balance, which claims then pay from automatically.
+            Claims draw on these vault streams, except from 5 minutes before a stream&apos;s end. One second after the end, Streamflow&apos;s auto-claim moves the remainder into the vault&apos;s token account; Sync proves it on NEAR and books it in the class&apos;s swept balance, which claims then pay from automatically. A stream&apos;s sender can also switch Streamflow&apos;s automatic withdrawal on after the deposit: Streamflow then moves its unlocked tokens into the vault every period, Sync books them the same way, and that stream is no longer redeemed in kind.
           </p>
         </Disclosure>
       </CardBody>

@@ -27,7 +27,8 @@ export function AnimatedNumber({ value, className }: { value: string; className?
     const target = Number(`${integer.replaceAll(",", "")}${fraction}`);
     const from = previous.current ?? 0;
     previous.current = Number.isFinite(target) ? target : null;
-    if (!match || !Number.isFinite(target) || from === target || reducedMotion()) {
+    // A second number in the suffix ("45 d 12 h") would stand still while the first counts: show it as is.
+    if (!match || !Number.isFinite(target) || from === target || /\d/.test(suffix) || reducedMotion()) {
       setDisplay(value);
       return;
     }

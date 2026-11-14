@@ -121,7 +121,7 @@ export function FundTab({ base }: { base: IssuerBase }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="fund-credit">Credit the cash to (NEAR account)</FieldLabel>
-                  <Input id="fund-credit" value={creditInput} onChange={(event) => setCreditInput(event.target.value)} placeholder={wallets.near.accountId ?? "treasury.sputnik-v2.testnet"} data-fund-credit />
+                  <Input id="fund-credit" value={creditInput} onChange={(event) => setCreditInput(event.target.value)} placeholder={wallets.near.accountId ?? "treasury.sputnikv2.testnet"} data-fund-credit />
                   {creditValid ? <Hint>Empty credits your account; a DAO needs the escrow in its own cash.</Hint> : <Hint tone="danger">Not a NEAR account id.</Hint>}
                 </div>
                 <div className="flex flex-col gap-1.5">

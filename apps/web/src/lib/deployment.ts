@@ -5,17 +5,28 @@
  * `{{PLACEHOLDER}}` names in `components/docs/deployment.ts`.
  */
 
-export const NEAR_RPC_URL = "https://test.rpc.fastnear.com";
-export const NEAR_RPC_FALLBACK_URL = "https://rpc.testnet.near.org";
 /**
- * dRPC's public NEAR testnet endpoint, the last resort of the read clients when both endpoints
- * above rate limit the visitor's IP (about 30 requests, then HTTP 429 without CORS headers):
- * it sends CORS headers and answered 40 parallel requests (docs/verification.md). Reads only: its
- * free plan times out long waits (`tx` with `wait_until`), so wallets never send through it.
+ * FastNEAR, the primary NEAR testnet endpoint (spec section 6) and the only public one that holds
+ * a transaction wait (`tx` / `send_tx` with `wait_until`) without cutting it: the demo wallet
+ * sends through it. It answers about 30 requests per IP, then HTTP 429 without CORS headers
+ * (`rpc.testnet.fastnear.com` shares the same limit), so reads fall over to the endpoints below.
  */
-export const NEAR_RPC_READ_LAST_RESORT_URL = "https://near-testnet.drpc.org";
+export const NEAR_RPC_URL = "https://test.rpc.fastnear.com";
+/**
+ * dRPC's public NEAR testnet endpoint: CORS headers on every answer, no limit reached at 80
+ * parallel requests. Reads only: its free plan cuts waits after 2 s (HTTP 408), so wallets never
+ * send through it (docs/verification.md, "Audit before submission: NEAR RPC endpoints").
+ */
+export const NEAR_RPC_READ_FALLBACK_URL = "https://near-testnet.drpc.org";
+/**
+ * Intear's public testnet RPC, the last resort of reads: CORS headers, slowed by about a second
+ * per request without an API key, and a transaction wait never answers. `rpc.testnet.near.org`
+ * is not in the list: it is deprecated, and on 2026-11-14 it answered "THIS ENDPOINT IS DEPRECATED"
+ * with HTTP 429 and no CORS headers before answering again, about 3 s per request, later that day.
+ */
+export const NEAR_RPC_READ_LAST_RESORT_URL = "https://testnet-rpc.intea.rs";
 /** Failover order of every read-only NEAR client of the app: one list, so identical reads in flight share one round trip. */
-export const NEAR_READ_RPC_ENDPOINTS: readonly string[] = [NEAR_RPC_URL, NEAR_RPC_FALLBACK_URL, NEAR_RPC_READ_LAST_RESORT_URL];
+export const NEAR_READ_RPC_ENDPOINTS: readonly string[] = [NEAR_RPC_URL, NEAR_RPC_READ_FALLBACK_URL, NEAR_RPC_READ_LAST_RESORT_URL];
 export const BASE_SEPOLIA_RPC_URL = "https://sepolia.base.org";
 /** Base Sepolia chain id, as `@rose/sdk` declares it; kept here so SDK-free modules can name the chain. */
 export const BASE_SEPOLIA_CHAIN_ID = 84532;

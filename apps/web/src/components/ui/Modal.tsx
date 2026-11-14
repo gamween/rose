@@ -87,20 +87,21 @@ export function Modal({ id, open, onClose, title, description, children, footer,
         if (event.target === event.currentTarget) onClose();
       }}
       className={cn(
-        "m-auto w-[calc(100%-32px)] max-w-lg rounded-lg border border-ink-700 bg-ink-850 p-0 text-ink-100 shadow-(--shadow-overlay) backdrop:bg-ink-950/80 backdrop:backdrop-blur-[2px] open:animate-rise-in",
+        /* A column whose body scrolls between a fixed header and footer: a long form never pushes its buttons off the screen. */
+        "m-auto max-h-[calc(100dvh-32px)] w-[calc(100%-32px)] max-w-lg flex-col overflow-hidden rounded-lg border border-ink-700 bg-ink-850 p-0 text-ink-100 shadow-(--shadow-overlay) backdrop:bg-ink-950/80 backdrop:backdrop-blur-[2px] open:flex open:animate-rise-in",
         serverOpen && "[&:not(:modal)]:fixed [&:not(:modal)]:inset-0 [&:not(:modal)]:z-50 [&:not(:modal)]:h-fit",
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-4 border-b border-ink-750 px-5 py-4">
+      <div className="flex shrink-0 items-start justify-between gap-4 border-b border-ink-750 px-5 py-4">
         <div>
           <h2 className="text-[15px] text-ink-50 font-semibold tracking-tight">{title}</h2>
           {description ? <p className="mt-1 text-[13px] text-ink-400">{description}</p> : null}
         </div>
         <CloseButton onClose={onClose} />
       </div>
-      <div className="px-5 py-4">{children}</div>
-      {footer ? <div className="flex justify-end gap-2 border-t border-ink-750 bg-ink-900/60 px-5 py-3">{footer}</div> : null}
+      <div className="min-h-0 overflow-y-auto px-5 py-4">{children}</div>
+      {footer ? <div className="flex shrink-0 justify-end gap-2 border-t border-ink-750 bg-ink-900/60 px-5 py-3">{footer}</div> : null}
     </dialog>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { useEdgeFade } from "./edge-fade";
 
 export type TabItem<T extends string> = { id: T; label: ReactNode; count?: number };
 
@@ -28,6 +29,22 @@ export function Tabs<T extends string>({
   const autoId = useId();
   const baseId = idBase ?? autoId;
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const list = useRef<HTMLDivElement>(null);
+  // On a narrow screen the row scrolls sideways: fade the edge that hides tabs, measured again when
+  // a tab or a count changes.
+  const edgeFade = useEdgeFade(list, items.map((item) => `${item.id}:${item.count ?? ""}`).join("|"));
+
+  // Keep the selected tab inside the row (a deep link such as `#storage` may select one that starts
+  // off screen), scrolling the row only, never the page.
+  useEffect(() => {
+    const element = list.current;
+    const tab = element?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!element || !tab) return;
+    const left = tab.offsetLeft;
+    const right = left + tab.offsetWidth;
+    if (left < element.scrollLeft) element.scrollLeft = Math.max(0, left - 24);
+    else if (right > element.scrollLeft + element.clientWidth) element.scrollLeft = right - element.clientWidth + 24;
+  }, [value]);
 
   const focusAt = (index: number) => {
     const count = items.length;
@@ -49,7 +66,14 @@ export function Tabs<T extends string>({
   return (
     // The bottom rule is an inset shadow, not a border: the row scrolls sideways on a narrow screen
     // (labels never wrap) and the selected tab's underline still paints over the rule.
-    <div role="tablist" aria-label={label} className={cn("flex items-center gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--color-ink-750)] [scrollbar-width:none]", className)}>
+    <div
+      ref={list}
+      role="tablist"
+      aria-label={label}
+      style={edgeFade.style}
+      data-overflow={edgeFade.overflow ? "true" : undefined}
+      className={cn("relative flex items-center gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--color-ink-750)] [scrollbar-width:none]", className)}
+    >
       {items.map((item, index) => {
         const selected = item.id === value;
         return (

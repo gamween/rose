@@ -181,6 +181,11 @@ function ReportBody({ data, printable }: { data: Loaded; printable: boolean }) {
               <Stat label="Issuer charged" value={formatUsdc(result.issuerCharged)} unit="USDC" />
               <Stat label="Issuer refund" value={formatUsdc(result.issuerRefund)} unit="USDC" />
             </dl>
+            {round.issuerEscrow !== null ? (
+              <p className="text-[12px] text-ink-400" data-fee-split>
+                The fee comes out of the issuer&apos;s escrow, not out of the sellers&apos; proceeds: {formatUsdc(round.issuerEscrow)} USDC escrowed = {formatUsdc(result.issuerCharged)} charged for the units + {formatUsdc(result.fee)} fee + {formatUsdc(result.issuerRefund)} refunded.
+              </p>
+            ) : null}
             <Table>
               <THead>
                 <TR>
